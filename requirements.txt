@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+jinja2
+python-dotenv
+requests
+openai
+markdown
+pydantic
+aiosqlite
+firecrawl

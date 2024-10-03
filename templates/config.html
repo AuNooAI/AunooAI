@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Configuration</h1>
+
+<div class="config-layout">
+    <div class="left-panel">
+        <h2>Database Management</h2>
+        <div class="config-item">
+            <h3>Active Database</h3>
+            <select id="active-database">
+                <option value="">Select active database</option>
+                <!-- Options will be populated dynamically -->
+            </select>
+        </div>
+        <div class="config-item">
+            <h3>Available Databases</h3>
+            <ul id="database-list">
+                <!-- Database list will be populated dynamically -->
+            </ul>
+        </div>
+        <div class="config-item">
+            <h3>New Database</h3>
+            <form id="create-database-form">
+                <input type="text" id="database-name" placeholder="Enter database name" required>
+                <button type="submit">Create Database</button>
+            </form>
+        </div>
+    </div>
+    <div class="right-panel">
+        <h2>Database Information</h2>
+        <div id="database-info">
+            <!-- This will be populated dynamically -->
+        </div>
+    </div>
+</div>
+
+<script>
+    let activeDatabase = '';
+
+    // Function to load existing databases
+    function loadDatabases() {
+        fetch('/api/databases')
+            .then(response => response.json())
+            .then(databases => {
+                const databaseList = document.getElementById('database-list');
+                const activeDatabaseSelect = document.getElementById('active-database');
+                databaseList.innerHTML = '';
+                activeDatabaseSelect.innerHTML = '<option value="">Select active database</option>';
+                
+                databases.forEach(db => {
+                    const li = document.createElement('li');
+                    li.textContent = db.name;
+                    const deleteButton = document.createElement('button');
+                    deleteButton.textContent = 'Delete';
+                    deleteButton.onclick = () => deleteDatabase(db.name);
+                    li.appendChild(deleteButton);
+                    databaseList.appendChild(li);
+
+                    const option = document.createElement('option');
+                    option.value = db.name;
+                    option.textContent = db.name;
+                    if (db.name === activeDatabase) {
+                        option.selected = true;
+                    }
+                    activeDatabaseSelect.appendChild(option);
+                });
+            });
+    }
+
+    // Function to create a new database
+    document.getElementById('create-database-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const databaseName = document.getElementById('database-name').value;
+        fetch('/api/databases', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ name: databaseName }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Database created:', data);
+            loadDatabases();
+            document.getElementById('database-name').value = '';
+        });
+    });
+
+    // Function to select active database
+    document.getElementById('active-database').addEventListener('change', function(e) {
+        const databaseName = e.target.value;
+        fetch('/api/active-database', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ name: databaseName }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Active database set:', data);
+            activeDatabase = databaseName;
+            loadDatabaseInfo();
+        });
+    });
+
+    // Function to load database information
+    function loadDatabaseInfo() {
+        fetch('/api/database-info')
+            .then(response => response.json())
+            .then(data => {
+                const databaseInfo = document.getElementById('database-info');
+                databaseInfo.innerHTML = `
+                    <p><strong>Tables:</strong> ${data.tables.join(', ')}</p>
+                    <p><strong>Article Count:</strong> ${data.article_count}</p>
+                    <p><strong>Last Entry:</strong> ${data.last_entry}</p>
+                `;
+            });
+    }
+
+    // Function to delete a database
+    function deleteDatabase(name) {
+        if (confirm(`Are you sure you want to delete the database "${name}"?`)) {
+            fetch(`/api/databases/${name}`, {
+                method: 'DELETE',
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log('Database deleted:', data);
+                loadDatabases();
+            });
+        }
+    }
+
+    // Load active database information
+    fetch('/api/active-database')
+        .then(response => response.json())
+        .then(data => {
+            activeDatabase = data.name;
+            loadDatabases();
+            loadDatabaseInfo();
+        });
+
+</script>
+
+<style>
+    .config-layout {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 20px;
+    }
+    .left-panel, .right-panel {
+        width: 48%;
+        background-color: #f5f5f5;
+        padding: 20px;
+        border-radius: 5px;
+    }
+    .config-item {
+        margin-bottom: 20px;
+    }
+    #database-list {
+        padding-left: 20px;
+        list-style-type: none;
+    }
+    #database-list li {
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    #create-database-form {
+        display: flex;
+        gap: 10px;
+    }
+    #create-database-form input {
+        flex-grow: 1;
+        padding: 5px;
+    }
+    button, select {
+        padding: 5px 10px;
+        background-color: #FF1493; /* Bright pink */
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+    }
+    button:hover {
+        background-color: #FF69B4; /* Lighter pink on hover */
+    }
+    select {
+        background-color: white;
+        color: black;
+    }
+    h2 {
+        color: #333;
+        border-bottom: 2px solid #FF1493; /* Bright pink */
+        padding-bottom: 10px;
+    }
+    h3 {
+        color: #FF1493; /* Bright pink */
+    }
+</style>
+{% endblock %}

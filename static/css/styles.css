@@ -1,0 +1,12 @@
+.config-layout {
+    display: flex;
+    justify-content: space-between;
+}
+
+.left-panel, .right-panel {
+    width: 48%;
+}
+
+.config-item {
+    margin-bottom: 20px;
+}

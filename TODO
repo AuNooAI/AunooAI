@@ -1,0 +1,50 @@
+# Feature enhancements
+- [X] Load article text into article content field on the Research page to allow preview of the data being analyzed
+- [ ] Add Driver Type Explanation to the article metadata in the database
+- [ ] Improve the date range selector on the analytics page to be more flexible (allow selection of a date range)
+- [ ] Improve the date range selector on the report generator page to be more flexible (allow selection of a date range)
+- [ ] Add support for multiple choices for categories on the analytics page
+- [ ] Implement customizable AI models for summary generation and analysis
+
+# Bug Fixes
+- [ ] Fix Publication Date extraction from scraped article data
+- [ ] Resolve duplicate analysis runs on the same data
+- [ ] Prevent title changes when one already exists
+
+# New Features
+- [X] Add a further evaluation metric: Driver_type: Initiator, Accelerator, Catalyst, Delayer, Blocker
+- [X] Create a new visualization that integrates the driver type with the time impact, sentiment analysis, and future signal analysis
+- [ ]  Insert raw HTML and Markdown into postgresql server
+- [ ] Integrate vector database (Pinecone) for article storage and embeddings
+- [ ] Add a "soft" and "hard" data point distinction to the data model
+- [ ] Add a new panel to preview the scraped article text
+- [ ] Implement configurable categories for time impact, sentiment analysis, future signals, and topics on the configuration page
+- [ ] Create a basic dashboard on the index.html page with current time, article count, last article addition time/date, and last three articles added
+- [ ] Implement dark mode option
+- [ ] Add data visualizations for trend analysis and reporting features
+
+# Performance Improvements
+- [ ] Optimize article analysis and summary generation to complete within 10 seconds
+- [ ] Ensure search results are returned within 2 seconds
+- [ ] Scale the system to handle at least 100 concurrent users
+
+# Security and Compliance
+- [ ] Implement data encryption and secure API access
+- [ ] Ensure GDPR compliance and implement data privacy features
+- [ ] Achieve accessibility compliance (WCAG 2.1)
+
+# Project Handover Tasks
+- [ ] Update all codebase documentation
+- [ ] Provide access details for relevant APIs, databases, and third-party services
+- [ ] Document coding standards and practices followed in the project
+- [ ] List critical dependencies and performance considerations
+- [ ] Create user guide for the application
+
+# Next Steps
+1. Prioritize bug fixes, especially the publication date extraction issue
+2. Implement improved date range selectors for analytics and report generator pages
+3. Begin integration with Pinecone for vector database functionality
+4. Develop the configuration page for customizable categories
+5. Create the basic dashboard for the index page
+6. Implement performance optimizations
+7. Enhance security measures and ensure compliance requirements are met

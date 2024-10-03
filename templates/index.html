@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}FNA - Home{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    h1 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .lead {
+        color: var(--dark-gray);
+    }
+
+    .card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+        border: 1px solid var(--primary-color);
+        transition: transform 0.3s ease-in-out;
+    }
+
+    .card:hover {
+        transform: translateY(-5px);
+    }
+
+    .card-body {
+        padding: 20px;
+    }
+
+    .card-title {
+        color: var(--primary-color);
+        font-size: 1.25rem;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+
+    .card-text {
+        color: var(--dark-gray);
+        margin-bottom: 15px;
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        color: #fff;
+        transition: background-color 0.3s ease-in-out;
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+        border-color: var(--primary-dark);
+    }
+
+    .form-control, .form-select {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 15px;
+        border: 1px solid var(--primary-color);
+        border-radius: 4px;
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-dark);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+    }
+
+    #articleForm {
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--primary-color);
+        margin-top: 30px;
+    }
+
+    #articleForm h2 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .btn-success {
+        background-color: var(--secondary-color);
+        border-color: var(--secondary-color);
+        color: #fff;
+    }
+
+    .btn-success:hover {
+        background-color: var(--secondary-dark);
+        border-color: var(--secondary-dark);
+    }
+
+    .btn-secondary {
+        background-color: var(--medium-gray);
+        border-color: var(--medium-gray);
+        color: var(--dark-gray);
+    }
+
+    .btn-secondary:hover {
+        background-color: var(--dark-gray);
+        border-color: var(--dark-gray);
+        color: #fff;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4">Functional News Addict App</h1>
+    <p class="lead">What do you want to do?</p>
+    <div class="row mt-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Research</h5>
+                    <p class="card-text">Research and analyze news articles.</p>
+                    <a href="/research" class="btn btn-primary">Go to Research</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Analytics</h5>
+                    <p class="card-text">View news analytics and trends.</p>
+                    <a href="/analytics" class="btn btn-primary">Go to Analytics</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Report</h5>
+                    <p class="card-text">Generate and export reports.</p>
+                    <a href="/report" class="btn btn-primary">Go to Report</a>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Configuration</h5>
+                    <p class="card-text">Manage application settings.</p>
+                    <a href="/config" class="btn btn-primary">Go to Configuration</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+<script>
+// Your existing JavaScript code here
+// No changes needed for the JavaScript part unless you want to update any color references
+</script>
+{% endblock %}

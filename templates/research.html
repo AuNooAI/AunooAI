@@ -1,0 +1,782 @@
+{% extends "base.html" %}
+{% block title %}FNA - Research{% endblock %}
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .research-form, .analysis-result {
+        margin-bottom: 20px;
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border: 1px solid var(--primary-color);
+    }
+
+    h2 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .form-label {
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: var(--primary-dark);
+    }
+
+    .form-control, .form-select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid var(--primary-color);
+        border-radius: 4px;
+        margin-bottom: 10px;
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-dark);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background-color 0.3s;
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        color: #fff;
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+    }
+
+    .btn-secondary {
+        background-color: var(--secondary-color);
+        color: #fff;
+    }
+
+    .btn-secondary:hover {
+        background-color: var(--secondary-dark);
+    }
+
+    .custom-field {
+        display: none;
+        margin-top: 10px;
+    }
+
+    .expandable-content {
+        max-height: 100px;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
+    }
+
+    .expandable-content.expanded {
+        max-height: 1000px;
+    }
+
+    .expand-btn {
+        cursor: pointer;
+        color: var(--primary-color);
+        text-decoration: underline;
+        font-size: 0.9em;
+    }
+
+    #analysisResult {
+        display: none;
+    }
+
+    #analysisResult button {
+        margin-right: 10px;
+        margin-top: 10px;
+    }
+
+    .card {
+        margin-bottom: 20px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        border: 1px solid var(--primary-color);
+    }
+
+    .card-title {
+        font-size: 1.25rem;
+        font-weight: bold;
+        color: var(--primary-color);
+    }
+
+    .card-subtitle {
+        font-size: 1rem;
+        color: var(--dark-gray);
+    }
+
+    .btn-sm {
+        margin-right: 5px;
+    }
+
+    #latestArticles {
+        margin-top: 20px;
+    }
+
+    .article-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        border: 1px solid var(--primary-color);
+        padding: 15px;
+        margin-bottom: 15px;
+        border-radius: 5px;
+        background-color: #fff;
+    }
+
+    .article-content {
+        flex: 1;
+    }
+
+    .article-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .article-actions button {
+        padding: 5px 10px;
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+    }
+
+    .article-actions button:hover {
+        background-color: var(--primary-dark);
+    }
+
+    #analysisResults {
+        display: none;
+        margin-top: 20px;
+        padding: 15px;
+        border: 1px solid var(--primary-color);
+        border-radius: 5px;
+        background-color: #fff;
+    }
+
+    .modal {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        z-index: 1000;
+    }
+
+    .modal p {
+        margin-bottom: 10px;
+    }
+
+    .modal button {
+        margin-right: 10px;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-6">
+            <h2 class="mb-4">Research</h2>
+            <form class="research-form" id="researchForm" onsubmit="handleFormSubmit(event)">
+                <div class="mb-3">
+                    <label for="articleUrl" class="form-label">Article URL</label>
+                    <input type="url" class="form-control" id="articleUrl" name="articleUrl" required>
+                </div>
+                <div class="mb-3">
+                    <label for="articleContent" class="form-label">Article Content (optional)</label>
+                    <textarea class="form-control" id="articleContent" name="articleContent" rows="5"></textarea>
+                </div>
+                <div class="mb-3">
+                    <label for="summaryLength" class="form-label">Summary Length</label>
+                    <select class="form-select" id="summaryLength" name="summaryLength" required>
+                        <option value="40">40 words</option>
+                        <option value="50" selected>50 words</option>
+                        <option value="75">75 words</option>
+                        <option value="100">100 words</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                    <div id="customSummaryLengthField" class="custom-field mt-2" style="display: none;">
+                        <input type="number" class="form-control" id="customSummaryLength" name="customSummaryLength" placeholder="Enter custom summary length">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="summaryVoice" class="form-label">Summary Voice</label>
+                    <select class="form-select" id="summaryVoice" name="summaryVoice" required>
+                        <option value="business_analyst">Business Analyst</option>
+                        <option value="industry_analyst">Industry Analyst</option>
+                        <option value="tech_journalist">Tech Journalist</option>
+                        <option value="investment_advisor">Investment Advisor</option>
+                        <option value="principal_security_engineer">Principal Security Engineer</option>
+                        <option value="ciso">CISO</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                    <div id="customVoiceField" class="custom-field">
+                        <input type="text" class="form-control mt-2" id="customVoice" name="custom_voice" placeholder="Enter custom voice">
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label for="summaryType" class="form-label">Summary Type</label>
+                    <select class="form-select" id="summaryType" name="summaryType" required>
+                        <option value="curious_ai_long">Curious AI Long</option>
+                        <option value="curious_ai_short">Curious AI Short</option>
+                        <option value="axios">Axios</option>
+                        <option value="brief">Brief</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary">Analyze Article</button>
+            </form>
+        </div>
+        <div class="col-md-6">
+            <h2 class="mb-4">Analysis Result</h2>
+            <div class="analysis-result" id="analysisResult">
+                <p><strong>Title:</strong> <input type="text" id="analysisTitle" class="form-control"></p>
+                <p><strong>Source:</strong> <input type="text" id="analysisSource" class="form-control"></p>
+                <p><strong>URL:</strong> <input type="url" id="analysisUrl" class="form-control"></p>
+                <div class="mb-3">
+                    <label for="analysisSummary" class="form-label">Summary <span id="summaryWordCount">(0 words)</span></label>
+                    <textarea class="form-control" id="analysisSummary" rows="3"></textarea>
+                </div>
+                <p><strong>Sentiment:</strong> <select id="analysisSentiment" class="form-select"></select></p>
+                <p><strong>Sentiment Explanation:</strong> <textarea id="analysisSentimentExplanation" class="form-control" rows="2"></textarea></p>
+                <p><strong>Time to Impact:</strong> <select id="analysisTimeToImpact" class="form-select"></select></p>
+                <p><strong>Time to Impact Explanation:</strong> <textarea id="analysisTimeToImpactExplanation" class="form-control" rows="2"></textarea></p>
+                <p><strong>Category:</strong> <select id="analysisCategory" class="form-select"></select></p>
+                <p><strong>Future Signal:</strong> <select id="analysisFutureSignal" class="form-select"></select></p>
+                <p><strong>Future Signal Explanation:</strong> <textarea id="analysisFutureSignalExplanation" class="form-control" rows="2"></textarea></p>
+                <p><strong>Driver Type:</strong> <select id="analysisDriverType" class="form-select"></select></p>
+                <p><strong>Driver Type Explanation:</strong> <textarea id="analysisDriverTypeExplanation" class="form-control" rows="2"></textarea></p>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="analysisPublicationDate" class="form-label">Publication Date:</label>
+                            <input type="date" id="analysisPublicationDate" class="form-control">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="analysisSubmissionDate" class="form-label">Submission Date:</label>
+                            <input type="datetime-local" id="analysisSubmissionDate" class="form-control" readonly>
+                        </div>
+                    </div>
+                </div>
+                <p><strong>Tags:</strong> <input type="text" id="analysisTags" class="form-control"></p>
+                <button onclick="saveArticle()" class="btn btn-primary">Save</button>
+                <button onclick="clearForm()" class="btn btn-secondary">Clear</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <h2>Latest Articles</h2>
+            <div id="latestArticles">
+                <!-- Latest articles will be displayed here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add this near the top of your body tag -->
+<div id="modalContainer" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000;">
+    <div id="modalContent" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border-radius: 5px;">
+        <p>This article already exists in the database. What would you like to do?</p>
+        <button id="useExisting">Use existing version</button>
+        <button id="fetchNew">Fetch new version</button>
+    </div>
+</div>
+
+<script>
+async function handleFormSubmit(event) {
+    event.preventDefault();
+    console.log('Form submission started');
+
+    const submitButton = event.target.querySelector('button[type="submit"]');
+    if (submitButton.disabled) return;
+    submitButton.disabled = true;
+
+    const form = event.target;
+    const formData = new FormData(form);
+
+    // Fetch article content if not provided
+    const articleContent = formData.get('articleContent');
+    if (!articleContent) {
+        const articleUrl = formData.get('articleUrl');
+        if (articleUrl) {
+            try {
+                const response = await fetch(`/api/fetch_article_content?uri=${encodeURIComponent(articleUrl)}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Fetch article content response:', data);
+
+                    if (data.exists) {
+                        console.log('Article exists, showing modal');
+                        const userChoice = await new Promise((resolve) => {
+                            const modal = document.getElementById('modalContainer');
+                            modal.style.display = 'block';
+                            
+                            document.getElementById('useExisting').onclick = () => {
+                                modal.style.display = 'none';
+                                resolve('existing');
+                            };
+                            document.getElementById('fetchNew').onclick = () => {
+                                modal.style.display = 'none';
+                                resolve('new');
+                            };
+                        });
+
+                        console.log('User choice:', userChoice);
+
+                        if (userChoice === 'existing') {
+                            const existingContent = await fetch(`/api/get_existing_article_content?uri=${encodeURIComponent(articleUrl)}`);
+                            if (existingContent.ok) {
+                                const existingData = await existingContent.json();
+                                document.getElementById('articleContent').value = existingData.content;
+                                formData.set('articleContent', existingData.content);
+                            } else {
+                                throw new Error('Failed to fetch existing article content');
+                            }
+                        } else {
+                            // Fetch new version
+                            const scrapeResponse = await fetch(`/api/scrape_article?uri=${encodeURIComponent(articleUrl)}`);
+                            if (scrapeResponse.ok) {
+                                const scrapeData = await scrapeResponse.json();
+                                document.getElementById('articleContent').value = scrapeData.content;
+                                formData.set('articleContent', scrapeData.content);
+                            } else {
+                                throw new Error('Failed to scrape article content');
+                            }
+                        }
+                    } else {
+                        // Article doesn't exist, fetch it
+                        const scrapeResponse = await fetch(`/api/scrape_article?uri=${encodeURIComponent(articleUrl)}`);
+                        if (scrapeResponse.ok) {
+                            const scrapeData = await scrapeResponse.json();
+                            document.getElementById('articleContent').value = scrapeData.content;
+                            formData.set('articleContent', scrapeData.content);
+                        } else {
+                            throw new Error('Failed to scrape article content');
+                        }
+                    }
+                } else {
+                    throw new Error('Failed to fetch article content');
+                }
+            } catch (error) {
+                console.error('Error fetching article content:', error);
+                alert('Failed to fetch article content. Please enter it manually or try again.');
+                submitButton.disabled = false;
+                return;
+            }
+        }
+    }
+
+    // Handle custom summary length
+    const summaryLengthSelect = document.getElementById('summaryLength');
+    if (summaryLengthSelect.value === 'custom') {
+        const customLength = document.getElementById('customSummaryLength').value;
+        formData.set('summaryLength', customLength);
+    }
+
+    // Ensure all required fields are present
+    const requiredFields = ['articleUrl', 'summaryLength', 'summaryVoice', 'summaryType'];
+    for (const field of requiredFields) {
+        if (!formData.get(field)) {
+            alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field.`);
+            submitButton.disabled = false;
+            return;
+        }
+    }
+
+    try {
+        const response = await fetch('/research', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(JSON.stringify(errorData));
+        }
+
+        const result = await response.json();
+        displayAnalysisResult(result);
+    } catch (error) {
+        console.error('Error:', error);
+        alert('An error occurred while analyzing the article. Please try again.');
+    } finally {
+        submitButton.disabled = false;
+    }
+}
+
+// Update the editArticle function
+async function editArticle(uri) {
+    try {
+        const response = await fetch(`/api/article?uri=${encodeURIComponent(uri)}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const article = await response.json();
+        
+        // Display the article in the Analysis Results section
+        displayAnalysisResult(article);
+        
+        // Switch to the Analysis Result tab
+        switchToAnalysisResultTab();
+    } catch (error) {
+        console.error('Error editing article:', error);
+        alert('Error editing article. Please try again.');
+    }
+}
+
+function switchToAnalysisResultTab() {
+    console.log("Attempting to switch to Analysis Result tab");
+    const analysisResultDiv = document.getElementById('analysisResult');
+    if (analysisResultDiv) {
+        analysisResultDiv.style.display = 'block';
+        // Scroll to the analysis result
+        analysisResultDiv.scrollIntoView({ behavior: 'smooth' });
+        console.log("Switched to Analysis Result tab");
+    } else {
+        console.error("Analysis Result div not found");
+    }
+}
+
+// Make sure to call fetchLatestArticles when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    initializeResearchPage();
+    fetchLatestArticles();
+});
+
+function initializeResearchPage() {
+    // Add event listeners
+    const form = document.getElementById('researchForm');
+    if (form) {
+        form.addEventListener('submit', handleFormSubmit);
+    }
+
+    // Other initializations
+    populateDropdowns();
+    setupCustomFields();
+
+    // Fetch latest articles
+    fetchLatestArticles();
+}
+
+function populateDropdowns() {
+    populateDropdown('analysisCategory', '/api/categories');
+    populateDropdown('analysisFutureSignal', '/api/future_signals');
+    populateDropdown('analysisSentiment', '/api/sentiments');
+    populateDropdown('analysisTimeToImpact', '/api/time_to_impact');
+    populateDropdown('analysisDriverType', '/api/driver_types');
+}
+
+function setupCustomFields() {
+    handleNewOption('analysisCategory', 'newCategory');
+    handleNewOption('analysisFutureSignal', 'newFutureSignal');
+    handleNewOption('analysisSentiment', 'newSentiment');
+    handleNewOption('analysisTimeToImpact', 'newTimeToImpact');
+}
+
+function populateDropdown(dropdownId, apiUrl) {
+    fetch(apiUrl)
+        .then(response => response.json())
+        .then(data => {
+            const dropdown = document.getElementById(dropdownId);
+            dropdown.innerHTML = '';  // Clear existing options
+            
+            data.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                dropdown.appendChild(optionElement);
+            });
+        })
+        .catch(error => console.error('Error populating dropdown:', error));
+}
+
+function handleNewOption(selectId, newInputId) {
+    const select = document.getElementById(selectId);
+    const newInput = document.getElementById(newInputId);
+    if (select && newInput) {
+        select.addEventListener('change', function() {
+            if (this.value === 'New' || this.value === 'Other') {
+                newInput.style.display = 'block';
+            } else {
+                newInput.style.display = 'none';
+            }
+        });
+    }
+}
+
+function saveArticle() {
+    const getValue = (id) => {
+        const element = document.getElementById(id);
+        return element ? element.value : '';
+    };
+
+    const getNumericValue = (id) => {
+        const value = getValue(id);
+        return value ? parseFloat(value) : 0.0;
+    };
+
+    const getTags = () => {
+        const tagsElement = document.getElementById('analysisTags');
+        return tagsElement ? tagsElement.value.split(',').map(tag => tag.trim()) : [];
+    };
+
+    const articleData = {
+        title: getValue('analysisTitle'),
+        news_source: getValue('analysisSource'),
+        uri: getValue('analysisUrl'),
+        publication_date: getValue('analysisPublicationDate'),
+        summary: getValue('analysisSummary'),
+        category: getValue('analysisCategory'),
+        future_signal: getValue('analysisFutureSignal'),
+        future_signal_explanation: getValue('analysisFutureSignalExplanation'),
+        sentiment: getValue('analysisSentiment'),
+        sentiment_explanation: getValue('analysisSentimentExplanation'),
+        time_to_impact: getValue('analysisTimeToImpact'),
+        time_to_impact_explanation: getValue('analysisTimeToImpactExplanation'),
+        tags: getTags(),
+        driver_type: getValue('analysisDriverType'),
+        driver_type_explanation: getValue('analysisDriverTypeExplanation'),
+    };
+
+    console.log('Article data to be saved:', articleData);
+
+    fetch('/api/save_article', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(articleData),
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Success:', data);
+        alert('Article saved successfully!');
+        fetchLatestArticles(); // Reload latest articles after saving
+    })
+    .catch((error) => {
+        console.error('Error:', error);
+        alert('Error saving article. Please try again.');
+    });
+}
+
+function clearForm() {
+    const inputs = document.querySelectorAll('#analysisResult input, #analysisResult textarea, #analysisResult select');
+    inputs.forEach(input => {
+        input.value = '';
+    });
+    document.getElementById('analysisResult').style.display = 'none';
+}
+
+// Update the displayAnalysisResult function
+function displayAnalysisResult(result) {
+    const analysisResultsDiv = document.getElementById('analysisResult');
+    if (analysisResultsDiv) {
+        document.getElementById('analysisTitle').value = result.title || '';
+        document.getElementById('analysisSource').value = result.news_source || '';
+        document.getElementById('analysisUrl').value = result.uri || '';
+        document.getElementById('analysisSummary').value = result.summary || '';
+        updateSummaryWordCount(); // Add this line to update the word count
+        document.getElementById('analysisSentiment').value = result.sentiment || '';
+        document.getElementById('analysisSentimentExplanation').value = result.sentiment_explanation || '';
+        document.getElementById('analysisTimeToImpact').value = result.time_to_impact || '';
+        document.getElementById('analysisTimeToImpactExplanation').value = result.time_to_impact_explanation || '';
+        document.getElementById('analysisCategory').value = result.category || '';
+        document.getElementById('analysisFutureSignal').value = result.future_signal || '';
+        document.getElementById('analysisFutureSignalExplanation').value = result.future_signal_explanation || '';
+        document.getElementById('analysisDriverType').value = result.driver_type || '';
+        document.getElementById('analysisDriverTypeExplanation').value = result.driver_type_explanation || '';
+        document.getElementById('analysisPublicationDate').value = result.publication_date || '';
+        
+        // Format submission_date to be compatible with datetime-local input
+        if (result.submission_date) {
+            const submissionDate = new Date(result.submission_date);
+            const formattedDate = submissionDate.toISOString().slice(0, 16);
+            document.getElementById('analysisSubmissionDate').value = formattedDate;
+        } else {
+            document.getElementById('analysisSubmissionDate').value = '';
+        }
+        
+        document.getElementById('analysisTags').value = result.tags ? result.tags.join(', ') : '';
+        
+        analysisResultsDiv.style.display = 'block';
+    } else {
+        console.error('Analysis Result div not found');
+    }
+}
+
+function toggleExpand(elementId) {
+    const element = document.getElementById(elementId);
+    element.classList.toggle('expanded');
+    const btn = element.nextElementSibling;
+    btn.textContent = element.classList.contains('expanded') ? 'Show less' : 'Show more';
+}
+
+function escapeHTML(str) {
+    if (str === undefined || str === null) {
+        return '';
+    }
+    return str.toString().replace(/[&<>'"]/g, 
+        tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag] || tag)
+    );
+}
+
+async function fetchLatestArticles() {
+    console.log('Fetching latest articles...');
+    const latestArticlesContainer = document.getElementById('latestArticles');
+    if (!latestArticlesContainer) {
+        console.error('Latest articles container not found');
+        return;
+    }
+
+    latestArticlesContainer.innerHTML = '<p>Loading articles...</p>';
+
+    try {
+        const response = await fetch('/api/latest_articles');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const articles = await response.json();
+
+        latestArticlesContainer.innerHTML = ''; // Clear existing content
+
+        if (articles.length === 0) {
+            latestArticlesContainer.innerHTML = '<p>No recent articles found.</p>';
+            return;
+        }
+
+        // Sort articles by submission date, most recent first
+        articles.sort((a, b) => new Date(b.submission_date) - new Date(a.submission_date));
+
+        articles.forEach(article => {
+            const articleElement = document.createElement('div');
+            articleElement.className = 'article-card';
+            articleElement.innerHTML = `
+                <div class="article-content">
+                    <h5 class="card-title">${escapeHTML(article.title || 'No Title')}</h5>
+                    <h6 class="card-subtitle mb-2 text-muted">Source: ${escapeHTML(article.news_source || 'Unknown')}</h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p class="card-text"><strong>Publication Date:</strong> ${formatDate(article.publication_date)}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p class="card-text"><strong>Submission Date:</strong> ${formatDate(article.submission_date)}</p>
+                        </div>
+                    </div>
+                    <p class="card-text"><strong>Summary:</strong> ${escapeHTML(article.summary || 'No summary available')}</p>
+                </div>
+                <div class="article-actions">
+                    <button onclick="editArticle('${escapeHTML(article.uri)}')">Edit</button>
+                    <button onclick="deleteArticle('${escapeHTML(article.uri)}')">Delete</button>
+                </div>
+            `;
+            latestArticlesContainer.appendChild(articleElement);
+        });
+    } catch (error) {
+        console.error('Error fetching latest articles:', error);
+        latestArticlesContainer.innerHTML = '<p class="text-danger">Error loading recent articles. Please try again later.</p>';
+    }
+}
+
+async function deleteArticle(uri) {
+    if (confirm('Are you sure you want to delete this article?')) {
+        try {
+            const response = await fetch(`/api/article?uri=${encodeURIComponent(uri)}`, { method: 'DELETE' });
+            if (!response.ok) {
+                throw new Error('Failed to delete article');
+            }
+            const result = await response.json();
+            console.log('Delete result:', result);
+            alert('Article deleted successfully');
+            await fetchLatestArticles(); // Reload the articles list
+        } catch (error) {
+            console.error('Error deleting article:', error);
+            alert('Error deleting article');
+        }
+    }
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'Unknown';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    const options = { year: 'numeric', month: 'long', day: 'numeric' };
+    return date.toLocaleDateString(undefined, options);
+}
+
+// Add event listener for summary length dropdown
+const summaryLengthSelect = document.getElementById('summaryLength');
+const customSummaryLengthField = document.getElementById('customSummaryLengthField');
+
+summaryLengthSelect.addEventListener('change', function() {
+    if (this.value === 'custom') {
+        customSummaryLengthField.style.display = 'block';
+    } else {
+        customSummaryLengthField.style.display = 'none';
+    }
+});
+
+function countWords(str) {
+    return str.trim().split(/\s+/).length;
+}
+
+function updateSummaryWordCount() {
+    const summary = document.getElementById('analysisSummary').value;
+    const wordCount = countWords(summary);
+    document.getElementById('summaryWordCount').textContent = `(${wordCount} words)`;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Add event listener for summary textarea
+    const summaryTextarea = document.getElementById('analysisSummary');
+    summaryTextarea.addEventListener('input', updateSummaryWordCount);
+});
+</script>
+{% endblock %}

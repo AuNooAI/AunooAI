@@ -1,0 +1,509 @@
+{% extends "base.html" %}
+
+{% block title %}FNA - Report{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+        padding: 20px;
+        border: 1px solid var(--primary-color);
+    }
+
+    h1, h2 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .form-label {
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: var(--primary-dark);
+    }
+
+    .form-control, .form-select {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 15px;
+        border: 1px solid var(--primary-color);
+        border-radius: 4px;
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-dark);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background-color 0.3s;
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        color: #fff;
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+    }
+
+    .btn-secondary {
+        background-color: var(--secondary-color);
+        color: #fff;
+    }
+
+    .btn-secondary:hover {
+        background-color: var(--secondary-dark);
+    }
+
+    .btn-success {
+        background-color: var(--secondary-color);
+        color: #fff;
+    }
+
+    .btn-success:hover {
+        background-color: var(--secondary-dark);
+    }
+
+    .btn-info {
+        background-color: var(--primary-color);
+        color: #fff;
+    }
+
+    .btn-info:hover {
+        background-color: var(--primary-dark);
+    }
+
+    #searchForm, #searchResults, #selectedArticles, #reportContent {
+        margin-bottom: 20px;
+    }
+
+    #articleList {
+        max-height: 600px;
+        overflow-y: auto;
+        border: 1px solid var(--primary-color);
+        border-radius: 5px;
+        padding: 10px;
+    }
+
+    .article-item {
+        display: flex;
+        padding: 10px;
+        border-bottom: 1px solid var(--medium-gray);
+        margin-bottom: 10px;
+    }
+
+    .article-item:last-child {
+        border-bottom: none;
+    }
+
+    .article-checkbox {
+        margin-right: 15px;
+        align-self: center;
+    }
+
+    .article-details {
+        flex-grow: 1;
+    }
+
+    .article-details h4 {
+        margin-top: 0;
+        margin-bottom: 5px;
+        color: var(--primary-color);
+    }
+
+    .article-meta {
+        font-size: 0.9em;
+        color: var(--dark-gray);
+        margin-bottom: 5px;
+    }
+
+    .article-dates {
+        font-size: 0.8em;
+        color: var(--dark-gray);
+        margin-bottom: 5px;
+    }
+
+    .article-summary {
+        font-size: 0.9em;
+        margin-bottom: 5px;
+        color: var(--text-color);
+    }
+
+    .article-url {
+        font-size: 0.8em;
+        color: var(--secondary-color);
+    }
+
+    #totalCount {
+        font-weight: bold;
+        margin-left: 10px;
+        color: var(--primary-color);
+    }
+
+    .button-group {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <h1 class="mb-4">Report Generator</h1>
+    <div class="row">
+        <div class="col-md-4">
+            <div id="searchForm" class="card">
+                <h2>Search Articles</h2>
+                <form id="articleSearchForm">
+                    <div class="mb-3">
+                        <label for="category" class="form-label">Categories</label>
+                        <select id="category" name="category" class="form-select" multiple>
+                            <!-- Options will be populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="futureSignal" class="form-label">Future Signals</label>
+                        <select id="futureSignal" name="future_signal" class="form-select" multiple>
+                            <!-- Options will be populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sentiment" class="form-label">Sentiments</label>
+                        <select id="sentiment" name="sentiment" class="form-select" multiple>
+                            <!-- Options will be populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="tags" class="form-label">Tags</label>
+                        <input type="text" id="tags" name="tags" class="form-control" placeholder="Enter tags separated by commas">
+                    </div>
+                    <div class="mb-3">
+                        <label for="keyword" class="form-label">Keyword</label>
+                        <input type="text" id="keyword" name="keyword" class="form-control" placeholder="Enter keyword">
+                    </div>
+                    <div class="mb-3">
+                        <label for="dateRange" class="form-label">Date Range</label>
+                        <select id="dateRange" name="dateRange" class="form-select">
+                            <option value="all">All Time</option>
+                            <option value="7">Last 7 Days</option>
+                            <option value="30">Last 30 Days</option>
+                            <option value="90">Last 90 Days</option>
+                            <option value="custom">Custom Range</option>
+                        </select>
+                    </div>
+                    <div id="customDateRange" style="display: none;">
+                        <div class="mb-3">
+                            <label for="startDate" class="form-label">Start Date</label>
+                            <input type="date" id="startDate" name="startDate" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label for="endDate" class="form-label">End Date</label>
+                            <input type="date" id="endDate" name="endDate" class="form-control">
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Search</button>
+                </form>
+            </div>
+        </div>
+        <div class="col-md-8">
+            <div id="searchResults" class="card">
+                <h2>Search Results <span id="totalCount"></span></h2>
+                <div id="articleList"></div>
+                <div id="loadingIndicator" style="display: none;">Loading more articles...</div>
+            </div>
+            <div class="button-group">
+                <button id="selectAllBtn" class="btn btn-secondary">Select All</button>
+                <button id="generateReportBtn" class="btn btn-success">Generate Report</button>
+            </div>
+        </div>
+    </div>
+    <div class="row mt-5">
+        <div class="col-md-6">
+            <div class="card">
+                <h2>Report Draft</h2>
+                <textarea id="reportDraft" class="form-control" rows="20"></textarea>
+                <div class="button-group mt-3">
+                    <button id="updatePreview" class="btn btn-primary">Update Preview</button>
+                    <button id="saveReport" class="btn btn-info">Save Report</button>
+                    <button id="downloadReport" class="btn btn-secondary">Download Report</button>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <h2>Preview</h2>
+                <div id="reportPreview"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchForm = document.getElementById('articleSearchForm');
+    const articleList = document.getElementById('articleList');
+    const reportDraft = document.getElementById('reportDraft');
+    const reportPreview = document.getElementById('reportPreview');
+    const updatePreviewBtn = document.getElementById('updatePreview');
+    const generateReportBtn = document.getElementById('generateReportBtn');
+    const dateRange = document.getElementById('dateRange');
+    const customDateRange = document.getElementById('customDateRange');
+    const selectAllBtn = document.getElementById('selectAllBtn');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const saveReportBtn = document.getElementById('saveReport');
+    const downloadReportBtn = document.getElementById('downloadReport');
+    const totalCountSpan = document.getElementById('totalCount');
+
+    let allArticleIds = [];
+    let currentPage = 1;
+    const articlesPerPage = 10;
+    let isLoading = false;
+    let hasMoreArticles = true;
+
+    // Populate dropdowns
+    populateDropdowns();
+
+    // Event listeners
+    searchForm.addEventListener('submit', handleSearch);
+    updatePreviewBtn.addEventListener('click', updatePreview);
+    generateReportBtn.addEventListener('click', generateReport);
+    dateRange.addEventListener('change', toggleCustomDateRange);
+    selectAllBtn.addEventListener('click', selectAllArticles);
+    saveReportBtn.addEventListener('click', saveReport);
+    downloadReportBtn.addEventListener('click', downloadReport);
+    articleList.addEventListener('scroll', handleScroll);
+
+    function populateDropdowns() {
+        fetchOptions('/api/categories', 'category');
+        fetchOptions('/api/future_signals', 'futureSignal');
+        fetchOptions('/api/sentiments', 'sentiment');
+    }
+
+    function fetchOptions(url, elementId) {
+        fetch(url)
+            .then(response => response.json())
+            .then(data => {
+                const select = document.getElementById(elementId);
+                data.forEach(option => {
+                    const optionElement = document.createElement('option');
+                    optionElement.value = option;
+                    optionElement.textContent = option;
+                    select.appendChild(optionElement);
+                });
+                // Initialize multi-select
+                $(select).select2({
+                    placeholder: `Select ${elementId}s`,
+                    allowClear: true
+                });
+            })
+            .catch(error => console.error(`Error fetching ${elementId} options:`, error));
+    }
+
+    function handleSearch(event) {
+        event.preventDefault();
+        currentPage = 1;
+        allArticleIds = [];
+        articleList.innerHTML = '';
+        fetchArticles();
+    }
+
+    function fetchArticles() {
+        if (isLoading || !hasMoreArticles) return;
+        isLoading = true;
+        loadingIndicator.style.display = 'block';
+
+        const formData = new FormData(searchForm);
+        const searchParams = new URLSearchParams(formData);
+        searchParams.append('page', currentPage);
+        searchParams.append('per_page', articlesPerPage);
+
+        fetch(`/api/search_articles?${searchParams}`)
+            .then(response => response.json())
+            .then(data => {
+                displaySearchResults(data.articles);
+                updateTotalCount(data.total_count);
+                currentPage++;
+                hasMoreArticles = data.articles.length === articlesPerPage;
+                isLoading = false;
+                loadingIndicator.style.display = 'none';
+            })
+            .catch(error => {
+                console.error('Error searching articles:', error);
+                isLoading = false;
+                loadingIndicator.style.display = 'none';
+            });
+    }
+
+    function displaySearchResults(articles) {
+        articles.forEach(article => {
+            if (!allArticleIds.includes(article.uri)) {
+                allArticleIds.push(article.uri);
+            }
+            const articleElement = document.createElement('div');
+            articleElement.className = 'article-item';
+            articleElement.innerHTML = `
+                <input type="checkbox" class="article-checkbox" data-uri="${article.uri}">
+                <div class="article-details">
+                    <h4>${article.title}</h4>
+                    <div class="article-meta">
+                        ${article.category} | ${article.future_signal} | ${article.sentiment}
+                    </div>
+                    <div class="article-dates">
+                        Publication Date: ${article.publication_date} | Submitted Date: ${article.submission_date}
+                    </div>
+                    <p class="article-summary">${article.summary}</p>
+                    ${article.url ? `<a href="${article.url}" target="_blank" class="article-url">${article.url}</a>` : ''}
+                </div>
+            `;
+            articleList.appendChild(articleElement);
+        });
+    }
+
+    function updateTotalCount(totalCount) {
+        totalCountSpan.textContent = `(${totalCount} articles)`;
+    }
+
+    function handleScroll() {
+        if (articleList.scrollTop + articleList.clientHeight >= articleList.scrollHeight - 5) {
+            fetchArticles();
+        }
+    }
+
+    function selectAllArticles() {
+        const selectAll = selectAllBtn.textContent === 'Select All';
+        const checkboxes = document.querySelectorAll('.article-checkbox');
+        checkboxes.forEach(checkbox => checkbox.checked = selectAll);
+        
+        // Update hidden checkboxes for non-visible articles
+        allArticleIds.forEach(id => {
+            let checkbox = document.querySelector(`.article-checkbox[data-uri="${id}"]`);
+            if (!checkbox) {
+                checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'article-checkbox hidden';
+                checkbox.dataset.uri = id;
+                articleList.appendChild(checkbox);
+            }
+            checkbox.checked = selectAll;
+        });
+        
+        selectAllBtn.textContent = selectAll ? 'Deselect All' : 'Select All';
+    }
+
+    function generateReport() {
+        const selectedArticles = allArticleIds.filter(id => {
+            const checkbox = document.querySelector(`.article-checkbox[data-uri="${id}"]`);
+            return checkbox && checkbox.checked;
+        });
+
+        console.log(`Selected ${selectedArticles.length} articles for report`);
+
+        if (selectedArticles.length === 0) {
+            alert('Please select at least one article for the report.');
+            return;
+        }
+
+        fetch('/api/generate_report', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ article_ids: selectedArticles }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            reportDraft.value = data.content;
+            updatePreview();
+        })
+        .catch(error => console.error('Error generating report:', error));
+    }
+
+    function saveReport() {
+        const reportContent = reportDraft.value;
+        fetch('/api/save_report', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ content: reportContent }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(`Report saved with ID: ${data.report_id}`);
+        })
+        .catch(error => console.error('Error saving report:', error));
+    }
+
+    function downloadReport() {
+        const reportContent = reportDraft.value;
+        const blob = new Blob([reportContent], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'report.md';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function updatePreview() {
+        const markdownText = reportDraft.value;
+        fetch('/api/markdown_to_html', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ markdown: markdownText }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            reportPreview.innerHTML = data.html;
+        })
+        .catch(error => console.error('Error converting markdown to HTML:', error));
+    }
+
+    function toggleCustomDateRange() {
+        customDateRange.style.display = dateRange.value === 'custom' ? 'block' : 'none';
+    }
+});
+</script>
+{% endblock %}
