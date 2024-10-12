@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class Database:
     @staticmethod
     def get_active_database():
-        config_path = os.path.join('data', 'config.json')
+        config_path = os.path.join(DATABASE_DIR, 'config.json')
         with open(config_path, 'r') as f:
             config = json.load(f)
         return config.get('active_database', 'fnaapp.db')
@@ -136,7 +136,7 @@ class Database:
 
     @staticmethod
     def get_active_database():
-        config_path = os.path.join('data', 'config.json')
+        config_path = os.path.join(DATABASE_DIR, 'config.json')
         with open(config_path, 'r') as f:
             config = json.load(f)
         return config.get('active_database', 'fnaapp.db')

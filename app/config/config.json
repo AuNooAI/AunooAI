@@ -20,6 +20,6 @@
         "Immediate", "Short-term", "Mid-term", "Long-term"
     ],
     "driver_types": [
-        "Initiator", "Accelerator", "Catalyst", "Delayer", "Blocker", "Terminator"
+        "Type1", "Type2", "Type3"
     ]
 }

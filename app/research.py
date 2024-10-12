@@ -9,23 +9,27 @@ from firecrawl import FirecrawlApp
 from config import settings
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from database import Database, SessionLocal
-
+from app.database import Database, SessionLocal
+from dotenv import load_dotenv
+    
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class Research:
-    def __init__(self, db=None):
+    def __init__(self, db=None, openai_api_key=None):
         if db is None:
             self.db = SessionLocal()
         else:
             self.db = db
         self.load_config()
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))  # Initialize OpenAI client
+        if not os.path.exists('.env'):
+            raise FileNotFoundError("The .env file does not exist. Please create it and add the necessary environment variables.")
+        load_dotenv()
+        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         self.firecrawl_app = self.initialize_firecrawl()
 
     def load_config(self):
-        config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+        config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json')
         logger.debug(f"Loading config from: {config_path}")
         with open(config_path, 'r') as f:
             config = json.load(f)

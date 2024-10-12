@@ -8,3 +8,6 @@ markdown
 pydantic
 aiosqlite
 firecrawl
+sqlalchemy
+python-dotenv
+python-multipart

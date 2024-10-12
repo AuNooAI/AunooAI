@@ -1,1 +1,8 @@
-_pycache_
+app/__pycache__/
+app/*/__pycache__/
+*.py[cod]
+.venv/
+.env
+reports/
+.DS_Store
+*.code-workspace

@@ -2,16 +2,16 @@ from fastapi import FastAPI, HTTPException, Form, Request, Body, Query, Depends
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
-from database import Database, get_db
-from research import Research
-from analytics import Analytics
-from report import Report
-from analyze_db import AnalyzeDB 
+from app.database import Database, get_db
+from app.research import Research
+from app.analytics import Analytics
+from app.report import Report
+from app.analyze_db import AnalyzeDB 
 from config.settings import config
 from typing import Optional, List
 from collections import Counter
 from datetime import datetime, timedelta
-from dependencies import get_research
+from app.dependencies import get_research
 import logging
 import traceback
 from pydantic import BaseModel, Field
