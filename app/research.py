@@ -11,21 +11,23 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.database import Database, SessionLocal
 from dotenv import load_dotenv
+from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
     
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class Research:
-    def __init__(self, db=None, openai_api_key=None):
+    def __init__(self, db=None):
         if db is None:
-            self.db = SessionLocal()
+            self.db = Database()
         else:
             self.db = db
         self.load_config()
         if not os.path.exists('.env'):
             raise FileNotFoundError("The .env file does not exist. Please create it and add the necessary environment variables.")
         load_dotenv()
-        self.client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self.available_models = ai_get_available_models()
+        self.ai_model = None  # We'll set this when a model is selected
         self.firecrawl_app = self.initialize_firecrawl()
 
     def load_config(self):
@@ -123,7 +125,10 @@ class Research:
             logger.error(f"Error retrieving existing article content: {str(e)}")
             return None
 
-    async def analyze_article(self, uri, article_text, summary_length, summary_voice, summary_type):
+    async def analyze_article(self, uri, article_text, summary_length, summary_voice, summary_type, topic, model_name):
+        # Set the AI model based on the selected model_name
+        self.set_ai_model(model_name)
+
         if not article_text:
             article_text, source, publication_date = await self.fetch_article_content(uri)
         else:
@@ -147,14 +152,11 @@ class Research:
         Respond with only the title, nothing else.
         """
 
-        title_response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are an expert editor skilled at creating and extracting perfect titles for news articles."},
-                {"role": "user", "content": title_prompt}
-            ]
-        )
-        title = title_response.choices[0].message.content.strip()
+        title_response = self.ai_model.generate_response([
+            {"role": "system", "content": "You are an expert editor skilled at creating and extracting perfect titles for news articles."},
+            {"role": "user", "content": title_prompt}
+        ])
+        title = title_response.strip()
 
         # Convert summary_length to words
         try:
@@ -224,15 +226,10 @@ class Research:
         Tags: [tag1, tag2, tag3, ...]
         """
 
-        response = self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": f"You are an expert assistant that analyzes and summarizes articles. Provide summaries in the style of {summary_voice} and format of {summary_type}."},
-                {"role": "user", "content": main_prompt}
-            ]
-        )
-
-        analysis = response.choices[0].message.content
+        analysis = self.ai_model.generate_response([
+            {"role": "system", "content": f"You are an expert assistant that analyzes and summarizes articles. Provide summaries in the style of {summary_voice} and format of {summary_type}."},
+            {"role": "user", "content": main_prompt}
+        ])
 
         # Parse the analysis text to extract the required fields
         parsed_analysis = {}
@@ -262,7 +259,8 @@ class Research:
             "publication_date": publication_date,
             "tags": parsed_analysis.get("Tags", "").strip('[]').replace(' ', '').split(','),
             "driver_type": parsed_analysis.get("Driver Type", ""),
-            "driver_type_explanation": parsed_analysis.get("Driver Type Explanation", "")
+            "driver_type_explanation": parsed_analysis.get("Driver Type Explanation", ""),
+            "topic": topic  # Make sure this line is present
         }
 
     def extract_source(self, uri):
@@ -351,3 +349,24 @@ class Research:
         except Exception as e:
             logger.error(f"Error scraping article: {str(e)}")
             return {"content": "Failed to scrape article content.", "source": self.extract_source(uri), "publication_date": datetime.now(timezone.utc).date().isoformat()}
+
+    def get_topics(self):
+        return self.db.get_topics()
+
+    def get_recent_articles_by_topic(self, topic_name, limit=10):
+        try:
+            articles = self.db.get_recent_articles_by_topic(topic_name, limit)
+            return articles
+        except Exception as e:
+            logger.error(f"Error getting recent articles by topic: {str(e)}")
+            return []
+
+    def set_ai_model(self, model_name):
+        if not self.available_models:
+            raise ValueError("No AI models are configured. Please add a model in the configuration section.")
+        if model_name not in [model['name'] for model in self.available_models]:
+            raise ValueError(f"Model {model_name} is not configured. Please select a configured model.")
+        self.ai_model = get_ai_model(model_name)
+
+    def get_available_models(self):
+        return self.available_models

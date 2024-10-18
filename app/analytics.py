@@ -2,7 +2,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from analyze_db import AnalyzeDB
+from app.analyze_db import AnalyzeDB
 
 class Analytics:
     def __init__(self, db):

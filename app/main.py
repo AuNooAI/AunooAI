@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Form, Request, Body, Query, Depends
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app.database import Database, get_db
 from app.research import Research
 from app.analytics import Analytics
@@ -18,6 +18,10 @@ from pydantic import BaseModel, Field
 import asyncio
 import markdown
 import json
+from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
+from app.config.config import load_config
+import os
+from dotenv import load_dotenv
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,8 +36,8 @@ templates = Jinja2Templates(directory="templates")
 
 # Initialize components
 db = Database()
-print(f"Database initialized and updated in main.py: {db.db_path}")
 research = Research(db)
+print(f"Database initialized and updated in main.py: {db.db_path}")
 logging.debug(f"Created Research instance with categories: {research.CATEGORIES}")
 analytics = Analytics(db)
 report = Report(db)
@@ -58,6 +62,22 @@ class ArticleData(BaseModel):
     driver_type: str
     driver_type_explanation: str
     submission_date: str = Field(default_factory=lambda: datetime.now().isoformat())
+    topic: str  # Add this line
+
+class AddModelRequest(BaseModel):
+    model_name: str = Field(..., min_length=1)
+    provider: str = Field(..., min_length=1)
+    api_key: str = Field(..., min_length=1)
+
+    class Config:
+        protected_namespaces = ()
+
+class RemoveModelRequest(BaseModel):
+    model_name: str = Field(..., alias="model_name")
+    provider: str
+
+    class Config:
+        protected_namespaces = ()
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -75,20 +95,39 @@ async def research_post(
     summaryLength: str = Form(...),
     summaryVoice: str = Form(...),
     summaryType: str = Form(...),
+    selectedTopic: str = Form(...),
+    modelName: str = Form(...),
     research: Research = Depends(get_research)
 ):
     try:
+        if not modelName:
+            # If no model is available, return basic article information without analysis
+            article_info = await research.fetch_article_content(articleUrl)
+            return JSONResponse(content={
+                "title": "Article title not available",
+                "news_source": article_info.get("source", "Unknown"),
+                "uri": articleUrl,
+                "publication_date": article_info.get("publication_date", "Unknown"),
+                "summary": "Analysis not available. No AI model selected.",
+                "topic": selectedTopic
+            })
+        
         result = await research.analyze_article(
             uri=articleUrl,
             article_text=articleContent,
             summary_length=summaryLength,
             summary_voice=summaryVoice,
-            summary_type=summaryType
+            summary_type=summaryType,
+            topic=selectedTopic,
+            model_name=modelName
         )
         return JSONResponse(content=result)
+    except ValueError as e:
+        logger.error(f"Error in research_post: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error in research_post: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=422, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/analytics", response_class=HTMLResponse)
 async def analytics_route(request: Request):
@@ -110,8 +149,106 @@ async def report_route(request: Request):
     return templates.TemplateResponse("report.html", {"request": request})
 
 @app.get("/config", response_class=HTMLResponse)
-async def config_route(request: Request):
-    return templates.TemplateResponse("config.html", {"request": request})
+async def config_page(request: Request):
+    models = ai_get_available_models()
+    return templates.TemplateResponse("config.html", {"request": request, "models": models})
+
+@app.post("/config/add_model")
+async def add_model(model_data: AddModelRequest):
+    try:
+        logger.info(f"Received request to add model: {model_data.dict()}")
+        logger.info(f"Model name: {model_data.model_name}")
+        logger.info(f"Provider: {model_data.provider}")
+        logger.info(f"API key length: {len(model_data.api_key) if model_data.api_key else 0}")
+        
+        # Check for missing fields
+        missing_fields = []
+        if not model_data.model_name:
+            missing_fields.append("model_name")
+        if not model_data.provider:
+            missing_fields.append("provider")
+        if not model_data.api_key:
+            missing_fields.append("api_key")
+        
+        if missing_fields:
+            error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+            logger.error(error_msg)
+            return JSONResponse(content={"error": error_msg}, status_code=422)
+
+        # Check if the model exists in the configuration
+        available_models = ai_get_available_models()
+        logger.info(f"Available models: {available_models}")
+        
+        # Remove the provider from the model name if it's included
+        model_name = model_data.model_name.split(' (')[0]
+        
+        model_exists = any(model['name'] == model_name and model['provider'] == model_data.provider for model in available_models)
+        
+        if not model_exists:
+            # Instead of returning an error, we'll add the model to the configuration
+            logger.info(f"Model {model_name} ({model_data.provider}) not found in configuration. Adding it.")
+            config_path = os.path.join(os.path.dirname(__file__), 'config', 'ai_config.json')
+            with open(config_path, 'r+') as f:
+                config = json.load(f)
+                config['ai_models'].append({"name": model_name, "provider": model_data.provider})
+                f.seek(0)
+                json.dump(config, f, indent=4)
+                f.truncate()
+
+        env_var_name = f"{model_data.provider.upper()}_API_KEY_{model_name.replace('-', '_').upper()}"
+        
+        # Update .env file
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        if not os.path.exists(env_path):
+            error_msg = ".env file not found"
+            logger.error(error_msg)
+            return JSONResponse(content={"error": error_msg}, status_code=500)
+
+        logger.info(f"Updating .env file at: {env_path}")
+        
+        try:
+            with open(env_path, "a") as env_file:
+                env_file.write(f'\n{env_var_name}="{model_data.api_key}"\n')
+            logger.info(f"Successfully updated .env file")
+        except IOError as e:
+            error_msg = f"Error writing to .env file: {str(e)}"
+            logger.error(error_msg)
+            return JSONResponse(content={"error": error_msg}, status_code=500)
+
+        # Update the environment variable in the current process
+        os.environ[env_var_name] = model_data.api_key
+        
+        # Reload environment variables
+        load_dotenv(override=True)
+        
+        logger.info(f"Model {model_name} added successfully")
+        return JSONResponse(content={"message": f"Model {model_name} added successfully"}, status_code=200)
+    except Exception as e:
+        logger.error(f"Error adding model: {str(e)}", exc_info=True)
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error args: {e.args}")
+        logger.error(f"Request data: {model_data.dict()}")
+        return JSONResponse(content={"error": f"Unexpected error: {str(e)}"}, status_code=500)
+
+@app.post("/config/remove_model")
+async def remove_model(model_data: RemoveModelRequest):
+    env_var_name = f"{model_data.provider.upper()}_API_KEY_{model_data.model_name.replace('-', '_').upper()}"
+    if env_var_name in os.environ:
+        del os.environ[env_var_name]
+    
+    # Update .env file
+    env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+    with open(env_path, "r") as env_file:
+        lines = env_file.readlines()
+    
+    # Remove the specified model and any empty lines
+    with open(env_path, "w") as env_file:
+        env_file.writelines(line for line in lines if not line.startswith(env_var_name) and line.strip())
+    
+    # Reload environment variables
+    load_dotenv(override=True)
+    
+    return JSONResponse(content={"message": f"Model {model_data.model_name} removed successfully"})
 
 @app.get("/api/search_articles")
 async def search_articles(
@@ -197,15 +334,16 @@ async def get_time_to_impact():
     return JSONResponse(content=config.get('time_to_impact', []))
 
 @app.get("/api/latest_articles")
-async def get_latest_articles():
-    logger.debug("Received request for latest articles")
+async def get_latest_articles(topic_name: Optional[str] = None):
     try:
-        articles = db.get_recent_articles(limit=10)
-        logger.debug(f"Retrieved {len(articles)} articles")
+        if topic_name:
+            articles = research.get_recent_articles_by_topic(topic_name)
+        else:
+            articles = await research.get_recent_articles()
         return JSONResponse(content=articles)
     except Exception as e:
-        logger.error(f"Error fetching latest articles: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error fetching latest articles: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error fetching latest articles")
 
 @app.get("/api/article")
 async def get_article(uri: str):
@@ -381,6 +519,36 @@ async def get_integrated_analysis(timeframe: str = Query("all"), category: str =
     except Exception as e:
         logger.error(f"Error in get_integrated_analysis: {str(e)}", exc_info=True)
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.get("/api/topics")
+async def get_topics():
+    return research.get_topics()  # Remove await
+
+@app.get("/api/ai_models")
+def get_ai_models():
+    return ai_get_available_models()  # Use the function from ai_models.py
+
+@app.get("/api/ai_models_config")
+async def get_ai_models_config():
+    config = load_config()
+    logger.info(f"Full configuration: {config}")
+    models = config.get("ai_models", [])
+    logger.info(f"AI models config: {models}")
+    return {"ai_models": models}
+
+@app.get("/api/available_models")
+def get_available_models():
+    return ai_get_available_models()  # Use the function from ai_models.py
+
+@app.get("/api/debug_ai_config")
+async def debug_ai_config():
+    config_path = os.path.join(os.path.dirname(__file__), 'config', 'ai_config.json')
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        return JSONResponse(content={"config": config, "path": config_path})
+    except Exception as e:
+        return JSONResponse(content={"error": str(e), "path": config_path}, status_code=500)
 
 if __name__ == "__main__":
     import uvicorn

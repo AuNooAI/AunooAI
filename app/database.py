@@ -200,7 +200,7 @@ class Database:
                     category = ?, future_signal = ?, future_signal_explanation = ?,
                     sentiment = ?, sentiment_explanation = ?, time_to_impact = ?,
                     time_to_impact_explanation = ?, tags = ?, driver_type = ?,
-                    driver_type_explanation = ?, submission_date = ?
+                    driver_type_explanation = ?, submission_date = ?, topic = ?
                 WHERE uri = ?
                 """
                 cursor.execute(update_query, (
@@ -212,7 +212,7 @@ class Database:
                     article_data['time_to_impact_explanation'], 
                     ','.join(article_data['tags']) if isinstance(article_data['tags'], list) else article_data['tags'],
                     article_data['driver_type'], article_data['driver_type_explanation'],
-                    article_data['submission_date'], article_data['uri']
+                    article_data['submission_date'], article_data['topic'], article_data['uri']
                 ))
             else:
                 insert_query = """
@@ -221,8 +221,8 @@ class Database:
                     category, future_signal, future_signal_explanation,
                     sentiment, sentiment_explanation, time_to_impact,
                     time_to_impact_explanation, tags, driver_type,
-                    driver_type_explanation, submission_date
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    driver_type_explanation, submission_date, topic
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
                 cursor.execute(insert_query, (
                     article_data['uri'], article_data['title'], article_data['news_source'],
@@ -233,7 +233,7 @@ class Database:
                     article_data['time_to_impact_explanation'], 
                     ','.join(article_data['tags']) if isinstance(article_data['tags'], list) else article_data['tags'],
                     article_data['driver_type'], article_data['driver_type_explanation'],
-                    article_data['submission_date']
+                    article_data['submission_date'], article_data['topic']
                 ))
             
             conn.commit()
@@ -511,6 +511,34 @@ class Database:
         except Exception as e:
             logger.error(f"Error retrieving raw article: {str(e)}")
             return None
+
+    def get_topics(self):
+        with self.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT topic FROM articles ORDER BY topic")
+            return [{"id": row['topic'], "name": row['topic']} for row in cursor.fetchall()]
+
+    def get_recent_articles_by_topic(self, topic_name, limit=10):
+        with self.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM articles
+                WHERE topic = ?
+                ORDER BY COALESCE(submission_date, publication_date) DESC, rowid DESC
+                LIMIT ?
+            """, (topic_name, limit))
+            articles = [dict(row) for row in cursor.fetchall()]
+            
+            # Convert tags string back to list
+            for article in articles:
+                if article['tags']:
+                    article['tags'] = article['tags'].split(',')
+                else:
+                    article['tags'] = []
+            
+            return articles
 
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
 

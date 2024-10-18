@@ -35,6 +35,28 @@
     </div>
 </div>
 
+<!-- AI Model Configuration Section -->
+<div class="config-layout mt-5">
+    <div class="left-panel">
+        <h2>AI Model Configuration</h2>
+        <form id="add-model-form">
+            <select id="model-name" required>
+                {% for model in models %}
+                    <option value="{{ model.name }}" data-provider="{{ model.provider }}">{{ model.name }} ({{ model.provider }})</option>
+                {% endfor %}
+            </select>
+            <input type="text" id="api-key" placeholder="API Key" required>
+            <button type="submit">Add Model</button>
+        </form>
+    </div>
+    <div class="right-panel">
+        <h2>Available Models</h2>
+        <ul id="model-list">
+            <!-- This will be populated dynamically -->
+        </ul>
+    </div>
+</div>
+
 <script>
     let activeDatabase = '';
 
@@ -142,6 +164,153 @@
             loadDatabaseInfo();
         });
 
+    // Function to load AI models from ai_config.json
+    function loadAIModels() {
+        fetch('/api/ai_models_config')
+            .then(response => response.json())
+            .then(data => {
+                const modelSelect = document.getElementById('model-name');
+                modelSelect.innerHTML = '';
+                data.ai_models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = `${model.name} (${model.provider})`;
+                    option.dataset.provider = model.provider;  // Set the data-provider attribute
+                    modelSelect.appendChild(option);
+                });
+            })
+            .catch(error => console.error('Error loading AI models:', error));
+    }
+
+    // Function to load available models
+    function loadAvailableModels() {
+        fetch('/api/ai_models')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(models => {
+                const modelList = document.getElementById('model-list');
+                modelList.innerHTML = '';
+                if (models.length === 0) {
+                    modelList.innerHTML = '<li>No models configured.</li>';
+                } else {
+                    models.forEach(model => {
+                        const li = document.createElement('li');
+                        li.textContent = `${model.name} (${model.provider})`;
+                        const deleteButton = document.createElement('button');
+                        deleteButton.textContent = 'Remove';
+                        deleteButton.onclick = () => removeModel(model.name, model.provider);
+                        li.appendChild(deleteButton);
+                        modelList.appendChild(li);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error loading available models:', error);
+                const modelList = document.getElementById('model-list');
+                modelList.innerHTML = '<li>Error loading models. Please try again later.</li>';
+            });
+    }
+
+    document.getElementById('add-model-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        console.log('Form submission started');
+        const modelSelect = document.getElementById('model-name');
+        const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+        const modelName = selectedOption.value;
+        const provider = selectedOption.dataset.provider;
+        const apiKey = document.getElementById('api-key').value;
+        
+        console.log('Selected option:', selectedOption);
+        console.log('Model Name:', modelName);
+        console.log('Provider:', provider);
+        console.log('API Key length:', apiKey.length);
+        
+        if (!modelName || !provider || !apiKey) {
+            alert('Please fill in all required fields');
+            return;
+        }
+        
+        console.log('Sending request to add model:', { model_name: modelName, provider: provider });
+        
+        fetch('/config/add_model', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model_name: modelName,
+                provider: provider,
+                api_key: apiKey
+            })
+        })
+        .then(response => {
+            console.log('Response status:', response.status);
+            return response.json().then(data => ({status: response.status, body: data}));
+        })
+        .then(({status, body}) => {
+            console.log('Response body:', body);
+            if (status === 422) {
+                throw new Error(body.error || 'Missing required fields');
+            } else if (status === 400) {
+                throw new Error(body.error || 'Invalid model configuration');
+            } else if (status !== 200) {
+                throw new Error(body.error || 'Unknown server error');
+            }
+            if (body.error) {
+                throw new Error(body.error);
+            }
+            console.log('Model added successfully:', body.message);
+            alert(body.message);
+            loadAvailableModels();
+        })
+        .catch(error => {
+            console.error('Error adding model:', error);
+            alert('Error adding model: ' + error.message);
+        });
+    });
+
+    function removeModel(modelName, provider) {
+        if (confirm(`Are you sure you want to remove the model "${modelName}"?`)) {
+            fetch('/config/remove_model', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model_name: modelName,
+                    provider: provider
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Model removed:', data);
+                loadAvailableModels();  // Refresh the list of available models
+            })
+            .catch(error => {
+                console.error('Error removing model:', error);
+                alert('Error removing model. Please try again.');
+            });
+        }
+    }
+
+    // Load AI models and available models when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        loadAIModels();
+        loadAvailableModels();
+        // ... (other existing DOMContentLoaded code) ...
+    });
+
+    // Load models when the page loads
+    loadAvailableModels();
 </script>
 
 <style>
@@ -199,6 +368,31 @@
     }
     h3 {
         color: #FF1493; /* Bright pink */
+    }
+    .mt-5 {
+        margin-top: 2rem;
+    }
+
+    #model-list {
+        padding-left: 0;
+        list-style-type: none;
+    }
+
+    #model-list li {
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    #add-model-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    #add-model-form input, #add-model-form select {
+        padding: 5px;
     }
 </style>
 {% endblock %}

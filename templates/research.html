@@ -202,109 +202,133 @@
     .modal button {
         margin-right: 10px;
     }
+
+    #topicSelector {
+        margin-bottom: 20px;
+    }
+
+    #researchContent {
+        display: none;
+    }
 </style>
 {% endblock %}
 {% block content %}
 <div class="container">
-    <div class="row">
-        <div class="col-md-6">
-            <h2 class="mb-4">Research</h2>
-            <form class="research-form" id="researchForm" onsubmit="handleFormSubmit(event)">
-                <div class="mb-3">
-                    <label for="articleUrl" class="form-label">Article URL</label>
-                    <input type="url" class="form-control" id="articleUrl" name="articleUrl" required>
-                </div>
-                <div class="mb-3">
-                    <label for="articleContent" class="form-label">Article Content (optional)</label>
-                    <textarea class="form-control" id="articleContent" name="articleContent" rows="5"></textarea>
-                </div>
-                <div class="mb-3">
-                    <label for="summaryLength" class="form-label">Summary Length</label>
-                    <select class="form-select" id="summaryLength" name="summaryLength" required>
-                        <option value="40">40 words</option>
-                        <option value="50" selected>50 words</option>
-                        <option value="75">75 words</option>
-                        <option value="100">100 words</option>
-                        <option value="custom">Custom</option>
-                    </select>
-                    <div id="customSummaryLengthField" class="custom-field mt-2" style="display: none;">
-                        <input type="number" class="form-control" id="customSummaryLength" name="customSummaryLength" placeholder="Enter custom summary length">
+    <h1 class="mb-4">Research</h1>
+    
+    <div id="topicSelector" class="mb-4">
+        <h2>Select a Topic</h2>
+        <select id="topicSelect" class="form-select">
+            <option value="">Select a topic</option>
+            <!-- Topics will be populated dynamically -->
+        </select>
+    </div>
+
+    <div id="researchContent">
+        <div class="row">
+            <div class="col-md-6">
+                <h2 class="mb-4">Research</h2>
+                <form class="research-form" id="researchForm" onsubmit="handleFormSubmit(event)">
+                    <div class="mb-3">
+                        <label for="articleUrl" class="form-label">Article URL</label>
+                        <input type="url" class="form-control" id="articleUrl" name="articleUrl" required>
                     </div>
-                </div>
-                <div class="mb-3">
-                    <label for="summaryVoice" class="form-label">Summary Voice</label>
-                    <select class="form-select" id="summaryVoice" name="summaryVoice" required>
-                        <option value="business_analyst">Business Analyst</option>
-                        <option value="industry_analyst">Industry Analyst</option>
-                        <option value="tech_journalist">Tech Journalist</option>
-                        <option value="investment_advisor">Investment Advisor</option>
-                        <option value="principal_security_engineer">Principal Security Engineer</option>
-                        <option value="ciso">CISO</option>
-                        <option value="custom">Custom</option>
-                    </select>
-                    <div id="customVoiceField" class="custom-field">
-                        <input type="text" class="form-control mt-2" id="customVoice" name="custom_voice" placeholder="Enter custom voice">
+                    <div class="mb-3">
+                        <label for="articleContent" class="form-label">Article Content (optional)</label>
+                        <textarea class="form-control" id="articleContent" name="articleContent" rows="5"></textarea>
                     </div>
-                </div>
-                <div class="mb-3">
-                    <label for="summaryType" class="form-label">Summary Type</label>
-                    <select class="form-select" id="summaryType" name="summaryType" required>
-                        <option value="curious_ai_long">Curious AI Long</option>
-                        <option value="curious_ai_short">Curious AI Short</option>
-                        <option value="axios">Axios</option>
-                        <option value="brief">Brief</option>
-                    </select>
-                </div>
-                <button type="submit" class="btn btn-primary">Analyze Article</button>
-            </form>
-        </div>
-        <div class="col-md-6">
-            <h2 class="mb-4">Analysis Result</h2>
-            <div class="analysis-result" id="analysisResult">
-                <p><strong>Title:</strong> <input type="text" id="analysisTitle" class="form-control"></p>
-                <p><strong>Source:</strong> <input type="text" id="analysisSource" class="form-control"></p>
-                <p><strong>URL:</strong> <input type="url" id="analysisUrl" class="form-control"></p>
-                <div class="mb-3">
-                    <label for="analysisSummary" class="form-label">Summary <span id="summaryWordCount">(0 words)</span></label>
-                    <textarea class="form-control" id="analysisSummary" rows="3"></textarea>
-                </div>
-                <p><strong>Sentiment:</strong> <select id="analysisSentiment" class="form-select"></select></p>
-                <p><strong>Sentiment Explanation:</strong> <textarea id="analysisSentimentExplanation" class="form-control" rows="2"></textarea></p>
-                <p><strong>Time to Impact:</strong> <select id="analysisTimeToImpact" class="form-select"></select></p>
-                <p><strong>Time to Impact Explanation:</strong> <textarea id="analysisTimeToImpactExplanation" class="form-control" rows="2"></textarea></p>
-                <p><strong>Category:</strong> <select id="analysisCategory" class="form-select"></select></p>
-                <p><strong>Future Signal:</strong> <select id="analysisFutureSignal" class="form-select"></select></p>
-                <p><strong>Future Signal Explanation:</strong> <textarea id="analysisFutureSignalExplanation" class="form-control" rows="2"></textarea></p>
-                <p><strong>Driver Type:</strong> <select id="analysisDriverType" class="form-select"></select></p>
-                <p><strong>Driver Type Explanation:</strong> <textarea id="analysisDriverTypeExplanation" class="form-control" rows="2"></textarea></p>
-                <div class="row">
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label for="analysisPublicationDate" class="form-label">Publication Date:</label>
-                            <input type="date" id="analysisPublicationDate" class="form-control">
+                    <div class="mb-3">
+                        <label for="summaryLength" class="form-label">Summary Length</label>
+                        <select class="form-select" id="summaryLength" name="summaryLength" required>
+                            <option value="40">40 words</option>
+                            <option value="50" selected>50 words</option>
+                            <option value="75">75 words</option>
+                            <option value="100">100 words</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <div id="customSummaryLengthField" class="custom-field mt-2" style="display: none;">
+                            <input type="number" class="form-control" id="customSummaryLength" name="customSummaryLength" placeholder="Enter custom summary length">
                         </div>
                     </div>
-                    <div class="col-md-6">
-                        <div class="mb-3">
-                            <label for="analysisSubmissionDate" class="form-label">Submission Date:</label>
-                            <input type="datetime-local" id="analysisSubmissionDate" class="form-control" readonly>
+                    <div class="mb-3">
+                        <label for="summaryVoice" class="form-label">Summary Voice</label>
+                        <select class="form-select" id="summaryVoice" name="summaryVoice" required>
+                            <option value="business_analyst">Business Analyst</option>
+                            <option value="industry_analyst">Industry Analyst</option>
+                            <option value="tech_journalist">Tech Journalist</option>
+                            <option value="investment_advisor">Investment Advisor</option>
+                            <option value="principal_security_engineer">Principal Security Engineer</option>
+                            <option value="ciso">CISO</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <div id="customVoiceField" class="custom-field">
+                            <input type="text" class="form-control mt-2" id="customVoice" name="custom_voice" placeholder="Enter custom voice">
                         </div>
                     </div>
+                    <div class="mb-3">
+                        <label for="summaryType" class="form-label">Summary Type</label>
+                        <select class="form-select" id="summaryType" name="summaryType" required>
+                            <option value="curious_ai_long">Curious AI Long</option>
+                            <option value="curious_ai_short">Curious AI Short</option>
+                            <option value="axios">Axios</option>
+                            <option value="brief">Brief</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="modelName" class="form-label">AI Model</label>
+                        <select class="form-select" id="modelName" name="modelName" required>
+                            <!-- Options will be populated dynamically -->
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Analyze Article</button>
+                </form>
+            </div>
+            <div class="col-md-6">
+                <h2 class="mb-4">Analysis Result</h2>
+                <div class="analysis-result" id="analysisResult">
+                    <p><strong>Title:</strong> <input type="text" id="analysisTitle" class="form-control"></p>
+                    <p><strong>Source:</strong> <input type="text" id="analysisSource" class="form-control"></p>
+                    <p><strong>URL:</strong> <input type="url" id="analysisUrl" class="form-control"></p>
+                    <div class="mb-3">
+                        <label for="analysisSummary" class="form-label">Summary <span id="summaryWordCount">(0 words)</span></label>
+                        <textarea class="form-control" id="analysisSummary" rows="3"></textarea>
+                    </div>
+                    <p><strong>Sentiment:</strong> <select id="analysisSentiment" class="form-select"></select></p>
+                    <p><strong>Sentiment Explanation:</strong> <textarea id="analysisSentimentExplanation" class="form-control" rows="2"></textarea></p>
+                    <p><strong>Time to Impact:</strong> <select id="analysisTimeToImpact" class="form-select"></select></p>
+                    <p><strong>Time to Impact Explanation:</strong> <textarea id="analysisTimeToImpactExplanation" class="form-control" rows="2"></textarea></p>
+                    <p><strong>Category:</strong> <select id="analysisCategory" class="form-select"></select></p>
+                    <p><strong>Future Signal:</strong> <select id="analysisFutureSignal" class="form-select"></select></p>
+                    <p><strong>Future Signal Explanation:</strong> <textarea id="analysisFutureSignalExplanation" class="form-control" rows="2"></textarea></p>
+                    <p><strong>Driver Type:</strong> <select id="analysisDriverType" class="form-select"></select></p>
+                    <p><strong>Driver Type Explanation:</strong> <textarea id="analysisDriverTypeExplanation" class="form-control" rows="2"></textarea></p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="analysisPublicationDate" class="form-label">Publication Date:</label>
+                                <input type="date" id="analysisPublicationDate" class="form-control">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="analysisSubmissionDate" class="form-label">Submission Date:</label>
+                                <input type="datetime-local" id="analysisSubmissionDate" class="form-control">
+                            </div>
+                        </div>
+                    </div>
+                    <p><strong>Tags:</strong> <input type="text" id="analysisTags" class="form-control"></p>
+                    <button onclick="saveArticle()" class="btn btn-primary">Save</button>
+                    <button onclick="clearForm()" class="btn btn-secondary">Clear</button>
                 </div>
-                <p><strong>Tags:</strong> <input type="text" id="analysisTags" class="form-control"></p>
-                <button onclick="saveArticle()" class="btn btn-primary">Save</button>
-                <button onclick="clearForm()" class="btn btn-secondary">Clear</button>
             </div>
         </div>
-    </div>
-</div>
 
-<div class="container mt-4">
-    <div class="row">
-        <div class="col-12">
-            <h2>Latest Articles</h2>
-            <div id="latestArticles">
-                <!-- Latest articles will be displayed here -->
+        <div class="row mt-4">
+            <div class="col-12">
+                <h2>Latest Articles for Selected Topic</h2>
+                <div id="latestArticles">
+                    <!-- Latest articles will be displayed here -->
+                </div>
             </div>
         </div>
     </div>
@@ -330,6 +354,12 @@ async function handleFormSubmit(event) {
 
     const form = event.target;
     const formData = new FormData(form);
+
+    // Add the selected topic and model to the form data
+    const selectedTopic = document.getElementById('topicSelect').value;
+    formData.append('selectedTopic', selectedTopic);
+    const selectedModel = document.getElementById('modelName').value;
+    formData.append('modelName', selectedModel);
 
     // Fetch article content if not provided
     const articleContent = formData.get('articleContent');
@@ -477,7 +507,17 @@ function switchToAnalysisResultTab() {
 // Make sure to call fetchLatestArticles when the page loads
 document.addEventListener('DOMContentLoaded', function() {
     initializeResearchPage();
-    fetchLatestArticles();
+    loadTopics();
+
+    const topicSelect = document.getElementById('topicSelect');
+    topicSelect.addEventListener('change', function() {
+        const selectedTopic = this.value;
+        if (selectedTopic) {
+            fetchLatestArticles(selectedTopic);
+        } else {
+            document.getElementById('latestArticles').innerHTML = '<p>Please select a topic to see recent articles.</p>';
+        }
+    });
 });
 
 function initializeResearchPage() {
@@ -491,8 +531,34 @@ function initializeResearchPage() {
     populateDropdowns();
     setupCustomFields();
 
-    // Fetch latest articles
-    fetchLatestArticles();
+    const topicSelect = document.getElementById('topicSelect');
+    topicSelect.addEventListener('change', handleTopicChange);
+}
+
+function loadTopics() {
+    fetch('/api/topics')
+        .then(response => response.json())
+        .then(topics => {
+            const topicSelect = document.getElementById('topicSelect');
+            topicSelect.innerHTML = '<option value="">Select a topic</option>'; // Clear existing options
+            topics.forEach(topic => {
+                const option = document.createElement('option');
+                option.value = topic.name;
+                option.textContent = topic.name;
+                topicSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading topics:', error));
+}
+
+function handleTopicChange(event) {
+    const topicName = event.target.value;
+    if (topicName) {
+        document.getElementById('researchContent').style.display = 'block';
+        fetchLatestArticles(topicName);
+    } else {
+        document.getElementById('researchContent').style.display = 'none';
+    }
 }
 
 function populateDropdowns() {
@@ -542,37 +608,24 @@ function handleNewOption(selectId, newInputId) {
 }
 
 function saveArticle() {
-    const getValue = (id) => {
-        const element = document.getElementById(id);
-        return element ? element.value : '';
-    };
-
-    const getNumericValue = (id) => {
-        const value = getValue(id);
-        return value ? parseFloat(value) : 0.0;
-    };
-
-    const getTags = () => {
-        const tagsElement = document.getElementById('analysisTags');
-        return tagsElement ? tagsElement.value.split(',').map(tag => tag.trim()) : [];
-    };
-
     const articleData = {
-        title: getValue('analysisTitle'),
-        news_source: getValue('analysisSource'),
-        uri: getValue('analysisUrl'),
-        publication_date: getValue('analysisPublicationDate'),
-        summary: getValue('analysisSummary'),
-        category: getValue('analysisCategory'),
-        future_signal: getValue('analysisFutureSignal'),
-        future_signal_explanation: getValue('analysisFutureSignalExplanation'),
-        sentiment: getValue('analysisSentiment'),
-        sentiment_explanation: getValue('analysisSentimentExplanation'),
-        time_to_impact: getValue('analysisTimeToImpact'),
-        time_to_impact_explanation: getValue('analysisTimeToImpactExplanation'),
-        tags: getTags(),
-        driver_type: getValue('analysisDriverType'),
-        driver_type_explanation: getValue('analysisDriverTypeExplanation'),
+        title: document.getElementById('analysisTitle').value,
+        news_source: document.getElementById('analysisSource').value,
+        uri: document.getElementById('analysisUrl').value,
+        publication_date: document.getElementById('analysisPublicationDate').value,
+        summary: document.getElementById('analysisSummary').value,
+        category: document.getElementById('analysisCategory').value,
+        future_signal: document.getElementById('analysisFutureSignal').value,
+        future_signal_explanation: document.getElementById('analysisFutureSignalExplanation').value,
+        sentiment: document.getElementById('analysisSentiment').value,
+        sentiment_explanation: document.getElementById('analysisSentimentExplanation').value,
+        time_to_impact: document.getElementById('analysisTimeToImpact').value,
+        time_to_impact_explanation: document.getElementById('analysisTimeToImpactExplanation').value,
+        tags: document.getElementById('analysisTags').value.split(',').map(tag => tag.trim()),
+        driver_type: document.getElementById('analysisDriverType').value,
+        driver_type_explanation: document.getElementById('analysisDriverTypeExplanation').value,
+        submission_date: document.getElementById('analysisSubmissionDate').value,
+        topic: document.getElementById('topicSelect').value
     };
 
     console.log('Article data to be saved:', articleData);
@@ -593,7 +646,7 @@ function saveArticle() {
     .then(data => {
         console.log('Success:', data);
         alert('Article saved successfully!');
-        fetchLatestArticles(); // Reload latest articles after saving
+        fetchLatestArticles(articleData.topic); // Pass the topic when fetching latest articles
     })
     .catch((error) => {
         console.error('Error:', error);
@@ -629,13 +682,16 @@ function displayAnalysisResult(result) {
         document.getElementById('analysisDriverTypeExplanation').value = result.driver_type_explanation || '';
         document.getElementById('analysisPublicationDate').value = result.publication_date || '';
         
-        // Format submission_date to be compatible with datetime-local input
+        // Set submission_date to current date and time by default
+        const now = new Date();
+        const formattedNow = now.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:mm
+        document.getElementById('analysisSubmissionDate').value = formattedNow;
+        
+        // If result has a submission_date, use it instead
         if (result.submission_date) {
             const submissionDate = new Date(result.submission_date);
             const formattedDate = submissionDate.toISOString().slice(0, 16);
             document.getElementById('analysisSubmissionDate').value = formattedDate;
-        } else {
-            document.getElementById('analysisSubmissionDate').value = '';
         }
         
         document.getElementById('analysisTags').value = result.tags ? result.tags.join(', ') : '';
@@ -668,61 +724,65 @@ function escapeHTML(str) {
     );
 }
 
-async function fetchLatestArticles() {
-    console.log('Fetching latest articles...');
+async function fetchLatestArticles(topicName) {
+    try {
+        const response = await fetch(`/api/latest_articles?topic_name=${encodeURIComponent(topicName)}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const articles = await response.json();
+        if (Array.isArray(articles) && articles.length > 0) {
+            displayLatestArticles(articles);
+        } else {
+            document.getElementById('latestArticles').innerHTML = '<p>No recent articles found for this topic.</p>';
+        }
+    } catch (error) {
+        console.error('Error fetching latest articles:', error);
+        document.getElementById('latestArticles').innerHTML = '<p class="text-danger">Error loading recent articles. Please try again later.</p>';
+    }
+}
+
+function displayLatestArticles(articles) {
     const latestArticlesContainer = document.getElementById('latestArticles');
     if (!latestArticlesContainer) {
         console.error('Latest articles container not found');
         return;
     }
 
-    latestArticlesContainer.innerHTML = '<p>Loading articles...</p>';
+    latestArticlesContainer.innerHTML = ''; // Clear existing content
 
-    try {
-        const response = await fetch('/api/latest_articles');
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const articles = await response.json();
-
-        latestArticlesContainer.innerHTML = ''; // Clear existing content
-
-        if (articles.length === 0) {
-            latestArticlesContainer.innerHTML = '<p>No recent articles found.</p>';
-            return;
-        }
-
-        // Sort articles by submission date, most recent first
-        articles.sort((a, b) => new Date(b.submission_date) - new Date(a.submission_date));
-
-        articles.forEach(article => {
-            const articleElement = document.createElement('div');
-            articleElement.className = 'article-card';
-            articleElement.innerHTML = `
-                <div class="article-content">
-                    <h5 class="card-title">${escapeHTML(article.title || 'No Title')}</h5>
-                    <h6 class="card-subtitle mb-2 text-muted">Source: ${escapeHTML(article.news_source || 'Unknown')}</h6>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <p class="card-text"><strong>Publication Date:</strong> ${formatDate(article.publication_date)}</p>
-                        </div>
-                        <div class="col-md-6">
-                            <p class="card-text"><strong>Submission Date:</strong> ${formatDate(article.submission_date)}</p>
-                        </div>
-                    </div>
-                    <p class="card-text"><strong>Summary:</strong> ${escapeHTML(article.summary || 'No summary available')}</p>
-                </div>
-                <div class="article-actions">
-                    <button onclick="editArticle('${escapeHTML(article.uri)}')">Edit</button>
-                    <button onclick="deleteArticle('${escapeHTML(article.uri)}')">Delete</button>
-                </div>
-            `;
-            latestArticlesContainer.appendChild(articleElement);
-        });
-    } catch (error) {
-        console.error('Error fetching latest articles:', error);
-        latestArticlesContainer.innerHTML = '<p class="text-danger">Error loading recent articles. Please try again later.</p>';
+    if (!articles || articles.length === 0) {
+        latestArticlesContainer.innerHTML = '<p>No recent articles found for this topic.</p>';
+        return;
     }
+
+    // Sort articles by submission date, most recent first
+    articles.sort((a, b) => new Date(b.submission_date) - new Date(a.submission_date));
+
+    articles.forEach(article => {
+        const articleElement = document.createElement('div');
+        articleElement.className = 'article-card';
+        articleElement.innerHTML = `
+            <div class="article-content">
+                <h5 class="card-title">${escapeHTML(article.title || 'No Title')}</h5>
+                <h6 class="card-subtitle mb-2 text-muted">Source: ${escapeHTML(article.news_source || 'Unknown')}</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <p class="card-text"><strong>Publication Date:</strong> ${formatDate(article.publication_date)}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="card-text"><strong>Submission Date:</strong> ${formatDate(article.submission_date)}</p>
+                    </div>
+                </div>
+                <p class="card-text"><strong>Summary:</strong> ${escapeHTML(article.summary || 'No summary available')}</p>
+            </div>
+            <div class="article-actions">
+                <button onclick="editArticle('${escapeHTML(article.uri)}')">Edit</button>
+                <button onclick="deleteArticle('${escapeHTML(article.uri)}')">Delete</button>
+            </div>
+        `;
+        latestArticlesContainer.appendChild(articleElement);
+    });
 }
 
 async function deleteArticle(uri) {
@@ -777,6 +837,75 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add event listener for summary textarea
     const summaryTextarea = document.getElementById('analysisSummary');
     summaryTextarea.addEventListener('input', updateSummaryWordCount);
+});
+
+// Add this function to set the current date and time when the form is loaded
+function setDefaultSubmissionDate() {
+    const now = new Date();
+    const formattedNow = now.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:mm
+    document.getElementById('analysisSubmissionDate').value = formattedNow;
+}
+
+// Add this function to load available models
+function loadAvailableModels() {
+    fetch('/api/available_models')
+        .then(response => response.json())
+        .then(models => {
+            const modelSelect = document.getElementById('modelName');
+            modelSelect.innerHTML = '';
+            if (models.length === 0) {
+                const option = document.createElement('option');
+                option.value = "";
+                option.textContent = "No models available";
+                option.selected = true;
+                modelSelect.appendChild(option);
+                modelSelect.disabled = true;
+            } else {
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = `${model.name} (${model.provider})`;
+                    modelSelect.appendChild(option);
+                });
+                modelSelect.disabled = false;
+            }
+        })
+        .catch(error => {
+            console.error('Error loading available models:', error);
+            const modelSelect = document.getElementById('modelName');
+            modelSelect.innerHTML = '<option value="">Error loading models. Analysis will be skipped.</option>';
+            modelSelect.disabled = true;
+        });
+}
+
+// Call this function when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadAvailableModels();
+    // ... (other existing DOMContentLoaded code)
+});
+
+// Call this function when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // ... (existing code)
+    setDefaultSubmissionDate();
+    
+    // Remove the following section
+    /*
+    // Fetch AI models
+    fetch('/api/ai_models')
+        .then(response => response.json())
+        .then(models => {
+            const modelSelect = document.getElementById('modelName');
+            modelSelect.innerHTML = '';
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = `${model.name} (${model.provider})`;
+                modelSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading AI models:', error));
+    */
 });
 </script>
 {% endblock %}
