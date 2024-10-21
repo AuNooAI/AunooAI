@@ -85,6 +85,7 @@ class Research:
                 # Extract the date from Firecrawl's output
                 publication_date = scrape_result.get('date')
                 if publication_date:
+                    logger.info(f"Extracted publication date: {publication_date}")
                     # Try to parse the date in various formats
                     for date_format in ['%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y']:
                         try:
