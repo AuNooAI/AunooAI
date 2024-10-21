@@ -19,6 +19,7 @@ import asyncio
 import markdown
 import json
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
+from app.bulk_research import BulkResearch
 from app.config.config import load_config
 import os
 from dotenv import load_dotenv
@@ -128,6 +129,38 @@ async def research_post(
     except Exception as e:
         logger.error(f"Error in research_post: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+    
+@app.get("/bulk-research", response_class=HTMLResponse)
+async def bulk_research_get(request: Request):
+    return templates.TemplateResponse("bulk_research.html", {"request": request})
+
+@app.post("/api/bulk-research")
+async def bulk_research_post(
+    data: dict,
+    research: Research = Depends(get_research),
+    db: Database = Depends(get_db)
+):
+    urls = data.get('urls', [])
+    summary_type = data.get('summaryType', 'curious_ai')
+    model_name = data.get('modelName', 'gpt-3.5-turbo')
+    summary_length = data.get('summaryLength', '50')
+    summary_voice = data.get('summaryVoice', 'neutral')
+
+    bulk_research = BulkResearch(db, research)
+    results = await bulk_research.analyze_bulk_urls(urls, summary_type, model_name, summary_length, summary_voice)
+
+    return JSONResponse(content=results)
+
+@app.post("/api/save-bulk-articles")
+async def save_bulk_articles(
+    data: dict,
+    research: Research = Depends(get_research),
+    db: Database = Depends(get_db)
+):
+    articles = data.get('articles', [])
+    bulk_research = BulkResearch(db, research)
+    results = await bulk_research.save_bulk_articles(articles)
+    return JSONResponse(content=results)
 
 @app.get("/analytics", response_class=HTMLResponse)
 async def analytics_route(request: Request):

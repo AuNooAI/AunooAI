@@ -17,11 +17,10 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class Research:
-    def __init__(self, db=None):
-        if db is None:
-            self.db = Database()
-        else:
-            self.db = db
+    def __init__(self, db: Database):
+        if not isinstance(db, Database):
+            raise TypeError("db must be an instance of Database")
+        self.db = db
         self.load_config()
         if not os.path.exists('.env'):
             raise FileNotFoundError("The .env file does not exist. Please create it and add the necessary environment variables.")
@@ -61,11 +60,16 @@ class Research:
         logger.debug(f"Fetching article content for URI: {uri}")
         try:
             # Check if the article already exists
-            article_exists = self.check_article_exists(uri)
+            existing_article = self.db.get_raw_article(uri)
             
-            if article_exists:
+            if existing_article:
                 logger.info(f"Article already exists in database: {uri}")
-                return {"exists": True, "uri": uri}
+                return {
+                    "content": existing_article['raw_markdown'],
+                    "source": self.extract_source(uri),
+                    "publication_date": existing_article['submission_date'],
+                    "exists": True
+                }
             
             logger.info(f"Article does not exist in database, scraping: {uri}")
             # If the article doesn't exist, proceed with scraping
@@ -106,11 +110,11 @@ class Research:
                 publication_date = datetime.now(timezone.utc).date().isoformat()
 
             source = self.extract_source(uri)
-            return {"content": content, "source": source, "publication_date": publication_date}
+            return {"content": content, "source": source, "publication_date": publication_date, "exists": False}
         except Exception as e:
             logger.error(f"Error fetching article content: {str(e)}", exc_info=True)
-            return {"content": "Failed to fetch article content.", "source": self.extract_source(uri), "publication_date": datetime.now(timezone.utc).date().isoformat()}
-
+            return {"content": "Failed to fetch article content.", "source": self.extract_source(uri), "publication_date": datetime.now(timezone.utc).date().isoformat(), "exists": False}
+        
     def get_existing_article_content(self, uri: str):
         """Retrieve existing article content from the database."""
         try:

@@ -8,13 +8,14 @@
 
 # Bug Fixes
 - [ ] Fix Publication Date extraction from scraped article data
-- [ ] Resolve duplicate analysis runs on the same data
+- [X] Resolve duplicate analysis runs on the same data
 - [ ] Prevent title changes when one already exists
+- [ ] Resolve 'Session' object has no attribute 'save_raw_article' error in Research class
 
 # New Features
 - [X] Add a further evaluation metric: Driver_type: Initiator, Accelerator, Catalyst, Delayer, Blocker
 - [X] Create a new visualization that integrates the driver type with the time impact, sentiment analysis, and future signal analysis
-- [ ]  Insert raw HTML and Markdown into postgresql server
+- [ ] Insert raw HTML and Markdown into postgresql server
 - [ ] Integrate vector database (Pinecone) for article storage and embeddings
 - [ ] Add a "soft" and "hard" data point distinction to the data model
 - [ ] Add a new panel to preview the scraped article text
@@ -41,10 +42,11 @@
 - [ ] Create user guide for the application
 
 # Next Steps
-1. Prioritize bug fixes, especially the publication date extraction issue
-2. Implement improved date range selectors for analytics and report generator pages
-3. Begin integration with Pinecone for vector database functionality
-4. Develop the configuration page for customizable categories
-5. Create the basic dashboard for the index page
-6. Implement performance optimizations
-7. Enhance security measures and ensure compliance requirements are met
+1. Resolve the 'Session' object has no attribute 'save_raw_article' error in Research class
+2. Prioritize bug fixes, especially the publication date extraction issue
+3. Implement improved date range selectors for analytics and report generator pages
+4. Begin integration with Pinecone for vector database functionality
+5. Develop the configuration page for customizable categories
+6. Create the basic dashboard for the index page
+7. Implement performance optimizations
+8. Enhance security measures and ensure compliance requirements are met

@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+{% block title %}FNA - Bulk Research{% endblock %}
+{% block content %}
+<h1>Bulk Research</h1>
+<form id="bulkResearchForm" enctype="multipart/form-data">
+    <div class="mb-3">
+        <label for="urlList" class="form-label">Enter URLs (one per line)</label>
+        <textarea class="form-control" id="urlList" rows="5"></textarea>
+    </div>
+    <div class="mb-3">
+        <label for="urlFile" class="form-label">Or upload a file with URLs</label>
+        <input class="form-control" type="file" id="urlFile" accept=".txt">
+    </div>
+    <div class="mb-3">
+        <label for="summaryLength" class="form-label">Summary Length</label>
+        <select class="form-select" id="summaryLength" name="summaryLength" required>
+            <option value="40">40 words</option>
+            <option value="50" selected>50 words</option>
+            <option value="75">75 words</option>
+            <option value="100">100 words</option>
+            <option value="custom">Custom</option>
+        </select>
+        <div id="customSummaryLengthField" class="custom-field mt-2" style="display: none;">
+            <input type="number" class="form-control" id="customSummaryLength" name="customSummaryLength" placeholder="Enter custom summary length">
+        </div>
+    </div>
+    <div class="mb-3">
+        <label for="summaryVoice" class="form-label">Summary Voice</label>
+        <select class="form-select" id="summaryVoice" name="summaryVoice" required>
+            <option value="business_analyst">Business Analyst</option>
+            <option value="industry_analyst">Industry Analyst</option>
+            <option value="tech_journalist">Tech Journalist</option>
+            <option value="investment_advisor">Investment Advisor</option>
+            <option value="principal_security_engineer">Principal Security Engineer</option>
+            <option value="ciso">CISO</option>
+            <option value="custom">Custom</option>
+        </select>
+        <div id="customVoiceField" class="custom-field mt-2" style="display: none;">
+            <input type="text" class="form-control" id="customVoice" name="customVoice" placeholder="Enter custom voice">
+        </div>
+    </div>
+    <div class="mb-3">
+        <label for="summaryType" class="form-label">Summary Type</label>
+        <select class="form-select" id="summaryType" name="summaryType" required>
+            <option value="curious_ai">Curious AI Long</option>
+            <option value="axios">Axios</option>
+        </select>
+    </div>
+    <div class="mb-3">
+        <label for="modelName" class="form-label">AI Model</label>
+        <select class="form-select" id="modelName" name="modelName" required>
+            <!-- This will be populated dynamically -->
+        </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Analyze</button>
+</form>
+<div id="resultsTable" class="mt-4" style="display: none;">
+    <h2>Analysis Results</h2>
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>URL</th>
+                <th>Title</th>
+                <th>Summary</th>
+                <th>Sentiment</th>
+                <th>Sentiment Explanation</th>
+                <th>Category</th>
+                <th>Future Signal</th>
+                <th>Future Signal Explanation</th>
+                <th>Time to Impact</th>
+                <th>Time to Impact Explanation</th>
+                <th>Driver Type</th>
+                <th>Driver Type Explanation</th>
+                <th>Tags</th>
+            </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+    </table>
+    <button id="saveAllButton" class="btn btn-primary mt-3">Save All Articles</button>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadAvailableModels();
+    setUpCustomFields();
+    document.getElementById('bulkResearchForm').addEventListener('submit', handleFormSubmit);
+    document.getElementById('saveAllButton').addEventListener('click', saveAllArticles);
+});
+
+function loadAvailableModels() {
+    fetch('/api/available_models')
+        .then(response => response.json())
+        .then(models => {
+            const modelSelect = document.getElementById('modelName');
+            modelSelect.innerHTML = '';
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = `${model.name} (${model.provider})`;
+                modelSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading available models:', error));
+}
+
+function setUpCustomFields() {
+    const summaryLengthSelect = document.getElementById('summaryLength');
+    const customSummaryLengthField = document.getElementById('customSummaryLengthField');
+    summaryLengthSelect.addEventListener('change', function() {
+        customSummaryLengthField.style.display = this.value === 'custom' ? 'block' : 'none';
+    });
+
+    const summaryVoiceSelect = document.getElementById('summaryVoice');
+    const customVoiceField = document.getElementById('customVoiceField');
+    summaryVoiceSelect.addEventListener('change', function() {
+        customVoiceField.style.display = this.value === 'custom' ? 'block' : 'none';
+    });
+}
+
+async function handleFormSubmit(event) {
+    event.preventDefault();
+    const urlList = document.getElementById('urlList').value;
+    const urlFile = document.getElementById('urlFile').files[0];
+    const summaryLength = getSummaryLength();
+    const summaryVoice = getSummaryVoice();
+    const summaryType = document.getElementById('summaryType').value;
+    const modelName = document.getElementById('modelName').value;
+
+    let urls = [];
+    if (urlList) {
+        urls = urlList.split('\n').filter(url => url.trim() !== '');
+    } else if (urlFile) {
+        const fileContent = await urlFile.text();
+        urls = fileContent.split('\n').filter(url => url.trim() !== '');
+    }
+
+    if (urls.length === 0) {
+        alert('Please enter URLs or upload a file containing URLs.');
+        return;
+    }
+
+    const results = await analyzeBulkUrls(urls, summaryLength, summaryVoice, summaryType, modelName);
+    displayResults(results);
+}
+
+document.getElementById('bulkResearchForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const urlList = document.getElementById('urlList').value;
+    const urlFile = document.getElementById('urlFile').files[0];
+    const summaryLength = getSummaryLength();
+    const summaryVoice = getSummaryVoice();
+    const summaryType = document.getElementById('summaryType').value;
+    const modelName = document.getElementById('modelName').value;
+
+    let urls = [];
+    if (urlList) {
+        urls = urlList.split('\n').filter(url => url.trim() !== '');
+    } else if (urlFile) {
+        const fileContent = await urlFile.text();
+        urls = fileContent.split('\n').filter(url => url.trim() !== '');
+    }
+
+    if (urls.length === 0) {
+        alert('Please enter URLs or upload a file containing URLs.');
+        return;
+    }
+
+    const results = await analyzeBulkUrls(urls, summaryLength, summaryVoice, summaryType, modelName);
+    displayResults(results, summaryType);
+});
+
+function getSummaryLength() {
+    const summaryLengthSelect = document.getElementById('summaryLength');
+    if (summaryLengthSelect.value === 'custom') {
+        return document.getElementById('customSummaryLength').value;
+    }
+    return summaryLengthSelect.value;
+}
+
+function getSummaryVoice() {
+    const summaryVoiceSelect = document.getElementById('summaryVoice');
+    if (summaryVoiceSelect.value === 'custom') {
+        return document.getElementById('customVoice').value;
+    }
+    return summaryVoiceSelect.value;
+}
+
+async function analyzeBulkUrls(urls, summaryLength, summaryVoice, summaryType, modelName) {
+    const response = await fetch('/api/bulk-research', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ urls, summaryLength, summaryVoice, summaryType, modelName }),
+    });
+    return await response.json();
+}
+
+function displayResults(results) {
+    const resultsBody = document.getElementById('resultsBody');
+    resultsBody.innerHTML = '';
+    results.forEach((result, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${result.uri}</td>
+            <td><input type="text" class="form-control" value="${result.title || ''}" data-field="title"></td>
+            <td><input type="text" class="form-control" value="${result.news_source || ''}" data-field="news_source"></td>
+            <td><input type="date" class="form-control" value="${result.publication_date || ''}" data-field="publication_date"></td>
+            <td><textarea class="form-control" data-field="summary">${result.summary || ''}</textarea></td>
+            <td><input type="text" class="form-control" value="${result.category || ''}" data-field="category"></td>
+            <td><input type="text" class="form-control" value="${result.future_signal || ''}" data-field="future_signal"></td>
+            <td><textarea class="form-control" data-field="future_signal_explanation">${result.future_signal_explanation || ''}</textarea></td>
+            <td><input type="text" class="form-control" value="${result.sentiment || ''}" data-field="sentiment"></td>
+            <td><textarea class="form-control" data-field="sentiment_explanation">${result.sentiment_explanation || ''}</textarea></td>
+            <td><input type="text" class="form-control" value="${result.time_to_impact || ''}" data-field="time_to_impact"></td>
+            <td><textarea class="form-control" data-field="time_to_impact_explanation">${result.time_to_impact_explanation || ''}</textarea></td>
+            <td><input type="text" class="form-control" value="${result.driver_type || ''}" data-field="driver_type"></td>
+            <td><textarea class="form-control" data-field="driver_type_explanation">${result.driver_type_explanation || ''}</textarea></td>
+            <td><input type="text" class="form-control" value="${result.tags ? result.tags.join(', ') : ''}" data-field="tags"></td>
+        `;
+        resultsBody.appendChild(row);
+    });
+    document.getElementById('resultsTable').style.display = 'block';
+}
+
+async function saveAllArticles() {
+    const rows = document.querySelectorAll('#resultsBody tr');
+    const articles = Array.from(rows).map(row => {
+        const article = {};
+        article.uri = row.cells[0].textContent;
+        row.querySelectorAll('input, textarea').forEach(input => {
+            article[input.dataset.field] = input.value;
+        });
+        // Convert tags back to an array
+        if (article.tags) {
+            article.tags = article.tags.split(',').map(tag => tag.trim());
+        }
+        return article;
+    });
+
+    const response = await fetch('/api/save-bulk-articles', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ articles }),
+    });
+    const result = await response.json();
+    
+    if (result.errors.length > 0) {
+        const errorMessage = result.errors.map(error => `${error.uri}: ${error.error}`).join('\n');
+        alert(`Some articles could not be saved:\n${errorMessage}`);
+    }
+    
+    if (result.success.length > 0) {
+        alert(`${result.success.length} article(s) saved successfully!`);
+    }
+    
+    console.log(result);
+}
+
+function displayAxiosSummary(result) {
+    let summary = `<strong>Main Point:</strong> ${result.summary}<br>`;
+    if (result.key_takeaways) {
+        summary += '<strong>Key Takeaways:</strong><ul>';
+        result.key_takeaways.forEach(takeaway => {
+            summary += `<li>${takeaway}</li>`;
+        });
+        summary += '</ul>';
+    }
+    if (result.go_deeper) {
+        summary += `<strong>Go deeper:</strong> ${result.go_deeper}`;
+    }
+    return summary;
+}
+
+function editArticle(url) {
+    // Implement edit functionality
+    console.log('Edit article:', url);
+}
+
+function deleteArticle(url) {
+    // Implement delete functionality
+    console.log('Delete article:', url);
+}
+</script>
+{% endblock %}
