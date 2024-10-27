@@ -547,8 +547,14 @@ function loadTopics() {
                 option.textContent = topic.name;
                 topicSelect.appendChild(option);
             });
+            // Remove the auto-selection of default topic
+            document.getElementById('researchContent').style.display = 'none'; // Hide research content initially
         })
-        .catch(error => console.error('Error loading topics:', error));
+        .catch(error => {
+            console.error('Error loading topics:', error);
+            const topicSelect = document.getElementById('topicSelect');
+            topicSelect.innerHTML = '<option value="">Error loading topics</option>';
+        });
 }
 
 function handleTopicChange(event) {
@@ -909,3 +915,4 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 {% endblock %}
+

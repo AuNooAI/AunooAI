@@ -20,7 +20,7 @@ import markdown
 import json
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
 from app.bulk_research import BulkResearch
-from app.config.config import load_config
+from app.config.config import load_config, get_topic_config  # Add get_topic_config import
 import os
 from dotenv import load_dotenv
 
@@ -145,9 +145,20 @@ async def bulk_research_post(
     model_name = data.get('modelName', 'gpt-3.5-turbo')
     summary_length = data.get('summaryLength', '50')
     summary_voice = data.get('summaryVoice', 'neutral')
+    topic = data.get('topic')  # Get the topic from the request
 
-    bulk_research = BulkResearch(db, research)
-    results = await bulk_research.analyze_bulk_urls(urls, summary_type, model_name, summary_length, summary_voice)
+    if not topic:
+        raise HTTPException(status_code=400, detail="Topic is required")
+
+    bulk_research = BulkResearch(db)
+    results = await bulk_research.analyze_bulk_urls(
+        urls=urls,
+        summary_type=summary_type,
+        model_name=model_name,
+        summary_length=summary_length,
+        summary_voice=summary_voice,
+        topic=topic  # Pass the topic to the analysis function
+    )
 
     return JSONResponse(content=results)
 
@@ -167,10 +178,14 @@ async def analytics_route(request: Request):
     return templates.TemplateResponse("analytics.html", {"request": request})
 
 @app.get("/api/analytics")
-def get_analytics_data(timeframe: str = Query(...), category: str = Query(...)):
-    logger.info(f"Received analytics request: timeframe={timeframe}, category={category}")
+def get_analytics_data(
+    timeframe: str = Query(...),
+    category: str = Query(None),  # Make category optional
+    topic: str = Query(...)
+):
+    logger.info(f"Received analytics request: timeframe={timeframe}, category={category}, topic={topic}")
     try:
-        data = analytics.get_analytics_data(timeframe, category)
+        data = analytics.get_analytics_data(timeframe=timeframe, category=category, topic=topic)
         logger.info("Analytics data retrieved successfully")
         return JSONResponse(content=data)
     except Exception as e:
@@ -285,6 +300,7 @@ async def remove_model(model_data: RemoveModelRequest):
 
 @app.get("/api/search_articles")
 async def search_articles(
+    topic: Optional[str] = Query(None),
     category: Optional[List[str]] = Query(None),
     future_signal: Optional[List[str]] = Query(None),
     sentiment: Optional[List[str]] = Query(None),
@@ -310,8 +326,16 @@ async def search_articles(
 
     tags_list = tags.split(',') if tags else None
     articles, total_count = db.search_articles(
-        category, future_signal, sentiment, tags_list, keyword,
-        pub_date_start, pub_date_end, page, per_page
+        topic=topic,  # Add topic parameter
+        category=category,
+        future_signal=future_signal,
+        sentiment=sentiment,
+        tags=tags_list,
+        keyword=keyword,
+        pub_date_start=pub_date_start,
+        pub_date_end=pub_date_end,
+        page=page,
+        per_page=per_page
     )
     return JSONResponse(content={"articles": articles, "total_count": total_count, "page": page, "per_page": per_page})
 
@@ -350,9 +374,14 @@ async def save_article(article: ArticleData):
 
 @app.get("/api/categories")
 async def get_categories(research: Research = Depends(get_research)):
-    categories = await research.get_categories()
-    logging.debug(f"Returning categories: {categories}")
-    return categories
+    logger.debug("Entering get_categories endpoint")
+    try:
+        categories = await research.get_categories()
+        logger.info(f"Retrieved categories: {categories}")
+        return categories
+    except Exception as e:
+        logger.error(f"Error fetching categories: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
 
 @app.get("/api/future_signals")
 async def get_future_signals():
@@ -555,7 +584,10 @@ async def get_integrated_analysis(timeframe: str = Query("all"), category: str =
 
 @app.get("/api/topics")
 async def get_topics():
-    return research.get_topics()  # Remove await
+    """Get list of available topics."""
+    topics = research.get_topics()
+    logger.debug(f"Returning topics: {topics}")  # Add debug logging
+    return [{"name": topic} for topic in topics]  # Return list of objects with name property
 
 @app.get("/api/ai_models")
 def get_ai_models():
@@ -583,6 +615,27 @@ async def debug_ai_config():
     except Exception as e:
         return JSONResponse(content={"error": str(e), "path": config_path}, status_code=500)
 
+@app.get("/api/categories/{topic_name}")
+async def get_categories_for_topic(topic_name: str):
+    """Get categories for a specific topic."""
+    try:
+        # Import the necessary functions from config module
+        from app.config.config import load_config, get_topic_config
+        
+        # Load the config and get topic-specific configuration
+        config = load_config()
+        topic_config = get_topic_config(config, topic_name)
+        
+        logger.debug(f"Retrieved categories for topic {topic_name}: {topic_config['categories']}")
+        return JSONResponse(content=topic_config['categories'])
+    except ValueError as e:
+        logger.error(f"Error getting categories for topic {topic_name}: {str(e)}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error getting categories for topic {topic_name}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

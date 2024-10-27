@@ -13,7 +13,8 @@ class BulkResearch:
         self.db = db
         self.research = Research(db)
 
-    async def analyze_bulk_urls(self, urls: List[str], summary_type: str, model_name: str, summary_length: str, summary_voice: str) -> List[Dict]:
+    async def analyze_bulk_urls(self, urls: List[str], summary_type: str, model_name: str, summary_length: str, summary_voice: str, topic: str) -> List[Dict]:
+        """Analyze multiple URLs with topic support."""
         results = []
         self.research.set_ai_model(model_name)
 
@@ -27,15 +28,14 @@ class BulkResearch:
                         summary_length=summary_length,
                         summary_voice=summary_voice,
                         summary_type=summary_type,
-                        topic="",  # You may want to add topic selection to the bulk research form
+                        topic=topic,  # Pass the topic
                         model_name=model_name
                     )
                     try:
                         result["news_source"] = self.research.extract_source(url)
-                    except:
+                    except Exception as e:
                         logger.error(f"Error extracting news source for {url}: {str(e)}")
 
-                    # result["publication_date"] = article_content["publication_date"]
                     results.append(result)
                 else:
                     raise ValueError("Failed to fetch article content")
@@ -55,7 +55,8 @@ class BulkResearch:
                     "category": "N/A",
                     "tags": [],
                     "news_source": "N/A",
-                    "publication_date": "N/A"
+                    "publication_date": "N/A",
+                    "topic": topic  # Include topic even in error cases
                 })
 
         return results

@@ -59,22 +59,34 @@
 <div class="container-fluid mt-5">
     <h1>Analytics Dashboard</h1>
     
-    <div class="row mb-3">
+    <!-- Add topic and category selection -->
+    <div class="row mb-4">
         <div class="col-md-4">
-            <select id="timeframeSelector" class="form-select">
-                <option value="1">Last 24 hours</option>
-                <option value="3">Last 3 days</option>
+            <label for="topicSelect">Select Topic</label>
+            <select class="form-select" id="topicSelect">
+                <option value="">Select a topic</option>
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label for="categorySelect">Select Category</label>
+            <select class="form-select" id="categorySelect" disabled>
+                <option value="">Select a category</option>
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label for="timeframeSelect">Timeframe</label>
+            <select class="form-select" id="timeframeSelect">
                 <option value="7">Last 7 days</option>
                 <option value="30">Last 30 days</option>
                 <option value="90">Last 90 days</option>
-                <option value="all">All time</option>
+                <option value="180">Last 180 days</option>
+                <option value="365">Last year</option>
+                <option value="all" selected>All time</option>
             </select>
         </div>
-        <div class="col-md-4">
-            <select id="categorySelector" class="form-select">
-                <option value="all">All Categories</option>
-            </select>
-        </div>
+    </div>
+
+    <div class="row mb-3">
         <div class="col-md-4">
             <div class="card">
                 <div class="card-body">
@@ -188,42 +200,93 @@
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const timeframeSelector = document.getElementById('timeframeSelector');
-    const categorySelector = document.getElementById('categorySelector');
-    const articleCountElement = document.getElementById('articleCount');
+    loadTopics();
+    
+    // Add event listeners
+    document.getElementById('topicSelect').addEventListener('change', handleTopicChange);
+    document.getElementById('categorySelect').addEventListener('change', handleCategoryChange);
+    document.getElementById('timeframeSelect').addEventListener('change', handleTimeframeChange);
+});
 
-    // Fetch categories and populate the dropdown
-    fetch('/api/categories')
+function loadTopics() {
+    fetch('/api/topics')
+        .then(response => response.json())
+        .then(topics => {
+            const topicSelect = document.getElementById('topicSelect');
+            topicSelect.innerHTML = '<option value="">Select a topic</option>';
+            topics.forEach(topic => {
+                const option = document.createElement('option');
+                option.value = topic.name;
+                option.textContent = topic.name;
+                topicSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading topics:', error));
+}
+
+function handleTopicChange(event) {
+    const topicName = event.target.value;
+    const categorySelect = document.getElementById('categorySelect');
+    
+    if (topicName) {
+        // Enable category select and load categories for selected topic
+        categorySelect.disabled = false;
+        loadCategoriesForTopic(topicName);
+        // Update charts with the new topic (without category)
+        updateCharts();
+    } else {
+        // Disable and clear category select
+        categorySelect.disabled = true;
+        categorySelect.innerHTML = '<option value="">Select a category</option>';
+        // Clear all charts
+        clearCharts();
+    }
+}
+
+function loadCategoriesForTopic(topicName) {
+    fetch(`/api/categories/${encodeURIComponent(topicName)}`)
         .then(response => response.json())
         .then(categories => {
+            const categorySelect = document.getElementById('categorySelect');
+            categorySelect.innerHTML = '<option value="">Select a category</option>';
             categories.forEach(category => {
                 const option = document.createElement('option');
                 option.value = category;
                 option.textContent = category;
-                categorySelector.appendChild(option);
+                categorySelect.appendChild(option);
             });
         })
-        .catch(error => console.error('Error fetching categories:', error));
+        .catch(error => console.error('Error loading categories:', error));
+}
 
-    function updateCharts() {
-        const timeframe = timeframeSelector.value;
-        const category = categorySelector.value;
-        fetchDataAndUpdateCharts(timeframe, category);
-    }
-
-    timeframeSelector.addEventListener('change', updateCharts);
-    categorySelector.addEventListener('change', updateCharts);
-
+function handleCategoryChange() {
     updateCharts();
-});
+}
 
-async function fetchDataAndUpdateCharts(timeframe, category) {
+function handleTimeframeChange() {
+    updateCharts();
+}
+
+function updateCharts() {
+    const topic = document.getElementById('topicSelect').value;
+    const category = document.getElementById('categorySelect').value;
+    const timeframe = document.getElementById('timeframeSelect').value;
+
+    // Only fetch and update charts if a topic is selected
+    if (topic) {
+        fetchDataAndUpdateCharts(timeframe, category || '', topic);  // Use empty string if category is not selected
+    }
+}
+
+async function fetchDataAndUpdateCharts(timeframe, category, topic) {
     try {
-        const response = await fetch(`/api/analytics?timeframe=${timeframe}&category=${category}`);
+        const response = await fetch(`/api/analytics?timeframe=${timeframe}&category=${category}&topic=${topic}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
+        
+        // Update your existing chart update functions
         updateRadarChart(data.radarChartData);
         updateSentimentDistribution(data.sentimentDistribution);
         updateTimeToImpactDistribution(data.timeToImpactDistribution);
@@ -736,36 +799,25 @@ function createIntegratedAnalysisChart(data) {
     Plotly.newPlot('integratedAnalysisChart', traces, layout);
 }
 
-function updateCharts() {
-    const timeframe = timeframeSelector.value;
-    const category = categorySelector.value;
-
-    console.log(`Fetching integrated analysis data for timeframe: ${timeframe}, category: ${category}`);
-
-    fetch(`/api/integrated_analysis?timeframe=${timeframe}&category=${category}`)
-        .then(response => {
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return response.json();
-        })
-        .then(data => {
-            console.log('Received data for integrated analysis:', data);
-            if (data.error) {
-                throw new Error(data.error);
-            }
-            createIntegratedAnalysisChart(data);
-        })
-        .catch(error => {
-            console.error('Error fetching or processing integrated analysis data:', error);
-            document.getElementById('integratedAnalysisChart').innerHTML = `Error loading the integrated analysis chart: ${error.message}`;
-        });
-
-    // ... rest of the updateCharts function ...
+// Add this new function to clear all charts
+function clearCharts() {
+    // Clear each chart with empty data
+    Plotly.newPlot('sentimentDistributionPie', [{ values: [], labels: [], type: 'pie' }]);
+    Plotly.newPlot('sentimentDistributionBar', [{ x: [], y: [], type: 'bar' }]);
+    Plotly.newPlot('timeToImpactPie', [{ values: [], labels: [], type: 'pie' }]);
+    Plotly.newPlot('timeToImpactBar', [{ x: [], y: [], type: 'bar' }]);
+    Plotly.newPlot('futureSignalPie', [{ values: [], labels: [], type: 'pie' }]);
+    Plotly.newPlot('futureSignalBar', [{ x: [], y: [], type: 'bar' }]);
+    Plotly.newPlot('sentimentByCategory', [{ x: [], y: [], type: 'bar' }]);
+    Plotly.newPlot('futureSignalByCategory', [{ x: [], y: [], type: 'bar' }]);
+    Plotly.newPlot('articlesBubbleChart', [{ x: [], y: [], mode: 'markers' }]);
+    Plotly.newPlot('articlesFutureTimeBubbleChart', [{ x: [], y: [], mode: 'markers' }]);
+    Plotly.newPlot('radarChart', [{ r: [], theta: [], type: 'scatterpolar' }]);
+    Plotly.newPlot('integratedAnalysisChart', [{ x: [], y: [], mode: 'markers' }]);
+    
+    // Clear article count
+    document.getElementById('articleCount').textContent = '0';
 }
-
-timeframeSelector.addEventListener('change', updateCharts);
-categorySelector.addEventListener('change', updateCharts);
 
 updateCharts();
 </script>

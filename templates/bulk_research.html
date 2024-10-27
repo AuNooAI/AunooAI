@@ -3,6 +3,15 @@
 {% block content %}
 <h1>Bulk Research</h1>
 <form id="bulkResearchForm" enctype="multipart/form-data">
+    <!-- Add Topic Selection -->
+    <div class="mb-3">
+        <label for="topicSelect" class="form-label">Select Topic</label>
+        <select class="form-select" id="topicSelect" name="topic" required>
+            <option value="">Select a topic</option>
+        </select>
+    </div>
+
+    <!-- Rest of your existing form -->
     <div class="mb-3">
         <label for="urlList" class="form-label">Enter URLs (one per line)</label>
         <textarea class="form-control" id="urlList" rows="5"></textarea>
@@ -81,11 +90,28 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    loadTopics();
     loadAvailableModels();
     setUpCustomFields();
     document.getElementById('bulkResearchForm').addEventListener('submit', handleFormSubmit);
     document.getElementById('saveAllButton').addEventListener('click', saveAllArticles);
 });
+
+function loadTopics() {
+    fetch('/api/topics')
+        .then(response => response.json())
+        .then(topics => {
+            const topicSelect = document.getElementById('topicSelect');
+            topicSelect.innerHTML = '<option value="">Select a topic</option>';
+            topics.forEach(topic => {
+                const option = document.createElement('option');
+                option.value = topic.name;
+                option.textContent = topic.name;
+                topicSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading topics:', error));
+}
 
 function loadAvailableModels() {
     fetch('/api/available_models')
@@ -119,6 +145,12 @@ function setUpCustomFields() {
 
 async function handleFormSubmit(event) {
     event.preventDefault();
+    const topic = document.getElementById('topicSelect').value;
+    if (!topic) {
+        alert('Please select a topic before analyzing articles');
+        return;
+    }
+
     const urlList = document.getElementById('urlList').value;
     const urlFile = document.getElementById('urlFile').files[0];
     const summaryLength = getSummaryLength();
@@ -139,7 +171,7 @@ async function handleFormSubmit(event) {
         return;
     }
 
-    const results = await analyzeBulkUrls(urls, summaryLength, summaryVoice, summaryType, modelName);
+    const results = await analyzeBulkUrls(urls, summaryLength, summaryVoice, summaryType, modelName, topic);
     displayResults(results);
 }
 
@@ -185,13 +217,20 @@ function getSummaryVoice() {
     return summaryVoiceSelect.value;
 }
 
-async function analyzeBulkUrls(urls, summaryLength, summaryVoice, summaryType, modelName) {
+async function analyzeBulkUrls(urls, summaryLength, summaryVoice, summaryType, modelName, topic) {
     const response = await fetch('/api/bulk-research', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ urls, summaryLength, summaryVoice, summaryType, modelName }),
+        body: JSON.stringify({ 
+            urls, 
+            summaryLength, 
+            summaryVoice, 
+            summaryType, 
+            modelName,
+            topic 
+        }),
     });
     return await response.json();
 }
@@ -224,6 +263,7 @@ function displayResults(results) {
 }
 
 async function saveAllArticles() {
+    const topic = document.getElementById('topicSelect').value;
     const rows = document.querySelectorAll('#resultsBody tr');
     const articles = Array.from(rows).map(row => {
         const article = {};
@@ -231,7 +271,7 @@ async function saveAllArticles() {
         row.querySelectorAll('input, textarea').forEach(input => {
             article[input.dataset.field] = input.value;
         });
-        // Convert tags back to an array
+        article.topic = topic;  // Add topic to each article
         if (article.tags) {
             article.tags = article.tags.split(',').map(tag => tag.trim());
         }

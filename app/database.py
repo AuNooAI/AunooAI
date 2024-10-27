@@ -3,7 +3,7 @@ import os
 import json
 from config.settings import DATABASE_DIR
 from datetime import datetime
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
@@ -307,62 +307,97 @@ class Database:
                 logger.error(f"Error deleting article: {e}", exc_info=True)
                 return False
 
-    def search_articles(self, categories, future_signals, sentiments, tags, keyword,
-                        pub_date_start, pub_date_end, page, per_page):
+    def search_articles(
+        self,
+        topic: Optional[str] = None,
+        category: Optional[List[str]] = None,
+        future_signal: Optional[List[str]] = None,
+        sentiment: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        keyword: Optional[str] = None,
+        pub_date_start: Optional[str] = None,
+        pub_date_end: Optional[str] = None,
+        page: int = 1,
+        per_page: int = 10
+    ) -> Tuple[List[Dict], int]:
+        """Search articles with filters including topic."""
+        query_conditions = []
+        params = []
+
+        # Add topic filter
+        if topic:
+            query_conditions.append("topic = ?")
+            params.append(topic)
+
+        if category:
+            placeholders = ','.join(['?' for _ in category])
+            query_conditions.append(f"category IN ({placeholders})")
+            params.extend(category)
+
+        if future_signal:
+            placeholders = ','.join(['?' for _ in future_signal])
+            query_conditions.append(f"future_signal IN ({placeholders})")
+            params.extend(future_signal)
+
+        if sentiment:
+            placeholders = ','.join(['?' for _ in sentiment])
+            query_conditions.append(f"sentiment IN ({placeholders})")
+            params.extend(sentiment)
+
+        if tags:
+            tag_conditions = []
+            for tag in tags:
+                tag_conditions.append("tags LIKE ?")
+                params.append(f"%{tag}%")
+            if tag_conditions:
+                query_conditions.append(f"({' OR '.join(tag_conditions)})")
+
+        if keyword:
+            keyword_conditions = [
+                "title LIKE ?",
+                "summary LIKE ?",
+                "category LIKE ?",
+                "future_signal LIKE ?",
+                "sentiment LIKE ?",
+                "tags LIKE ?"
+            ]
+            query_conditions.append(f"({' OR '.join(keyword_conditions)})")
+            params.extend([f"%{keyword}%"] * 6)
+
+        if pub_date_start:
+            query_conditions.append("publication_date >= ?")
+            params.append(pub_date_start)
+
+        if pub_date_end:
+            query_conditions.append("publication_date <= ?")
+            params.append(pub_date_end)
+
+        where_clause = " AND ".join(query_conditions) if query_conditions else "1=1"
+        
+        # Count total results
+        count_query = f"SELECT COUNT(*) FROM articles WHERE {where_clause}"
         with self.get_connection() as conn:
-            conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-
-            query = "SELECT * FROM articles WHERE 1=1"
-            count_query = "SELECT COUNT(*) FROM articles WHERE 1=1"
-            params = []
-
-            if categories:
-                query += " AND category IN ({})".format(','.join(['?']*len(categories)))
-                count_query += " AND category IN ({})".format(','.join(['?']*len(categories)))
-                params.extend(categories)
-            if future_signals:
-                query += " AND future_signal IN ({})".format(','.join(['?']*len(future_signals)))
-                count_query += " AND future_signal IN ({})".format(','.join(['?']*len(future_signals)))
-                params.extend(future_signals)
-            if sentiments:
-                query += " AND sentiment IN ({})".format(','.join(['?']*len(sentiments)))
-                count_query += " AND sentiment IN ({})".format(','.join(['?']*len(sentiments)))
-                params.extend(sentiments)
-            if tags:
-                query += " AND (" + " OR ".join(["tags LIKE ?" for _ in tags]) + ")"
-                count_query += " AND (" + " OR ".join(["tags LIKE ?" for _ in tags]) + ")"
-                params.extend([f"%{tag}%" for tag in tags])
-            if keyword:
-                query += " AND (title LIKE ? OR summary LIKE ?)"
-                count_query += " AND (title LIKE ? OR summary LIKE ?)"
-                params.extend([f"%{keyword}%", f"%{keyword}%"])
-            if pub_date_start:
-                query += " AND publication_date >= ?"
-                count_query += " AND publication_date >= ?"
-                params.append(pub_date_start)
-            if pub_date_end:
-                query += " AND publication_date <= ?"
-                count_query += " AND publication_date <= ?"
-                params.append(pub_date_end)
-
-            # Execute count query
             cursor.execute(count_query, params)
             total_count = cursor.fetchone()[0]
 
-            # Add pagination to the main query
-            query += " ORDER BY publication_date DESC LIMIT ? OFFSET ?"
-            params.extend([per_page, (page - 1) * per_page])
+        # Get paginated results
+        offset = (page - 1) * per_page
+        query = f"""
+            SELECT *
+            FROM articles
+            WHERE {where_clause}
+            ORDER BY submission_date DESC
+            LIMIT ? OFFSET ?
+        """
+        params.extend([per_page, offset])
 
-            # Execute main query
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
             cursor.execute(query, params)
-            articles = [dict(row) for row in cursor.fetchall()]
+            articles = [dict(zip([col[0] for col in cursor.description], row)) for row in cursor.fetchall()]
 
-            # Process tags
-            for article in articles:
-                article['tags'] = article['tags'].split(',') if article['tags'] else []
-
-            return articles, total_count
+        return articles, total_count
 
     def save_report(self, content: str) -> int:
         with self.get_connection() as conn:
@@ -436,11 +471,12 @@ class Database:
             return cursor.fetchall()
 
     def get_categories(self):
-        query = "SELECT DISTINCT category FROM articles ORDER BY category"
+        query = "SELECT DISTINCT category FROM articles WHERE category IS NOT NULL AND category != '' ORDER BY category"
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query)
             categories = [row[0] for row in cursor.fetchall()]
+        logger.debug(f"Retrieved categories from database: {categories}")
         return categories
 
 
@@ -561,3 +597,5 @@ def initialize_db():
     # This function is now synchronous and doesn't need to do anything
     # since the database is initialized when the Database object is created
     pass
+
+

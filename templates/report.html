@@ -188,12 +188,23 @@
             <div id="searchForm" class="card">
                 <h2>Search Articles</h2>
                 <form id="articleSearchForm">
+                    <!-- Add Topic Selection -->
                     <div class="mb-3">
-                        <label for="category" class="form-label">Categories</label>
-                        <select id="category" name="category" class="form-select" multiple>
-                            <!-- Options will be populated dynamically -->
+                        <label for="topicSelect" class="form-label">Topic</label>
+                        <select id="topicSelect" name="topic" class="form-select">
+                            <option value="">Select a topic</option>
                         </select>
                     </div>
+
+                    <!-- Update Category Selection -->
+                    <div class="mb-3">
+                        <label for="category" class="form-label">Categories</label>
+                        <select id="category" name="category" class="form-select" multiple disabled>
+                            <!-- Categories will be populated based on selected topic -->
+                        </select>
+                    </div>
+
+                    <!-- Rest of your existing form fields -->
                     <div class="mb-3">
                         <label for="futureSignal" class="form-label">Future Signals</label>
                         <select id="futureSignal" name="future_signal" class="form-select" multiple>
@@ -310,6 +321,12 @@ document.addEventListener('DOMContentLoaded', function() {
     saveReportBtn.addEventListener('click', saveReport);
     downloadReportBtn.addEventListener('click', downloadReport);
     articleList.addEventListener('scroll', handleScroll);
+
+    // Add topic loading and handling
+    loadTopics();
+    
+    // Add topic change event listener
+    document.getElementById('topicSelect').addEventListener('change', handleTopicChange);
 
     function populateDropdowns() {
         fetchOptions('/api/categories', 'category');
@@ -503,6 +520,55 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function toggleCustomDateRange() {
         customDateRange.style.display = dateRange.value === 'custom' ? 'block' : 'none';
+    }
+
+    function loadTopics() {
+        fetch('/api/topics')
+            .then(response => response.json())
+            .then(topics => {
+                const topicSelect = document.getElementById('topicSelect');
+                topicSelect.innerHTML = '<option value="">Select a topic</option>';
+                topics.forEach(topic => {
+                    const option = document.createElement('option');
+                    option.value = topic.name;
+                    option.textContent = topic.name;
+                    topicSelect.appendChild(option);
+                });
+            })
+            .catch(error => console.error('Error loading topics:', error));
+    }
+
+    function handleTopicChange(event) {
+        const topicName = event.target.value;
+        const categorySelect = document.getElementById('category');
+        
+        if (topicName) {
+            // Enable category select and load categories for selected topic
+            categorySelect.disabled = false;
+            loadCategoriesForTopic(topicName);
+        } else {
+            // Disable and clear category select
+            categorySelect.disabled = true;
+            categorySelect.innerHTML = '';
+            $(categorySelect).trigger('change'); // If using Select2
+        }
+    }
+
+    function loadCategoriesForTopic(topicName) {
+        fetch(`/api/categories/${encodeURIComponent(topicName)}`)
+            .then(response => response.json())
+            .then(categories => {
+                const categorySelect = document.getElementById('category');
+                categorySelect.innerHTML = '';
+                categories.forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category;
+                    option.textContent = category;
+                    categorySelect.appendChild(option);
+                });
+                $(categorySelect).trigger('change'); // If using Select2
+            })
+            .catch(error => console.error('Error loading categories:', error));
     }
 });
 </script>
