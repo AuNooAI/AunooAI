@@ -23,6 +23,7 @@ from app.bulk_research import BulkResearch
 from app.config.config import load_config, get_topic_config  # Add get_topic_config import
 import os
 from dotenv import load_dotenv
+from app.collectors.collector_factory import CollectorFactory
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -634,6 +635,55 @@ async def get_categories_for_topic(topic_name: str):
     except Exception as e:
         logger.error(f"Unexpected error getting categories for topic {topic_name}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/collect_articles")
+async def collect_articles(
+    source: str,
+    query: str,
+    topic: str,
+    max_results: int = Query(10, ge=1, le=100),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+):
+    """
+    Collect articles from specified source.
+    """
+    try:
+        collector = CollectorFactory.get_collector(source)
+        
+        # Convert date strings to datetime objects if provided
+        start_date_obj = datetime.fromisoformat(start_date) if start_date else None
+        end_date_obj = datetime.fromisoformat(end_date) if end_date else None
+        
+        articles = await collector.search_articles(
+            query=query,
+            topic=topic,
+            max_results=max_results,
+            start_date=start_date_obj,
+            end_date=end_date_obj
+        )
+        
+        return JSONResponse(content={
+            "source": source,
+            "query": query,
+            "topic": topic,
+            "article_count": len(articles),
+            "articles": articles
+        })
+        
+    except Exception as e:
+        logger.error(f"Error collecting articles: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/available_sources")
+async def get_available_sources():
+    """Get list of available article sources."""
+    return JSONResponse(content=CollectorFactory.get_available_sources())
+
+@app.get("/collect", response_class=HTMLResponse)
+async def collect_page(request: Request):
+    """Render the article collection page."""
+    return templates.TemplateResponse("collect.html", {"request": request})
 
 if __name__ == "__main__":
     import uvicorn

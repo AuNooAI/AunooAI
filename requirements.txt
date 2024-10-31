@@ -11,3 +11,6 @@ firecrawl
 sqlalchemy
 python-multipart
 anthropic
+arxiv
+pydantic-core
+pydantic-settings

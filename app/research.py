@@ -198,6 +198,13 @@ class Research:
             source = self.extract_source(uri)
             publication_date = datetime.now(timezone.utc).date().isoformat()
 
+        # Truncate article text to roughly fit within model's context length
+        # Assuming average token length is ~4 characters, and leaving room for prompt
+        max_chars = 65000  # This should be adapted to the model's context length
+        if len(article_text) > max_chars:
+            article_text = article_text[:max_chars] + "..."
+            logger.info(f"Article text truncated to {max_chars} characters")
+
         # Improved title extraction
         title_prompt = f"""
         Extract or generate an appropriate title for the following article. Follow these guidelines:

@@ -355,11 +355,13 @@ async function handleFormSubmit(event) {
     const form = event.target;
     const formData = new FormData(form);
 
-    // Add the selected topic and model to the form data
-    const selectedTopic = document.getElementById('topicSelect').value;
-    formData.append('selectedTopic', selectedTopic);
-    const selectedModel = document.getElementById('modelName').value;
-    formData.append('modelName', selectedModel);
+    // Get topic from URL parameters or select element
+    const urlParams = new URLSearchParams(window.location.search);
+    const topic = urlParams.get('topic') || document.getElementById('topicSelect').value;
+    formData.append('selectedTopic', topic);  // Make sure to append the topic
+    
+    const modelName = document.getElementById('modelName').value;
+    formData.append('modelName', modelName);
 
     // Fetch article content if not provided
     const articleContent = formData.get('articleContent');
@@ -504,21 +506,51 @@ function switchToAnalysisResultTab() {
     }
 }
 
-// Make sure to call fetchLatestArticles when the page loads
 document.addEventListener('DOMContentLoaded', function() {
+    // Get URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const articleUrl = urlParams.get('url');
+    const topic = urlParams.get('topic');
+
+    // Initialize the page
     initializeResearchPage();
     loadTopics();
 
-    const topicSelect = document.getElementById('topicSelect');
-    topicSelect.addEventListener('change', function() {
-        const selectedTopic = this.value;
-        if (selectedTopic) {
-            fetchLatestArticles(selectedTopic);
-        } else {
-            document.getElementById('latestArticles').innerHTML = '<p>Please select a topic to see recent articles.</p>';
+    // If coming from article collection
+    if (articleUrl && topic) {
+        // Set the topic and hide topic selection
+        const topicSelect = document.getElementById('topicSelect');
+        if (topicSelect) {
+            topicSelect.value = topic;
+            document.getElementById('topicSelector').style.display = 'none';
         }
-    });
+        
+        // Show research content and set URL
+        document.getElementById('researchContent').style.display = 'block';
+        document.getElementById('articleUrl').value = articleUrl;
+
+        // Fetch latest articles for the selected topic
+        fetchLatestArticles(topic);
+    }
 });
+
+// Make loadTopics return a promise
+async function loadTopics() {
+    try {
+        const response = await fetch('/api/topics');
+        const topics = await response.json();
+        const topicSelect = document.getElementById('topicSelect');
+        topicSelect.innerHTML = '<option value="">Select a topic</option>';
+        topics.forEach(topic => {
+            const option = document.createElement('option');
+            option.value = topic.name;
+            option.textContent = topic.name;
+            topicSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading topics:', error);
+    }
+}
 
 function initializeResearchPage() {
     // Add event listeners
@@ -533,28 +565,6 @@ function initializeResearchPage() {
 
     const topicSelect = document.getElementById('topicSelect');
     topicSelect.addEventListener('change', handleTopicChange);
-}
-
-function loadTopics() {
-    fetch('/api/topics')
-        .then(response => response.json())
-        .then(topics => {
-            const topicSelect = document.getElementById('topicSelect');
-            topicSelect.innerHTML = '<option value="">Select a topic</option>'; // Clear existing options
-            topics.forEach(topic => {
-                const option = document.createElement('option');
-                option.value = topic.name;
-                option.textContent = topic.name;
-                topicSelect.appendChild(option);
-            });
-            // Remove the auto-selection of default topic
-            document.getElementById('researchContent').style.display = 'none'; // Hide research content initially
-        })
-        .catch(error => {
-            console.error('Error loading topics:', error);
-            const topicSelect = document.getElementById('topicSelect');
-            topicSelect.innerHTML = '<option value="">Error loading topics</option>';
-        });
 }
 
 function handleTopicChange(event) {

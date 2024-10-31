@@ -129,47 +129,66 @@
 {% endblock %}
 
 {% block content %}
-<div class="container">
+<div class="container mt-5">
     <h1 class="mb-4">Functional News Addict App</h1>
     <p class="lead">What do you want to do?</p>
-    <div class="row mt-4">
-        <div class="col-md-3">
-            <div class="card">
+    <div class="row">
+        <!-- Research Card -->
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">Research</h5>
-                    <p class="card-text">Research and analyze news articles.</p>
+                    <p class="card-text">Analyze articles using AI to extract insights about future trends, sentiment, and impact.</p>
                     <a href="/research" class="btn btn-primary">Go to Research</a>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card">
+
+        <!-- Analytics Card -->
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">Analytics</h5>
-                    <p class="card-text">View news analytics and trends.</p>
+                    <p class="card-text">View analytics and insights from your analyzed articles.</p>
                     <a href="/analytics" class="btn btn-primary">Go to Analytics</a>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card">
+
+        <!-- Article Collection Card -->
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">Article Collection</h5>
+                    <p class="card-text">Search and collect articles from various sources like ArXiv based on topics and keywords.</p>
+                    <a href="/collect" class="btn btn-primary">Go to Article Collection</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Report Card -->
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">Report</h5>
-                    <p class="card-text">Generate and export reports.</p>
+                    <p class="card-text">Generate comprehensive reports from your analyzed articles.</p>
                     <a href="/report" class="btn btn-primary">Go to Report</a>
                 </div>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="card">
+
+        <!-- Configuration Card -->
+        <div class="col-md-6 mb-4">
+            <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">Configuration</h5>
-                    <p class="card-text">Manage application settings.</p>
+                    <p class="card-text">Configure AI models and application settings.</p>
                     <a href="/config" class="btn btn-primary">Go to Configuration</a>
                 </div>
             </div>
         </div>
     </div>
+</div>
 
 <script>
 // Your existing JavaScript code here
