@@ -57,6 +57,18 @@
     </div>
 </div>
 
+<!-- Add this section to your existing config form -->
+<div class="mb-4">
+    <h3>NewsAPI Configuration</h3>
+    <form id="newsapiConfigForm">
+        <div class="mb-3">
+            <label for="newsapiKey" class="form-label">NewsAPI Key</label>
+            <input type="password" class="form-control" id="newsapiKey" required>
+        </div>
+        <button type="submit" class="btn btn-primary">Save NewsAPI Key</button>
+    </form>
+</div>
+
 <script>
     let activeDatabase = '';
 
@@ -311,6 +323,30 @@
 
     // Load models when the page loads
     loadAvailableModels();
+
+    document.getElementById('newsapiConfigForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const key = document.getElementById('newsapiKey').value;
+        
+        try {
+            const response = await fetch('/api/config/newsapi', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ api_key: key })
+            });
+            
+            if (response.ok) {
+                alert('NewsAPI key saved successfully');
+            } else {
+                throw new Error('Failed to save NewsAPI key');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            alert('Error saving NewsAPI key');
+        }
+    });
 </script>
 
 <style>

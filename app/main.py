@@ -685,6 +685,48 @@ async def collect_page(request: Request):
     """Render the article collection page."""
     return templates.TemplateResponse("collect.html", {"request": request})
 
+@app.post("/api/config/newsapi")
+async def save_newsapi_config(data: dict):
+    """Save NewsAPI configuration."""
+    try:
+        api_key = data.get('api_key')
+        if not api_key:
+            raise HTTPException(status_code=400, detail="API key is required")
+
+        # Update .env file
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        env_content = []
+        
+        # Read existing content
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                env_content = f.readlines()
+
+        # Update or add NewsAPI key
+        newsapi_line = f'NEWSAPI_KEY="{api_key}"\n'
+        newsapi_found = False
+        
+        for i, line in enumerate(env_content):
+            if line.startswith('NEWSAPI_KEY='):
+                env_content[i] = newsapi_line
+                newsapi_found = True
+                break
+        
+        if not newsapi_found:
+            env_content.append(newsapi_line)
+
+        # Write back to .env file
+        with open(env_path, 'w') as f:
+            f.writelines(env_content)
+
+        # Update environment variable
+        os.environ['NEWSAPI_KEY'] = api_key
+        
+        return JSONResponse(content={"message": "NewsAPI configuration saved successfully"})
+    except Exception as e:
+        logger.error(f"Error saving NewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

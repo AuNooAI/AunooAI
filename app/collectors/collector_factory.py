@@ -1,12 +1,14 @@
 from typing import Dict, Type, List
 from .base_collector import ArticleCollector
 from .arxiv_collector import ArxivCollector
+from .newsapi_collector import NewsAPICollector
 
 class CollectorFactory:
     """Factory for creating article collectors."""
     
     _collectors: Dict[str, Type[ArticleCollector]] = {
-        'arxiv': ArxivCollector
+        'arxiv': ArxivCollector,
+        'newsapi': NewsAPICollector
     }
 
     @classmethod

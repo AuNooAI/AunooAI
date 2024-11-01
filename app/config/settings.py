@@ -2,6 +2,9 @@ import json
 import os
 from typing import Dict
 
+# Add this near the top with other settings
+NEWSAPI_KEY = '2681933b8eef47749950d0f1d159d8b7'
+
 def load_config() -> Dict:
     """Load configuration with support for topics."""
     config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
