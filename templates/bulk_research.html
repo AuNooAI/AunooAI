@@ -63,6 +63,11 @@
     </div>
     <button type="submit" class="btn btn-primary">Analyze</button>
 </form>
+
+<!-- Add this results container -->
+<div id="results" class="mt-4"></div>
+
+<!-- Results table (keep your existing table) -->
 <div id="resultsTable" class="mt-4" style="display: none;">
     <h2>Analysis Results</h2>
     <table class="table table-striped">
@@ -143,63 +148,129 @@ function setUpCustomFields() {
     });
 }
 
-async function handleFormSubmit(event) {
-    event.preventDefault();
-    const topic = document.getElementById('topicSelect').value;
-    if (!topic) {
-        alert('Please select a topic before analyzing articles');
-        return;
+async function analyzeBulkUrls(requestData) {
+    try {
+        console.log('Sending request data:', requestData);
+        const response = await fetch('/api/bulk-research', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        console.log('Response status:', response.status);
+        console.log('Response headers:', Object.fromEntries(response.headers));
+
+        const responseText = await response.text();
+        console.log('Raw response text:', responseText);
+
+        let data;
+        try {
+            data = JSON.parse(responseText);
+            console.log('Parsed response data:', data);
+        } catch (error) {
+            console.error('JSON parse error:', error);
+            throw new Error(`Failed to parse response: ${responseText.substring(0, 100)}...`);
+        }
+
+        if (!response.ok) {
+            console.error('Response not OK:', data);
+            throw new Error(data.error || `Server error: ${response.status}`);
+        }
+
+        if (!data || typeof data !== 'object') {
+            console.error('Invalid response data type:', typeof data);
+            throw new Error('Server returned invalid data type');
+        }
+
+        // Check if data is an array (direct results) or has a results property
+        const results = Array.isArray(data) ? data : data.results;
+        
+        if (!results) {
+            console.error('No results found in response:', data);
+            throw new Error('Server returned no results array');
+        }
+
+        return results;
+    } catch (error) {
+        console.error('Error in analyzeBulkUrls:', error);
+        throw error;
     }
-
-    const urlList = document.getElementById('urlList').value;
-    const urlFile = document.getElementById('urlFile').files[0];
-    const summaryLength = getSummaryLength();
-    const summaryVoice = getSummaryVoice();
-    const summaryType = document.getElementById('summaryType').value;
-    const modelName = document.getElementById('modelName').value;
-
-    let urls = [];
-    if (urlList) {
-        urls = urlList.split('\n').filter(url => url.trim() !== '');
-    } else if (urlFile) {
-        const fileContent = await urlFile.text();
-        urls = fileContent.split('\n').filter(url => url.trim() !== '');
-    }
-
-    if (urls.length === 0) {
-        alert('Please enter URLs or upload a file containing URLs.');
-        return;
-    }
-
-    const results = await analyzeBulkUrls(urls, summaryLength, summaryVoice, summaryType, modelName, topic);
-    displayResults(results);
 }
 
-document.getElementById('bulkResearchForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const urlList = document.getElementById('urlList').value;
-    const urlFile = document.getElementById('urlFile').files[0];
-    const summaryLength = getSummaryLength();
-    const summaryVoice = getSummaryVoice();
-    const summaryType = document.getElementById('summaryType').value;
-    const modelName = document.getElementById('modelName').value;
+async function handleFormSubmit(event) {
+    event.preventDefault();
+    const submitButton = document.querySelector('button[type="submit"]');
+    const resultsContainer = document.getElementById('results');
+    const resultsTable = document.getElementById('resultsTable');
+    
+    try {
+        // Disable submit button and show loading state
+        submitButton.disabled = true;
+        if (resultsContainer) {
+            resultsContainer.innerHTML = '<div class="alert alert-info">Processing...</div>';
+        }
+        if (resultsTable) {
+            resultsTable.style.display = 'none';
+        }
 
-    let urls = [];
-    if (urlList) {
-        urls = urlList.split('\n').filter(url => url.trim() !== '');
-    } else if (urlFile) {
-        const fileContent = await urlFile.text();
-        urls = fileContent.split('\n').filter(url => url.trim() !== '');
+        const topic = document.getElementById('topicSelect').value;
+        if (!topic) {
+            throw new Error('Please select a topic before analyzing articles');
+        }
+
+        const urlList = document.getElementById('urlList').value;
+        const urlFile = document.getElementById('urlFile').files[0];
+        
+        let urls = [];
+        if (urlList) {
+            urls = urlList.split('\n').filter(url => url.trim() !== '');
+        } else if (urlFile) {
+            const fileContent = await urlFile.text();
+            urls = fileContent.split('\n').filter(url => url.trim() !== '');
+        }
+
+        if (urls.length === 0) {
+            throw new Error('Please enter URLs or upload a file containing URLs.');
+        }
+
+        const requestData = {
+            urls,
+            summaryType: document.getElementById('summaryType').value,
+            modelName: document.getElementById('modelName').value,
+            summaryLength: getSummaryLength(),
+            summaryVoice: getSummaryVoice(),
+            topic
+        };
+
+        const results = await analyzeBulkUrls(requestData);
+        
+        // Display results in both containers
+        if (resultsContainer) {
+            displayResults(results);
+        }
+        if (resultsTable) {
+            displayResultsTable(results);
+            resultsTable.style.display = 'block';
+        }
+        
+    } catch (error) {
+        console.error('Error:', error);
+        if (resultsContainer) {
+            resultsContainer.innerHTML = `
+                <div class="alert alert-danger">
+                    ${error.message}
+                </div>`;
+        }
+        if (resultsTable) {
+            resultsTable.style.display = 'none';
+        }
+    } finally {
+        submitButton.disabled = false;
     }
-
-    if (urls.length === 0) {
-        alert('Please enter URLs or upload a file containing URLs.');
-        return;
-    }
-
-    const results = await analyzeBulkUrls(urls, summaryLength, summaryVoice, summaryType, modelName);
-    displayResults(results, summaryType);
-});
+}
 
 function getSummaryLength() {
     const summaryLengthSelect = document.getElementById('summaryLength');
@@ -217,49 +288,71 @@ function getSummaryVoice() {
     return summaryVoiceSelect.value;
 }
 
-async function analyzeBulkUrls(urls, summaryLength, summaryVoice, summaryType, modelName, topic) {
-    const response = await fetch('/api/bulk-research', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-            urls, 
-            summaryLength, 
-            summaryVoice, 
-            summaryType, 
-            modelName,
-            topic 
-        }),
+function displayResults(results) {
+    const resultsContainer = document.getElementById('results');
+    if (!resultsContainer) return;
+
+    if (!Array.isArray(results) || results.length === 0) {
+        resultsContainer.innerHTML = `
+            <div class="alert alert-info">
+                No results to display
+            </div>`;
+        return;
+    }
+
+    const resultsList = document.createElement('div');
+    resultsList.className = 'results-list';
+
+    results.forEach(result => {
+        const resultElement = document.createElement('div');
+        resultElement.className = 'result-item card mb-3';
+        resultElement.innerHTML = `
+            <div class="card-body">
+                <h3 class="card-title">${result.title || 'No title'}</h3>
+                <p class="card-text"><strong>URL:</strong> ${result.uri}</p>
+                <p class="card-text"><strong>Summary:</strong> ${result.summary}</p>
+                <p class="card-text"><strong>Sentiment:</strong> ${result.sentiment}</p>
+                <p class="card-text"><strong>Category:</strong> ${result.category}</p>
+                <p class="card-text"><strong>Future Signal:</strong> ${result.future_signal}</p>
+                <p class="card-text"><strong>Tags:</strong> ${Array.isArray(result.tags) ? result.tags.join(', ') : result.tags || 'No tags'}</p>
+            </div>
+        `;
+        resultsList.appendChild(resultElement);
     });
-    return await response.json();
+
+    resultsContainer.innerHTML = '';
+    resultsContainer.appendChild(resultsList);
 }
 
-function displayResults(results) {
+function displayResultsTable(results) {
     const resultsBody = document.getElementById('resultsBody');
+    if (!resultsBody) return;
+
+    if (!Array.isArray(results) || results.length === 0) {
+        resultsBody.innerHTML = '<tr><td colspan="13" class="text-center">No results to display</td></tr>';
+        return;
+    }
+
     resultsBody.innerHTML = '';
-    results.forEach((result, index) => {
+    results.forEach(result => {
         const row = document.createElement('tr');
         row.innerHTML = `
-            <td>${result.uri}</td>
-            <td><input type="text" class="form-control" value="${result.title || ''}" data-field="title"></td>
-            <td><input type="text" class="form-control" value="${result.news_source || ''}" data-field="news_source"></td>
-            <td><input type="date" class="form-control" value="${result.publication_date || ''}" data-field="publication_date"></td>
-            <td><textarea class="form-control" data-field="summary">${result.summary || ''}</textarea></td>
-            <td><input type="text" class="form-control" value="${result.category || ''}" data-field="category"></td>
-            <td><input type="text" class="form-control" value="${result.future_signal || ''}" data-field="future_signal"></td>
-            <td><textarea class="form-control" data-field="future_signal_explanation">${result.future_signal_explanation || ''}</textarea></td>
-            <td><input type="text" class="form-control" value="${result.sentiment || ''}" data-field="sentiment"></td>
-            <td><textarea class="form-control" data-field="sentiment_explanation">${result.sentiment_explanation || ''}</textarea></td>
-            <td><input type="text" class="form-control" value="${result.time_to_impact || ''}" data-field="time_to_impact"></td>
-            <td><textarea class="form-control" data-field="time_to_impact_explanation">${result.time_to_impact_explanation || ''}</textarea></td>
-            <td><input type="text" class="form-control" value="${result.driver_type || ''}" data-field="driver_type"></td>
-            <td><textarea class="form-control" data-field="driver_type_explanation">${result.driver_type_explanation || ''}</textarea></td>
-            <td><input type="text" class="form-control" value="${result.tags ? result.tags.join(', ') : ''}" data-field="tags"></td>
+            <td>${result.uri || ''}</td>
+            <td>${result.title || ''}</td>
+            <td>${result.summary || ''}</td>
+            <td>${result.sentiment || ''}</td>
+            <td>${result.sentiment_explanation || ''}</td>
+            <td>${result.category || ''}</td>
+            <td>${result.future_signal || ''}</td>
+            <td>${result.future_signal_explanation || ''}</td>
+            <td>${result.time_to_impact || ''}</td>
+            <td>${result.time_to_impact_explanation || ''}</td>
+            <td>${result.driver_type || ''}</td>
+            <td>${result.driver_type_explanation || ''}</td>
+            <td>${Array.isArray(result.tags) ? result.tags.join(', ') : (result.tags || '')}</td>
         `;
         resultsBody.appendChild(row);
     });
-    document.getElementById('resultsTable').style.display = 'block';
 }
 
 async function saveAllArticles() {

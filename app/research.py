@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.database import Database, SessionLocal
 from dotenv import load_dotenv
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
+from app.database import Database  # Move import here to avoid circular import
     
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -19,19 +20,39 @@ logger = logging.getLogger(__name__)
 class Research:
     DEFAULT_TOPIC = "AI and Machine Learning"
 
-    def __init__(self, db: Database):
-        if not isinstance(db, Database):
-            logger.error(f"Expected Database instance, got {type(db)}")
-            raise TypeError("db must be an instance of Database")
-        self.db = db
-        self.current_topic = self.DEFAULT_TOPIC  # Set default topic before loading config
-        self.topic_configs = {}  # Initialize topic_configs before loading config
-        self.load_config()
+    def __init__(self, db):
+        logger.debug("Initializing Research class")
+        logger.debug(f"Input db type: {type(db)}")
+        
+        try:
+            # Update required methods to match actual Database class methods
+            required_methods = ['get_connection', 'save_raw_article', 'get_raw_article']
+            
+            if isinstance(db, Session):
+                logger.debug("Converting Session to Database")
+                from app.database import Database
+                self.db = Database()
+                self.session = db
+            elif hasattr(db, 'get_connection'):  # Check for the main required method
+                logger.debug("Using provided Database instance")
+                self.db = db
+                self.session = None
+            else:
+                logger.error(f"Invalid database instance. Missing required methods.")
+                raise TypeError("Database instance must implement required methods")
+                
+            self.current_topic = self.DEFAULT_TOPIC
+            self.topic_configs = {}
+            self.load_config()
+            
+        except Exception as e:
+            logger.error(f"Error in Research initialization: {str(e)}", exc_info=True)
+            raise
         if not os.path.exists('.env'):
             raise FileNotFoundError("The .env file does not exist. Please create it and add the necessary environment variables.")
         load_dotenv()
         self.available_models = ai_get_available_models()
-        self.ai_model = None  # We'll set this when a model is selected
+        self.ai_model = None
         self.firecrawl_app = self.initialize_firecrawl()
 
     def load_config(self):
@@ -449,6 +470,12 @@ class Research:
         except Exception as e:
             logger.error(f"Error loading categories: {str(e)}", exc_info=True)
             return []
+
+
+
+
+
+
 
 
 

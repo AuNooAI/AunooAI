@@ -23,10 +23,15 @@ from app.bulk_research import BulkResearch
 from app.config.config import load_config, get_topic_config  # Add get_topic_config import
 import os
 from dotenv import load_dotenv
+from app.routers import bulk_research  # Add this import
 from app.collectors.collector_factory import CollectorFactory
 
-logging.basicConfig(level=logging.INFO)
+# Set up logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 app = FastAPI()
 
@@ -38,6 +43,7 @@ templates = Jinja2Templates(directory="templates")
 
 # Initialize components
 db = Database()
+logger.debug(f"Created database instance: {type(db)}")
 research = Research(db)
 print(f"Database initialized and updated in main.py: {db.db_path}")
 logging.debug(f"Created Research instance with categories: {research.CATEGORIES}")
@@ -727,7 +733,9 @@ async def save_newsapi_config(data: dict):
         logger.error(f"Error saving NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# Include the bulk research router
+app.include_router(bulk_research.router)
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
