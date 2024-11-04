@@ -23,7 +23,7 @@ from app.bulk_research import BulkResearch
 from app.config.config import load_config, get_topic_config  # Add get_topic_config import
 import os
 from dotenv import load_dotenv
-from app.routers import bulk_research  # Add this import
+#from app.routers import bulk_research  # Add this import
 from app.collectors.collector_factory import CollectorFactory
 
 # Set up logging
@@ -176,7 +176,7 @@ async def save_bulk_articles(
     db: Database = Depends(get_db)
 ):
     articles = data.get('articles', [])
-    bulk_research = BulkResearch(db, research)
+    bulk_research = BulkResearch(db)
     results = await bulk_research.save_bulk_articles(articles)
     return JSONResponse(content=results)
 
@@ -391,16 +391,16 @@ async def get_categories(research: Research = Depends(get_research)):
         raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
 
 @app.get("/api/future_signals")
-async def get_future_signals():
-    return JSONResponse(content=config.get('future_signals', []))
+async def get_future_signals(research: Research = Depends(get_research)):
+    return await research.get_future_signals()
 
 @app.get("/api/sentiments")
-async def get_sentiments():
-    return JSONResponse(content=config.get('sentiment', []))
+async def get_sentiments(research: Research = Depends(get_research)):
+    return await research.get_sentiments()
 
 @app.get("/api/time_to_impact")
-async def get_time_to_impact():
-    return JSONResponse(content=config.get('time_to_impact', []))
+async def get_time_to_impact(research: Research = Depends(get_research)):
+    return await research.get_time_to_impact()
 
 @app.get("/api/latest_articles")
 async def get_latest_articles(topic_name: Optional[str] = None):
@@ -733,8 +733,6 @@ async def save_newsapi_config(data: dict):
         logger.error(f"Error saving NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Include the bulk research router
-app.include_router(bulk_research.router)
 
 if __name__ == "__main__":
     import uvicorn

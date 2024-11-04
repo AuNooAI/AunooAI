@@ -105,9 +105,10 @@ class BulkResearch:
         }
         for article in articles:
             try:
+                print('Saving article:', article)  # Debug log
                 # Ensure all required fields are present
                 required_fields = [
-                    'title', 'uri', 'news_source' 'summary', 'sentiment', 'time_to_impact',
+                    'title', 'uri', 'news_source', 'summary', 'sentiment', 'time_to_impact',
                     'category', 'future_signal', 'future_signal_explanation', 'publication_date',
                     'sentiment_explanation', 'time_to_impact_explanation', 'tags', 'driver_type',
                     'driver_type_explanation'

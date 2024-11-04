@@ -10,8 +10,7 @@
             <option value="">Select a topic</option>
         </select>
     </div>
-
-    <!-- Rest of your existing form -->
+    <!-- Configure Multiselect Options-->
     <div class="mb-3">
         <label for="urlList" class="form-label">Enter URLs (one per line)</label>
         <textarea class="form-control" id="urlList" rows="5"></textarea>
@@ -67,31 +66,67 @@
 <!-- Add this results container -->
 <div id="results" class="mt-4"></div>
 
-<!-- Results table (keep your existing table) -->
+<!-- Results table -->
 <div id="resultsTable" class="mt-4" style="display: none;">
     <h2>Analysis Results</h2>
     <table class="table table-striped">
         <thead>
             <tr>
+                <th>Select</th>
                 <th>URL</th>
                 <th>Title</th>
                 <th>Summary</th>
+                <th>News Source</th>
+                <th>Category</th>
+                <th>Time to Impact</th>
+                <th> Time to Impact Explanation</th>
                 <th>Sentiment</th>
                 <th>Sentiment Explanation</th>
-                <th>Category</th>
                 <th>Future Signal</th>
                 <th>Future Signal Explanation</th>
-                <th>Time to Impact</th>
-                <th>Time to Impact Explanation</th>
                 <th>Driver Type</th>
                 <th>Driver Type Explanation</th>
+                <th>Publication Date</th>
+                <th>Submission Date</th>
                 <th>Tags</th>
             </tr>
         </thead>
-        <tbody id="resultsBody"></tbody>
+        <tbody id="resultsBody">
+            <!-- Rows will be dynamically added here -->
+        </tbody>
     </table>
     <button id="saveAllButton" class="btn btn-primary mt-3">Save All Articles</button>
 </div>
+
+<style>
+    #bulkResearchForm {
+        background-color: #f9f9f9;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    #bulkResearchForm .form-label {
+        font-weight: bold;
+        color: #333;
+    }
+
+    #bulkResearchForm .form-control, #bulkResearchForm .form-select {
+        border-radius: 4px;
+        border: 1px solid #ccc;
+        margin-bottom: 15px;
+    }
+
+    #bulkResearchForm .btn-primary {
+        background-color: #007bff;
+        border-color: #007bff;
+        transition: background-color 0.3s ease;
+    }
+
+    #bulkResearchForm .btn-primary:hover {
+        background-color: #0056b3;
+    }
+</style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -329,47 +364,67 @@ function displayResultsTable(results) {
     if (!resultsBody) return;
 
     if (!Array.isArray(results) || results.length === 0) {
-        resultsBody.innerHTML = '<tr><td colspan="13" class="text-center">No results to display</td></tr>';
+        resultsBody.innerHTML = '<tr><td colspan="14" class="text-center">No results to display</td></tr>';
         return;
     }
 
     resultsBody.innerHTML = '';
     results.forEach(result => {
+        console.log('Processing result:', result); // Debug log
         const row = document.createElement('tr');
         row.innerHTML = `
+            <td><input type="checkbox" class="article-checkbox" data-uri="${result.uri}"></td>
             <td>${result.uri || ''}</td>
-            <td>${result.title || ''}</td>
-            <td>${result.summary || ''}</td>
-            <td>${result.sentiment || ''}</td>
-            <td>${result.sentiment_explanation || ''}</td>
-            <td>${result.category || ''}</td>
-            <td>${result.future_signal || ''}</td>
-            <td>${result.future_signal_explanation || ''}</td>
-            <td>${result.time_to_impact || ''}</td>
-            <td>${result.time_to_impact_explanation || ''}</td>
-            <td>${result.driver_type || ''}</td>
-            <td>${result.driver_type_explanation || ''}</td>
-            <td>${Array.isArray(result.tags) ? result.tags.join(', ') : (result.tags || '')}</td>
+            <td>${result.title || 'N/A'}</td>
+            <td>${result.summary || 'N/A'}</td>
+            <td>${result.news_source || 'N/A'}</td>
+            <td>${result.category || 'N/A'}</td>
+            <td>${result.time_to_impact || 'N/A'}</td>
+            <td>${result.time_to_impact_explanation || 'N/A'}</td>
+            <td>${result.sentiment || 'N/A'}</td>
+            <td>${result.sentiment_explanation || 'N/A'}</td>
+            <td>${result.future_signal || 'N/A'}</td>
+            <td>${result.future_signal_explanation || 'N/A'}</td>
+            <td>${result.driver_type || 'N/A'}</td>
+            <td>${result.driver_type_explanation || 'N/A'}</td>
+            <td>${result.publication_date || 'N/A'}</td>
+            <td>${result.submission_date || 'N/A'}</td>
+            <td>${Array.isArray(result.tags) ? result.tags.join(', ') : 'N/A'}</td>
         `;
         resultsBody.appendChild(row);
     });
 }
 
-async function saveAllArticles() {
-    const topic = document.getElementById('topicSelect').value;
-    const rows = document.querySelectorAll('#resultsBody tr');
-    const articles = Array.from(rows).map(row => {
-        const article = {};
-        article.uri = row.cells[0].textContent;
-        row.querySelectorAll('input, textarea').forEach(input => {
-            article[input.dataset.field] = input.value;
-        });
-        article.topic = topic;  // Add topic to each article
-        if (article.tags) {
-            article.tags = article.tags.split(',').map(tag => tag.trim());
-        }
-        return article;
+function collectSelectedArticles() {
+    const selectedCheckboxes = document.querySelectorAll('#resultsBody .article-checkbox:checked');
+    const articles = Array.from(selectedCheckboxes).map(checkbox => {
+        const row = checkbox.closest('tr');
+        return {
+            uri: row.cells[1].textContent.trim(),
+            title: row.cells[2].textContent.trim(),
+            summary: row.cells[3].textContent.trim(),
+            news_source: row.cells[4].textContent.trim(),
+            category: row.cells[5].textContent.trim(),
+            time_to_impact: row.cells[6].textContent.trim(),
+            time_to_impact_explanation: row.cells[7].textContent.trim(),
+            sentiment: row.cells[8].textContent.trim(),
+            sentiment_explanation: row.cells[9].textContent.trim(),
+            future_signal: row.cells[10].textContent.trim(),
+            future_signal_explanation: row.cells[11].textContent.trim(),
+            driver_type: row.cells[12].textContent.trim(),
+            driver_type_explanation: row.cells[13].textContent.trim(),
+            publication_date: row.cells[14].textContent.trim(),
+            submission_date: row.cells[15].textContent.trim(),
+            tags: row.cells[16].textContent.trim(),
+            topic: document.getElementById('topicSelect').value
+        };
     });
+    return articles;
+}
+
+async function saveAllArticles() {
+    const articles = collectSelectedArticles();
+    console.log('Articles to save:', articles); // Debug log
 
     const response = await fetch('/api/save-bulk-articles', {
         method: 'POST',
