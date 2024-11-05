@@ -1,8 +1,0 @@
-app/
-├── routers/
-│   ├── __init__.py
-│   ├── bulk_research.py
-│   └── other_routers.py
-├── main.py
-└── ...
-
