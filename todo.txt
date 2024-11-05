@@ -2,8 +2,9 @@
 
 Features/Enhancements
 - Added Bulk Article Submission to the Index page
-- bulk_research: Add a toggle to steer behavior when articles exist in the database. Fetch new, or Use Old
-
+- bulk_research:
+1. Add a toggle to steer behavior when articles exist in the database. Fetch new, or Use Old.
+2.
 
 Todo:
 - Collect Articles: Add a feature to multiselect articles and send them to /bulk-research
@@ -12,9 +13,6 @@ Todo:
 Bugs
 bulk_research.py
 APp says it is saving the articles. Where????
-- Research.py
-Sentiment, Time to impact, And Future Signal are not being populated anymore. The dropdowns also lack the selections
-
 
 
 - Article Collection: 

@@ -351,7 +351,7 @@ class Research:
             "tags": parsed_analysis.get("Tags", "").strip('[]').replace(' ', '').split(','),
             "driver_type": parsed_analysis.get("Driver Type", ""),
             "driver_type_explanation": parsed_analysis.get("Driver Type Explanation", ""),
-            "topic": topic  # Make sure this line is present
+            "topic": topic  
         }
 
     def extract_source(self, uri):
@@ -364,7 +364,7 @@ class Research:
     async def save_article(self, article_data):
         # Ensure all required fields are present
         required_fields = ['title', 'uri', 'news_source', 'summary', 'sentiment', 'time_to_impact', 
-                           'category', 'future_signal', 'future_signal_explanation', 'publication_date', 
+                           'category', 'future_signal', 'future_signal_explanation', 'publication_date', 'topic',
                            'sentiment_explanation', 'time_to_impact_explanation', 'tags', 'driver_type', 'driver_type_explanation']
         
         for field in required_fields:

@@ -7,6 +7,7 @@ from app.analysis_types import get_analysis_type
 from app.ai_models import get_ai_model
 import logging
 import traceback
+import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +68,9 @@ class BulkResearch:
                     model_name=model_name
                 )
 
-                # Add news source
+                # Add news source and submission date
                 result["news_source"] = self.extract_source(url)
+                result["submission_date"] = datetime.datetime.now().date().isoformat()
                 results.append(result)
                 logger.debug(f"Successfully analyzed URL: {url}")
                 
@@ -92,6 +94,7 @@ class BulkResearch:
                     "tags": [],
                     "news_source": "N/A",
                     "publication_date": "N/A",
+                    "submission_date": datetime.datetime.now().date().isoformat(),
                     "topic": topic
                 })
 
@@ -111,7 +114,7 @@ class BulkResearch:
                     'title', 'uri', 'news_source', 'summary', 'sentiment', 'time_to_impact',
                     'category', 'future_signal', 'future_signal_explanation', 'publication_date',
                     'sentiment_explanation', 'time_to_impact_explanation', 'tags', 'driver_type',
-                    'driver_type_explanation'
+                    'driver_type_explanation', 'submission_date', 'topic'
                 ]
                 
                 for field in required_fields:
@@ -164,6 +167,7 @@ class BulkResearch:
             "driver_type": parsed_analysis.get("Driver Type", ""),
             "driver_type_explanation": parsed_analysis.get("Driver Type Explanation", ""),
             "tags": parsed_analysis.get("Tags", "").strip('[]').replace(' ', '').split(','),
+            #"topic": topic  
         }
 
     def parse_axios_analysis(self, analysis: str) -> Dict:

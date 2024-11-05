@@ -268,15 +268,15 @@ class Database:
             INSERT INTO articles (
             title, uri, news_source, summary, sentiment, time_to_impact, category, 
             future_signal, future_signal_explanation, publication_date, sentiment_explanation, 
-            time_to_impact_explanation, tags, driver_type, driver_type_explanation, submission_date
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            time_to_impact_explanation, tags, driver_type, driver_type_explanation, submission_date, topic
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             params = (
                 article_data['title'], article_data['uri'], article_data['news_source'],
                 article_data['summary'], article_data['sentiment'], article_data['time_to_impact'],
                 article_data['category'], article_data['future_signal'], article_data['future_signal_explanation'],
                 article_data['publication_date'], article_data['sentiment_explanation'],
-                article_data['time_to_impact_explanation'], 
+                article_data['time_to_impact_explanation'], article_data['topic'], 
                 ','.join(article_data['tags']) if isinstance(article_data['tags'], list) else article_data['tags'],
                 article_data['driver_type'], article_data['driver_type_explanation'],
                 article_data['submission_date']
