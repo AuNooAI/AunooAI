@@ -276,10 +276,10 @@ class Database:
                 article_data['summary'], article_data['sentiment'], article_data['time_to_impact'],
                 article_data['category'], article_data['future_signal'], article_data['future_signal_explanation'],
                 article_data['publication_date'], article_data['sentiment_explanation'],
-                article_data['time_to_impact_explanation'], article_data['topic'], 
+                article_data['time_to_impact_explanation'], 
                 ','.join(article_data['tags']) if isinstance(article_data['tags'], list) else article_data['tags'],
-                article_data['driver_type'], article_data['driver_type_explanation'],
-                article_data['submission_date']
+                article_data['driver_type'], article_data['driver_type_explanation'], 
+                article_data['submission_date'], article_data['topic']
             )
             
             try:
