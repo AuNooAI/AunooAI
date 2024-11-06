@@ -97,8 +97,11 @@
     </div>
     <!-- Configure Multiselect Options-->
     <div class="mb-3">
-        <label for="urlList" class="form-label">Enter URLs (one per line)</label>
+        <label for="urlList" class="form-label">Enter URLs (one per line, maximum 20)</label>
         <textarea class="form-control" id="urlList" rows="5"></textarea>
+        <div id="urlCountWarning" class="text-danger mt-1" style="display: none;">
+            Maximum 20 URLs allowed. Please reduce the number of URLs.
+        </div>
     </div>
     <div class="mb-3">
         <label for="urlFile" class="form-label">Or upload a file with URLs</label>
@@ -145,16 +148,11 @@
             <!-- This will be populated dynamically -->
         </select>
     </div>
-    <div class="mb-3">
-        <label for="articleCountSlider" class="form-label">Number of Articles to Analyze</label>
-        <input type="range" class="form-range" id="articleCountSlider" name="articleCount" min="1" max="25" value="20" oninput="updateArticleCountLabel(this.value)">
-        <span id="articleCountLabel">20</span>
-    </div>
     <button type="submit" class="btn btn-primary">Analyze</button>
 </form>
 
 <!-- Add this results container -->
-<div id="results" class="mt-4"></div>
+<!-- <div id="results" class="mt-4"></div> -->
 
 <!-- Results table -->
 <div id="resultsTable" class="mt-4" style="display: none;">
@@ -265,6 +263,18 @@ document.addEventListener('DOMContentLoaded', function() {
     populateDropdown('sentiment', '/api/sentiments');
     populateDropdown('futureSignal', '/api/future_signals');
     populateDropdown('driverType', '/api/driver_types');
+
+    // Add file input handler
+    const urlFile = document.getElementById('urlFile');
+    if (urlFile) {
+        urlFile.addEventListener('change', handleFileUpload);
+    }
+
+    const urlList = document.getElementById('urlList');
+    urlList.addEventListener('input', function() {
+        const urls = this.value.split('\n').filter(url => url.trim() !== '');
+        validateUrlCount(urls);
+    });
 });
 
 function loadTopics() {
@@ -401,6 +411,11 @@ async function handleFormSubmit(event) {
             throw new Error('Please enter URLs or upload a file containing URLs.');
         }
 
+        // Add URL count validation
+        if (!validateUrlCount(urls)) {
+            throw new Error('Too many URLs provided. Maximum 20 URLs allowed.');
+        }
+
         const requestData = {
             urls,
             summaryType: document.getElementById('summaryType').value,
@@ -497,7 +512,15 @@ function displayResultsTable(results) {
     results.forEach((result, index) => {
         const articleEntry = document.createElement('div');
         articleEntry.className = 'article-entry';
+        articleEntry.id = `article-${index}`;
+        
         articleEntry.innerHTML = `
+            <div class="row">
+                <div class="col">
+                    <label for="url${index}">URL</label>
+                    <input type="text" id="url${index}" class="form-control" value="${result.uri || ''}" readonly>
+                </div>
+            </div>
             <div class="row">
                 <div class="col">
                     <label for="newsSource${index}">News Source</label>
@@ -573,6 +596,23 @@ function displayResultsTable(results) {
                     <textarea id="driverTypeExplanation${index}" class="form-control">${result.driver_type_explanation || ''}</textarea>
                 </div>
             </div>
+            <div class="row">
+                <div class="col">
+                    <label for="tags${index}">Tags</label>
+                    <input type="text" id="tags${index}" class="form-control" 
+                           value="${Array.isArray(result.tags) ? result.tags.join(', ') : result.tags || ''}" 
+                           placeholder="Enter tags separated by commas">
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col text-end">
+                    <button type="button" 
+                            class="btn btn-danger" 
+                            onclick="discardArticle(${index})">
+                        Discard Article
+                    </button>
+                </div>
+            </div>
         `;
         resultsBody.appendChild(articleEntry);
         
@@ -582,6 +622,21 @@ function displayResultsTable(results) {
         populateDropdown(`futureSignal${index}`, '/api/future_signals', result.future_signal);
         populateDropdown(`driverType${index}`, '/api/driver_types', result.driver_type);
     });
+}
+
+function discardArticle(index) {
+    if (confirm('Are you sure you want to discard this article?')) {
+        const articleElement = document.getElementById(`article-${index}`);
+        if (articleElement) {
+            articleElement.remove();
+            
+            // If no articles remain, you might want to hide the results table
+            const resultsBody = document.getElementById('resultsBody');
+            if (!resultsBody.children.length) {
+                document.getElementById('resultsTable').style.display = 'none';
+            }
+        }
+    }
 }
 
 function populateDropdown(elementId, apiUrl, selectedValue) {
@@ -604,55 +659,95 @@ function populateDropdown(elementId, apiUrl, selectedValue) {
 }
 
 function collectSelectedArticles() {
-    const selectedCheckboxes = document.querySelectorAll('#resultsBody .article-checkbox:checked');
-    const articles = Array.from(selectedCheckboxes).map(checkbox => {
-        const row = checkbox.closest('tr');
-        return {
-            uri: row.cells[1].querySelector('input').value.trim(),
-            title: row.cells[2].querySelector('input').value.trim(),
-            summary: row.cells[3].querySelector('textarea').value.trim(),
-            news_source: row.cells[4].querySelector('input').value.trim(),
-            category: row.cells[5].querySelector('select').value,
-            time_to_impact: row.cells[6].querySelector('select').value,
-            time_to_impact_explanation: row.cells[7].querySelector('textarea').value.trim(),
-            sentiment: row.cells[8].querySelector('select').value,
-            sentiment_explanation: row.cells[9].querySelector('textarea').value.trim(),
-            future_signal: row.cells[10].querySelector('select').value,
-            future_signal_explanation: row.cells[11].querySelector('textarea').value.trim(),
-            driver_type: row.cells[12].querySelector('select').value,
-            driver_type_explanation: row.cells[13].querySelector('textarea').value.trim(),
-            publication_date: row.cells[14].querySelector('input').value.trim(),
-            submission_date: row.cells[15].querySelector('input').value.trim(),
-            tags: row.cells[16].querySelector('input').value.trim().split(',').map(tag => tag.trim()),
-            topic: document.getElementById('topicSelect').value
-        };
+    const articles = [];
+    const articleEntries = document.querySelectorAll('.article-entry');
+    
+    articleEntries.forEach((entry, index) => {
+        if (entry.style.display !== 'none') {
+            const article = {
+                uri: entry.querySelector(`input[id^="url"]`).value.trim(),
+                title: entry.querySelector(`input[id^="title"]`).value.trim(),
+                summary: entry.querySelector(`textarea[id^="summary"]`).value.trim(),
+                news_source: entry.querySelector(`input[id^="newsSource"]`).value.trim(),
+                category: entry.querySelector(`select[id^="category"]`).value,
+                time_to_impact: entry.querySelector(`select[id^="timeToImpact"]`).value,
+                time_to_impact_explanation: entry.querySelector(`textarea[id^="timeToImpactExplanation"]`).value.trim(),
+                sentiment: entry.querySelector(`select[id^="sentiment"]`).value,
+                sentiment_explanation: entry.querySelector(`textarea[id^="sentimentExplanation"]`).value.trim(),
+                future_signal: entry.querySelector(`select[id^="futureSignal"]`).value,
+                future_signal_explanation: entry.querySelector(`textarea[id^="futureSignalExplanation"]`).value.trim(),
+                driver_type: entry.querySelector(`select[id^="driverType"]`).value,
+                driver_type_explanation: entry.querySelector(`textarea[id^="driverTypeExplanation"]`).value.trim(),
+                publication_date: entry.querySelector(`input[id^="pubDate"]`).value.trim(),
+                submission_date: entry.querySelector(`input[id^="subDate"]`).value.trim(),
+                tags: entry.querySelector(`input[id^="tags"]`).value.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
+                topic: document.getElementById('topicSelect').value
+            };
+            
+            // Only add if required fields are present
+            if (article.uri && article.title) {
+                articles.push(article);
+            }
+        }
     });
+    
     return articles;
 }
 
 async function saveAllArticles() {
+    const saveButton = document.getElementById('saveAllButton');
     const articles = collectSelectedArticles();
-    console.log('Articles to save:', articles); // Debug log
+    
+    if (articles.length === 0) {
+        alert('No articles to save.');
+        return;
+    }
+    
+    try {
+        saveButton.disabled = true;
+        console.log('Articles to save:', articles); // Debug log
 
-    const response = await fetch('/api/save-bulk-articles', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ articles }),
-    });
-    const result = await response.json();
-    
-    if (result.errors.length > 0) {
-        const errorMessage = result.errors.map(error => `${error.uri}: ${error.error}`).join('\n');
-        alert(`Some articles could not be saved:\n${errorMessage}`);
+        const response = await fetch('/api/save-bulk-articles', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ articles }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.errors && result.errors.length > 0) {
+            const errorMessage = result.errors.map(error => `${error.uri}: ${error.error}`).join('\n');
+            alert(`Some articles could not be saved:\n${errorMessage}`);
+        }
+        
+        if (result.success && result.success.length > 0) {
+            alert(`${result.success.length} of ${articles.length} article(s) saved successfully!`);
+            
+            // Remove saved articles from display
+            result.success.forEach(savedArticle => {
+                const articleElement = document.querySelector(`.article-entry input[value="${savedArticle.uri}"]`);
+                if (articleElement) {
+                    articleElement.closest('.article-entry').remove();
+                }
+            });
+            
+            // Hide results table if no articles remain
+            if (document.querySelectorAll('.article-entry').length === 0) {
+                document.getElementById('resultsTable').style.display = 'none';
+            }
+        }
+    } catch (error) {
+        console.error('Error saving articles:', error);
+        alert('Error saving articles. Please try again.');
+    } finally {
+        saveButton.disabled = false;
     }
-    
-    if (result.success.length > 0) {
-        alert(`${result.success.length} article(s) saved successfully!`);
-    }
-    
-    console.log(result);
 }
 
 function displayAxiosSummary(result) {
@@ -708,5 +803,57 @@ document.addEventListener('DOMContentLoaded', function() {
         loadDefaultValuesForTopic(this.value);
     });
 });
+
+// Add this function to handle file loading
+function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        // Get the textarea
+        const urlList = document.getElementById('urlList');
+        
+        // Split the file content by newlines and clean up empty lines
+        const urls = e.target.result
+            .split(/\r?\n/)
+            .map(url => url.trim())
+            .filter(url => url !== '');
+            
+        // Add URL count validation
+        if (!validateUrlCount(urls)) {
+            urlList.value = urls.join('\n'); // Still show the URLs
+            return;
+        }
+            
+        urlList.value = urls.join('\n');
+        
+        // Optional: Show how many URLs were loaded
+        alert(`Loaded ${urls.length} URLs from file. Please review before analyzing.`);
+    };
+    
+    reader.onerror = function(e) {
+        console.error('Error reading file:', e);
+        alert('Error reading file. Please try again.');
+    };
+    
+    reader.readAsText(file);
+    
+    // Clear the file input so the same file can be loaded again if needed
+    event.target.value = '';
+}
+
+// Add this new function to validate URL count
+function validateUrlCount(urls) {
+    const MAX_URLS = 20;
+    if (urls.length > MAX_URLS) {
+        const warningDiv = document.getElementById('urlCountWarning');
+        warningDiv.style.display = 'block';
+        warningDiv.textContent = `Maximum ${MAX_URLS} URLs allowed. You provided ${urls.length} URLs. Please reduce the number of URLs.`;
+        return false;
+    }
+    document.getElementById('urlCountWarning').style.display = 'none';
+    return true;
+}
 </script>
 {% endblock %}
