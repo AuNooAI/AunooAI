@@ -1,6 +1,91 @@
 {% extends "base.html" %}
 {% block title %}FNA - Bulk Research{% endblock %}
 {% block content %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container-fluid {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    h1, h2, h5 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+        padding: 20px;
+        border: 1px solid var(--primary-color);
+    }
+
+    .form-select, .form-control {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 15px;
+        border: 1px solid var(--primary-color);
+        border-radius: 4px;
+    }
+
+    .form-select:focus, .form-control:focus {
+        border-color: var(--primary-dark);
+        box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+    }
+
+    .article-entry {
+        border: 1px solid #ddd;
+        padding: 15px;
+        margin-bottom: 20px;
+        background-color: #f9f9f9;
+        border-radius: 8px;
+    }
+
+    .row {
+        display: flex;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+    }
+
+    .col {
+        flex: 1;
+        min-width: 150px;
+        margin-right: 10px;
+    }
+
+    .col:last-child {
+        margin-right: 0;
+    }
+
+    label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    textarea.form-control {
+        resize: vertical;
+        height: 60px;
+    }
+</style>
 <h1>Bulk Research</h1>
 <form id="bulkResearchForm" enctype="multipart/form-data">
     <!-- Add Topic Selection -->
@@ -74,85 +159,98 @@
 <!-- Results table -->
 <div id="resultsTable" class="mt-4" style="display: none;">
     <h2>Analysis Results</h2>
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Select</th>
-                <th>URL</th>
-                <th>Title</th>
-                <th>Summary</th>
-                <th>News Source</th>
-                <th>Category</th>
-                <th>Time to Impact</th>
-                <th>Time to Impact Explanation</th>
-                <th>Sentiment</th>
-                <th> Sentiment Explanation</th>
-                <th>Future Signal</th>
-                <th>Future Signal Explanation</th>
-                <th>Driver Type</th>
-                <th>Driver Type Explanation</th>
-                <th>Publication Date</th>
-                <th>Submission Date</th>
-                <th>Tags</th>
-            </tr>
-        </thead>
-        <tbody id="resultsBody">
-            <!-- Rows will be dynamically added here -->
-        </tbody>
-    </table>
+    <div id="resultsBody">
+        <!-- Example of a single article layout -->
+        <div class="article-entry">
+            <div class="row">
+                <div class="col">
+                    <label for="newsSource">News Source</label>
+                    <input type="text" id="newsSource" class="form-control" value="404media">
+                </div>
+                <div class="col">
+                    <label for="pubDate">Pub. Date</label>
+                    <input type="date" id="pubDate" class="form-control" value="2024-06-11">
+                </div>
+                <div class="col">
+                    <label for="subDate">Sub. Date</label>
+                    <input type="date" id="subDate" class="form-control" value="2024-06-11">
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="title">Title</label>
+                    <input type="text" id="title" class="form-control" value="Northwell">
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="summary">Summary</label>
+                    <textarea id="summary" class="form-control">Summary text here...</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="category">Category</label>
+                    <select id="category" class="form-select">
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+                <div class="col">
+                    <label for="timeToImpact">Time to Impact</label>
+                    <select id="timeToImpact" class="form-select">
+                        <option value="Immediate">Immediate</option>
+                        <option value="Short-term">Short-term</option>
+                        <option value="Mid-term">Mid-term</option>
+                        <option value="Long-term">Long-term</option>
+                    </select>
+                </div>
+                <div class="col">
+                    <label for="timeToImpactExplanation">Time to Impact Explanation</label>
+                    <textarea id="timeToImpactExplanation" class="form-control">Explanation text here...</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="sentiment">Sentiment</label>
+                    <input type="text" id="sentiment" class="form-control" value="Positive">
+                </div>
+                <div class="col">
+                    <label for="sentimentExplanation">Sentiment Explanation</label>
+                    <textarea id="sentimentExplanation" class="form-control">Explanation text here...</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="futureSignal">Future Signal</label>
+                    <input type="text" id="futureSignal" class="form-control" value="AI will accelerate">
+                </div>
+                <div class="col">
+                    <label for="futureSignalExplanation">Future Signal Explanation</label>
+                    <textarea id="futureSignalExplanation" class="form-control">Explanation text here...</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="driverType">Driver Type</label>
+                    <input type="text" id="driverType" class="form-control" value="Accelerator">
+                </div>
+                <div class="col">
+                    <label for="driverTypeExplanation">Driver Type Explanation</label>
+                    <textarea id="driverTypeExplanation" class="form-control">Explanation text here...</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="url">URL</label>
+                    <input type="text" id="url" class="form-control" value="http://example.com">
+                </div>
+            </div>
+        </div>
+    </div>
     <button id="saveAllButton" class="btn btn-primary mt-3">Save All Articles</button>
 </div>
 
-<style>
-    #bulkResearchForm {
-        background-color: #f9f9f9;
-        padding: 20px;
-        border-radius: 8px;
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-    }
 
-    #bulkResearchForm .form-label {
-        font-weight: bold;
-        color: #333;
-    }
-
-    #bulkResearchForm .form-control, #bulkResearchForm .form-select {
-        border-radius: 4px;
-        border: 1px solid #ccc;
-        margin-bottom: 15px;
-    }
-
-    #bulkResearchForm .btn-primary {
-        background-color: #007bff;
-        border-color: #007bff;
-        transition: background-color 0.3s ease;
-    }
-
-    #bulkResearchForm .btn-primary:hover {
-        background-color: #0056b3;
-    }
-
-    .form-control, .form-select {
-        margin-bottom: 10px;
-    }
-    .form-control {
-        width: 100%;
-    }
-    .form-select {
-        width: 100%;
-    }
-    textarea.form-control {
-        resize: vertical;
-    }
-    table.table {
-        width: 100%;
-        margin-top: 20px;
-    }
-    th, td {
-        padding: 8px;
-        text-align: left;
-    }
-</style>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -161,6 +259,12 @@ document.addEventListener('DOMContentLoaded', function() {
     setUpCustomFields();
     document.getElementById('bulkResearchForm').addEventListener('submit', handleFormSubmit);
     document.getElementById('saveAllButton').addEventListener('click', saveAllArticles);
+    
+    // Initialize dropdowns for the example layout
+    populateDropdown('category', '/api/categories');
+    populateDropdown('sentiment', '/api/sentiments');
+    populateDropdown('futureSignal', '/api/future_signals');
+    populateDropdown('driverType', '/api/driver_types');
 });
 
 function loadTopics() {
@@ -389,69 +493,114 @@ function displayResultsTable(results) {
     const resultsBody = document.getElementById('resultsBody');
     if (!resultsBody) return;
 
-    if (!Array.isArray(results) || results.length === 0) {
-        resultsBody.innerHTML = '<tr><td colspan="14" class="text-center">No results to display</td></tr>';
-        return;
-    }
-
     resultsBody.innerHTML = '';
-    results.forEach(result => {
-        const row = document.createElement('tr');
-        row.innerHTML = `
-            <td><input type="checkbox" class="article-checkbox" data-uri="${result.uri}"></td>
-            <td><input type="text" value="${result.uri || ''}" class="form-control"></td>
-            <td><input type="text" value="${result.title || 'N/A'}" class="form-control"></td>
-            <td><textarea class="form-control">${result.summary || 'N/A'}</textarea></td>
-            <td><input type="text" value="${result.news_source || 'N/A'}" class="form-control"></td>
-            <td>
-                <select class="form-select">
-                    ${getOptions('category', result.category)}
-                </select>
-            </td>
-            <td>
-                <select class="form-select">
-                    ${getOptions('time_to_impact', result.time_to_impact)}
-                </select>
-            </td>
-            <td><textarea class="form-control">${result.time_to_impact_explanation || ''}</textarea></td>
-            <td>
-                <select class="form-select">
-                    ${getOptions('sentiment', result.sentiment)}
-                </select>
-            </td>
-            <td><textarea class="form-control">${result.sentiment_explanation || ''}</textarea></td>
-            <td>
-                <select class="form-select">
-                    ${getOptions('future_signal', result.future_signal)}
-                </select>
-            </td>
-            <td><textarea class="form-control">${result.future_signal_explanation || ''}</textarea></td>
-            <td>
-                <select class="form-select">
-                    ${getOptions('driver_type', result.driver_type)}
-                </select>
-            </td>
-            <td><textarea class="form-control">${result.driver_type_explanation || ''}</textarea></td>
-            <td><input type="date" value="${result.publication_date || 'N/A'}" class="form-control"></td>
-            <td><input type="date" value="${result.submission_date || 'N/A'}" class="form-control"></td>
-            <td><input type="text" value="${Array.isArray(result.tags) ? result.tags.join(', ') : 'N/A'}" class="form-control"></td>
+    results.forEach((result, index) => {
+        const articleEntry = document.createElement('div');
+        articleEntry.className = 'article-entry';
+        articleEntry.innerHTML = `
+            <div class="row">
+                <div class="col">
+                    <label for="newsSource${index}">News Source</label>
+                    <input type="text" id="newsSource${index}" class="form-control" value="${result.news_source || ''}">
+                </div>
+                <div class="col">
+                    <label for="pubDate${index}">Pub. Date</label>
+                    <input type="date" id="pubDate${index}" class="form-control" value="${result.publication_date || ''}">
+                </div>
+                <div class="col">
+                    <label for="subDate${index}">Sub. Date</label>
+                    <input type="date" id="subDate${index}" class="form-control" value="${result.submission_date || ''}">
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="title${index}">Title</label>
+                    <input type="text" id="title${index}" class="form-control" value="${result.title || ''}">
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="summary${index}">Summary</label>
+                    <textarea id="summary${index}" class="form-control">${result.summary || ''}</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="category${index}">Category</label>
+                    <select id="category${index}" class="form-select category-select"></select>
+                </div>
+                <div class="col">
+                    <label for="timeToImpact${index}">Time to Impact</label>
+                    <select id="timeToImpact${index}" class="form-select">
+                        <option value="Immediate">Immediate</option>
+                        <option value="Short-term" ${result.time_to_impact === 'Short-term' ? 'selected' : ''}>Short-term</option>
+                        <option value="Mid-term">Mid-term</option>
+                        <option value="Long-term">Long-term</option>
+                    </select>
+                </div>
+                <div class="col">
+                    <label for="timeToImpactExplanation${index}">Time to Impact Explanation</label>
+                    <textarea id="timeToImpactExplanation${index}" class="form-control">${result.time_to_impact_explanation || ''}</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="sentiment${index}">Sentiment</label>
+                    <select id="sentiment${index}" class="form-select sentiment-select"></select>
+                </div>
+                <div class="col">
+                    <label for="sentimentExplanation${index}">Sentiment Explanation</label>
+                    <textarea id="sentimentExplanation${index}" class="form-control">${result.sentiment_explanation || ''}</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="futureSignal${index}">Future Signal</label>
+                    <select id="futureSignal${index}" class="form-select future-signal-select"></select>
+                </div>
+                <div class="col">
+                    <label for="futureSignalExplanation${index}">Future Signal Explanation</label>
+                    <textarea id="futureSignalExplanation${index}" class="form-control">${result.future_signal_explanation || ''}</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="driverType${index}">Driver Type</label>
+                    <select id="driverType${index}" class="form-select driver-type-select"></select>
+                </div>
+                <div class="col">
+                    <label for="driverTypeExplanation${index}">Driver Type Explanation</label>
+                    <textarea id="driverTypeExplanation${index}" class="form-control">${result.driver_type_explanation || ''}</textarea>
+                </div>
+            </div>
         `;
-        resultsBody.appendChild(row);
+        resultsBody.appendChild(articleEntry);
+        
+        // Populate dropdowns for this entry
+        populateDropdown(`category${index}`, '/api/categories', result.category);
+        populateDropdown(`sentiment${index}`, '/api/sentiments', result.sentiment);
+        populateDropdown(`futureSignal${index}`, '/api/future_signals', result.future_signal);
+        populateDropdown(`driverType${index}`, '/api/driver_types', result.driver_type);
     });
 }
 
-function getOptions(type, selectedValue) {
-    const options = {
-        category: ['Category1', 'Category2', 'Category3'], // Replace with actual categories
-        time_to_impact: ['Immediate', 'Short-term', 'Mid-term', 'Long-term'],
-        sentiment: ['Positive', 'Neutral', 'Negative'],
-        future_signal: ['Signal1', 'Signal2', 'Signal3'], // Replace with actual signals
-        driver_type: ['Catalyst', 'Accelerator', 'Delayer', 'Blocker', 'Initiator', 'Terminator', 'Unknown']
-    };
-
-    return options[type].map(option => 
-        `<option value="${option}" ${option === selectedValue ? 'selected' : ''}>${option}</option>`
-    ).join('');
+function populateDropdown(elementId, apiUrl, selectedValue) {
+    fetch(apiUrl)
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById(elementId);
+            select.innerHTML = '';
+            data.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                if (option === selectedValue) {
+                    optionElement.selected = true;
+                }
+                select.appendChild(optionElement);
+            });
+        })
+        .catch(error => console.error(`Error populating ${elementId}:`, error));
 }
 
 function collectSelectedArticles() {
@@ -541,12 +690,15 @@ async function loadDefaultValuesForTopic(topic) {
     const topicConfig = config.topics.find(t => t.name === topic);
 
     if (topicConfig) {
-        // Populate default values in the form
-        document.getElementById('categorySelect').value = topicConfig.categories[0];
-        document.getElementById('timeToImpactSelect').value = topicConfig.time_to_impact[0];
-        document.getElementById('sentimentSelect').value = topicConfig.sentiment[0];
-        document.getElementById('futureSignalSelect').value = topicConfig.future_signals[0];
-        document.getElementById('driverTypeSelect').value = topicConfig.driver_types[0];
+        const categorySelect = document.getElementById('category');
+        categorySelect.innerHTML = topicConfig.categories.map(category => 
+            `<option value="${category}">${category}</option>`
+        ).join('');
+
+        const futureSignalSelect = document.getElementById('futureSignal');
+        futureSignalSelect.innerHTML = topicConfig.future_signals.map(signal => 
+            `<option value="${signal}">${signal}</option>`
+        ).join('');
     }
 }
 
