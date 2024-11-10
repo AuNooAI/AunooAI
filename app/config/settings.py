@@ -1,9 +1,12 @@
 import json
 import os
+from dotenv import load_dotenv
 from typing import Dict
 
-# Add this near the top with other settings
-NEWSAPI_KEY = '2681933b8eef47749950d0f1d159d8b7'
+load_dotenv()
+
+# Change this line to read from environment
+NEWSAPI_KEY = os.getenv('NEWSAPI_KEY')
 
 def load_config() -> Dict:
     """Load configuration with support for topics."""

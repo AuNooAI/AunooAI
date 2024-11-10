@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 import asyncio
 import markdown
 import json
+import importlib
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
 from app.bulk_research import BulkResearch
 from app.config.config import load_config, get_topic_config  # Add get_topic_config import
@@ -25,6 +26,7 @@ import os
 from dotenv import load_dotenv
 #from app.routers import bulk_research  # Add this import
 from app.collectors.collector_factory import CollectorFactory
+import importlib
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -86,6 +88,13 @@ class RemoveModelRequest(BaseModel):
 
     class Config:
         protected_namespaces = ()
+
+class NewsAPIConfig(BaseModel):
+    api_key: str = Field(..., min_length=1)
+
+    class Config:
+        alias_generator = lambda string: string.lower()
+        allow_population_by_field_name = True
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -210,80 +219,52 @@ async def config_page(request: Request):
 
 @app.post("/config/add_model")
 async def add_model(model_data: AddModelRequest):
+    """Add model configuration to .env file only."""
     try:
         logger.info(f"Received request to add model: {model_data.dict()}")
-        logger.info(f"Model name: {model_data.model_name}")
-        logger.info(f"Provider: {model_data.provider}")
-        logger.info(f"API key length: {len(model_data.api_key) if model_data.api_key else 0}")
         
-        # Check for missing fields
-        missing_fields = []
-        if not model_data.model_name:
-            missing_fields.append("model_name")
-        if not model_data.provider:
-            missing_fields.append("provider")
-        if not model_data.api_key:
-            missing_fields.append("api_key")
-        
-        if missing_fields:
-            error_msg = f"Missing required fields: {', '.join(missing_fields)}"
-            logger.error(error_msg)
-            return JSONResponse(content={"error": error_msg}, status_code=422)
+        if not model_data.model_name or not model_data.provider or not model_data.api_key:
+            raise HTTPException(status_code=400, detail="All fields are required")
 
-        # Check if the model exists in the configuration
-        available_models = ai_get_available_models()
-        logger.info(f"Available models: {available_models}")
-        
-        # Remove the provider from the model name if it's included
-        model_name = model_data.model_name.split(' (')[0]
-        
-        model_exists = any(model['name'] == model_name and model['provider'] == model_data.provider for model in available_models)
-        
-        if not model_exists:
-            # Instead of returning an error, we'll add the model to the configuration
-            logger.info(f"Model {model_name} ({model_data.provider}) not found in configuration. Adding it.")
-            config_path = os.path.join(os.path.dirname(__file__), 'config', 'ai_config.json')
-            with open(config_path, 'r+') as f:
-                config = json.load(f)
-                config['ai_models'].append({"name": model_name, "provider": model_data.provider})
-                f.seek(0)
-                json.dump(config, f, indent=4)
-                f.truncate()
-
-        env_var_name = f"{model_data.provider.upper()}_API_KEY_{model_name.replace('-', '_').upper()}"
+        # Create environment variable name
+        env_var_name = f"{model_data.provider.upper()}_API_KEY_{model_data.model_name.replace('-', '_').upper()}"
         
         # Update .env file
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
         if not os.path.exists(env_path):
-            error_msg = ".env file not found"
-            logger.error(error_msg)
-            return JSONResponse(content={"error": error_msg}, status_code=500)
+            open(env_path, 'a').close()
 
-        logger.info(f"Updating .env file at: {env_path}")
-        
         try:
-            with open(env_path, "a") as env_file:
-                env_file.write(f'\n{env_var_name}="{model_data.api_key}"\n')
-            logger.info(f"Successfully updated .env file")
-        except IOError as e:
-            error_msg = f"Error writing to .env file: {str(e)}"
-            logger.error(error_msg)
-            return JSONResponse(content={"error": error_msg}, status_code=500)
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except Exception as e:
+            lines = []
 
-        # Update the environment variable in the current process
+        # Update or add the key
+        new_line = f'{env_var_name}="{model_data.api_key}"\n'
+        key_found = False
+        
+        for i, line in enumerate(lines):
+            if line.startswith(f'{env_var_name}='):
+                lines[i] = new_line
+                key_found = True
+                break
+        
+        if not key_found:
+            lines.append(new_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment
         os.environ[env_var_name] = model_data.api_key
         
-        # Reload environment variables
-        load_dotenv(override=True)
-        
-        logger.info(f"Model {model_name} added successfully")
-        return JSONResponse(content={"message": f"Model {model_name} added successfully"}, status_code=200)
+        return JSONResponse(content={"message": f"Model {model_data.model_name} added successfully"})
+
     except Exception as e:
-        logger.error(f"Error adding model: {str(e)}", exc_info=True)
-        logger.error(f"Error type: {type(e)}")
-        logger.error(f"Error args: {e.args}")
-        logger.error(f"Request data: {model_data.dict()}")
-        return JSONResponse(content={"error": f"Unexpected error: {str(e)}"}, status_code=500)
+        logger.error(f"Error adding model: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/config/remove_model")
 async def remove_model(model_data: RemoveModelRequest):
@@ -691,49 +672,91 @@ async def collect_page(request: Request):
     """Render the article collection page."""
     return templates.TemplateResponse("collect.html", {"request": request})
 
-@app.post("/api/config/newsapi")
-async def save_newsapi_config(data: dict):
+@app.post("/config/newsapi")
+async def save_newsapi_config(config: NewsAPIConfig):
     """Save NewsAPI configuration."""
     try:
-        api_key = data.get('api_key')
-        if not api_key:
-            raise HTTPException(status_code=400, detail="API key is required")
-
-        # Update .env file
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-        env_content = []
-        
+        env_var_name = 'NEWSAPI_KEY'
+
         # Read existing content
-        if os.path.exists(env_path):
-            with open(env_path, 'r') as f:
-                env_content = f.readlines()
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
 
-        # Update or add NewsAPI key
-        newsapi_line = f'NEWSAPI_KEY="{api_key}"\n'
-        newsapi_found = False
-        
-        for i, line in enumerate(env_content):
-            if line.startswith('NEWSAPI_KEY='):
-                env_content[i] = newsapi_line
-                newsapi_found = True
+        # Update or add the key
+        new_line = f'{env_var_name}="{config.api_key}"\n'
+        key_found = False
+
+        for i, line in enumerate(lines):
+            if line.startswith(f'{env_var_name}='):
+                lines[i] = new_line
+                key_found = True
                 break
-        
-        if not newsapi_found:
-            env_content.append(newsapi_line)
 
-        # Write back to .env file
-        with open(env_path, 'w') as f:
-            f.writelines(env_content)
+        if not key_found:
+            lines.append(new_line)
 
-        # Update environment variable
-        os.environ['NEWSAPI_KEY'] = api_key
-        
-        return JSONResponse(content={"message": "NewsAPI configuration saved successfully"})
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment and reload settings
+        os.environ[env_var_name] = config.api_key
+        load_dotenv(override=True)  # Reload environment variables
+        from app.config import settings  # Reload settings module
+        importlib.reload(settings)  # Force reload of settings
+
+        return {"message": "NewsAPI configuration saved successfully"}
+
     except Exception as e:
         logger.error(f"Error saving NewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/config/newsapi")
+async def get_newsapi_config():
+    """Get NewsAPI configuration status."""
+    try:
+        newsapi_key = os.getenv('NEWSAPI_KEY')
+        return JSONResponse(content={
+            "configured": bool(newsapi_key),
+            "message": "NewsAPI is configured" if newsapi_key else "NewsAPI is not configured"
+        })
+    except Exception as e:
+        logger.error(f"Error checking NewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/newsapi")
+async def remove_newsapi_config():
+    """Remove NewsAPI configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        
+        # Read existing content
+        with open(env_path, "r") as env_file:
+            lines = env_file.readlines()
+
+        # Remove the NEWSAPI_KEY line
+        lines = [line for line in lines if not line.startswith('NEWSAPI_KEY=')]
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Remove from current environment
+        if 'NEWSAPI_KEY' in os.environ:
+            del os.environ['NEWSAPI_KEY']
+
+        return {"message": "NewsAPI configuration removed successfully"}
+
+    except Exception as e:
+        logger.error(f"Error removing NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv('PORT', 8000))  # default to 8000 if not set
+    uvicorn.run(app, host="0.0.0.0", port=port)

@@ -57,17 +57,22 @@
     </div>
 </div>
 
-<!-- Add this section to your existing config form -->
-<div class="mb-4">
-    <h3>NewsAPI Configuration</h3>
-    <form id="newsapiConfigForm">
-        <div class="mb-3">
-            <label for="newsapiKey" class="form-label">NewsAPI Key</label>
-            <input type="password" class="form-control" id="newsapiKey" required>
-        </div>
-        <button type="submit" class="btn btn-primary">Save NewsAPI Key</button>
-    </form>
+<!-- Replace the Article Provider Configuration section with this simplified version -->
+<div class="config-layout mt-5">
+    <div class="left-panel">
+        <h2>Article Provider Configuration</h2>
+        <form id="provider-config-form">
+            <select id="provider-name" required>
+                <option value="newsapi">NewsAPI</option>
+            </select>
+            <input type="text" id="provider-key" placeholder="API Key" required>
+            <button type="submit">Add Provider</button>
+        </form>
+    </div>
 </div>
+
+<!-- Add bottom spacing -->
+<div class="mt-5"></div>
 
 <script>
     let activeDatabase = '';
@@ -318,18 +323,21 @@
     document.addEventListener('DOMContentLoaded', function() {
         loadAIModels();
         loadAvailableModels();
-        // ... (other existing DOMContentLoaded code) ...
+        loadAvailableProviders();
     });
 
-    // Load models when the page loads
-    loadAvailableModels();
-
-    document.getElementById('newsapiConfigForm').addEventListener('submit', async function(e) {
+    // Update the provider config form submission handler
+    document.getElementById('provider-config-form').addEventListener('submit', async function(e) {
         e.preventDefault();
-        const key = document.getElementById('newsapiKey').value;
+        const key = document.getElementById('provider-key').value;
+        
+        if (!key) {
+            alert('Please enter an API key');
+            return;
+        }
         
         try {
-            const response = await fetch('/api/config/newsapi', {
+            const response = await fetch('/config/newsapi', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -337,16 +345,67 @@
                 body: JSON.stringify({ api_key: key })
             });
             
-            if (response.ok) {
-                alert('NewsAPI key saved successfully');
-            } else {
-                throw new Error('Failed to save NewsAPI key');
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
             }
+            
+            alert('NewsAPI key saved successfully');
+            document.getElementById('provider-key').value = '';
+            await loadAvailableProviders();  // Wait for providers to reload
+            
         } catch (error) {
-            console.error('Error:', error);
-            alert('Error saving NewsAPI key');
+            console.error('Error saving NewsAPI key:', error);
+            alert('Error saving NewsAPI key. Please try again.');
         }
     });
+
+    // Update loadAvailableProviders to match loadAvailableModels pattern
+    async function loadAvailableProviders() {
+        try {
+            const response = await fetch('/api/config/newsapi');
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            const data = await response.json();
+            
+            const providerList = document.getElementById('provider-list');
+            if (!data.configured) {
+                providerList.innerHTML = '<li>No providers configured.</li>';
+                return;
+            }
+            
+            providerList.innerHTML = `
+                <li>
+                    NewsAPI 
+                    <button onclick="removeNewsAPIKey()">Remove</button>
+                </li>
+            `;
+        } catch (error) {
+            console.error('Error loading providers:', error);
+            const providerList = document.getElementById('provider-list');
+            providerList.innerHTML = '<li>Error loading providers. Please try again later.</li>';
+        }
+    }
+
+    // Add function to remove NewsAPI key
+    async function removeNewsAPIKey() {
+        if (confirm('Are you sure you want to remove the NewsAPI key?')) {
+            try {
+                const response = await fetch('/config/newsapi', {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to remove NewsAPI key');
+                }
+                
+                loadAvailableProviders(); // Refresh the status
+            } catch (error) {
+                console.error('Error removing NewsAPI key:', error);
+                alert('Error removing NewsAPI key');
+            }
+        }
+    }
 </script>
 
 <style>
@@ -429,6 +488,61 @@
 
     #add-model-form input, #add-model-form select {
         padding: 5px;
+    }
+
+    #provider-config-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    /* Add these styles to your existing CSS */
+    .status-badge {
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+        margin-left: 10px;
+    }
+
+    .configured .status-badge {
+        background-color: #32CD32;  /* Lime Green */
+        color: white;
+    }
+
+    .not-configured .status-badge {
+        background-color: #ff6b6b;  /* Light Red */
+        color: white;
+    }
+
+    #provider-list {
+        padding-left: 0;
+        list-style-type: none;
+    }
+
+    #provider-list li {
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+    }
+
+    .status-badge {
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+    }
+
+    .status-badge.not-configured {
+        background-color: #ff6b6b;
+        color: white;
+    }
+
+    .status-badge.error {
+        background-color: #dc3545;
+        color: white;
     }
 </style>
 {% endblock %}

@@ -200,16 +200,35 @@
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    loadTopics();
+    // First load topics
+    loadTopics().then(() => {
+        // After topics are loaded, restore saved selections
+        const savedTopic = localStorage.getItem('analyticsTopic');
+        if (savedTopic) {
+            const topicSelect = document.getElementById('topicSelect');
+            topicSelect.value = savedTopic;
+            // Trigger change event to load categories and charts
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+    });
     
     // Add event listeners
-    document.getElementById('topicSelect').addEventListener('change', handleTopicChange);
-    document.getElementById('categorySelect').addEventListener('change', handleCategoryChange);
-    document.getElementById('timeframeSelect').addEventListener('change', handleTimeframeChange);
+    document.getElementById('topicSelect').addEventListener('change', function(event) {
+        localStorage.setItem('analyticsTopic', event.target.value);
+        handleTopicChange(event);
+    });
+    document.getElementById('categorySelect').addEventListener('change', function(event) {
+        localStorage.setItem('analyticsCategory', event.target.value);
+        handleCategoryChange(event);
+    });
+    document.getElementById('timeframeSelect').addEventListener('change', function(event) {
+        localStorage.setItem('analyticsTimeframe', event.target.value);
+        handleTimeframeChange(event);
+    });
 });
 
 function loadTopics() {
-    fetch('/api/topics')
+    return fetch('/api/topics')
         .then(response => response.json())
         .then(topics => {
             const topicSelect = document.getElementById('topicSelect');
@@ -255,6 +274,14 @@ function loadCategoriesForTopic(topicName) {
                 option.textContent = category;
                 categorySelect.appendChild(option);
             });
+
+            // Restore saved category if it exists
+            const savedCategory = localStorage.getItem('analyticsCategory');
+            if (savedCategory) {
+                categorySelect.value = savedCategory;
+                // Update charts with the restored category
+                updateCharts();
+            }
         })
         .catch(error => console.error('Error loading categories:', error));
 }

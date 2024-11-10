@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  newsaddict-test:
+    image: newsaddict:latest
+    build: .
+    ports:
+      - "6005:6005"
+    volumes:
+      - newsaddict_test_data:/app/app/data
+      - newsaddict_test_reports:/app/reports
+    environment:
+      - PORT=6005
+      - INSTANCE=test
+
+  newsaddict-customer-x:
+    image: newsaddict:latest
+    build: .
+    ports:
+      - "5008:5008"
+    volumes:
+      - newsaddict_customerx_data:/app/app/data
+      - newsaddict_customerx_reports:/app/reports
+    environment:
+      - PORT=5008
+      - INSTANCE=customer-x
+    profiles: ["customer-x"]
+
+  newsaddict-customer-y:
+    image: newsaddict:latest
+    build: .
+    ports:
+      - "5009:5009"
+    volumes:
+      - newsaddict_customery_data:/app/app/data
+      - newsaddict_customery_reports:/app/reports
+    environment:
+      - PORT=5009
+      - INSTANCE=customer-y
+    profiles: ["customer-y"]
+
+volumes:
+  newsaddict_test_data:
+  newsaddict_test_reports:
+  newsaddict_customerx_data:
+  newsaddict_customerx_reports:
+  newsaddict_customery_data:
+  newsaddict_customery_reports: 

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from .base_collector import ArticleCollector
 import logging
-from config.settings import NEWSAPI_KEY  # We'll add this to settings
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +11,11 @@ class NewsAPICollector(ArticleCollector):
     """NewsAPI article collector implementation."""
     
     def __init__(self):
-        self.api_key = NEWSAPI_KEY
+        self.api_key = os.getenv('NEWSAPI_KEY')
+        if not self.api_key:
+            logger.error("NewsAPI key not found in environment")
+            raise ValueError("NewsAPI key not configured")
+            
         self.base_url = "https://newsapi.org/v2"
         
         # Mapping topics to NewsAPI keywords/categories
