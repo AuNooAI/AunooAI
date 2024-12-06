@@ -1,0 +1,347 @@
+{% extends "base.html" %}
+{% block title %}FNA - Article Collection{% endblock %}
+{% block content %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    .card {
+        border: 1px solid var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .article-card {
+        border: 1px solid var(--medium-gray);
+        padding: 15px;
+        margin-bottom: 15px;
+        border-radius: 5px;
+        transition: opacity 0.3s ease-out;
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+        border-color: var(--primary-dark);
+    }
+
+    .btn-danger {
+        background-color: #dc3545;
+        border-color: #dc3545;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background-color: #c82333;
+        border-color: #bd2130;
+    }
+
+    .btn-sm {
+        margin-right: 5px;
+    }
+
+    .article-card:hover {
+        background-color: var(--light-gray);
+    }
+</style>
+
+<div class="container mt-4">
+    <h1>Article Collection</h1>
+    
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Search Articles</h5>
+                    <form id="searchForm">
+                        <div class="mb-3">
+                            <label for="sourceSelect" class="form-label">Source</label>
+                            <select class="form-select" id="sourceSelect" required>
+                                <option value="">Select a source</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="topicSelect" class="form-label">Topic</label>
+                            <select class="form-select" id="topicSelect" required>
+                                <option value="">Select a topic</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="queryInput" class="form-label">Search Query</label>
+                            <input type="text" class="form-control" id="queryInput" required>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="maxResults" class="form-label">Max Results</label>
+                            <input type="number" class="form-control" id="maxResults" value="10" min="1" max="100">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="startDate" class="form-label">Start Date</label>
+                            <input type="date" class="form-control" id="startDate">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="endDate" class="form-label">End Date</label>
+                            <input type="date" class="form-control" id="endDate">
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Search Results <span id="resultCount"></span></h5>
+                    <div id="searchResults"></div>
+                    <div id="selectedArticles" class="mt-3">
+                        <button id="analyzeSelectedBtn" class="btn btn-primary" style="display: none;">
+                            Analyze Selected Articles
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadSources();
+    loadTopics();
+    
+    document.getElementById('searchForm').addEventListener('submit', handleSearch);
+    
+    // Add change event listeners to source and topic selects
+    document.getElementById('sourceSelect').addEventListener('change', loadStoredArticles);
+    document.getElementById('topicSelect').addEventListener('change', loadStoredArticles);
+});
+
+function loadSources() {
+    fetch('/api/available_sources')
+        .then(response => response.json())
+        .then(sources => {
+            const sourceSelect = document.getElementById('sourceSelect');
+            sources.forEach(source => {
+                const option = document.createElement('option');
+                option.value = source;
+                option.textContent = source.charAt(0).toUpperCase() + source.slice(1);
+                sourceSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading sources:', error));
+}
+
+function loadTopics() {
+    fetch('/api/topics')
+        .then(response => response.json())
+        .then(topics => {
+            const topicSelect = document.getElementById('topicSelect');
+            topics.forEach(topic => {
+                const option = document.createElement('option');
+                option.value = topic.name;
+                option.textContent = topic.name;
+                topicSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading topics:', error));
+}
+
+async function handleSearch(event) {
+    event.preventDefault();
+    
+    const source = document.getElementById('sourceSelect').value;
+    const topic = document.getElementById('topicSelect').value;
+    const query = document.getElementById('queryInput').value;
+    const maxResults = document.getElementById('maxResults').value;
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+
+    const searchParams = new URLSearchParams({
+        source,
+        topic,
+        query,
+        max_results: maxResults
+    });
+
+    if (startDate) searchParams.append('start_date', startDate);
+    if (endDate) searchParams.append('end_date', endDate);
+
+    try {
+        const response = await fetch(`/api/collect_articles?${searchParams.toString()}`);
+        const data = await response.json();
+        displayResults(data);
+    } catch (error) {
+        console.error('Error searching articles:', error);
+        alert('Error searching articles. Please try again.');
+    }
+}
+
+function displayResults(data) {
+    const resultsDiv = document.getElementById('searchResults');
+    const resultCount = document.getElementById('resultCount');
+    
+    // Store the new articles
+    storeCollectedArticles(data.articles, data.source, data.topic);
+    
+    // Filter out articles that were previously discarded
+    const storedArticles = getStoredArticles();
+    const filteredArticles = data.articles.filter(article => {
+        const key = `${data.source}_${article.url}`;
+        return !storedArticles[key] || storedArticles[key].status !== 'discarded';
+    });
+    
+    // Count discarded articles
+    const discardedCount = data.articles.length - filteredArticles.length;
+    resultCount.textContent = `(${filteredArticles.length} articles${discardedCount > 0 ? `, ${discardedCount} discarded` : ''})`;
+    
+    resultsDiv.innerHTML = '';
+
+    filteredArticles.forEach(article => {
+        const articleElement = document.createElement('div');
+        articleElement.className = 'article-card';
+        articleElement.id = `article-${encodeURIComponent(article.url)}`;
+        articleElement.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                    <h5>${article.title}</h5>
+                    <p class="text-muted">Authors: ${article.authors.join(', ')}</p>
+                    <p>${article.summary}</p>
+                    <p class="text-muted">Published: ${new Date(article.published_date).toLocaleDateString()}</p>
+                    <div class="mt-2">
+                        <button class="btn btn-sm btn-primary" onclick="analyzeArticle('${article.url}')">
+                            Analyze
+                        </button>
+                        <a href="${article.url}" target="_blank" class="btn btn-sm btn-secondary">
+                            View Source
+                        </a>
+                        <button class="btn btn-sm btn-danger" onclick="discardArticle('${encodeURIComponent(article.url)}')">
+                            Discard
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        resultsDiv.appendChild(articleElement);
+    });
+
+    updateResultCount();
+}
+
+function discardArticle(encodedUrl) {
+    const url = decodeURIComponent(encodedUrl);
+    const source = document.getElementById('sourceSelect').value;
+    const articleElement = document.getElementById(`article-${encodedUrl}`);
+    
+    // Update status in storage
+    updateArticleStatus(url, source, 'discarded');
+    
+    articleElement.style.transition = 'opacity 0.3s ease-out';
+    articleElement.style.opacity = '0';
+    
+    setTimeout(() => {
+        articleElement.remove();
+        updateResultCount();
+    }, 300);
+}
+
+function updateResultCount() {
+    const remainingArticles = document.querySelectorAll('.article-card').length;
+    const storedArticles = getStoredArticles();
+    const currentSource = document.getElementById('sourceSelect').value;
+    const currentTopic = document.getElementById('topicSelect').value;
+    
+    // Count discarded articles for current source and topic
+    const discardedCount = Object.values(storedArticles).filter(article => 
+        article.source === currentSource && 
+        article.topic === currentTopic && 
+        article.status === 'discarded'
+    ).length;
+
+    const resultCount = document.getElementById('resultCount');
+    resultCount.textContent = `(${remainingArticles} articles${discardedCount > 0 ? `, ${discardedCount} discarded` : ''})`;
+}
+
+function analyzeArticle(url) {
+    const topic = document.getElementById('topicSelect').value;
+    // Simply redirect to research page with URL and topic parameters
+    window.location.href = `/research?url=${encodeURIComponent(url)}&topic=${encodeURIComponent(topic)}`;
+}
+
+// Add function to load stored articles when page loads
+function loadStoredArticles() {
+    const storedArticles = getStoredArticles();
+    const currentSource = document.getElementById('sourceSelect').value;
+    const currentTopic = document.getElementById('topicSelect').value;
+    
+    if (currentSource && currentTopic) {
+        const relevantArticles = Object.values(storedArticles).filter(article => 
+            article.source === currentSource && 
+            article.topic === currentTopic && 
+            article.status === 'collected'
+        );
+        
+        if (relevantArticles.length > 0) {
+            displayResults({
+                source: currentSource,
+                topic: currentTopic,
+                articles: relevantArticles,
+                article_count: relevantArticles.length
+            });
+        }
+    }
+}
+
+// Store collected articles in localStorage
+function storeCollectedArticles(articles, source, topic) {
+    const storedArticles = getStoredArticles();
+    
+    // Add new articles, avoiding duplicates
+    articles.forEach(article => {
+        const key = `${source}_${article.url}`;
+        if (!storedArticles.hasOwnProperty(key)) {
+            storedArticles[key] = {
+                ...article,
+                source,
+                topic,
+                status: 'collected'  // possible statuses: collected, analyzed, discarded
+            };
+        }
+    });
+    
+    localStorage.setItem('collectedArticles', JSON.stringify(storedArticles));
+}
+
+// Get stored articles
+function getStoredArticles() {
+    const stored = localStorage.getItem('collectedArticles');
+    return stored ? JSON.parse(stored) : {};
+}
+
+// Update article status
+function updateArticleStatus(url, source, status) {
+    const storedArticles = getStoredArticles();
+    const key = `${source}_${url}`;
+    if (storedArticles[key]) {
+        storedArticles[key].status = status;
+        localStorage.setItem('collectedArticles', JSON.stringify(storedArticles));
+    }
+}
+</script>
+{% endblock %} 

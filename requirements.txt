@@ -11,3 +11,8 @@ firecrawl
 sqlalchemy
 python-multipart
 anthropic
+arxiv
+pydantic-core
+pydantic-settings
+aiohttp
+newsapi

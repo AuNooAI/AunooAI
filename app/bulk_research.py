@@ -1,48 +1,86 @@
 from typing import List, Dict
 from urllib.parse import urlparse
+from sqlalchemy.orm import Session
 from app.research import Research
 from app.database import Database
 from app.analysis_types import get_analysis_type
 from app.ai_models import get_ai_model
 import logging
+import traceback
+import datetime
 
 logger = logging.getLogger(__name__)
 
 class BulkResearch:
-    def __init__(self, db: Database):
-        self.db = db
-        self.research = Research(db)
+    def __init__(self, db):
+        logger.debug("Initializing BulkResearch class")
+        logger.debug(f"Input db type: {type(db)}")
+        
+        try:
+            if isinstance(db, Session):
+                # Create a new Database instance without passing the session
+                self.db = Database()
+                self.session = db
+            elif isinstance(db, Database):
+                self.db = db
+                self.session = None
+            else:
+                raise TypeError(f"Expected Session or Database, got {type(db)}")
+            
+            # Create Research instance with the appropriate db object
+            self.research = Research(self.db)
+            logger.debug("BulkResearch initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Error in BulkResearch initialization: {str(e)}")
+            logger.error(traceback.format_exc())
+            raise
 
-    async def analyze_bulk_urls(self, urls: List[str], summary_type: str, model_name: str, summary_length: str, summary_voice: str) -> List[Dict]:
+    async def analyze_bulk_urls(self, urls: List[str], summary_type: str, 
+                              model_name: str, summary_length: str, 
+                              summary_voice: str, topic: str) -> List[Dict]:
         results = []
-        self.research.set_ai_model(model_name)
+        logger.info(f"Starting analysis of {len(urls)} URLs")
+        
+        try:
+            self.research.set_ai_model(model_name)
+        except Exception as e:
+            logger.error(f"Error setting AI model '{model_name}': {str(e)}")
+            raise ValueError(f"Invalid model name: {model_name}")
 
         for url in urls:
             try:
+                logger.debug(f"Processing URL: {url}")
+                
+                # Fetch article content
                 article_content = await self.research.fetch_article_content(url)
-                if isinstance(article_content, dict) and article_content.get("content"):
-                    result = await self.research.analyze_article(
-                        uri=url,
-                        article_text=article_content["content"],
-                        summary_length=summary_length,
-                        summary_voice=summary_voice,
-                        summary_type=summary_type,
-                        topic="",  # You may want to add topic selection to the bulk research form
-                        model_name=model_name
-                    )
-                    try:
-                        result["news_source"] = self.research.extract_source(url)
-                    except:
-                        logger.error(f"Error extracting news source for {url}: {str(e)}")
+                if not article_content or not article_content.get("content"):
+                    raise ValueError(f"Failed to fetch content for URL: {url}")
 
-                    # result["publication_date"] = article_content["publication_date"]
-                    results.append(result)
-                else:
-                    raise ValueError("Failed to fetch article content")
+                # Analyze article
+                result = await self.research.analyze_article(
+                    uri=url,
+                    article_text=article_content["content"],
+                    summary_length=summary_length,
+                    summary_voice=summary_voice,
+                    summary_type=summary_type,
+                    topic=topic,
+                    model_name=model_name
+                )
+
+                # Add news source and submission date
+                result["news_source"] = self.extract_source(url)
+                result["submission_date"] = datetime.datetime.now().date().isoformat()
+                results.append(result)
+                logger.debug(f"Successfully analyzed URL: {url}")
+                
             except Exception as e:
-                logger.error(f"Error analyzing article {url}: {str(e)}")
+                logger.error(f"Error processing URL {url}: {str(e)}")
+                logger.error(traceback.format_exc())
+                
                 results.append({
                     "uri": url,
+                    "error": str(e),
                     "title": "Error",
                     "summary": f"Failed to analyze: {str(e)}",
                     "sentiment": "N/A",
@@ -55,9 +93,12 @@ class BulkResearch:
                     "category": "N/A",
                     "tags": [],
                     "news_source": "N/A",
-                    "publication_date": "N/A"
+                    "publication_date": "N/A",
+                    "submission_date": datetime.datetime.now().date().isoformat(),
+                    "topic": topic
                 })
 
+        logger.info(f"Completed analysis of {len(urls)} URLs")
         return results
 
     async def save_bulk_articles(self, articles: List[Dict]) -> Dict:
@@ -67,12 +108,13 @@ class BulkResearch:
         }
         for article in articles:
             try:
+                print('Saving article:', article)  # Debug log
                 # Ensure all required fields are present
                 required_fields = [
-                    'title', 'uri', 'news_source' 'summary', 'sentiment', 'time_to_impact',
+                    'title', 'uri', 'news_source', 'summary', 'sentiment', 'time_to_impact',
                     'category', 'future_signal', 'future_signal_explanation', 'publication_date',
                     'sentiment_explanation', 'time_to_impact_explanation', 'tags', 'driver_type',
-                    'driver_type_explanation'
+                    'driver_type_explanation', 'submission_date', 'topic'
                 ]
                 
                 for field in required_fields:
@@ -125,6 +167,7 @@ class BulkResearch:
             "driver_type": parsed_analysis.get("Driver Type", ""),
             "driver_type_explanation": parsed_analysis.get("Driver Type Explanation", ""),
             "tags": parsed_analysis.get("Tags", "").strip('[]').replace(' ', '').split(','),
+            #"topic": topic  
         }
 
     def parse_axios_analysis(self, analysis: str) -> Dict:

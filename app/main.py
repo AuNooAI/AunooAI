@@ -18,14 +18,22 @@ from pydantic import BaseModel, Field
 import asyncio
 import markdown
 import json
+import importlib
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
 from app.bulk_research import BulkResearch
-from app.config.config import load_config
+from app.config.config import load_config, get_topic_config  # Add get_topic_config import
 import os
 from dotenv import load_dotenv
+#from app.routers import bulk_research  # Add this import
+from app.collectors.collector_factory import CollectorFactory
+import importlib
 
-logging.basicConfig(level=logging.INFO)
+# Set up logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 app = FastAPI()
 
@@ -37,6 +45,7 @@ templates = Jinja2Templates(directory="templates")
 
 # Initialize components
 db = Database()
+logger.debug(f"Created database instance: {type(db)}")
 research = Research(db)
 print(f"Database initialized and updated in main.py: {db.db_path}")
 logging.debug(f"Created Research instance with categories: {research.CATEGORIES}")
@@ -79,6 +88,13 @@ class RemoveModelRequest(BaseModel):
 
     class Config:
         protected_namespaces = ()
+
+class NewsAPIConfig(BaseModel):
+    api_key: str = Field(..., min_length=1)
+
+    class Config:
+        alias_generator = lambda string: string.lower()
+        allow_population_by_field_name = True
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -145,9 +161,20 @@ async def bulk_research_post(
     model_name = data.get('modelName', 'gpt-3.5-turbo')
     summary_length = data.get('summaryLength', '50')
     summary_voice = data.get('summaryVoice', 'neutral')
+    topic = data.get('topic')  # Get the topic from the request
 
-    bulk_research = BulkResearch(db, research)
-    results = await bulk_research.analyze_bulk_urls(urls, summary_type, model_name, summary_length, summary_voice)
+    if not topic:
+        raise HTTPException(status_code=400, detail="Topic is required")
+
+    bulk_research = BulkResearch(db)
+    results = await bulk_research.analyze_bulk_urls(
+        urls=urls,
+        summary_type=summary_type,
+        model_name=model_name,
+        summary_length=summary_length,
+        summary_voice=summary_voice,
+        topic=topic  # Pass the topic to the analysis function
+    )
 
     return JSONResponse(content=results)
 
@@ -158,7 +185,7 @@ async def save_bulk_articles(
     db: Database = Depends(get_db)
 ):
     articles = data.get('articles', [])
-    bulk_research = BulkResearch(db, research)
+    bulk_research = BulkResearch(db)
     results = await bulk_research.save_bulk_articles(articles)
     return JSONResponse(content=results)
 
@@ -167,10 +194,14 @@ async def analytics_route(request: Request):
     return templates.TemplateResponse("analytics.html", {"request": request})
 
 @app.get("/api/analytics")
-def get_analytics_data(timeframe: str = Query(...), category: str = Query(...)):
-    logger.info(f"Received analytics request: timeframe={timeframe}, category={category}")
+def get_analytics_data(
+    timeframe: str = Query(...),
+    category: str = Query(None),  # Make category optional
+    topic: str = Query(...)
+):
+    logger.info(f"Received analytics request: timeframe={timeframe}, category={category}, topic={topic}")
     try:
-        data = analytics.get_analytics_data(timeframe, category)
+        data = analytics.get_analytics_data(timeframe=timeframe, category=category, topic=topic)
         logger.info("Analytics data retrieved successfully")
         return JSONResponse(content=data)
     except Exception as e:
@@ -188,80 +219,52 @@ async def config_page(request: Request):
 
 @app.post("/config/add_model")
 async def add_model(model_data: AddModelRequest):
+    """Add model configuration to .env file only."""
     try:
         logger.info(f"Received request to add model: {model_data.dict()}")
-        logger.info(f"Model name: {model_data.model_name}")
-        logger.info(f"Provider: {model_data.provider}")
-        logger.info(f"API key length: {len(model_data.api_key) if model_data.api_key else 0}")
         
-        # Check for missing fields
-        missing_fields = []
-        if not model_data.model_name:
-            missing_fields.append("model_name")
-        if not model_data.provider:
-            missing_fields.append("provider")
-        if not model_data.api_key:
-            missing_fields.append("api_key")
-        
-        if missing_fields:
-            error_msg = f"Missing required fields: {', '.join(missing_fields)}"
-            logger.error(error_msg)
-            return JSONResponse(content={"error": error_msg}, status_code=422)
+        if not model_data.model_name or not model_data.provider or not model_data.api_key:
+            raise HTTPException(status_code=400, detail="All fields are required")
 
-        # Check if the model exists in the configuration
-        available_models = ai_get_available_models()
-        logger.info(f"Available models: {available_models}")
-        
-        # Remove the provider from the model name if it's included
-        model_name = model_data.model_name.split(' (')[0]
-        
-        model_exists = any(model['name'] == model_name and model['provider'] == model_data.provider for model in available_models)
-        
-        if not model_exists:
-            # Instead of returning an error, we'll add the model to the configuration
-            logger.info(f"Model {model_name} ({model_data.provider}) not found in configuration. Adding it.")
-            config_path = os.path.join(os.path.dirname(__file__), 'config', 'ai_config.json')
-            with open(config_path, 'r+') as f:
-                config = json.load(f)
-                config['ai_models'].append({"name": model_name, "provider": model_data.provider})
-                f.seek(0)
-                json.dump(config, f, indent=4)
-                f.truncate()
-
-        env_var_name = f"{model_data.provider.upper()}_API_KEY_{model_name.replace('-', '_').upper()}"
+        # Create environment variable name
+        env_var_name = f"{model_data.provider.upper()}_API_KEY_{model_data.model_name.replace('-', '_').upper()}"
         
         # Update .env file
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
         if not os.path.exists(env_path):
-            error_msg = ".env file not found"
-            logger.error(error_msg)
-            return JSONResponse(content={"error": error_msg}, status_code=500)
+            open(env_path, 'a').close()
 
-        logger.info(f"Updating .env file at: {env_path}")
-        
         try:
-            with open(env_path, "a") as env_file:
-                env_file.write(f'\n{env_var_name}="{model_data.api_key}"\n')
-            logger.info(f"Successfully updated .env file")
-        except IOError as e:
-            error_msg = f"Error writing to .env file: {str(e)}"
-            logger.error(error_msg)
-            return JSONResponse(content={"error": error_msg}, status_code=500)
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except Exception as e:
+            lines = []
 
-        # Update the environment variable in the current process
+        # Update or add the key
+        new_line = f'{env_var_name}="{model_data.api_key}"\n'
+        key_found = False
+        
+        for i, line in enumerate(lines):
+            if line.startswith(f'{env_var_name}='):
+                lines[i] = new_line
+                key_found = True
+                break
+        
+        if not key_found:
+            lines.append(new_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment
         os.environ[env_var_name] = model_data.api_key
         
-        # Reload environment variables
-        load_dotenv(override=True)
-        
-        logger.info(f"Model {model_name} added successfully")
-        return JSONResponse(content={"message": f"Model {model_name} added successfully"}, status_code=200)
+        return JSONResponse(content={"message": f"Model {model_data.model_name} added successfully"})
+
     except Exception as e:
-        logger.error(f"Error adding model: {str(e)}", exc_info=True)
-        logger.error(f"Error type: {type(e)}")
-        logger.error(f"Error args: {e.args}")
-        logger.error(f"Request data: {model_data.dict()}")
-        return JSONResponse(content={"error": f"Unexpected error: {str(e)}"}, status_code=500)
+        logger.error(f"Error adding model: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/config/remove_model")
 async def remove_model(model_data: RemoveModelRequest):
@@ -285,6 +288,7 @@ async def remove_model(model_data: RemoveModelRequest):
 
 @app.get("/api/search_articles")
 async def search_articles(
+    topic: Optional[str] = Query(None),
     category: Optional[List[str]] = Query(None),
     future_signal: Optional[List[str]] = Query(None),
     sentiment: Optional[List[str]] = Query(None),
@@ -310,8 +314,16 @@ async def search_articles(
 
     tags_list = tags.split(',') if tags else None
     articles, total_count = db.search_articles(
-        category, future_signal, sentiment, tags_list, keyword,
-        pub_date_start, pub_date_end, page, per_page
+        topic=topic,  # Add topic parameter
+        category=category,
+        future_signal=future_signal,
+        sentiment=sentiment,
+        tags=tags_list,
+        keyword=keyword,
+        pub_date_start=pub_date_start,
+        pub_date_end=pub_date_end,
+        page=page,
+        per_page=per_page
     )
     return JSONResponse(content={"articles": articles, "total_count": total_count, "page": page, "per_page": per_page})
 
@@ -350,21 +362,26 @@ async def save_article(article: ArticleData):
 
 @app.get("/api/categories")
 async def get_categories(research: Research = Depends(get_research)):
-    categories = await research.get_categories()
-    logging.debug(f"Returning categories: {categories}")
-    return categories
+    logger.debug("Entering get_categories endpoint")
+    try:
+        categories = await research.get_categories()
+        logger.info(f"Retrieved categories: {categories}")
+        return categories
+    except Exception as e:
+        logger.error(f"Error fetching categories: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
 
 @app.get("/api/future_signals")
-async def get_future_signals():
-    return JSONResponse(content=config.get('future_signals', []))
+async def get_future_signals(research: Research = Depends(get_research)):
+    return await research.get_future_signals()
 
 @app.get("/api/sentiments")
-async def get_sentiments():
-    return JSONResponse(content=config.get('sentiment', []))
+async def get_sentiments(research: Research = Depends(get_research)):
+    return await research.get_sentiments()
 
 @app.get("/api/time_to_impact")
-async def get_time_to_impact():
-    return JSONResponse(content=config.get('time_to_impact', []))
+async def get_time_to_impact(research: Research = Depends(get_research)):
+    return await research.get_time_to_impact()
 
 @app.get("/api/latest_articles")
 async def get_latest_articles(topic_name: Optional[str] = None):
@@ -555,7 +572,10 @@ async def get_integrated_analysis(timeframe: str = Query("all"), category: str =
 
 @app.get("/api/topics")
 async def get_topics():
-    return research.get_topics()  # Remove await
+    """Get list of available topics."""
+    topics = research.get_topics()
+    logger.debug(f"Returning topics: {topics}")  # Add debug logging
+    return [{"name": topic} for topic in topics]  # Return list of objects with name property
 
 @app.get("/api/ai_models")
 def get_ai_models():
@@ -583,6 +603,160 @@ async def debug_ai_config():
     except Exception as e:
         return JSONResponse(content={"error": str(e), "path": config_path}, status_code=500)
 
+@app.get("/api/categories/{topic_name}")
+async def get_categories_for_topic(topic_name: str):
+    """Get categories for a specific topic."""
+    try:
+        # Import the necessary functions from config module
+        from app.config.config import load_config, get_topic_config
+        
+        # Load the config and get topic-specific configuration
+        config = load_config()
+        topic_config = get_topic_config(config, topic_name)
+        
+        logger.debug(f"Retrieved categories for topic {topic_name}: {topic_config['categories']}")
+        return JSONResponse(content=topic_config['categories'])
+    except ValueError as e:
+        logger.error(f"Error getting categories for topic {topic_name}: {str(e)}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error getting categories for topic {topic_name}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/collect_articles")
+async def collect_articles(
+    source: str,
+    query: str,
+    topic: str,
+    max_results: int = Query(10, ge=1, le=100),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+):
+    """
+    Collect articles from specified source.
+    """
+    try:
+        collector = CollectorFactory.get_collector(source)
+        
+        # Convert date strings to datetime objects if provided
+        start_date_obj = datetime.fromisoformat(start_date) if start_date else None
+        end_date_obj = datetime.fromisoformat(end_date) if end_date else None
+        
+        articles = await collector.search_articles(
+            query=query,
+            topic=topic,
+            max_results=max_results,
+            start_date=start_date_obj,
+            end_date=end_date_obj
+        )
+        
+        return JSONResponse(content={
+            "source": source,
+            "query": query,
+            "topic": topic,
+            "article_count": len(articles),
+            "articles": articles
+        })
+        
+    except Exception as e:
+        logger.error(f"Error collecting articles: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/available_sources")
+async def get_available_sources():
+    """Get list of available article sources."""
+    return JSONResponse(content=CollectorFactory.get_available_sources())
+
+@app.get("/collect", response_class=HTMLResponse)
+async def collect_page(request: Request):
+    """Render the article collection page."""
+    return templates.TemplateResponse("collect.html", {"request": request})
+
+@app.post("/config/newsapi")
+async def save_newsapi_config(config: NewsAPIConfig):
+    """Save NewsAPI configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        env_var_name = 'NEWSAPI_KEY'
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Update or add the key
+        new_line = f'{env_var_name}="{config.api_key}"\n'
+        key_found = False
+
+        for i, line in enumerate(lines):
+            if line.startswith(f'{env_var_name}='):
+                lines[i] = new_line
+                key_found = True
+                break
+
+        if not key_found:
+            lines.append(new_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment and reload settings
+        os.environ[env_var_name] = config.api_key
+        load_dotenv(override=True)  # Reload environment variables
+        from app.config import settings  # Reload settings module
+        importlib.reload(settings)  # Force reload of settings
+
+        return {"message": "NewsAPI configuration saved successfully"}
+
+    except Exception as e:
+        logger.error(f"Error saving NewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/config/newsapi")
+async def get_newsapi_config():
+    """Get NewsAPI configuration status."""
+    try:
+        newsapi_key = os.getenv('NEWSAPI_KEY')
+        return JSONResponse(content={
+            "configured": bool(newsapi_key),
+            "message": "NewsAPI is configured" if newsapi_key else "NewsAPI is not configured"
+        })
+    except Exception as e:
+        logger.error(f"Error checking NewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/newsapi")
+async def remove_newsapi_config():
+    """Remove NewsAPI configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        
+        # Read existing content
+        with open(env_path, "r") as env_file:
+            lines = env_file.readlines()
+
+        # Remove the NEWSAPI_KEY line
+        lines = [line for line in lines if not line.startswith('NEWSAPI_KEY=')]
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Remove from current environment
+        if 'NEWSAPI_KEY' in os.environ:
+            del os.environ['NEWSAPI_KEY']
+
+        return {"message": "NewsAPI configuration removed successfully"}
+
+    except Exception as e:
+        logger.error(f"Error removing NewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv('PORT', 8000))  # default to 8000 if not set
+    uvicorn.run(app, host="0.0.0.0", port=port)

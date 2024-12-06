@@ -12,34 +12,109 @@ from sqlalchemy.orm import Session
 from app.database import Database, SessionLocal
 from dotenv import load_dotenv
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
+from app.database import Database  # Move import here to avoid circular import
     
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 class Research:
-    def __init__(self, db: Database):
-        if not isinstance(db, Database):
-            raise TypeError("db must be an instance of Database")
-        self.db = db
-        self.load_config()
+    DEFAULT_TOPIC = "AI and Machine Learning"
+
+    def __init__(self, db):
+        logger.debug("Initializing Research class")
+        logger.debug(f"Input db type: {type(db)}")
+        
+        try:
+            # Update required methods to match actual Database class methods
+            required_methods = ['get_connection', 'save_raw_article', 'get_raw_article']
+            
+            if isinstance(db, Session):
+                logger.debug("Converting Session to Database")
+                from app.database import Database
+                self.db = Database()
+                self.session = db
+            elif hasattr(db, 'get_connection'):  # Check for the main required method
+                logger.debug("Using provided Database instance")
+                self.db = db
+                self.session = None
+            else:
+                logger.error(f"Invalid database instance. Missing required methods.")
+                raise TypeError("Database instance must implement required methods")
+                
+            self.current_topic = self.DEFAULT_TOPIC
+            self.topic_configs = {}
+            self.load_config()
+            
+        except Exception as e:
+            logger.error(f"Error in Research initialization: {str(e)}", exc_info=True)
+            raise
         if not os.path.exists('.env'):
             raise FileNotFoundError("The .env file does not exist. Please create it and add the necessary environment variables.")
         load_dotenv()
         self.available_models = ai_get_available_models()
-        self.ai_model = None  # We'll set this when a model is selected
+        self.ai_model = None
         self.firecrawl_app = self.initialize_firecrawl()
 
     def load_config(self):
-        config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json')
-        logger.debug(f"Loading config from: {config_path}")
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-        self.CATEGORIES = config['categories']
-        logger.debug(f"Loaded categories: {self.CATEGORIES}")
-        self.FUTURE_SIGNALS = config['future_signals']
-        self.SENTIMENT = config['sentiment']
-        self.TIME_TO_IMPACT = config['time_to_impact']
-        self.DRIVER_TYPES = config['driver_types']
+        """Load configuration with support for topics."""
+        # Import the config from the config module instead of loading directly
+        from app.config.config import load_config
+        
+        config = load_config()
+        logger.debug(f"Loaded config: {config}")
+        
+        # Store topic configurations
+        self.topic_configs = {topic['name']: topic for topic in config['topics']}
+        
+        # Ensure default topic exists in config
+        if self.DEFAULT_TOPIC not in self.topic_configs:
+            logger.error(f"Default topic '{self.DEFAULT_TOPIC}' not found in configuration")
+            # Fall back to first available topic if default is not found
+            if self.topic_configs:
+                self.current_topic = next(iter(self.topic_configs))
+            else:
+                raise ValueError("No topics found in configuration")
+            
+        logger.debug(f"Using topic: {self.current_topic}")
+        logger.debug(f"Available topics: {list(self.topic_configs.keys())}")
+
+    def set_topic(self, topic_name: str):
+        """Set the current topic for analysis."""
+        if topic_name not in self.topic_configs:
+            raise ValueError(f"Invalid topic: {topic_name}")
+        self.current_topic = topic_name
+        logger.debug(f"Set current topic to: {topic_name}")
+
+    @property
+    def CATEGORIES(self):
+        """Get categories for current topic."""
+        return self.topic_configs[self.current_topic]['categories']
+
+    @property
+    def FUTURE_SIGNALS(self):
+        """Get future signals for current topic."""
+        return self.topic_configs[self.current_topic]['future_signals']
+
+    @property
+    def SENTIMENT(self):
+        """Get sentiment options for current topic."""
+        return self.topic_configs[self.current_topic]['sentiment']
+
+    @property
+    def TIME_TO_IMPACT(self):
+        """Get time to impact options for current topic."""
+        return self.topic_configs[self.current_topic]['time_to_impact']
+
+    @property
+    def DRIVER_TYPES(self):
+        """Get driver types for current topic."""
+        return self.topic_configs[self.current_topic]['driver_types']
+
+    def get_topics(self):
+        """Get list of available topics."""
+        topics = list(self.topic_configs.keys())
+        logger.debug(f"Available topics: {topics}")
+        return topics
 
     def initialize_firecrawl(self):
         firecrawl_api_key = settings.FIRECRAWL_API_KEY
@@ -131,6 +206,10 @@ class Research:
             return None
 
     async def analyze_article(self, uri, article_text, summary_length, summary_voice, summary_type, topic, model_name):
+        """Update analyze_article to use topic-specific configurations."""
+        # Set the topic before analysis
+        self.set_topic(topic)
+        
         # Set the AI model based on the selected model_name
         self.set_ai_model(model_name)
 
@@ -139,6 +218,13 @@ class Research:
         else:
             source = self.extract_source(uri)
             publication_date = datetime.now(timezone.utc).date().isoformat()
+
+        # Truncate article text to roughly fit within model's context length
+        # Assuming average token length is ~4 characters, and leaving room for prompt
+        max_chars = 65000  # This should be adapted to the model's context length
+        if len(article_text) > max_chars:
+            article_text = article_text[:max_chars] + "..."
+            logger.info(f"Article text truncated to {max_chars} characters")
 
         # Improved title extraction
         title_prompt = f"""
@@ -265,7 +351,7 @@ class Research:
             "tags": parsed_analysis.get("Tags", "").strip('[]').replace(' ', '').split(','),
             "driver_type": parsed_analysis.get("Driver Type", ""),
             "driver_type_explanation": parsed_analysis.get("Driver Type Explanation", ""),
-            "topic": topic  # Make sure this line is present
+            "topic": topic  
         }
 
     def extract_source(self, uri):
@@ -278,7 +364,7 @@ class Research:
     async def save_article(self, article_data):
         # Ensure all required fields are present
         required_fields = ['title', 'uri', 'news_source', 'summary', 'sentiment', 'time_to_impact', 
-                           'category', 'future_signal', 'future_signal_explanation', 'publication_date', 
+                           'category', 'future_signal', 'future_signal_explanation', 'publication_date', 'topic',
                            'sentiment_explanation', 'time_to_impact_explanation', 'tags', 'driver_type', 'driver_type_explanation']
         
         for field in required_fields:
@@ -292,7 +378,10 @@ class Research:
         return await self.db.save_article(article_data)
 
     async def get_categories(self):
-        logger.debug(f"get_categories called, returning: {self.CATEGORIES}")
+        logger.debug("get_categories called")
+        if not self.CATEGORIES:
+            self.CATEGORIES = self._load_categories()
+        logger.debug(f"Returning categories: {self.CATEGORIES}")
         return self.CATEGORIES
 
     async def get_future_signals(self):
@@ -355,9 +444,6 @@ class Research:
             logger.error(f"Error scraping article: {str(e)}")
             return {"content": "Failed to scrape article content.", "source": self.extract_source(uri), "publication_date": datetime.now(timezone.utc).date().isoformat()}
 
-    def get_topics(self):
-        return self.db.get_topics()
-
     def get_recent_articles_by_topic(self, topic_name, limit=10):
         try:
             articles = self.db.get_recent_articles_by_topic(topic_name, limit)
@@ -375,3 +461,22 @@ class Research:
 
     def get_available_models(self):
         return self.available_models
+
+    def _load_categories(self):
+        try:
+            categories = self.db.get_categories()
+            logger.debug(f"Loaded categories from database: {categories}")
+            return categories
+        except Exception as e:
+            logger.error(f"Error loading categories: {str(e)}", exc_info=True)
+            return []
+
+
+
+
+
+
+
+
+
+

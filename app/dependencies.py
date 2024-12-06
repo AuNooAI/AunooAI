@@ -1,7 +1,8 @@
 from fastapi import Depends
-from sqlalchemy.orm import Session
 from app.research import Research
-from app.database import get_db
+from app.database import Database, get_db
+from sqlalchemy.orm import Session
 
 def get_research(db: Session = Depends(get_db)):
-    return Research(db)
+    database = Database()  # Create a Database instance
+    return Research(database)
