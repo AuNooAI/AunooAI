@@ -8,6 +8,7 @@ from app.ai_models import get_ai_model
 import logging
 import traceback
 import datetime
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -106,10 +107,12 @@ class BulkResearch:
             "success": [],
             "errors": []
         }
+        
         for article in articles:
             try:
-                print('Saving article:', article)  # Debug log
-                # Ensure all required fields are present
+                logger.debug(f'Attempting to save article: {article}')
+                
+                # Validate required fields
                 required_fields = [
                     'title', 'uri', 'news_source', 'summary', 'sentiment', 'time_to_impact',
                     'category', 'future_signal', 'future_signal_explanation', 'publication_date',
@@ -117,18 +120,39 @@ class BulkResearch:
                     'driver_type_explanation', 'submission_date', 'topic'
                 ]
                 
-                for field in required_fields:
-                    if field not in article or not article[field]:
-                        raise ValueError(f"Missing or empty required field: {field}")
+                # Validate required fields
+                missing_fields = [field for field in required_fields if not article.get(field)]
+                if missing_fields:
+                    raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+                
+                # Format tags if they're a string
+                if isinstance(article['tags'], str):
+                    article['tags'] = [tag.strip() for tag in article['tags'].split(',') if tag.strip()]
+                
+                # Ensure dates are in ISO format
+                for date_field in ['publication_date', 'submission_date']:
+                    if article.get(date_field):
+                        try:
+                            # Try to parse and reformat the date
+                            date_obj = datetime.fromisoformat(article[date_field].replace('Z', '+00:00'))
+                            article[date_field] = date_obj.date().isoformat()
+                        except (ValueError, AttributeError):
+                            logger.warning(f"Invalid date format for {date_field}: {article[date_field]}")
+                            article[date_field] = datetime.datetime.now().date().isoformat()
 
+                # Use the research instance to save the article
                 saved_article = await self.research.save_article(article)
+                logger.info(f"Successfully saved article: {article['uri']}")
                 results["success"].append(saved_article)
+                
             except Exception as e:
                 logger.error(f"Error saving article {article.get('uri', 'Unknown URL')}: {str(e)}")
+                logger.error(f"Article data: {json.dumps(article, indent=2)}")
                 results["errors"].append({
                     "uri": article.get('uri', 'Unknown URL'),
                     "error": str(e)
                 })
+        
         return results
     
     def extract_source(self, uri):

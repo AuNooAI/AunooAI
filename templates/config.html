@@ -57,7 +57,7 @@
     </div>
 </div>
 
-<!-- Replace the Article Provider Configuration section with this simplified version -->
+<!-- Replace the Article Provider Configuration section with this updated version -->
 <div class="config-layout mt-5">
     <div class="left-panel">
         <h2>Article Provider Configuration</h2>
@@ -68,6 +68,12 @@
             <input type="text" id="provider-key" placeholder="API Key" required>
             <button type="submit">Add Provider</button>
         </form>
+    </div>
+    <div class="right-panel">
+        <h2>Available Providers</h2>
+        <ul id="provider-list">
+            <!-- This will be populated dynamically -->
+        </ul>
     </div>
 </div>
 
@@ -321,9 +327,10 @@
 
     // Load AI models and available models when the page loads
     document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOMContentLoaded event fired');  // Debug log
         loadAIModels();
         loadAvailableModels();
-        loadAvailableProviders();
+        loadAvailableProviders();  // Verify this is being called
     });
 
     // Update the provider config form submission handler
@@ -345,8 +352,10 @@
                 body: JSON.stringify({ api_key: key })
             });
             
+            const data = await response.json();
+            
             if (!response.ok) {
-                throw new Error('Network response was not ok');
+                throw new Error(data.detail || 'Failed to save NewsAPI key');
             }
             
             alert('NewsAPI key saved successfully');
@@ -355,39 +364,55 @@
             
         } catch (error) {
             console.error('Error saving NewsAPI key:', error);
-            alert('Error saving NewsAPI key. Please try again.');
+            alert('Error saving NewsAPI key: ' + error.message);
         }
     });
 
-    // Update loadAvailableProviders to match loadAvailableModels pattern
+    // Update loadAvailableProviders with the correct URL
     async function loadAvailableProviders() {
         try {
-            const response = await fetch('/api/config/newsapi');
+            console.log('About to fetch from:', '/config/newsapi');  // Updated URL
+            const response = await fetch('/config/newsapi', {  // Updated URL
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json'
+                }
+            });
+            console.log('Response status:', response.status);
+            console.log('Response ok:', response.ok);
+            
             if (!response.ok) {
                 throw new Error('Network response was not ok');
             }
-            const data = await response.json();
+            
+            const text = await response.text();
+            console.log('Raw response text:', text);
+            
+            const data = JSON.parse(text);
+            console.log('Parsed data:', data);
             
             const providerList = document.getElementById('provider-list');
-            if (!data.configured) {
+            
+            if (data && data.configured === true) {
+                console.log('Provider is configured, updating UI');
+                providerList.innerHTML = `
+                    <li>
+                        NewsAPI 
+                        <button onclick="removeNewsAPIKey()">Remove</button>
+                    </li>
+                `;
+            } else {
+                console.log('Provider not configured');
                 providerList.innerHTML = '<li>No providers configured.</li>';
-                return;
             }
-            
-            providerList.innerHTML = `
-                <li>
-                    NewsAPI 
-                    <button onclick="removeNewsAPIKey()">Remove</button>
-                </li>
-            `;
         } catch (error) {
-            console.error('Error loading providers:', error);
-            const providerList = document.getElementById('provider-list');
+            console.error('Error in loadAvailableProviders:', error);
+            console.error('Error stack:', error.stack);
             providerList.innerHTML = '<li>Error loading providers. Please try again later.</li>';
         }
     }
 
-    // Add function to remove NewsAPI key
+    // Update removeNewsAPIKey to match removeModel pattern
     async function removeNewsAPIKey() {
         if (confirm('Are you sure you want to remove the NewsAPI key?')) {
             try {
@@ -399,7 +424,7 @@
                     throw new Error('Failed to remove NewsAPI key');
                 }
                 
-                loadAvailableProviders(); // Refresh the status
+                await loadAvailableProviders();  // Reload the provider list after removal
             } catch (error) {
                 console.error('Error removing NewsAPI key:', error);
                 alert('Error removing NewsAPI key');

@@ -5,8 +5,8 @@ from typing import Dict
 
 load_dotenv()
 
-# Change this line to read from environment
-NEWSAPI_KEY = os.getenv('NEWSAPI_KEY')
+# Change this line to read from environment with new prefix
+NEWSAPI_KEY = os.getenv('PROVIDER_NEWSAPI_KEY')  # Changed to use PROVIDER_ prefix
 
 def load_config() -> Dict:
     """Load configuration with support for topics."""

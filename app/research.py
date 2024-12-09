@@ -13,6 +13,7 @@ from app.database import Database, SessionLocal
 from dotenv import load_dotenv
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
 from app.database import Database  # Move import here to avoid circular import
+import re
     
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -155,30 +156,85 @@ class Research:
                 }
             )
             
-            logger.debug(f"Scrape result: {scrape_result}")
+            logger.debug(f"Full Firecrawl scrape result: {json.dumps(scrape_result, indent=2)}")
             
             if 'markdown' in scrape_result:
                 content = scrape_result['markdown']
                 # Save the raw markdown
                 self.db.save_raw_article(uri, content)
-                # Extract the date from Firecrawl's output
-                publication_date = scrape_result.get('date')
-                if publication_date:
-                    logger.info(f"Extracted publication date: {publication_date}")
-                    # Try to parse the date in various formats
-                    for date_format in ['%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y']:
+                
+                # Extract and parse publication date
+                publication_date = None
+                raw_date = scrape_result.get('date') or scrape_result.get('published_date') or scrape_result.get('pubDate')
+                
+                if raw_date:
+                    logger.info(f"Raw date from scraper: {raw_date}")
+                    # Try common date formats
+                    date_formats = [
+                        '%Y-%m-%d',           # 2024-03-14
+                        '%Y/%m/%d',           # 2024/03/14
+                        '%d-%m-%Y',           # 14-03-2024
+                        '%d/%m/%Y',           # 14/03/2024
+                        '%Y-%m-%dT%H:%M:%S',  # 2024-03-14T15:30:00
+                        '%Y-%m-%dT%H:%M:%S.%f%z',  # 2024-03-14T15:30:00.000Z
+                        '%Y-%m-%dT%H:%M:%SZ', # 2024-03-14T15:30:00Z
+                        '%B %d, %Y',          # March 14, 2024
+                        '%d %B %Y',           # 14 March 2024
+                        '%d %B, %Y',          # 14 March, 2024
+                        '%Y-%m-%d %H:%M:%S',  # 2024-03-14 15:30:00
+                        '%d %B %Y',           # 06 December 2024
+                        '%d-%B-%Y',           # 06-December-2024
+                        '%d %b %Y',           # 06 Dec 2024
+                        '%d-%b-%Y',           # 06-Dec-2024
+                        '%b %d, %Y',          # Dec 06, 2024
+                        '%B %d, %Y',          # December 06, 2024
+                    ]
+                    
+                    for date_format in date_formats:
                         try:
-                            parsed_date = datetime.strptime(publication_date, date_format)
+                            parsed_date = datetime.strptime(raw_date, date_format)
                             publication_date = parsed_date.date().isoformat()
+                            logger.info(f"Successfully parsed date {raw_date} with format {date_format}")
                             break
                         except ValueError:
                             continue
-                    else:
-                        # If no format matches, use current date
-                        publication_date = datetime.now(timezone.utc).date().isoformat()
-                else:
-                    # If no date is provided, use current date
+                    
+                    if not publication_date:
+                        logger.warning(f"Could not parse date {raw_date} with any known format")
+                
+                if not publication_date:
+                    # If we still don't have a date, try to extract it from the content
+                    # This is a fallback mechanism
+                    date_patterns = [
+                        r'\d{4}-\d{2}-\d{2}',  # Match YYYY-MM-DD
+                        r'\d{2}/\d{2}/\d{4}',  # Match DD/MM/YYYY
+                        r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}'  # Match Month DD, YYYY
+                    ]
+                    
+                    for pattern in date_patterns:
+                        matches = re.findall(pattern, content[:1000])  # Look in first 1000 chars
+                        if matches:
+                            try:
+                                # Try to parse the first match
+                                if '-' in matches[0]:
+                                    parsed_date = datetime.strptime(matches[0], '%Y-%m-%d')
+                                elif '/' in matches[0]:
+                                    parsed_date = datetime.strptime(matches[0], '%d/%m/%Y')
+                                else:
+                                    parsed_date = datetime.strptime(matches[0], '%B %d, %Y')
+                                publication_date = parsed_date.date().isoformat()
+                                logger.info(f"Extracted date from content: {publication_date}")
+                                break
+                            except ValueError:
+                                continue
+                
+                if not publication_date:
+                    # If all else fails, use current date
                     publication_date = datetime.now(timezone.utc).date().isoformat()
+                    logger.warning(f"Using current date as fallback for {uri}: {publication_date}")
+                
+                source = self.extract_source(uri)
+                return {"content": content, "source": source, "publication_date": publication_date, "exists": False}
             else:
                 logger.error(f"Failed to fetch content for {uri}")
                 content = "Failed to fetch article content."
@@ -214,7 +270,10 @@ class Research:
         self.set_ai_model(model_name)
 
         if not article_text:
-            article_text, source, publication_date = await self.fetch_article_content(uri)
+            article_content = await self.fetch_article_content(uri)
+            article_text = article_content["content"]
+            source = article_content["source"]
+            publication_date = article_content["publication_date"]  # Get publication_date from the response
         else:
             source = self.extract_source(uri)
             publication_date = datetime.now(timezone.utc).date().isoformat()
@@ -362,20 +421,30 @@ class Research:
         return self.db.get_recent_articles(limit)
 
     async def save_article(self, article_data):
-        # Ensure all required fields are present
-        required_fields = ['title', 'uri', 'news_source', 'summary', 'sentiment', 'time_to_impact', 
-                           'category', 'future_signal', 'future_signal_explanation', 'publication_date', 'topic',
-                           'sentiment_explanation', 'time_to_impact_explanation', 'tags', 'driver_type', 'driver_type_explanation']
-        
-        for field in required_fields:
-            if field not in article_data:
-                raise ValueError(f"Missing required field: {field}")
+        try:
+            logger.debug(f"Attempting to save article with data: {json.dumps(article_data, indent=2)}")
+            
+            # Validate required fields
+            required_fields = ['title', 'uri', 'news_source', 'summary', 'sentiment', 'time_to_impact', 
+                              'category', 'future_signal', 'future_signal_explanation', 'publication_date', 'topic',
+                              'sentiment_explanation', 'time_to_impact_explanation', 'tags', 'driver_type', 
+                              'driver_type_explanation']
+            
+            missing_fields = [field for field in required_fields if field not in article_data]
+            if missing_fields:
+                raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
 
-        # Convert tags list to string if necessary
-        if isinstance(article_data['tags'], list):
-            article_data['tags'] = ','.join(article_data['tags'])
-        
-        return await self.db.save_article(article_data)
+            # Convert tags list to string if necessary
+            if isinstance(article_data['tags'], list):
+                article_data['tags'] = ','.join(article_data['tags'])
+            
+            result = await self.db.save_article(article_data)
+            logger.debug(f"Successfully saved article: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in save_article at {datetime.datetime.now().isoformat()}: {str(e)}")
+            raise
 
     async def get_categories(self):
         logger.debug("get_categories called")

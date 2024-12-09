@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Form, Request, Body, Query, Depends
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from app.database import Database, get_db
 from app.research import Research
 from app.analytics import Analytics
@@ -573,9 +573,11 @@ async def get_integrated_analysis(timeframe: str = Query("all"), category: str =
 @app.get("/api/topics")
 async def get_topics():
     """Get list of available topics."""
-    topics = research.get_topics()
-    logger.debug(f"Returning topics: {topics}")  # Add debug logging
-    return [{"name": topic} for topic in topics]  # Return list of objects with name property
+    # Load fresh config each time
+    config = load_config()
+    topics = [{"name": topic['name']} for topic in config['topics']]
+    logger.debug(f"Returning topics: {topics}")
+    return topics
 
 @app.get("/api/ai_models")
 def get_ai_models():
@@ -674,10 +676,11 @@ async def collect_page(request: Request):
 
 @app.post("/config/newsapi")
 async def save_newsapi_config(config: NewsAPIConfig):
+    print("DEBUG - Endpoint hit - Save NewsAPI config")
     """Save NewsAPI configuration."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-        env_var_name = 'NEWSAPI_KEY'
+        env_var_name = 'PROVIDER_NEWSAPI_KEY'
 
         # Read existing content
         try:
@@ -703,28 +706,38 @@ async def save_newsapi_config(config: NewsAPIConfig):
         with open(env_path, "w") as env_file:
             env_file.writelines(lines)
 
-        # Update environment and reload settings
+        # Update environment
         os.environ[env_var_name] = config.api_key
-        load_dotenv(override=True)  # Reload environment variables
-        from app.config import settings  # Reload settings module
-        importlib.reload(settings)  # Force reload of settings
-
-        return {"message": "NewsAPI configuration saved successfully"}
+        
+        # Use explicit JSONResponse
+        return JSONResponse(
+            status_code=200,
+            content={"message": "NewsAPI configuration saved successfully"}
+        )
 
     except Exception as e:
         logger.error(f"Error saving NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/config/newsapi")
+@app.get("/config/newsapi")
 async def get_newsapi_config():
     """Get NewsAPI configuration status."""
     try:
-        newsapi_key = os.getenv('NEWSAPI_KEY')
-        return JSONResponse(content={
-            "configured": bool(newsapi_key),
-            "message": "NewsAPI is configured" if newsapi_key else "NewsAPI is not configured"
-        })
+        # Force reload of environment variables
+        load_dotenv(override=True)
+        
+        newsapi_key = os.getenv('PROVIDER_NEWSAPI_KEY')
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": bool(newsapi_key),
+                "message": "NewsAPI is configured" if newsapi_key else "NewsAPI is not configured"
+            }
+        )
+
     except Exception as e:
+        print(f"DEBUG - Error in get_newsapi_config: {str(e)}")
         logger.error(f"Error checking NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -739,15 +752,15 @@ async def remove_newsapi_config():
             lines = env_file.readlines()
 
         # Remove the NEWSAPI_KEY line
-        lines = [line for line in lines if not line.startswith('NEWSAPI_KEY=')]
+        lines = [line for line in lines if not line.startswith('PROVIDER_NEWSAPI_KEY=')]
 
         # Write back to .env
         with open(env_path, "w") as env_file:
             env_file.writelines(lines)
 
         # Remove from current environment
-        if 'NEWSAPI_KEY' in os.environ:
-            del os.environ['NEWSAPI_KEY']
+        if 'PROVIDER_NEWSAPI_KEY' in os.environ:
+            del os.environ['PROVIDER_NEWSAPI_KEY']
 
         return {"message": "NewsAPI configuration removed successfully"}
 
@@ -755,6 +768,58 @@ async def remove_newsapi_config():
         logger.error(f"Error removing NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/create_topic")
+async def create_topic_page(request: Request):
+    config = load_config()
+    
+    # Gather examples from existing topics
+    example_topics = [topic['name'] for topic in config['topics']]
+    example_categories = list(set(cat for topic in config['topics'] for cat in topic['categories']))
+    example_signals = list(set(signal for topic in config['topics'] for signal in topic['future_signals']))
+    example_sentiments = list(set(sent for topic in config['topics'] for sent in topic['sentiment']))
+    example_time_to_impact = list(set(time for topic in config['topics'] for time in topic['time_to_impact']))
+    example_driver_types = list(set(driver for topic in config['topics'] for driver in topic['driver_types']))
+    
+    return templates.TemplateResponse("create_topic.html", {
+        "request": request,
+        "example_topics": example_topics,
+        "example_categories": example_categories,
+        "example_signals": example_signals,
+        "example_sentiments": example_sentiments,
+        "example_time_to_impact": example_time_to_impact,
+        "example_driver_types": example_driver_types
+    })
+
+@app.post("/api/create_topic")
+async def create_topic(topic_data: dict):
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json')
+        
+        # Load existing config
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        # Validate topic name doesn't already exist
+        if any(topic['name'] == topic_data['name'] for topic in config['topics']):
+            raise HTTPException(status_code=400, detail="Topic with this name already exists")
+        
+        # Add new topic
+        config['topics'].append({
+            'name': topic_data['name'],
+            'categories': topic_data['categories'],
+            'future_signals': topic_data['future_signals'],
+            'sentiment': topic_data['sentiment'],
+            'time_to_impact': topic_data['time_to_impact'],
+            'driver_types': topic_data['driver_types']
+        })
+        
+        # Save updated config
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        return {"message": "Topic created successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn

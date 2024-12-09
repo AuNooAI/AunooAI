@@ -7,4 +7,5 @@ reports/
 .DS_Store
 .cursorrules
 *.code-workspace
-data/*.db
+data/*.db*
+LA_notes

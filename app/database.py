@@ -32,7 +32,14 @@ class Database:
         print(f"Database initialized: {self.db_path}")
 
     def get_connection(self):
-        return sqlite3.connect(self.db_path)
+        logger.info("Getting database connection")
+        try:
+            conn = sqlite3.connect(self.db_path)
+            logger.info("Database connection successful")
+            return conn
+        except Exception as e:
+            logger.error(f"Database connection failed: {str(e)}")
+            raise
 
     def init_db(self):
         with self.get_connection() as conn:
@@ -261,8 +268,21 @@ class Database:
                 return None
             
     async def save_article(self, article_data):
+        logger.info(f"Database.save_article called with data: {json.dumps(article_data, indent=2)}")
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            
+            # Standardize submission_date format
+            if 'submission_date' not in article_data:
+                article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
+            else:
+                try:
+                    # Try to parse and standardize the submission_date
+                    date_obj = datetime.fromisoformat(article_data['submission_date'].replace('Z', '+00:00'))
+                    article_data['submission_date'] = date_obj.strftime('%Y-%m-%dT%H:%M:%S.%f')
+                except (ValueError, AttributeError):
+                    logger.warning(f"Invalid submission_date format: {article_data['submission_date']}")
+                    article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
             
             query = """
             INSERT INTO articles (

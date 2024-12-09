@@ -277,20 +277,21 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-function loadTopics() {
-    fetch('/api/topics')
-        .then(response => response.json())
-        .then(topics => {
-            const topicSelect = document.getElementById('topicSelect');
-            topicSelect.innerHTML = '<option value="">Select a topic</option>';
-            topics.forEach(topic => {
-                const option = document.createElement('option');
-                option.value = topic.name;
-                option.textContent = topic.name;
-                topicSelect.appendChild(option);
-            });
-        })
-        .catch(error => console.error('Error loading topics:', error));
+async function loadTopics() {
+    try {
+        const response = await fetch('/api/topics');
+        const topics = await response.json();
+        const topicSelect = document.getElementById('topicSelect');
+        topicSelect.innerHTML = '<option value="">Select a topic</option>';
+        topics.forEach(topic => {
+            const option = document.createElement('option');
+            option.value = topic.name;
+            option.textContent = topic.name;
+            topicSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading topics:', error);
+    }
 }
 
 function loadAvailableModels() {

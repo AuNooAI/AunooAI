@@ -19,6 +19,8 @@ def load_config() -> Dict:
 
 def get_topic_config(config: Dict, topic_name: str) -> Dict:
     """Get configuration for a specific topic."""
+    # Always load fresh config
+    config = load_config()
     for topic in config.get('topics', []):
         if topic['name'] == topic_name:
             return topic
@@ -26,4 +28,6 @@ def get_topic_config(config: Dict, topic_name: str) -> Dict:
 
 def get_all_topics(config: Dict) -> List[str]:
     """Get list of all topic names."""
+    # Always load fresh config
+    config = load_config()
     return [topic['name'] for topic in config.get('topics', [])]
