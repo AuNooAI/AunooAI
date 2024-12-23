@@ -22,20 +22,17 @@ class Research:
     DEFAULT_TOPIC = "AI and Machine Learning"
 
     def __init__(self, db):
-        logger.debug("Initializing Research class")
-        logger.debug(f"Input db type: {type(db)}")
         
         try:
             # Update required methods to match actual Database class methods
             required_methods = ['get_connection', 'save_raw_article', 'get_raw_article']
             
             if isinstance(db, Session):
-                logger.debug("Converting Session to Database")
+                #logger.debug("Converting Session to Database")
                 from app.database import Database
                 self.db = Database()
                 self.session = db
             elif hasattr(db, 'get_connection'):  # Check for the main required method
-                logger.debug("Using provided Database instance")
                 self.db = db
                 self.session = None
             else:
@@ -58,33 +55,25 @@ class Research:
 
     def load_config(self):
         """Load configuration with support for topics."""
-        # Import the config from the config module instead of loading directly
         from app.config.config import load_config
         
         config = load_config()
-        logger.debug(f"Loaded config: {config}")
         
-        # Store topic configurations
         self.topic_configs = {topic['name']: topic for topic in config['topics']}
         
-        # Ensure default topic exists in config
         if self.DEFAULT_TOPIC not in self.topic_configs:
             logger.error(f"Default topic '{self.DEFAULT_TOPIC}' not found in configuration")
-            # Fall back to first available topic if default is not found
             if self.topic_configs:
                 self.current_topic = next(iter(self.topic_configs))
             else:
                 raise ValueError("No topics found in configuration")
             
-        logger.debug(f"Using topic: {self.current_topic}")
-        logger.debug(f"Available topics: {list(self.topic_configs.keys())}")
-
     def set_topic(self, topic_name: str):
         """Set the current topic for analysis."""
         if topic_name not in self.topic_configs:
             raise ValueError(f"Invalid topic: {topic_name}")
         self.current_topic = topic_name
-        logger.debug(f"Set current topic to: {topic_name}")
+        logger.info(f"Set current topic to: {topic_name}")
 
     @property
     def CATEGORIES(self):
@@ -114,7 +103,6 @@ class Research:
     def get_topics(self):
         """Get list of available topics."""
         topics = list(self.topic_configs.keys())
-        logger.debug(f"Available topics: {topics}")
         return topics
 
     def initialize_firecrawl(self):
@@ -148,7 +136,6 @@ class Research:
                 }
             
             logger.info(f"Article does not exist in database, scraping: {uri}")
-            # If the article doesn't exist, proceed with scraping
             scrape_result = self.firecrawl_app.scrape_url(
                 uri,
                 params={
@@ -156,12 +143,10 @@ class Research:
                 }
             )
             
-            logger.debug(f"Full Firecrawl scrape result: {json.dumps(scrape_result, indent=2)}")
-            
             if 'markdown' in scrape_result:
                 content = scrape_result['markdown']
-                # Save the raw markdown
-                self.db.save_raw_article(uri, content)
+                # Save the raw markdown with current topic
+                self.db.save_raw_article(uri, content, self.current_topic)
                 
                 # Extract and parse publication date
                 publication_date = None
@@ -447,10 +432,10 @@ class Research:
             raise
 
     async def get_categories(self):
-        logger.debug("get_categories called")
+        #logger.debug("get_categories called")
         if not self.CATEGORIES:
             self.CATEGORIES = self._load_categories()
-        logger.debug(f"Returning categories: {self.CATEGORIES}")
+        #logger.debug(f"Returning categories: {self.CATEGORIES}")
         return self.CATEGORIES
 
     async def get_future_signals(self):
@@ -474,6 +459,7 @@ class Research:
     async def scrape_article(self, uri: str):
         """Scrape the article using Firecrawl."""
         try:
+            logger.info(f"Starting article scrape for URI: {uri}")
             scrape_result = self.firecrawl_app.scrape_url(
                 uri,
                 params={
@@ -482,25 +468,36 @@ class Research:
             )
             
             if 'markdown' in scrape_result:
+                logger.info(f"Successfully scraped content from {uri}")
                 content = scrape_result['markdown']
                 # Save the raw markdown
-                self.db.save_raw_article(uri, content)
+                try:
+                    self.db.save_raw_article(uri, content, self.current_topic)
+                    logger.info(f"Successfully saved raw article with topic: {self.current_topic}")
+                except Exception as save_error:
+                    logger.error(f"Failed to save raw article: {str(save_error)}")
+                    logger.error(f"Current topic: {self.current_topic}")
+                    raise save_error
+
                 # Extract the date from Firecrawl's output
                 publication_date = scrape_result.get('date')
+                logger.debug(f"Raw publication date from scraper: {publication_date}")
+                
                 if publication_date:
                     # Try to parse the date in various formats
                     for date_format in ['%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y']:
                         try:
                             parsed_date = datetime.strptime(publication_date, date_format)
                             publication_date = parsed_date.date().isoformat()
+                            logger.debug(f"Successfully parsed date {publication_date} using format {date_format}")
                             break
                         except ValueError:
                             continue
                     else:
-                        # If no format matches, use current date
+                        logger.warning(f"Could not parse date {publication_date}, using current date")
                         publication_date = datetime.now(timezone.utc).date().isoformat()
                 else:
-                    # If no date is provided, use current date
+                    logger.info("No publication date provided, using current date")
                     publication_date = datetime.now(timezone.utc).date().isoformat()
             else:
                 logger.error(f"Failed to fetch content for {uri}")
@@ -508,10 +505,16 @@ class Research:
                 publication_date = datetime.now(timezone.utc).date().isoformat()
 
             source = self.extract_source(uri)
+            logger.info(f"Article processing complete. Source: {source}, Publication date: {publication_date}")
             return {"content": content, "source": source, "publication_date": publication_date}
         except Exception as e:
-            logger.error(f"Error scraping article: {str(e)}")
-            return {"content": "Failed to scrape article content.", "source": self.extract_source(uri), "publication_date": datetime.now(timezone.utc).date().isoformat()}
+            logger.error(f"Error scraping article: {str(e)}", exc_info=True)
+            logger.error(f"URI: {uri}, Current topic: {self.current_topic}")
+            return {
+                "content": "Failed to scrape article content.", 
+                "source": self.extract_source(uri), 
+                "publication_date": datetime.now(timezone.utc).date().isoformat()
+            }
 
     def get_recent_articles_by_topic(self, topic_name, limit=10):
         try:

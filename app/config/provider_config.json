@@ -1,0 +1,18 @@
+{
+  "providers": [
+    {
+      "name": "newsapi",
+      "display_name": "NewsAPI",
+      "config_type": "api_key",
+      "description": "Access news articles from various sources worldwide",
+      "enabled": true
+    },
+    {
+      "name": "arxiv",
+      "display_name": "ArXiv",
+      "config_type": "none",
+      "description": "Access scientific papers and research articles",
+      "enabled": true
+    }
+  ]
+} 

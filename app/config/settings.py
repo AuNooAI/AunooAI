@@ -13,7 +13,6 @@ def load_config() -> Dict:
     config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
     with open(config_path, 'r') as config_file:
         config = json.load(config_file)
-    print("Loaded config with topics:", config)  # Debug print
     return config
 
 config = load_config()
@@ -29,6 +28,3 @@ os.makedirs(DATABASE_DIR, exist_ok=True)
 
 # Get list of available topics
 AVAILABLE_TOPICS = [topic['name'] for topic in config.get('topics', [])]
-
-print("Available topics:", AVAILABLE_TOPICS)  # Debug print
-print("DATABASE_DIR:", DATABASE_DIR)  # Debug print

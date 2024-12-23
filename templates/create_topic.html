@@ -9,12 +9,12 @@
         --light-gray: #f8f9fa;
     }
 
-    .form-control {
+    .form-control, .form-select {
         border-color: var(--primary-color);
         transition: border-color 0.3s ease-in-out;
     }
 
-    .form-control:focus {
+    .form-control:focus, .form-select:focus {
         border-color: var(--primary-dark);
         box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
     }
@@ -98,9 +98,20 @@
 
 {% block content %}
 <div class="container mt-4 mb-5">
-    <h1>Create New Scenario Topic</h1>
+    <h1>Create or Update a Scenario Topic</h1>
     
     <form id="createTopicForm" class="mt-4">
+        <div class="mb-3">
+            <label for="existingTopic" class="form-label">Select if you want to edit an existing topic (optional)</label>
+            <select class="form-select" id="existingTopic">
+                <option value="">Select Topic</option>
+                {% for topic in example_topics %}
+                <option value="{{ topic }}">{{ topic }}</option>
+                {% endfor %}
+            </select>
+            <small class="text-muted">Select an existing topic to edit or leave empty to create a new one</small>
+        </div>
+
         <div class="mb-3">
             <label for="topicName" class="form-label">Topic Name</label>
             <input type="text" class="form-control" id="topicName" required>
@@ -168,7 +179,7 @@
             </div>
         </div>
 
-        <button type="submit" class="btn btn-primary">Create Topic</button>
+        <button type="submit" class="btn btn-primary mt-3">Create/Update Topic</button>
     </form>
 </div>
 
@@ -177,6 +188,12 @@ function createTagInput(containerId, inputId) {
     const container = document.getElementById(containerId);
     const input = document.getElementById(inputId);
     const tags = new Set();
+
+    function clearTags() {
+        tags.clear();
+        const existingTags = container.querySelectorAll('.tag');
+        existingTags.forEach(tag => tag.remove());
+    }
 
     input.addEventListener('keydown', function(e) {
         if (e.key === 'Enter' || e.key === ',') {
@@ -215,7 +232,8 @@ function createTagInput(containerId, inputId) {
     }
 
     return {
-        getTags: () => Array.from(tags)
+        getTags: () => Array.from(tags),
+        clearTags: () => clearTags()
     };
 }
 
@@ -268,5 +286,59 @@ function addExampleValue(inputId, value) {
         bubbles: true
     }));
 }
+
+document.getElementById('existingTopic').addEventListener('change', async function() {
+    const selectedTopic = this.value;
+    if (!selectedTopic) {
+        // Clear all fields
+        document.getElementById('topicName').value = '';
+        categoriesInput.clearTags();
+        futureSignalsInput.clearTags();
+        sentimentsInput.clearTags();
+        timeToImpactInput.clearTags();
+        driverTypesInput.clearTags();
+        return;
+    }
+    
+    // Fetch topic data
+    const response = await fetch(`/api/topic/${selectedTopic}`);
+    const topicData = await response.json();
+    
+    // Set topic name
+    document.getElementById('topicName').value = topicData.name;
+    
+    // Clear existing tags first
+    categoriesInput.clearTags();
+    futureSignalsInput.clearTags();
+    sentimentsInput.clearTags();
+    timeToImpactInput.clearTags();
+    driverTypesInput.clearTags();
+    
+    // Add tags for each field
+    topicData.categories.forEach(cat => {
+        document.getElementById('categoriesInput').value = cat;
+        document.getElementById('categoriesInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+    });
+    
+    topicData.future_signals.forEach(signal => {
+        document.getElementById('futureSignalsInput').value = signal;
+        document.getElementById('futureSignalsInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+    });
+    
+    topicData.sentiment.forEach(sent => {
+        document.getElementById('sentimentsInput').value = sent;
+        document.getElementById('sentimentsInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+    });
+    
+    topicData.time_to_impact.forEach(time => {
+        document.getElementById('timeToImpactInput').value = time;
+        document.getElementById('timeToImpactInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+    });
+    
+    topicData.driver_types.forEach(driver => {
+        document.getElementById('driverTypesInput').value = driver;
+        document.getElementById('driverTypesInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+    });
+});
 </script>
 {% endblock %} 

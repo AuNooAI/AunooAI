@@ -28,19 +28,19 @@ class Report:
             query += " AND (title LIKE ? OR summary LIKE ?)"
             params.extend([f"%{keyword}%", f"%{keyword}%"])
         if pub_date_start:
-            query += " AND publication_date >= ?"
+            query += " AND date(publication_date) >= date(?)"
             params.append(pub_date_start)
         if pub_date_end:
-            query += " AND publication_date <= ?"
+            query += " AND date(publication_date) <= date(?)"
             params.append(pub_date_end)
         if sub_date_start:
-            query += " AND submission_date >= ?"
+            query += " AND date(submission_date) >= date(?)"
             params.append(sub_date_start)
         if sub_date_end:
-            query += " AND submission_date <= ?"
+            query += " AND date(submission_date) <= date(?)"
             params.append(sub_date_end)
 
-        query += " ORDER BY publication_date DESC"
+        query += " ORDER BY date(publication_date) DESC"
 
         return self.db.fetch_all(query, params)
 

@@ -359,6 +359,11 @@ document.addEventListener('DOMContentLoaded', function() {
         currentPage = 1;
         allArticleIds = [];
         articleList.innerHTML = '';
+        hasMoreArticles = true;
+        isLoading = false;
+        loadingIndicator.style.display = 'none';
+        totalCountSpan.textContent = '';
+        
         fetchArticles();
     }
 
@@ -369,6 +374,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const formData = new FormData(searchForm);
         const searchParams = new URLSearchParams(formData);
+        
+        const dateRangeValue = document.getElementById('dateRange').value;
+        if (dateRangeValue !== 'custom') {
+            searchParams.delete('startDate');
+            searchParams.delete('endDate');
+        }
+        
         searchParams.append('page', currentPage);
         searchParams.append('per_page', articlesPerPage);
 
@@ -386,6 +398,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.error('Error searching articles:', error);
                 isLoading = false;
                 loadingIndicator.style.display = 'none';
+                alert('Error searching articles. Please try again.');
             });
     }
 
