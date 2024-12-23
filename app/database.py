@@ -29,10 +29,14 @@ class Database:
             db_name = self.get_active_database()
         self.db_path = os.path.join(DATABASE_DIR, db_name)
         self.init_db()
-        print(f"Database initialized: {self.db_path}")
 
     def get_connection(self):
-        return sqlite3.connect(self.db_path)
+        try:
+            conn = sqlite3.connect(self.db_path)
+            return conn
+        except Exception as e:
+            logger.error(f"Database connection failed: {str(e)}")
+            raise
 
     def init_db(self):
         with self.get_connection() as conn:
@@ -81,8 +85,13 @@ class Database:
                     uri TEXT PRIMARY KEY,
                     raw_markdown TEXT,
                     submission_date TEXT,
-                    last_updated TEXT
+                    last_updated TEXT,
+                    topic TEXT
                 )
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_publication_date 
+                ON articles(publication_date)
             """)
             conn.commit()
 
@@ -261,8 +270,21 @@ class Database:
                 return None
             
     async def save_article(self, article_data):
+        logger.info(f"Database.save_article called with data: {json.dumps(article_data, indent=2)}")
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            
+            # Standardize submission_date format
+            if 'submission_date' not in article_data:
+                article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
+            else:
+                try:
+                    # Try to parse and standardize the submission_date
+                    date_obj = datetime.fromisoformat(article_data['submission_date'].replace('Z', '+00:00'))
+                    article_data['submission_date'] = date_obj.strftime('%Y-%m-%dT%H:%M:%S.%f')
+                except (ValueError, AttributeError):
+                    logger.warning(f"Invalid submission_date format: {article_data['submission_date']}")
+                    article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
             
             query = """
             INSERT INTO articles (
@@ -476,7 +498,6 @@ class Database:
             cursor = conn.cursor()
             cursor.execute(query)
             categories = [row[0] for row in cursor.fetchall()]
-        logger.debug(f"Retrieved categories from database: {categories}")
         return categories
 
 
@@ -503,7 +524,7 @@ class Database:
                 "last_entry": last_entry
             }
 
-    def save_raw_article(self, uri, raw_markdown):
+    def save_raw_article(self, uri, raw_markdown, topic):
         with self.get_connection() as conn:
             cursor = conn.cursor()
             current_time = datetime.now().isoformat()
@@ -514,16 +535,16 @@ class Database:
             if existing_raw_article:
                 update_query = """
                 UPDATE raw_articles SET
-                    raw_markdown = ?, last_updated = ?
+                    raw_markdown = ?, last_updated = ?, topic = ?
                 WHERE uri = ?
                 """
-                cursor.execute(update_query, (raw_markdown, current_time, uri))
+                cursor.execute(update_query, (raw_markdown, current_time, topic, uri))
             else:
                 insert_query = """
-                INSERT INTO raw_articles (uri, raw_markdown, submission_date, last_updated)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO raw_articles (uri, raw_markdown, submission_date, last_updated, topic)
+                VALUES (?, ?, ?, ?, ?)
                 """
-                cursor.execute(insert_query, (uri, raw_markdown, current_time, current_time))
+                cursor.execute(insert_query, (uri, raw_markdown, current_time, current_time, topic))
             
             conn.commit()
         

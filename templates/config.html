@@ -41,6 +41,7 @@
         <h2>AI Model Configuration</h2>
         <form id="add-model-form">
             <select id="model-name" required>
+                <option value="">Select a model</option>
                 {% for model in models %}
                     <option value="{{ model.name }}" data-provider="{{ model.provider }}">{{ model.name }} ({{ model.provider }})</option>
                 {% endfor %}
@@ -57,17 +58,24 @@
     </div>
 </div>
 
-<!-- Replace the Article Provider Configuration section with this simplified version -->
+<!-- Replace the Article Provider Configuration section with this updated version -->
 <div class="config-layout mt-5">
     <div class="left-panel">
         <h2>Article Provider Configuration</h2>
         <form id="provider-config-form">
             <select id="provider-name" required>
-                <option value="newsapi">NewsAPI</option>
+                <option value="">Select a provider</option>
+                <!-- Will be populated dynamically -->
             </select>
             <input type="text" id="provider-key" placeholder="API Key" required>
             <button type="submit">Add Provider</button>
         </form>
+    </div>
+    <div class="right-panel">
+        <h2>Available Providers</h2>
+        <ul id="provider-list">
+            <!-- Will be populated dynamically -->
+        </ul>
     </div>
 </div>
 
@@ -187,7 +195,7 @@
             .then(response => response.json())
             .then(data => {
                 const modelSelect = document.getElementById('model-name');
-                modelSelect.innerHTML = '';
+                modelSelect.innerHTML = '<option value="">Select a model</option>';
                 data.ai_models.forEach(model => {
                     const option = document.createElement('option');
                     option.value = model.name;
@@ -321,23 +329,33 @@
 
     // Load AI models and available models when the page loads
     document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOMContentLoaded event fired');  // Debug log
         loadAIModels();
         loadAvailableModels();
+    });
+
+    // Consolidated DOMContentLoaded event listener at the bottom
+    document.addEventListener('DOMContentLoaded', function() {
+        // Load all configurations
+        loadAIModels();
+        loadAvailableModels();
+        loadProviderOptions();
         loadAvailableProviders();
     });
 
     // Update the provider config form submission handler
     document.getElementById('provider-config-form').addEventListener('submit', async function(e) {
         e.preventDefault();
+        const providerName = document.getElementById('provider-name').value;
         const key = document.getElementById('provider-key').value;
         
-        if (!key) {
-            alert('Please enter an API key');
+        if (!providerName || !key) {
+            alert('Please select a provider and enter an API key');
             return;
         }
         
         try {
-            const response = await fetch('/config/newsapi', {
+            const response = await fetch(`/config/${providerName}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -345,65 +363,92 @@
                 body: JSON.stringify({ api_key: key })
             });
             
+            const data = await response.json();
+            
             if (!response.ok) {
-                throw new Error('Network response was not ok');
+                throw new Error(data.detail || `Failed to save ${providerName} key`);
             }
             
-            alert('NewsAPI key saved successfully');
+            alert(`${providerName} key saved successfully`);
             document.getElementById('provider-key').value = '';
-            await loadAvailableProviders();  // Wait for providers to reload
+            await loadAvailableProviders();
             
         } catch (error) {
-            console.error('Error saving NewsAPI key:', error);
-            alert('Error saving NewsAPI key. Please try again.');
+            console.error(`Error saving ${providerName} key:`, error);
+            alert(`Error saving ${providerName} key: ${error.message}`);
         }
     });
 
-    // Update loadAvailableProviders to match loadAvailableModels pattern
+    // Update loadAvailableProviders with the correct URL
     async function loadAvailableProviders() {
         try {
-            const response = await fetch('/api/config/newsapi');
-            if (!response.ok) {
-                throw new Error('Network response was not ok');
-            }
+            const response = await fetch('/api/providers');
             const data = await response.json();
-            
             const providerList = document.getElementById('provider-list');
-            if (!data.configured) {
-                providerList.innerHTML = '<li>No providers configured.</li>';
-                return;
-            }
+            providerList.innerHTML = '';
             
-            providerList.innerHTML = `
-                <li>
-                    NewsAPI 
-                    <button onclick="removeNewsAPIKey()">Remove</button>
-                </li>
-            `;
+            for (const provider of data.providers.filter(p => p.config_type === 'api_key')) {
+                const configResponse = await fetch(`/config/${provider.name}`);
+                const configData = await configResponse.json();
+                
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    ${provider.display_name}
+                    <span class="status-badge ${configData.configured ? 'configured' : 'not-configured'}">
+                        ${configData.configured ? 'Configured' : 'Not Configured'}
+                    </span>
+                    ${configData.configured ? 
+                        `<button onclick="removeProviderConfig('${provider.name}')">Remove</button>` : 
+                        ''}
+                `;
+                providerList.appendChild(li);
+            }
         } catch (error) {
             console.error('Error loading providers:', error);
-            const providerList = document.getElementById('provider-list');
-            providerList.innerHTML = '<li>Error loading providers. Please try again later.</li>';
+            document.getElementById('provider-list').innerHTML = 
+                '<li>Error loading providers. Please try again later.</li>';
         }
     }
 
-    // Add function to remove NewsAPI key
-    async function removeNewsAPIKey() {
-        if (confirm('Are you sure you want to remove the NewsAPI key?')) {
+    // Update removeProviderConfig to match removeModel pattern
+    async function removeProviderConfig(providerName) {
+        if (confirm(`Are you sure you want to remove the ${providerName} key?`)) {
             try {
-                const response = await fetch('/config/newsapi', {
+                const response = await fetch(`/config/${providerName}`, {
                     method: 'DELETE'
                 });
                 
                 if (!response.ok) {
-                    throw new Error('Failed to remove NewsAPI key');
+                    throw new Error(`Failed to remove ${providerName} key`);
                 }
                 
-                loadAvailableProviders(); // Refresh the status
+                await loadAvailableProviders();
             } catch (error) {
-                console.error('Error removing NewsAPI key:', error);
-                alert('Error removing NewsAPI key');
+                console.error(`Error removing ${providerName} key:`, error);
+                alert(`Error removing ${providerName} key: ${error.message}`);
             }
+        }
+    }
+
+    // Add this function to load providers from provider_config.json
+    async function loadProviderOptions() {
+        try {
+            const response = await fetch('/api/providers');
+            const data = await response.json();
+            const providerSelect = document.getElementById('provider-name');
+            providerSelect.innerHTML = '<option value="">Select a provider</option>';
+            
+            data.providers
+                .filter(provider => provider.config_type === 'api_key')  // Only show providers needing API key
+                .forEach(provider => {
+                const option = document.createElement('option');
+                option.value = provider.name;
+                option.textContent = provider.display_name;
+                option.dataset.configType = provider.config_type;
+                providerSelect.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading providers:', error);
         }
     }
 </script>

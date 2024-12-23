@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Form, Request, Body, Query, Depends
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from app.database import Database, get_db
 from app.research import Research
 from app.analytics import Analytics
@@ -24,7 +24,6 @@ from app.bulk_research import BulkResearch
 from app.config.config import load_config, get_topic_config  # Add get_topic_config import
 import os
 from dotenv import load_dotenv
-#from app.routers import bulk_research  # Add this import
 from app.collectors.collector_factory import CollectorFactory
 import importlib
 
@@ -45,15 +44,12 @@ templates = Jinja2Templates(directory="templates")
 
 # Initialize components
 db = Database()
-logger.debug(f"Created database instance: {type(db)}")
 research = Research(db)
-print(f"Database initialized and updated in main.py: {db.db_path}")
-logging.debug(f"Created Research instance with categories: {research.CATEGORIES}")
 analytics = Analytics(db)
 report = Report(db)
 report_generator = Report(db)
 
-print("Config in main:", config)
+#print("Config in main:", config)
 
 class ArticleData(BaseModel):
     title: str
@@ -94,11 +90,10 @@ class NewsAPIConfig(BaseModel):
 
     class Config:
         alias_generator = lambda string: string.lower()
-        allow_population_by_field_name = True
+        populate_by_name = True
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    print("Index route accessed")
     return templates.TemplateResponse("index.html", {"request": request})
 
 @app.get("/research", response_class=HTMLResponse)
@@ -362,7 +357,7 @@ async def save_article(article: ArticleData):
 
 @app.get("/api/categories")
 async def get_categories(research: Research = Depends(get_research)):
-    logger.debug("Entering get_categories endpoint")
+    #logger.debug("Entering get_categories endpoint")
     try:
         categories = await research.get_categories()
         logger.info(f"Retrieved categories: {categories}")
@@ -529,7 +524,7 @@ def startup_event():
     global db
     db = Database()
     db.migrate_database()
-    print(f"Active database set to: {db.db_path}")
+    logger.info(f"Active database set to: {db.db_path}")
 
 @app.get("/api/fetch_article_content")
 async def fetch_article_content(uri: str):
@@ -573,9 +568,11 @@ async def get_integrated_analysis(timeframe: str = Query("all"), category: str =
 @app.get("/api/topics")
 async def get_topics():
     """Get list of available topics."""
-    topics = research.get_topics()
-    logger.debug(f"Returning topics: {topics}")  # Add debug logging
-    return [{"name": topic} for topic in topics]  # Return list of objects with name property
+    # Load fresh config each time
+    config = load_config()
+    topics = [{"name": topic['name']} for topic in config['topics']]
+    #logger.debug(f"Returning topics: {topics}")
+    return topics
 
 @app.get("/api/ai_models")
 def get_ai_models():
@@ -584,9 +581,9 @@ def get_ai_models():
 @app.get("/api/ai_models_config")
 async def get_ai_models_config():
     config = load_config()
-    logger.info(f"Full configuration: {config}")
+    #logger.info(f"Full configuration: {config}")
     models = config.get("ai_models", [])
-    logger.info(f"AI models config: {models}")
+    #logger.info(f"AI models config: {models}")
     return {"ai_models": models}
 
 @app.get("/api/available_models")
@@ -614,7 +611,7 @@ async def get_categories_for_topic(topic_name: str):
         config = load_config()
         topic_config = get_topic_config(config, topic_name)
         
-        logger.debug(f"Retrieved categories for topic {topic_name}: {topic_config['categories']}")
+        #logger.debug(f"Retrieved categories for topic {topic_name}: {topic_config['categories']}")
         return JSONResponse(content=topic_config['categories'])
     except ValueError as e:
         logger.error(f"Error getting categories for topic {topic_name}: {str(e)}")
@@ -677,7 +674,7 @@ async def save_newsapi_config(config: NewsAPIConfig):
     """Save NewsAPI configuration."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-        env_var_name = 'NEWSAPI_KEY'
+        env_var_name = 'PROVIDER_NEWSAPI_KEY'
 
         # Read existing content
         try:
@@ -703,28 +700,38 @@ async def save_newsapi_config(config: NewsAPIConfig):
         with open(env_path, "w") as env_file:
             env_file.writelines(lines)
 
-        # Update environment and reload settings
+        # Update environment
         os.environ[env_var_name] = config.api_key
-        load_dotenv(override=True)  # Reload environment variables
-        from app.config import settings  # Reload settings module
-        importlib.reload(settings)  # Force reload of settings
-
-        return {"message": "NewsAPI configuration saved successfully"}
+        
+        # Use explicit JSONResponse
+        return JSONResponse(
+            status_code=200,
+            content={"message": "NewsAPI configuration saved successfully"}
+        )
 
     except Exception as e:
         logger.error(f"Error saving NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/config/newsapi")
+@app.get("/config/newsapi")
 async def get_newsapi_config():
     """Get NewsAPI configuration status."""
     try:
-        newsapi_key = os.getenv('NEWSAPI_KEY')
-        return JSONResponse(content={
-            "configured": bool(newsapi_key),
-            "message": "NewsAPI is configured" if newsapi_key else "NewsAPI is not configured"
-        })
+        # Force reload of environment variables
+        load_dotenv(override=True)
+        
+        newsapi_key = os.getenv('PROVIDER_NEWSAPI_KEY')
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": bool(newsapi_key),
+                "message": "NewsAPI is configured" if newsapi_key else "NewsAPI is not configured"
+            }
+        )
+
     except Exception as e:
+        logger.error(f"Error in get_newsapi_config: {str(e)}")
         logger.error(f"Error checking NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -739,15 +746,15 @@ async def remove_newsapi_config():
             lines = env_file.readlines()
 
         # Remove the NEWSAPI_KEY line
-        lines = [line for line in lines if not line.startswith('NEWSAPI_KEY=')]
+        lines = [line for line in lines if not line.startswith('PROVIDER_NEWSAPI_KEY=')]
 
         # Write back to .env
         with open(env_path, "w") as env_file:
             env_file.writelines(lines)
 
         # Remove from current environment
-        if 'NEWSAPI_KEY' in os.environ:
-            del os.environ['NEWSAPI_KEY']
+        if 'PROVIDER_NEWSAPI_KEY' in os.environ:
+            del os.environ['PROVIDER_NEWSAPI_KEY']
 
         return {"message": "NewsAPI configuration removed successfully"}
 
@@ -755,6 +762,76 @@ async def remove_newsapi_config():
         logger.error(f"Error removing NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/create_topic")
+async def create_topic_page(request: Request):
+    config = load_config()
+    
+    # Gather examples from existing topics
+    example_topics = [topic['name'] for topic in config['topics']]
+    example_categories = list(set(cat for topic in config['topics'] for cat in topic['categories']))
+    example_signals = list(set(signal for topic in config['topics'] for signal in topic['future_signals']))
+    example_sentiments = list(set(sent for topic in config['topics'] for sent in topic['sentiment']))
+    example_time_to_impact = list(set(time for topic in config['topics'] for time in topic['time_to_impact']))
+    example_driver_types = list(set(driver for topic in config['topics'] for driver in topic['driver_types']))
+    
+    return templates.TemplateResponse("create_topic.html", {
+        "request": request,
+        "example_topics": example_topics,
+        "example_categories": example_categories,
+        "example_signals": example_signals,
+        "example_sentiments": example_sentiments,
+        "example_time_to_impact": example_time_to_impact,
+        "example_driver_types": example_driver_types
+    })
+
+@app.post("/api/create_topic")
+async def create_topic(topic_data: dict):
+    try:
+        from app.config.config import load_config
+        config = load_config()  # Load using the same method
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'config.json')
+        
+        # Load existing config
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        # Check if updating existing topic
+        existing_topic_index = next((i for i, topic in enumerate(config['topics']) 
+                                   if topic['name'] == topic_data['name']), None)
+        
+        if existing_topic_index is not None:
+            config['topics'][existing_topic_index] = topic_data
+        else:
+            config['topics'].append(topic_data)
+        
+        # Save updated config
+        with open(config_path, 'w+') as f:
+            f.seek(0)
+            json.dump(config, f, indent=2)
+            f.truncate()
+        
+        return {"message": "Topic saved successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/topic/{topic_name}")
+async def get_topic_config(topic_name: str):
+    """Get configuration for a specific topic."""
+    try:
+        config = load_config()
+        topic_config = next((topic for topic in config['topics'] if topic['name'] == topic_name), None)
+        if not topic_config:
+            raise HTTPException(status_code=404, detail="Topic not found")
+        return JSONResponse(content=topic_config)
+    except Exception as e:
+        logger.error(f"Error getting topic config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/providers")
+async def get_providers():
+    """Get all configured providers."""
+    config = load_config()
+    return JSONResponse(content={"providers": config.get("providers", [])})
 
 if __name__ == "__main__":
     import uvicorn

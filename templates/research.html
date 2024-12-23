@@ -923,6 +923,12 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(error => console.error('Error loading AI models:', error));
     */
 });
+
+// Load topics when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadTopics();
+    // ... rest of your initialization code ...
+});
 </script>
 {% endblock %}
 
