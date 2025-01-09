@@ -509,7 +509,9 @@ function displayResultsTable(results) {
     const resultsBody = document.getElementById('resultsBody');
     if (!resultsBody) return;
 
+    const topic = document.getElementById('topicSelect').value;
     resultsBody.innerHTML = '';
+    
     results.forEach((result, index) => {
         const articleEntry = document.createElement('div');
         articleEntry.className = 'article-entry';
@@ -641,7 +643,11 @@ function discardArticle(index) {
 }
 
 function populateDropdown(elementId, apiUrl, selectedValue) {
-    fetch(apiUrl)
+    // Get the current topic
+    const topic = document.getElementById('topicSelect').value;
+    const apiUrlWithTopic = topic ? `${apiUrl}?topic=${encodeURIComponent(topic)}` : apiUrl;
+    
+    fetch(apiUrlWithTopic)
         .then(response => response.json())
         .then(data => {
             const select = document.getElementById(elementId);
@@ -856,5 +862,32 @@ function validateUrlCount(urls) {
     document.getElementById('urlCountWarning').style.display = 'none';
     return true;
 }
+
+// Add topic change handler
+document.addEventListener('DOMContentLoaded', function() {
+    // ... existing code ...
+    
+    // Add topic change handler
+    const topicSelect = document.getElementById('topicSelect');
+    if (topicSelect) {
+        topicSelect.addEventListener('change', function() {
+            const topic = this.value;
+            if (topic) {
+                // Refresh all dropdowns with the new topic
+                const resultsBody = document.getElementById('resultsBody');
+                if (resultsBody) {
+                    const dropdowns = resultsBody.querySelectorAll('select[id^="category"], select[id^="sentiment"], select[id^="futureSignal"], select[id^="driverType"]');
+                    dropdowns.forEach(dropdown => {
+                        const baseUrl = dropdown.id.startsWith('category') ? '/api/categories' :
+                                      dropdown.id.startsWith('sentiment') ? '/api/sentiments' :
+                                      dropdown.id.startsWith('futureSignal') ? '/api/future_signals' :
+                                      '/api/driver_types';
+                        populateDropdown(dropdown.id, baseUrl, dropdown.value);
+                    });
+                }
+            }
+        });
+    }
+});
 </script>
 {% endblock %}

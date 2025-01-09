@@ -569,20 +569,97 @@ function initializeResearchPage() {
 
 function handleTopicChange(event) {
     const topicName = event.target.value;
+    console.log('Topic changed to:', topicName);
     if (topicName) {
         document.getElementById('researchContent').style.display = 'block';
         fetchLatestArticles(topicName);
+        refreshDropdownsForTopic(topicName);
     } else {
         document.getElementById('researchContent').style.display = 'none';
     }
 }
 
+async function refreshDropdownsForTopic(topicName) {
+    try {
+        console.log('Refreshing dropdowns for topic:', topicName);
+        if (!topicName) {
+            console.warn('No topic name provided to refreshDropdownsForTopic');
+            return;
+        }
+
+        // Add topic parameter to the API calls
+        const responses = await Promise.all([
+            fetch(`/api/categories?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/future_signals?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/sentiments?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/time_to_impact?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/driver_types?topic=${encodeURIComponent(topicName)}`)
+        ]);
+
+        // Check if any response is not ok
+        for (let i = 0; i < responses.length; i++) {
+            if (!responses[i].ok) {
+                console.error(`Error fetching data for endpoint ${i}:`, responses[i].statusText);
+                continue;
+            }
+        }
+
+        const [categories, futureSignals, sentiments, timeToImpact, driverTypes] = await Promise.all(
+            responses.map(response => response.json())
+        );
+
+        console.log('Received updated values for topic:', topicName);
+        console.log('Categories:', categories);
+        console.log('Future Signals:', futureSignals);
+        console.log('Sentiments:', sentiments);
+        console.log('Time to Impact:', timeToImpact);
+        console.log('Driver Types:', driverTypes);
+
+        // Update each dropdown with new values
+        updateDropdownOptions('analysisCategory', categories);
+        updateDropdownOptions('analysisFutureSignal', futureSignals);
+        updateDropdownOptions('analysisSentiment', sentiments);
+        updateDropdownOptions('analysisTimeToImpact', timeToImpact);
+        updateDropdownOptions('analysisDriverType', driverTypes);
+    } catch (error) {
+        console.error('Error refreshing dropdowns:', error);
+    }
+}
+
+function updateDropdownOptions(dropdownId, options) {
+    const dropdown = document.getElementById(dropdownId);
+    if (dropdown) {
+        dropdown.innerHTML = '';
+        if (!Array.isArray(options) || options.length === 0) {
+            console.warn(`No options received for ${dropdownId}`);
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = 'No options available';
+            dropdown.appendChild(defaultOption);
+            return;
+        }
+        
+        options.forEach(option => {
+            if (option) {  // Only add non-null/undefined options
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                dropdown.appendChild(optionElement);
+            }
+        });
+    } else {
+        console.error(`Dropdown element not found: ${dropdownId}`);
+    }
+}
+
 function populateDropdowns() {
-    populateDropdown('analysisCategory', '/api/categories');
-    populateDropdown('analysisFutureSignal', '/api/future_signals');
-    populateDropdown('analysisSentiment', '/api/sentiments');
-    populateDropdown('analysisTimeToImpact', '/api/time_to_impact');
-    populateDropdown('analysisDriverType', '/api/driver_types');
+    const currentTopic = document.getElementById('topicSelect').value;
+    if (currentTopic) {
+        console.log('Populating dropdowns for topic:', currentTopic);
+        refreshDropdownsForTopic(currentTopic);
+    } else {
+        console.warn('No topic selected for populateDropdowns');
+    }
 }
 
 function setupCustomFields() {

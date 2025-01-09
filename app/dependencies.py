@@ -2,7 +2,17 @@ from fastapi import Depends
 from app.research import Research
 from app.database import Database, get_db
 from sqlalchemy.orm import Session
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Create a single instance of Research
+_research_instance = None
 
 def get_research(db: Session = Depends(get_db)):
-    database = Database()  # Create a Database instance
-    return Research(database)
+    global _research_instance
+    if _research_instance is None:
+        database = Database()  # Create a Database instance
+        _research_instance = Research(database)
+        logger.debug("Created new Research instance")
+    return _research_instance

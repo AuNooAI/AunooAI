@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.database import Database, SessionLocal
 from dotenv import load_dotenv
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
-from app.database import Database  # Move import here to avoid circular import
+from app.database import Database 
 import re
     
 logging.basicConfig(level=logging.DEBUG)
@@ -70,10 +70,19 @@ class Research:
             
     def set_topic(self, topic_name: str):
         """Set the current topic for analysis."""
+        logger.debug(f"Setting topic to: {topic_name}")
+        if not topic_name:
+            logger.warning("Attempted to set empty topic name")
+            return
+        
         if topic_name not in self.topic_configs:
+            logger.error(f"Invalid topic: {topic_name}")
             raise ValueError(f"Invalid topic: {topic_name}")
-        self.current_topic = topic_name
-        logger.info(f"Set current topic to: {topic_name}")
+            
+        if self.current_topic != topic_name:
+            self.current_topic = topic_name
+            logger.info(f"Set current topic to: {topic_name}")
+            logger.debug(f"Topic config: {self.topic_configs[topic_name]}")
 
     @property
     def CATEGORIES(self):
@@ -330,7 +339,7 @@ class Research:
 
         3. Sentiment:
         Classify the sentiment as one of:
-        Positive, Neutral, Negative
+        {', '.join(self.SENTIMENT)}
         Provide a brief explanation for your classification.
 
         4. Time to Impact:
@@ -431,24 +440,65 @@ class Research:
             logger.error(f"Error in save_article at {datetime.datetime.now().isoformat()}: {str(e)}")
             raise
 
-    async def get_categories(self):
-        #logger.debug("get_categories called")
-        if not self.CATEGORIES:
-            self.CATEGORIES = self._load_categories()
-        #logger.debug(f"Returning categories: {self.CATEGORIES}")
-        return self.CATEGORIES
+    async def get_categories(self, topic=None):
+        logger.debug(f"get_categories called for topic: {topic}")
+        try:
+            if topic:
+                self.set_topic(topic)
+            categories = self.CATEGORIES
+            logger.debug(f"Returning categories for topic {self.current_topic}: {categories}")
+            return categories
+        except Exception as e:
+            logger.error(f"Error getting categories for topic {topic}: {str(e)}")
+            return []
 
-    async def get_future_signals(self):
-        return self.FUTURE_SIGNALS + ["New", "Other"]
+    async def get_future_signals(self, topic=None):
+        logger.debug(f"get_future_signals called for topic: {topic}")
+        try:
+            if topic:
+                self.set_topic(topic)
+            signals = self.FUTURE_SIGNALS
+            logger.debug(f"Returning future signals for topic {self.current_topic}: {signals}")
+            return signals
+        except Exception as e:
+            logger.error(f"Error getting future signals for topic {topic}: {str(e)}")
+            return []
 
-    async def get_sentiments(self):
-        return self.SENTIMENT + ["New", "Other"]
+    async def get_sentiments(self, topic=None):
+        logger.debug(f"get_sentiments called for topic: {topic}")
+        try:
+            if topic:
+                self.set_topic(topic)
+            sentiments = self.SENTIMENT
+            logger.debug(f"Returning sentiments for topic {self.current_topic}: {sentiments}")
+            return sentiments
+        except Exception as e:
+            logger.error(f"Error getting sentiments for topic {topic}: {str(e)}")
+            return []
 
-    async def get_time_to_impact(self):
-        return self.TIME_TO_IMPACT + ["New", "Other"]
+    async def get_time_to_impact(self, topic=None):
+        logger.debug(f"get_time_to_impact called for topic: {topic}")
+        try:
+            if topic:
+                self.set_topic(topic)
+            time_to_impact = self.TIME_TO_IMPACT
+            logger.debug(f"Returning time to impact for topic {self.current_topic}: {time_to_impact}")
+            return time_to_impact
+        except Exception as e:
+            logger.error(f"Error getting time to impact for topic {topic}: {str(e)}")
+            return []
 
-    async def get_driver_types(self):
-        return self.DRIVER_TYPES + ["New", "Other"]
+    async def get_driver_types(self, topic=None):
+        logger.debug(f"get_driver_types called for topic: {topic}")
+        try:
+            if topic:
+                self.set_topic(topic)
+            driver_types = self.DRIVER_TYPES
+            logger.debug(f"Returning driver types for topic {self.current_topic}: {driver_types}")
+            return driver_types
+        except Exception as e:
+            logger.error(f"Error getting driver types for topic {topic}: {str(e)}")
+            return []
 
     async def get_article(self, uri: str):
         return self.db.get_article(uri)
