@@ -87,6 +87,10 @@
     }
 </style>
 <h1>Bulk Research</h1>
+<script type="text/javascript">
+    var PREFILLED_URLS = {{ prefilled_urls|tojson|safe if prefilled_urls else 'null' }};
+    var SELECTED_TOPIC = {{ selected_topic|tojson|safe if selected_topic else 'null' }};
+</script>
 <form id="bulkResearchForm" enctype="multipart/form-data">
     <!-- Add Topic Selection -->
     <div class="mb-3">
@@ -251,30 +255,30 @@
 
 
 <script>
+console.log('Prefilled URLs:', {{ prefilled_urls|tojson|safe if prefilled_urls else 'null' }});
+console.log('Selected Topic:', {{ selected_topic|tojson|safe if selected_topic else 'null' }});
+
 document.addEventListener('DOMContentLoaded', function() {
+    const urlList = document.getElementById('urlList');
+    if (PREFILLED_URLS) {
+        urlList.value = PREFILLED_URLS;
+    }
+
+    const topicSelect = document.getElementById('topicSelect');
+    if (topicSelect && SELECTED_TOPIC) {
+        const checkTopicInterval = setInterval(() => {
+            if (topicSelect.options.length > 1) {
+                topicSelect.value = SELECTED_TOPIC;
+                clearInterval(checkTopicInterval);
+            }
+        }, 100);
+    }
+
     loadTopics();
     loadAvailableModels();
     setUpCustomFields();
     document.getElementById('bulkResearchForm').addEventListener('submit', handleFormSubmit);
     document.getElementById('saveAllButton').addEventListener('click', saveAllArticles);
-    
-    // Initialize dropdowns for the example layout
-    populateDropdown('category', '/api/categories');
-    populateDropdown('sentiment', '/api/sentiments');
-    populateDropdown('futureSignal', '/api/future_signals');
-    populateDropdown('driverType', '/api/driver_types');
-
-    // Add file input handler
-    const urlFile = document.getElementById('urlFile');
-    if (urlFile) {
-        urlFile.addEventListener('change', handleFileUpload);
-    }
-
-    const urlList = document.getElementById('urlList');
-    urlList.addEventListener('input', function() {
-        const urls = this.value.split('\n').filter(url => url.trim() !== '');
-        validateUrlCount(urls);
-    });
 });
 
 async function loadTopics() {

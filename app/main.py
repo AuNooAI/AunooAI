@@ -142,8 +142,28 @@ async def research_post(
         raise HTTPException(status_code=500, detail=str(e))
     
 @app.get("/bulk-research", response_class=HTMLResponse)
-async def bulk_research_get(request: Request):
-    return templates.TemplateResponse("bulk_research.html", {"request": request})
+async def bulk_research_get(
+    request: Request,
+    urlList: str = Query(None),
+    topic: str = Query(None)
+):
+    return templates.TemplateResponse("bulk_research.html", {
+        "request": request,
+        "prefilled_urls": urlList or "",
+        "selected_topic": topic or ""
+    })
+
+@app.post("/bulk-research", response_class=HTMLResponse)
+async def bulk_research_post(
+    request: Request,
+    urlList: str = Form(...),
+    topic: str = Form(...)
+):
+    return templates.TemplateResponse("bulk_research.html", {
+        "request": request,
+        "prefilled_urls": urlList,
+        "selected_topic": topic
+    })
 
 @app.post("/api/bulk-research")
 async def bulk_research_post(
@@ -831,6 +851,42 @@ async def get_providers():
     """Get all configured providers."""
     config = load_config()
     return JSONResponse(content={"providers": config.get("providers", [])})
+
+@app.post("/api/research/bulk")
+async def bulk_research_endpoint(
+    request: Request,
+    data: dict = Body(
+        ...,
+        example={
+            "urls": ["https://example.com/article1", "https://example.com/article2"],
+            "topic": "AI and Machine Learning",
+            "summary_type": "curious_ai",
+            "model_name": "gpt-4",
+            "summary_length": "medium",
+            "summary_voice": "neutral"
+        }
+    )
+):
+    try:
+        bulk_research = BulkResearch(db)
+        results = await bulk_research.analyze_bulk_urls(
+            urls=data.get("urls", []),
+            summary_type=data.get("summary_type", "curious_ai"),
+            model_name=data.get("model_name", "gpt-4"),
+            summary_length=data.get("summary_length", "medium"),
+            summary_voice=data.get("summary_voice", "neutral"),
+            topic=data.get("topic")
+        )
+        
+        # Generate a unique batch ID
+        batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        return {"batch_id": batch_id, "results": results}
+        
+    except Exception as e:
+        logger.error(f"Bulk research error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
