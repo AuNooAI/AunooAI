@@ -1,0 +1,7 @@
+{
+  "categories": {
+    "default": "# News\n\n## {category}\n\n### {title}\n\n**Source:** {news_source} | [Link]({url})\n\n{summary}\n\n**Sentiment:** {sentiment} | **Time to Impact:** {time_to_impact} | **Future Signal:** {future_signal}\n\n",
+    "minimal": "## {category}\n- {title} ({news_source})\n  {summary}\n",
+    "detailed": "## {category}\n\n### {title}\n\nSource: {news_source}\nURL: {url}\nPublished: {publication_date}\n\n{summary}\n\nAnalysis:\n- Sentiment: {sentiment}\n- Impact Timeline: {time_to_impact}\n- Future Signal: {future_signal}\n\n"
+  }
+} 
