@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv()
 
 # Get port from environment variable, default to 8000 if not set
-PORT = int(os.getenv('PORT', 8000))
+PORT = int(os.getenv('PORT', 8010))
 
 if __name__ == "__main__":
     uvicorn.run(

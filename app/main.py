@@ -356,27 +356,26 @@ async def save_article(article: ArticleData):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/categories")
-async def get_categories(research: Research = Depends(get_research)):
-    #logger.debug("Entering get_categories endpoint")
+async def get_categories(topic: Optional[str] = None, research: Research = Depends(get_research)):
     try:
-        categories = await research.get_categories()
-        logger.info(f"Retrieved categories: {categories}")
+        categories = await research.get_categories(topic)
+        logger.info(f"Retrieved categories for topic {topic}: {categories}")
         return categories
     except Exception as e:
         logger.error(f"Error fetching categories: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
 
 @app.get("/api/future_signals")
-async def get_future_signals(research: Research = Depends(get_research)):
-    return await research.get_future_signals()
+async def get_future_signals(topic: Optional[str] = None, research: Research = Depends(get_research)):
+    return await research.get_future_signals(topic)
 
 @app.get("/api/sentiments")
-async def get_sentiments(research: Research = Depends(get_research)):
-    return await research.get_sentiments()
+async def get_sentiments(topic: Optional[str] = None, research: Research = Depends(get_research)):
+    return await research.get_sentiments(topic)
 
 @app.get("/api/time_to_impact")
-async def get_time_to_impact(research: Research = Depends(get_research)):
-    return await research.get_time_to_impact()
+async def get_time_to_impact(topic: Optional[str] = None, research: Research = Depends(get_research)):
+    return await research.get_time_to_impact(topic)
 
 @app.get("/api/latest_articles")
 async def get_latest_articles(topic_name: Optional[str] = None):
@@ -547,8 +546,8 @@ async def fetch_article_content(url: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/driver_types")
-async def get_driver_types(research: Research = Depends(get_research)):
-    return await research.get_driver_types()
+async def get_driver_types(topic: Optional[str] = None, research: Research = Depends(get_research)):
+    return await research.get_driver_types(topic)
 
 @app.get("/api/integrated_analysis")
 async def get_integrated_analysis(timeframe: str = Query("all"), category: str = Query(None)):
@@ -611,7 +610,7 @@ async def get_categories_for_topic(topic_name: str):
         config = load_config()
         topic_config = get_topic_config(config, topic_name)
         
-        #logger.debug(f"Retrieved categories for topic {topic_name}: {topic_config['categories']}")
+        logger.debug(f"Retrieved categories for topic {topic_name}: {topic_config['categories']}")
         return JSONResponse(content=topic_config['categories'])
     except ValueError as e:
         logger.error(f"Error getting categories for topic {topic_name}: {str(e)}")

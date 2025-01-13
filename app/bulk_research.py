@@ -41,17 +41,19 @@ class BulkResearch:
                               model_name: str, summary_length: str, 
                               summary_voice: str, topic: str) -> List[Dict]:
         results = []
-        logger.info(f"Starting analysis of {len(urls)} URLs")
+        logger.info(f"Starting analysis of {len(urls)} URLs with topic: {topic}")
         
         try:
+            # Set the topic before starting analysis
+            self.research.set_topic(topic)
             self.research.set_ai_model(model_name)
         except Exception as e:
-            logger.error(f"Error setting AI model '{model_name}': {str(e)}")
-            raise ValueError(f"Invalid model name: {model_name}")
+            logger.error(f"Error setting up analysis: {str(e)}")
+            raise ValueError(f"Error in setup: {str(e)}")
 
         for url in urls:
             try:
-                logger.debug(f"Processing URL: {url}")
+                logger.debug(f"Processing URL: {url} for topic: {topic}")
                 
                 # Fetch article content
                 article_content = await self.research.fetch_article_content(url)
