@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+
+{% block title %}FNA - Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;
+        --primary-dark: #FF1493;
+        --secondary-color: #32CD32;
+        --secondary-dark: #228B22;
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .dashboard-card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+        border: 1px solid var(--primary-color);
+        padding: 20px;
+    }
+
+    .card-title {
+        color: var(--primary-color);
+        font-size: 1.25rem;
+        font-weight: bold;
+        margin-bottom: 15px;
+    }
+
+    .article-item {
+        padding: 10px;
+        border-bottom: 1px solid var(--medium-gray);
+        background-color: white;
+    }
+
+    .article-item:last-child {
+        border-bottom: none;
+    }
+
+    .article-title {
+        color: var(--primary-dark);
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+
+    .article-date {
+        color: var(--dark-gray);
+        font-size: 0.9rem;
+    }
+
+    .table th {
+        color: var(--primary-dark);
+        border-bottom: 2px solid var(--primary-color);
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+        border-color: var(--primary-dark);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Dashboard</h1>
+
+    <!-- Topic Selector -->
+    <div class="dashboard-card">
+        <h5 class="card-title">Select Topic</h5>
+        <select class="form-select" id="topicSelect">
+            <option value="">All Topics</option>
+            {% for topic in topics %}
+            <option value="{{ topic.id }}">{{ topic.name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
+    <!-- Two Column Layout for Latest Content -->
+    <div class="row">
+        <!-- Latest News Column -->
+        <div class="col-md-6">
+            <div class="dashboard-card">
+                <h5 class="card-title">Latest News</h5>
+                <div class="article-list">
+                    {% for news in latest_news %}
+                    <div class="article-item">
+                        <h6 class="article-title">{{ news.title }}</h6>
+                        <p class="article-date">{{ news.published_date }}</p>
+                        <p class="article-summary">{{ news.summary[:200] }}...</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Latest Papers Column -->
+        <div class="col-md-6">
+            <div class="dashboard-card">
+                <h5 class="card-title">Latest Papers</h5>
+                <div class="article-list">
+                    {% for paper in latest_papers %}
+                    <div class="article-item">
+                        <h6 class="article-title">{{ paper.title }}</h6>
+                        <p class="article-date">{{ paper.published_date }}</p>
+                        <p class="article-summary">{{ paper.summary[:200] }}...</p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('topicSelect').addEventListener('change', async function() {
+    const topic = this.value;
+    if (!topic) return;
+    
+    try {
+        const response = await fetch(`/api/topics/${topic}/articles`);
+        const data = await response.json();
+        // Update the articles display
+        // Implementation depends on your needs
+    } catch (error) {
+        console.error('Error fetching topic articles:', error);
+    }
+});
+
+// Topic table functionality
+document.querySelectorAll('.edit-topic').forEach(button => {
+    button.addEventListener('click', function() {
+        const row = this.closest('tr');
+        const topicId = row.dataset.topicId;
+        window.location.href = `/create_topic?topic=${encodeURIComponent(topicId)}`;
+    });
+});
+
+document.querySelectorAll('.delete-topic').forEach(button => {
+    button.addEventListener('click', async function() {
+        if (!confirm('Are you sure you want to delete this topic?')) return;
+        
+        const row = this.closest('tr');
+        const topicId = row.dataset.topicId;
+        
+        try {
+            const response = await fetch(`/api/topics/${encodeURIComponent(topicId)}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                row.remove();
+            } else {
+                alert('Failed to delete topic');
+            }
+        } catch (error) {
+            console.error('Error deleting topic:', error);
+            alert('Error deleting topic');
+        }
+    });
+});
+
+// Load topic statistics
+async function loadTopicStats() {
+    const rows = document.querySelectorAll('#topicTable tbody tr');
+    
+    for (const row of rows) {
+        const topicId = row.dataset.topicId;
+        try {
+            const response = await fetch(`/api/topics/${encodeURIComponent(topicId)}/stats`);
+            const stats = await response.json();
+            
+            row.querySelector('.article-count').textContent = stats.articleCount;
+            row.querySelector('.latest-article').textContent = stats.latestArticle || 'No articles';
+        } catch (error) {
+            console.error(`Error loading stats for topic ${topicId}:`, error);
+        }
+    }
+}
+
+// Load stats when page loads
+loadTopicStats();
+
+// Add database editor functionality
+document.querySelectorAll('.edit-database').forEach(button => {
+    button.addEventListener('click', async function() {
+        const row = this.closest('tr');
+        const topicId = row.dataset.topicId;
+        const topicName = row.querySelector('td:first-child').textContent;
+        
+        // Set topic name in modal
+        document.getElementById('currentTopicName').textContent = topicName;
+        
+        // Fetch articles for this topic
+        const response = await fetch(`/api/topics/${encodeURIComponent(topicId)}/articles`);
+        const data = await response.json();
+        
+        // Populate table
+        const tableBody = document.getElementById('articleTableBody');
+        tableBody.innerHTML = '';
+        
+        data.articles.forEach(article => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${article.title}</td>
+                <td>${article.publication_date}</td>
+                <td>${article.category}</td>
+                <td>${article.sentiment}</td>
+                <td>${article.future_signal}</td>
+                <td>${article.time_to_impact}</td>
+                <td>${article.driver_type}</td>
+                <td>
+                    <button class="btn btn-sm btn-primary edit-article" data-uri="${article.uri}">Edit</button>
+                    <button class="btn btn-sm btn-danger delete-article" data-uri="${article.uri}">Delete</button>
+                </td>
+            `;
+            tableBody.appendChild(row);
+        });
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('databaseEditorModal'));
+        modal.show();
+    });
+});
+
+// Add article edit/delete handlers
+document.getElementById('articleTableBody').addEventListener('click', async function(e) {
+    if (e.target.classList.contains('edit-article')) {
+        const uri = e.target.dataset.uri;
+        window.location.href = `/research?uri=${encodeURIComponent(uri)}`;
+    } else if (e.target.classList.contains('delete-article')) {
+        if (!confirm('Are you sure you want to delete this article?')) return;
+        
+        const uri = e.target.dataset.uri;
+        try {
+            const response = await fetch(`/api/article?uri=${encodeURIComponent(uri)}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                e.target.closest('tr').remove();
+            } else {
+                const error = await response.json();
+                alert(`Failed to delete article: ${error.detail || 'Unknown error'}`);
+            }
+        } catch (error) {
+            console.error('Error deleting article:', error);
+            alert('Error deleting article');
+        }
+    }
+});
+</script>
+{% endblock %} 

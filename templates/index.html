@@ -129,8 +129,37 @@
 {% endblock %}
 
 {% block content %}
+<h1 class="mb-3">Functional News Addict App</h1>
 <div class="container mt-2">
-    <h1 class="mb-3">Functional News Addict App</h1>
+    <!-- Topic Database Info -->
+    <div class="col-md-12 mb-4">
+        <div class="card h-100">
+            <div class="card-body">
+                <h5 class="card-title">Active Topic Overview</h5>
+                <div class="table-responsive">
+                    <table class="table" id="topicTable">
+                        <thead>
+                            <tr>
+                                <th>Topic Name</th>
+                                <th>Article Count</th>
+                                <th>Last Article Added</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for topic in topics %}
+                            <tr data-topic-id="{{ topic.id }}">
+                                <td>{{ topic.name }}</td>
+                                <td class="article-count">Loading...</td>
+                                <td class="latest-article">Loading...</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <p class="lead">What do you want to do today?</p>
     <div class="row">
         <!-- Research Card -->
@@ -138,49 +167,27 @@
             <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">Analyze Article</h5>
-                    <p class="card-text">Analyze individual articles using AI to extract insights about future trends, sentiment, and impact.</p>
-                    <a href="/research" class="btn btn-primary">Go to Research</a>
-                </div>
-            </div>
-        </div>
-        <!-- Bulk Article Submission Card -->
-        <div class="col-md-6 mb-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h5 class="card-title">Multi-Article Analysis</h5>
-                    <p class="card-text">Submit multiple articles for analysis</p>
-                    <a href="/bulk-research" class="btn btn-primary">Go to Bulk Research</a>
-                </div>
-            </div>
-        </div>
-        <!-- Article Collection Card -->
-        <div class="col-md-6 mb-4">
-            <div class="card h-100">
-                <div class="card-body">
-                        <h5 class="card-title">Article Collection</h5>
-                        <p class="card-text">Search and collect articles from various sources like ArXiv based on topics and keywords.</p>
-                        <a href="/collect" class="btn btn-primary">Go to Article Collection</a>
+                    <p class="card-text">Collect and analyze articles from Arxiv and Newsapi, or manually and use AI to extract insights about future trends</p>
+                    <div class="button-group">
+                        <a href="/dashboard" class="btn btn-primary">Monitor news</a>
+                        <a href="/collect" class="btn btn-primary">Search news</a>
+                        <a href="/research" class="btn btn-primary">Add an article</a>
+                        <a href="/bulk-research" class="btn btn-primary">Add multiple articles</a>
                     </div>
                 </div>
             </div>
+        </div>
         <!-- Analytics Card -->
         <div class="col-md-6 mb-4">
             <div class="card h-100">
                 <div class="card-body">
                     <h5 class="card-title">Trend Analytics</h5>
-                    <p class="card-text">View analytics and insights from your analyzed articles.</p>
-                    <a href="/analytics" class="btn btn-primary">Go to Analytics</a>
-                </div>
-            </div>
-        </div>
-
-        <!-- Report Card -->
-        <div class="col-md-6 mb-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <h5 class="card-title">Write Report</h5>
-                    <p class="card-text">Generate comprehensive reports from your analyzed articles.</p>
-                    <a href="/report" class="btn btn-primary">Go to Report</a>
+                    <p class="card-text">Visualize trends, write reports and annotate articles</p>
+                    <div class="button-group">
+                        <a href="/report" class="btn btn-primary">Write a report</a>
+                        <a href="/analytics" class="btn btn-primary">Visualize treds</a>
+                        <a href="/database-editor" class="btn btn-primary">Annotate Articles</a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -198,10 +205,50 @@
                 </div>
             </div>
         </div>
+
     </div>
 </div>
+{% endblock %}
 
+{% block extra_js %}
 <script>
-// Your JavaScript code here
+// Format date string to a more readable format
+function formatDate(dateString) {
+    if (!dateString) return 'No date';
+    try {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (e) {
+        console.error('Error formatting date:', e);
+        return dateString;
+    }
+}
+
+// Load topic statistics
+async function loadTopicStats() {
+    const rows = document.querySelectorAll('#topicTable tbody tr');
+    
+    for (const row of rows) {
+        const topicId = row.dataset.topicId;
+        try {
+            const response = await fetch(`/api/topics/${encodeURIComponent(topicId)}/stats`);
+            const stats = await response.json();
+            
+            row.querySelector('.article-count').textContent = stats.articleCount;
+            row.querySelector('.latest-article').textContent = formatDate(stats.latestArticle);
+        } catch (error) {
+            console.error(`Error loading stats for topic ${topicId}:`, error);
+        }
+    }
+}
+
+// Load stats when page loads
+loadTopicStats();
 </script>
 {% endblock %}

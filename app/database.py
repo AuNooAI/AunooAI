@@ -576,16 +576,32 @@ class Database:
             cursor.execute("SELECT DISTINCT topic FROM articles ORDER BY topic")
             return [{"id": row['topic'], "name": row['topic']} for row in cursor.fetchall()]
 
-    def get_recent_articles_by_topic(self, topic_name, limit=10):
+    def get_recent_articles_by_topic(self, topic_name, start_date=None, end_date=None, limit=1000):
         with self.get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute("""
+            
+            query = """
                 SELECT * FROM articles
                 WHERE topic = ?
+            """
+            params = [topic_name]
+            
+            if start_date:
+                query += " AND publication_date >= ?"
+                params.append(start_date)
+            
+            if end_date:
+                query += " AND publication_date <= ?"
+                params.append(end_date)
+            
+            query += """
                 ORDER BY COALESCE(submission_date, publication_date) DESC, rowid DESC
                 LIMIT ?
-            """, (topic_name, limit))
+            """
+            params.append(limit)
+            
+            cursor.execute(query, params)
             articles = [dict(row) for row in cursor.fetchall()]
             
             # Convert tags string back to list
@@ -596,6 +612,32 @@ class Database:
                     article['tags'] = []
             
             return articles
+
+    def get_article_count_by_topic(self, topic_name: str) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM articles WHERE topic = ?", (topic_name,))
+            return cursor.fetchone()[0]
+
+    def get_latest_article_date_by_topic(self, topic_name: str) -> Optional[str]:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COALESCE(submission_date, publication_date) as article_date 
+                FROM articles 
+                WHERE topic = ? 
+                ORDER BY article_date DESC 
+                LIMIT 1
+            """, (topic_name,))
+            result = cursor.fetchone()
+            return result[0] if result else None
+
+    def delete_topic(self, topic_name: str) -> bool:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM articles WHERE topic = ?", (topic_name,))
+            conn.commit()
+            return cursor.rowcount > 0
 
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
 

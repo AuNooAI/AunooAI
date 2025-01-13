@@ -1,35 +1,38 @@
-- Fixed the issue where attributes where not being populated on the research page
-
-Features/Enhancements
+Recently Completed:
+- Fixed the issue where attributes were not being populated on the research page
 - Added Bulk Article Submission to the Index page
+- Fixed dropdown population in database editor by updating API endpoints to use query parameters
+- Implemented proper topic-based filter loading
+
+Features/Enhancements:
 - bulk_research:
 1. Add a toggle to steer behavior when articles exist in the database. Fetch new, or Use Old.
-2.
+2. Improve error handling and user feedback
 
 Todo:
-- Collect Articles: Add a feature to multiselect articles and send them to /bulk-research
+Database Editor Improvements:
+1. Enhance pagination UI and functionality
+2. Add sorting capabilities for article list
+3. Add loading states during API calls
+4. Improve error handling and user feedback
+5. Add article preview functionality
+6. Implement bulk article operations (delete, update)
 
+Collect Articles:
+- Add a feature to multiselect articles and send them to /bulk-research
+- Fix ArXiv search error (timezone comparison issue)
 
-Bugs
-bulk_research.py
-APp says it is saving the articles. Where????
+Bugs Fixed:
+- Fixed: Database editor filter dropdowns not loading (404 errors)
+- Fixed: Incorrect API endpoint format for topic-based filters
 
+Remaining Bugs:
+- Article Collection: Error when searching ArXiv (timezone comparison issue)
+- Need to verify article saving in bulk_research.py
 
-- Article Collection: 
-Error when searching ArXiv
-Replication Data: 
-Source: Arxiv
-Topic: AI and Machine Learning&query
-Search Query: Ontology
-Max results: 10
-Start Date: 01/10/2024
-End Date: 04/11/2024
-Debug Output
-INFO:     127.0.0.1:52591 - "GET /api/collect_articles?source=arxiv&topic=AI+and+Machine+Learning&query=Langchain&max_results=10&start_date=2024-10-01&end_date=2024-11-04 HTTP/1.1" 200 OK
-INFO:arxiv:Requesting page (first: True, try: 0): https://export.arxiv.org/api/query?search_query=Ontology+AND+%28cat%3Acs.AI+OR+cat%3Acs.LG+OR+cat%3Acs.CL+OR+cat%3Acs.CV+OR+cat%3Acs.NE+OR+cat%3Acs.RO%29&id_list=&sortBy=submittedDate&sortOrder=descending&start=0&max_results=100
-DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): export.arxiv.org:443
-DEBUG:urllib3.connectionpool:https://export.arxiv.org:443 "GET /api/query?search_query=Ontology+AND+%28cat%3Acs.AI+OR+cat%3Acs.LG+OR+cat%3Acs.CL+OR+cat%3Acs.CV+OR+cat%3Acs.NE+OR+cat%3Acs.RO%29&id_list=&sortBy=submittedDate&sortOrder=descending&start=0&max_results=100 HTTP/11" 200 None       
-INFO:arxiv:Got first page: 100 of 2137 total results
-ERROR:app.collectors.arxiv_collector:Error searching ArXiv: can't compare offset-naive and offset-aware datetimes
-INFO:     127.0.0.1:52600 - "GET /api/collect_articles?source=arxiv&topic=AI+and+Machine+Learning&query=Ontology&max_results=10&start_date=2024-10-01&end_date=2024-11-04 HTTP/1.1" 200 OK
+Next Priority Tasks:
+1. Fix ArXiv timezone comparison issue
+2. Implement bulk article operations in database editor
+3. Enhance pagination and sorting in database editor
+4. Add loading states and improve error handling
 

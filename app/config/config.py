@@ -42,3 +42,24 @@ def get_all_topics(config: Dict) -> List[str]:
     # Always load fresh config
     config = load_config()
     return [topic['name'] for topic in config.get('topics', [])]
+
+def load_news_monitoring() -> Dict:
+    news_config_path = os.path.join(os.path.dirname(__file__), 'news_monitoring.json')
+    try:
+        with open(news_config_path, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"news_filters": [], "paper_filters": []}
+
+def save_news_monitoring(filters: Dict) -> None:
+    news_config_path = os.path.join(os.path.dirname(__file__), 'news_monitoring.json')
+    with open(news_config_path, 'w') as f:
+        json.dump(filters, f, indent=2)
+
+def get_news_filters() -> List[str]:
+    config = load_news_monitoring()
+    return config.get("news_filters", [])
+
+def get_paper_filters() -> List[str]:
+    config = load_news_monitoring()
+    return config.get("paper_filters", [])

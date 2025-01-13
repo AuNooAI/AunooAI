@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, Form, Request, Body, Query, Depends
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
+from app.collectors.newsapi_collector import NewsAPICollector
+from app.collectors.arxiv_collector import ArxivCollector
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from app.database import Database, get_db
 from app.research import Research
@@ -94,7 +96,22 @@ class NewsAPIConfig(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    try:
+        # Get database info
+        db_info = db.get_database_info()
+        
+        # Get topics
+        config = load_config()
+        topics = [{"id": topic["name"], "name": topic["name"]} for topic in config["topics"]]
+        
+        return templates.TemplateResponse("index.html", {
+            "request": request,
+            "db_info": db_info,
+            "topics": topics
+        })
+    except Exception as e:
+        logger.error(f"Index page error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/research", response_class=HTMLResponse)
 async def research_get(request: Request):
@@ -1047,6 +1064,108 @@ async def update_report_template(section: str, template: dict = Body(...)):
             
         return {"message": "Template updated successfully"}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    try:
+        # Get database info
+        db_info = db.get_database_info()
+        
+        # Get latest articles
+        latest_articles = db.get_recent_articles(limit=5)
+        
+        # Get topics
+        topics = db.get_topics()
+        
+        # Get latest news from NewsAPI
+        news_collector = NewsAPICollector()
+        latest_news = await news_collector.search_articles(
+            query="artificial intelligence",
+            topic="AI and Machine Learning",
+            max_results=5
+        )
+        
+        # Get latest papers from ArXiv
+        arxiv_collector = ArxivCollector()
+        latest_papers = await arxiv_collector.search_articles(
+            query="artificial intelligence",
+            topic="AI and Machine Learning",
+            max_results=5
+        )
+        
+        return templates.TemplateResponse("dashboard.html", {
+            "request": request,
+            "db_info": db_info,
+            "latest_articles": latest_articles,
+            "topics": topics,
+            "latest_news": latest_news,
+            "latest_papers": latest_papers
+        })
+    except Exception as e:
+        logger.error(f"Dashboard error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/topics/{topic_name}/articles")
+async def get_topic_articles(
+    topic_name: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+):
+    try:
+        articles = db.get_recent_articles_by_topic(
+            topic_name=topic_name,
+            start_date=start_date,
+            end_date=end_date,
+            limit=1000  # Set a high limit for initial load
+        )
+        return {"articles": articles}
+    except Exception as e:
+        logger.error(f"Error fetching topic articles: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/topics/{topic_name}/stats")
+async def get_topic_stats(topic_name: str):
+    try:
+        # Get article count for topic
+        article_count = db.get_article_count_by_topic(topic_name)
+        
+        # Get latest article date
+        latest_article = db.get_latest_article_date_by_topic(topic_name)
+        
+        return {
+            "articleCount": article_count,
+            "latestArticle": latest_article
+        }
+    except Exception as e:
+        logger.error(f"Error fetching topic stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/topics/{topic_name}")
+async def delete_topic(topic_name: str):
+    try:
+        success = db.delete_topic(topic_name)
+        if success:
+            return {"message": "Topic deleted successfully"}
+        raise HTTPException(status_code=404, detail="Topic not found")
+    except Exception as e:
+        logger.error(f"Error deleting topic: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/database-editor", response_class=HTMLResponse)
+async def database_editor(request: Request):
+    try:
+        # Get topics for the dropdown - using existing function referenced in:
+        # main.py lines 805-825
+        config = load_config()
+        topics = [{"id": topic["name"], "name": topic["name"]} for topic in config["topics"]]
+        
+        return templates.TemplateResponse("database_editor.html", {
+            "request": request,
+            "topics": topics
+        })
+    except Exception as e:
+        logger.error(f"Database editor error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

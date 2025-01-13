@@ -25,21 +25,28 @@
                     <li class="nav-item">
                         <a class="nav-link" href="/">Home</a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/research">Analyze Article</a>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="researchDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Research
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="researchDropdown">
+                            <li><a class="dropdown-item" href="/dashboard">Monitor news</a></li>
+                            <li><a class="dropdown-item" href="/collect">Search news</a></li>
+                            <li><a class="dropdown-item" href="/research">Add an article</a></li>
+                            <li><a class="dropdown-item" href="/bulk-research">Add multiple articles</a></li>
+                        </ul>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/bulk-research">Multi-Article Analysis</a>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" id="analysisDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            Analysis
+                        </a>
+                        <ul class="dropdown-menu" aria-labelledby="analysisDropdown">
+                            <li><a class="dropdown-item" href="/report">Write a repport</a></li>
+                            <li><a class="dropdown-item" href="/analytics">Visualize Trends</a></li>
+                            <li><a class="dropdown-item" href="/database-editor">Edit Articles</a></li>
+                        </ul>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/collect">Article Collection</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/analytics">Trend Analytics</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/report">Write Report</a>
-                    </li>
+
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="configDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             Configuration
