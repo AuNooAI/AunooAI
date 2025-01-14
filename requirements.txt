@@ -16,3 +16,14 @@ pydantic-core
 pydantic-settings
 aiohttp
 newsapi
+# Added packages for SSL and auth
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt
+python-multipart
+starlette
+# For SSL support
+pyOpenSSL
+cryptography
+# For JWT tokens
+PyJWT

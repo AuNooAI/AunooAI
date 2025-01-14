@@ -1017,25 +1017,30 @@ async function editArticle(uri) {
 async function deleteArticle(uri) {
     if (confirm('Are you sure you want to delete this article?')) {
         try {
-            const response = await fetch(`/api/article?uri=${encodeURIComponent(uri)}`, { 
+            // Decode the URI first in case it's already encoded, then encode it once
+            const decodedUri = decodeURIComponent(uri);
+            const response = await fetch(`/api/article?uri=${encodeURIComponent(decodedUri)}`, { 
                 method: 'DELETE' 
             });
+            
             if (!response.ok) {
-                throw new Error('Failed to delete article');
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to delete article');
             }
+            
             const result = await response.json();
             console.log('Delete result:', result);
             alert('Article deleted successfully');
+            
             // Refresh the articles list
             const topicSelect = document.getElementById('topicSelect');
             await fetchArticles(topicSelect.value);
         } catch (error) {
             console.error('Error deleting article:', error);
-            alert('Error deleting article');
+            alert(`Error deleting article: ${error.message}`);
         }
     }
 }
-
 function displayAnalysisResult(result) {
     const analysisResultDiv = document.getElementById('analysisResult');
     if (analysisResultDiv) {

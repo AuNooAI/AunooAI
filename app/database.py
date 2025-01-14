@@ -576,33 +576,38 @@ class Database:
             cursor.execute("SELECT DISTINCT topic FROM articles ORDER BY topic")
             return [{"id": row['topic'], "name": row['topic']} for row in cursor.fetchall()]
 
-    def get_recent_articles_by_topic(self, topic_name, start_date=None, end_date=None, limit=1000):
+    def get_recent_articles_by_topic(self, topic_name, limit=10, start_date=None, end_date=None):
+        logger.info(f"Database: Fetching {limit} recent articles for topic {topic_name} (date range: {start_date} to {end_date})")
         with self.get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
             query = """
-                SELECT * FROM articles
+                SELECT * FROM articles 
                 WHERE topic = ?
-            """
-            params = [topic_name]
-            
-            if start_date:
-                query += " AND publication_date >= ?"
-                params.append(start_date)
-            
-            if end_date:
-                query += " AND publication_date <= ?"
-                params.append(end_date)
-            
-            query += """
+                {}  
                 ORDER BY COALESCE(submission_date, publication_date) DESC, rowid DESC
                 LIMIT ?
             """
+            
+            params = [topic_name]
+            date_conditions = []
+            
+            if start_date:
+                date_conditions.append("AND COALESCE(submission_date, publication_date) >= ?")
+                params.append(start_date)
+            if end_date:
+                date_conditions.append("AND COALESCE(submission_date, publication_date) <= ?")
+                params.append(end_date)
+                
+            date_clause = " ".join(date_conditions)
+            query = query.format(date_clause)
             params.append(limit)
             
+            logger.debug(f"Executing query: {query} with params: {params}")
             cursor.execute(query, params)
             articles = [dict(row) for row in cursor.fetchall()]
+            logger.info(f"Found {len(articles)} articles in database")
             
             # Convert tags string back to list
             for article in articles:
@@ -620,6 +625,7 @@ class Database:
             return cursor.fetchone()[0]
 
     def get_latest_article_date_by_topic(self, topic_name: str) -> Optional[str]:
+        logger.debug(f"Getting latest article date for topic: {topic_name}")
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -630,6 +636,7 @@ class Database:
                 LIMIT 1
             """, (topic_name,))
             result = cursor.fetchone()
+            logger.debug(f"Latest article date for topic {topic_name}: {result[0] if result else None}")
             return result[0] if result else None
 
     def delete_topic(self, topic_name: str) -> bool:

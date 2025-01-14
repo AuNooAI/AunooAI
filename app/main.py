@@ -28,6 +28,9 @@ import os
 from dotenv import load_dotenv
 from app.collectors.collector_factory import CollectorFactory
 import importlib
+import ssl
+import uvicorn
+from app.middleware.https_redirect import HTTPSRedirectMiddleware
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -93,6 +96,10 @@ class NewsAPIConfig(BaseModel):
     class Config:
         alias_generator = lambda string: string.lower()
         populate_by_name = True
+
+# Only add HTTPS redirect in production
+if os.getenv('ENVIRONMENT') == 'production':
+    app.add_middleware(HTTPSRedirectMiddleware)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -434,12 +441,18 @@ async def get_time_to_impact(topic: Optional[str] = None, research: Research = D
     return await research.get_time_to_impact(topic)
 
 @app.get("/api/latest_articles")
-async def get_latest_articles(topic_name: Optional[str] = None):
+async def get_latest_articles(
+    topic_name: Optional[str] = None, 
+    limit: Optional[int] = Query(10, ge=1)
+):
     try:
+        logger.info(f"API request for latest articles - topic: {topic_name}, limit: {limit}")
         if topic_name:
-            articles = research.get_recent_articles_by_topic(topic_name)
+            articles = research.get_recent_articles_by_topic(topic_name, limit=limit)
+            logger.info(f"Retrieved {len(articles)} articles for topic {topic_name}")
         else:
-            articles = await research.get_recent_articles()
+            articles = await research.get_recent_articles(limit=limit)
+            logger.info(f"Retrieved {len(articles)} articles (no topic filter)")
         return JSONResponse(content=articles)
     except Exception as e:
         logger.error(f"Error fetching latest articles: {str(e)}")
@@ -1168,7 +1181,63 @@ async def database_editor(request: Request):
         logger.error(f"Database editor error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/config/firecrawl")
+async def get_firecrawl_config():
+    """Get Firecrawl configuration status."""
+    try:
+        # Force reload of environment variables
+        load_dotenv(override=True)
+        
+        firecrawl_key = os.getenv('PROVIDER_FIRECRAWL_KEY')
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": bool(firecrawl_key),
+                "message": "Firecrawl is configured" if firecrawl_key else "Firecrawl is not configured"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error in get_firecrawl_config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/firecrawl")
+async def remove_firecrawl_config():
+    """Remove Firecrawl configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        
+        # Read existing content
+        with open(env_path, "r") as env_file:
+            lines = env_file.readlines()
+
+        # Remove the FIRECRAWL_KEY line
+        lines = [line for line in lines if not line.startswith('PROVIDER_FIRECRAWL_KEY=')]
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Remove from current environment
+        if 'PROVIDER_FIRECRAWL_KEY' in os.environ:
+            del os.environ['PROVIDER_FIRECRAWL_KEY']
+
+        return {"message": "Firecrawl configuration removed successfully"}
+
+    except Exception as e:
+        logger.error(f"Error removing Firecrawl configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv('PORT', 8000))  # default to 8000 if not set
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_context.load_cert_chain('cert.pem', keyfile='key.pem')
+    
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8010,
+        ssl_keyfile="key.pem",
+        ssl_certfile="cert.pem",
+        reload=True
+    )
