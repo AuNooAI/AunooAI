@@ -4,7 +4,12 @@ from app.database import Database, get_db
 from sqlalchemy.orm import Session
 import logging
 
+# Set up logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 # Create a single instance of Research
 _research_instance = None

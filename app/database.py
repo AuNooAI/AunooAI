@@ -10,11 +10,13 @@ from sqlalchemy.ext.declarative import declarative_base
 import logging
 from fastapi import HTTPException
 
+# Set up logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
-# Add this near the top of the file, after imports
-logging.basicConfig(level=logging.DEBUG)
-logger = logging.getLogger(__name__)
 
 class Database:
     @staticmethod
@@ -340,7 +342,8 @@ class Database:
         pub_date_start: Optional[str] = None,
         pub_date_end: Optional[str] = None,
         page: int = 1,
-        per_page: int = 10
+        per_page: int = 10,
+        date_field: str = 'publication_date'
     ) -> Tuple[List[Dict], int]:
         """Search articles with filters including topic."""
         query_conditions = []

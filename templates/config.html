@@ -456,115 +456,30 @@
 <style>
     .config-layout {
         display: flex;
-        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 20px;
         margin-top: 20px;
     }
+
     .left-panel, .right-panel {
-        width: 48%;
-        background-color: #f5f5f5;
+        flex: 1;
+        min-width: 300px;
+        background-color: white;
         padding: 20px;
-        border-radius: 5px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
+
     .config-item {
         margin-bottom: 20px;
     }
-    #database-list {
-        padding-left: 20px;
-        list-style-type: none;
-    }
-    #database-list li {
-        margin-bottom: 10px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    #create-database-form {
-        display: flex;
-        gap: 10px;
-    }
-    #create-database-form input {
-        flex-grow: 1;
-        padding: 5px;
-    }
-    button, select {
-        padding: 5px 10px;
-        background-color: #FF1493; /* Bright pink */
-        color: white;
-        border: none;
-        border-radius: 3px;
-        cursor: pointer;
-    }
-    button:hover {
-        background-color: #FF69B4; /* Lighter pink on hover */
-    }
-    select {
-        background-color: white;
-        color: black;
-    }
-    h2 {
-        color: #333;
-        border-bottom: 2px solid #FF1493; /* Bright pink */
-        padding-bottom: 10px;
-    }
-    h3 {
-        color: #FF1493; /* Bright pink */
-    }
-    .mt-5 {
-        margin-top: 2rem;
-    }
 
-    #model-list {
+    #database-list, #model-list, #provider-list {
         padding-left: 0;
         list-style-type: none;
     }
 
-    #model-list li {
-        margin-bottom: 10px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-
-    #add-model-form {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    #add-model-form input, #add-model-form select {
-        padding: 5px;
-    }
-
-    #provider-config-form {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    /* Add these styles to your existing CSS */
-    .status-badge {
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 0.8em;
-        margin-left: 10px;
-    }
-
-    .configured .status-badge {
-        background-color: #32CD32;  /* Lime Green */
-        color: white;
-    }
-
-    .not-configured .status-badge {
-        background-color: #ff6b6b;  /* Light Red */
-        color: white;
-    }
-
-    #provider-list {
-        padding-left: 0;
-        list-style-type: none;
-    }
-
-    #provider-list li {
+    #database-list li, #model-list li, #provider-list li {
         margin-bottom: 10px;
         display: flex;
         justify-content: space-between;
@@ -574,19 +489,51 @@
         border-radius: 4px;
     }
 
+    #create-database-form, #add-model-form, #provider-config-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    input, select, button {
+        padding: 10px;
+        border-radius: 5px;
+        border: 1px solid #e9ecef;
+    }
+
+    button {
+        background-color: #FF1493;
+        color: white;
+        cursor: pointer;
+    }
+
+    button:hover {
+        background-color: #FF69B4;
+    }
+
+    h2 {
+        color: #333;
+        border-bottom: 2px solid #FF1493;
+        padding-bottom: 10px;
+    }
+
+    h3 {
+        color: #FF1493;
+    }
+
     .status-badge {
         padding: 2px 8px;
         border-radius: 12px;
         font-size: 0.8em;
     }
 
-    .status-badge.not-configured {
-        background-color: #ff6b6b;
+    .status-badge.configured {
+        background-color: #32CD32;
         color: white;
     }
 
-    .status-badge.error {
-        background-color: #dc3545;
+    .status-badge.not-configured {
+        background-color: #ff6b6b;
         color: white;
     }
 </style>

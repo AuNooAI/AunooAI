@@ -15,8 +15,12 @@ from app.ai_models import get_ai_model, get_available_models as ai_get_available
 from app.database import Database 
 import re
     
-logging.basicConfig(level=logging.DEBUG)
+# Set up logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 class Research:
     DEFAULT_TOPIC = "AI and Machine Learning"

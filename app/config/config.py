@@ -63,3 +63,20 @@ def get_news_filters() -> List[str]:
 def get_paper_filters() -> List[str]:
     config = load_news_monitoring()
     return config.get("paper_filters", [])
+
+def get_news_query(topicId: str) -> str:
+    # Load the configuration
+    config = load_news_monitoring()
+    # Return the news query for the given topicId
+    return config["news_filters"].get(topicId, "")
+
+def set_news_query(query: str) -> None:
+    config = load_news_monitoring()
+    config["news_filters"] = [query]  # Update the query
+    save_news_monitoring(config)
+
+def get_paper_query(topicId: str) -> str:
+    # Load the configuration
+    config = load_news_monitoring()
+    # Return the paper query for the given topicId
+    return config["paper_filters"].get(topicId, "")

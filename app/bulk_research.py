@@ -10,7 +10,12 @@ import traceback
 import datetime
 import json
 
+# Set up logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 class BulkResearch:
     def __init__(self, db):

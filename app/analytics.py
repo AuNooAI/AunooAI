@@ -1,6 +1,11 @@
 import logging
 
+# Set up logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 from app.analyze_db import AnalyzeDB
 from app.database import Database

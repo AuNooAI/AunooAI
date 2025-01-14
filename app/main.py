@@ -23,7 +23,7 @@ import json
 import importlib
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
 from app.bulk_research import BulkResearch
-from app.config.config import load_config, get_topic_config  # Add get_topic_config import
+from app.config.config import load_config, get_topic_config, get_news_query, set_news_query, get_paper_query, load_news_monitoring, save_news_monitoring
 import os
 from dotenv import load_dotenv
 from app.collectors.collector_factory import CollectorFactory
@@ -337,7 +337,8 @@ async def search_articles(
     startDate: Optional[str] = None,
     endDate: Optional[str] = None,
     page: int = Query(1),
-    per_page: int = Query(10)
+    per_page: int = Query(10),
+    date_type: str = Query('publication'),  # Default to 'publication'
 ):
     pub_date_start, pub_date_end = None, None
     
@@ -351,6 +352,9 @@ async def search_articles(
             pub_date_start = startDate
             pub_date_end = endDate
 
+    # Determine which date field to use based on date_type
+    date_field = 'publication_date' if date_type == 'publication' else 'submission_date'
+    
     tags_list = tags.split(',') if tags else None
     articles, total_count = db.search_articles(
         topic=topic,  # Add topic parameter
@@ -359,6 +363,7 @@ async def search_articles(
         sentiment=sentiment,
         tags=tags_list,
         keyword=keyword,
+        date_field=date_field,
         pub_date_start=pub_date_start,
         pub_date_end=pub_date_end,
         page=page,
@@ -1082,38 +1087,26 @@ async def update_report_template(section: str, template: dict = Body(...)):
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(request: Request):
     try:
-        # Get database info
         db_info = db.get_database_info()
-        
-        # Get latest articles
-        latest_articles = db.get_recent_articles(limit=5)
-        
-        # Get topics
         topics = db.get_topics()
-        
-        # Get latest news from NewsAPI
-        news_collector = NewsAPICollector()
-        latest_news = await news_collector.search_articles(
-            query="artificial intelligence",
-            topic="AI and Machine Learning",
-            max_results=5
-        )
-        
-        # Get latest papers from ArXiv
-        arxiv_collector = ArxivCollector()
-        latest_papers = await arxiv_collector.search_articles(
-            query="artificial intelligence",
-            topic="AI and Machine Learning",
-            max_results=5
-        )
-        
+
+        # Prepare data for each topic
+        topic_data = []
+        for topic in topics:
+            topic_id = topic['name']
+            news_query = get_news_query(topic_id)
+            paper_query = get_paper_query(topic_id)
+
+            topic_data.append({
+                "topic": topic_id,  # This is used as the ID in the frontend
+                "name": topic_id,   # This is displayed as the title
+                "news_query": news_query,
+                "paper_query": paper_query
+            })
+
         return templates.TemplateResponse("dashboard.html", {
             "request": request,
-            "db_info": db_info,
-            "latest_articles": latest_articles,
-            "topics": topics,
-            "latest_news": latest_news,
-            "latest_papers": latest_papers
+            "topics": topic_data
         })
     except Exception as e:
         logger.error(f"Dashboard error: {str(e)}")
@@ -1228,6 +1221,99 @@ async def remove_firecrawl_config():
     except Exception as e:
         logger.error(f"Error removing Firecrawl configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/update-news-query")
+async def update_news_query(query: str = Body(...), topicId: str = Body(...)):
+    try:
+        set_news_query(query, topicId)
+        return JSONResponse(content={"message": "News query updated successfully"})
+    except Exception as e:
+        logger.error(f"Error updating news query: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/update-paper-query")
+async def update_paper_query(query: str = Body(...), topicId: str = Body(...)):
+    try:
+        config = load_news_monitoring()
+        config["paper_filters"][topicId] = query
+        save_news_monitoring(config)
+        return JSONResponse(content={"message": "Paper query updated successfully"})
+    except Exception as e:
+        logger.error(f"Error updating paper query: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/latest-news-and-papers")
+async def get_latest_news_and_papers(
+    topicId: str,
+    count: int = Query(default=5, ge=3, le=20),
+    sortBy: str = Query(default="publishedAt", regex="^(relevancy|popularity|publishedAt)$")
+):
+    try:
+        news_query = get_news_query(topicId)
+        paper_query = get_paper_query(topicId)
+
+        latest_news = []
+        latest_papers = []
+
+        if news_query:
+            news_collector = NewsAPICollector()
+            latest_news = await news_collector.search_articles(
+                query=news_query,
+                topic=topicId,
+                max_results=count,
+                sort_by=sortBy  # Add sort parameter
+            )
+
+        if paper_query:
+            arxiv_collector = ArxivCollector()
+            latest_papers = await arxiv_collector.search_articles(
+                query=paper_query,
+                topic=topicId,
+                max_results=count
+            )
+
+        latest_news_formatted = []
+        for article in latest_news:
+            try:
+                raw_data = article.get('raw_data', {})
+                formatted_article = {
+                    "title": article.get('title', 'No title'),
+                    "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y %I:%M %p"),
+                    "source": raw_data.get('source_name', 'Unknown'),
+                    "summary": article.get('summary', 'No summary available'),
+                    "url": article.get('url', '#'),
+                    "author": article.get('authors', ['Unknown author'])[0],
+                    "image_url": raw_data.get('url_to_image')
+                }
+                latest_news_formatted.append(formatted_article)
+            except Exception as e:
+                logger.error(f"Error formatting news article: {e}")
+                logger.error(f"Problematic article data: {article}")
+                continue
+
+        latest_papers_formatted = []
+        for article in latest_papers:
+            try:
+                formatted_article = {
+                    "title": article.get('title', 'No title'),
+                    "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y"),
+                    "authors": article.get('authors', []),
+                    "summary": article.get('summary', 'No summary available'),
+                    "url": article.get('url', '#')
+                }
+                latest_papers_formatted.append(formatted_article)
+            except Exception as e:
+                logger.error(f"Error formatting paper article: {e}")
+                continue
+
+        return JSONResponse(content={
+            "latest_news": latest_news_formatted,
+            "latest_papers": latest_papers_formatted
+        })
+    except Exception as e:
+        logger.error(f"Error fetching latest news and papers: {str(e)}")
+        logger.exception("Full traceback:")
+        raise HTTPException(status_code=500, detail="Error fetching latest news and papers")
 
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
