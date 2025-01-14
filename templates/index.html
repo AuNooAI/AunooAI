@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}FNA - Home{% endblock %}
+{% block title %}N0RN AI - Home{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -125,11 +125,71 @@
         border-color: var(--dark-gray);
         color: #fff;
     }
+
+    .world-clock {
+        background-color: #fff;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 15px;
+        justify-content: space-between;
+    }
+
+    .clock-item {
+        text-align: center;
+        min-width: 140px;
+    }
+
+    .clock-city {
+        font-weight: bold;
+        color: var(--primary-color);
+        margin-bottom: 5px;
+    }
+
+    .clock-time {
+        font-family: monospace;
+        font-size: 1.1em;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<h1 class="mb-3">Functional News Addict App</h1>
+<h1 class="mb-3">N0RN AI</h1>
+<div class="world-clock">
+    <div class="clock-item">
+        <div class="clock-city">London</div>
+        <div class="clock-time" data-timezone="Europe/London"></div>
+    </div>
+    <div class="clock-item">
+        <div class="clock-city">Berlin</div>
+        <div class="clock-time" data-timezone="Europe/Berlin"></div>
+    </div>
+    <div class="clock-item">
+        <div class="clock-city">Moscow</div>
+        <div class="clock-time" data-timezone="Europe/Moscow"></div>
+    </div>
+    <div class="clock-item">
+        <div class="clock-city">New York</div>
+        <div class="clock-time" data-timezone="America/New_York"></div>
+    </div>
+    <div class="clock-item">
+        <div class="clock-city">San Francisco</div>
+        <div class="clock-time" data-timezone="America/Los_Angeles"></div>
+    </div>
+    <div class="clock-item">
+        <div class="clock-city">Beijing</div>
+        <div class="clock-time" data-timezone="Asia/Shanghai"></div>
+    </div>
+    <div class="clock-item">
+        <div class="clock-city">Delhi</div>
+        <div class="clock-time" data-timezone="Asia/Kolkata"></div>
+    </div>
+</div>
+
+
 <div class="container mt-2">
     <!-- Topic Database Info -->
     <div class="col-md-12 mb-4">
@@ -166,8 +226,8 @@
         <div class="col-md-6 mb-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">Analyze Article</h5>
-                    <p class="card-text">Collect and analyze articles from Arxiv and Newsapi, or manually and use AI to extract insights about future trends</p>
+                    <h5 class="card-title">Research and Collect</h5>
+                    <p class="card-text">Collect and analyze articles from Arxiv, Newsapi, or manually and use AI to extract insights about future trends</p>
                     <div class="button-group">
                         <a href="/dashboard" class="btn btn-primary">Monitor news</a>
                         <a href="/collect" class="btn btn-primary">Search news</a>
@@ -181,7 +241,7 @@
         <div class="col-md-6 mb-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">Trend Analytics</h5>
+                    <h5 class="card-title">Report and Visualize</h5>
                     <p class="card-text">Visualize trends, write reports and annotate articles</p>
                     <div class="button-group">
                         <a href="/report" class="btn btn-primary">Write a report</a>
@@ -196,7 +256,7 @@
         <div class="col-md-6 mb-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">Configuration</h5>
+                    <h5 class="card-title">Configure</h5>
                     <p class="card-text">Configure AI models and other application settings.</p>
                     <div class="button-group">
                         <a href="/config" class="btn btn-primary">Go to Configuration</a>
@@ -250,5 +310,25 @@ async function loadTopicStats() {
 
 // Load stats when page loads
 loadTopicStats();
+
+// World Clock functionality
+function updateClocks() {
+    const clockElements = document.querySelectorAll('.clock-time');
+    
+    clockElements.forEach(clock => {
+        const timezone = clock.dataset.timezone;
+        const time = new Date().toLocaleTimeString('en-US', {
+            timeZone: timezone,
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        clock.textContent = time;
+    });
+}
+
+// Update clocks every second
+updateClocks();
+setInterval(updateClocks, 1000);
 </script>
 {% endblock %}

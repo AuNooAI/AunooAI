@@ -818,40 +818,47 @@ function escapeHTML(str) {
 }
 
 async function fetchLatestArticles(topicName) {
+    console.log(`Fetching latest articles for topic: ${topicName} with limit: 10`);
     try {
-        const response = await fetch(`/api/latest_articles?topic_name=${encodeURIComponent(topicName)}`);
+        const response = await fetch(`/api/latest_articles?topic_name=${encodeURIComponent(topicName)}&limit=10`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const articles = await response.json();
+        console.log(`Received ${articles.length} articles from API`);
         if (Array.isArray(articles) && articles.length > 0) {
             displayLatestArticles(articles);
         } else {
+            console.log('No articles found or invalid response format');
             document.getElementById('latestArticles').innerHTML = '<p>No recent articles found for this topic.</p>';
         }
     } catch (error) {
         console.error('Error fetching latest articles:', error);
-        document.getElementById('latestArticles').innerHTML = '<p class="text-danger">Error loading recent articles. Please try again later.</p>';
+        document.getElementById('latestArticles').innerHTML = 
+            '<p class="text-danger">Error loading recent articles. Please try again later.</p>';
     }
 }
 
 function displayLatestArticles(articles) {
+    console.log(`Displaying ${articles.length} articles`);
     const latestArticlesContainer = document.getElementById('latestArticles');
     if (!latestArticlesContainer) {
         console.error('Latest articles container not found');
         return;
     }
 
-    latestArticlesContainer.innerHTML = ''; // Clear existing content
+    latestArticlesContainer.innerHTML = '';
 
     if (!articles || articles.length === 0) {
+        console.log('No articles to display');
         latestArticlesContainer.innerHTML = '<p>No recent articles found for this topic.</p>';
         return;
     }
 
     // Sort articles by submission date, most recent first
     articles.sort((a, b) => new Date(b.submission_date) - new Date(a.submission_date));
-
+    console.log(`Sorted ${articles.length} articles by submission date`);
+    
     articles.forEach(article => {
         const articleElement = document.createElement('div');
         articleElement.className = 'article-card';
