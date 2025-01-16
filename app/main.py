@@ -33,6 +33,8 @@ import uvicorn
 from app.middleware.https_redirect import HTTPSRedirectMiddleware
 from app.routes.prompt_routes import router as prompt_router
 from app.security.auth import User, get_current_active_user
+from app.routes import prompt_routes
+from app.routes.web_routes import router as web_router
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -105,6 +107,10 @@ if os.getenv('ENVIRONMENT') == 'production':
 
 # Include the prompt router
 app.include_router(prompt_router)
+logger.info("Prompt routes included")
+
+# Include routers
+app.include_router(web_router)  # Web routes at root level
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
