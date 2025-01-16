@@ -1265,7 +1265,7 @@ async def get_latest_news_and_papers(
                 query=news_query,
                 topic=topicId,
                 max_results=count,
-                sort_by=sortBy  # Add sort parameter
+                sort_by=sortBy
             )
 
         if paper_query:
@@ -1286,7 +1286,7 @@ async def get_latest_news_and_papers(
                     "source": raw_data.get('source_name', 'Unknown'),
                     "summary": article.get('summary', 'No summary available'),
                     "url": article.get('url', '#'),
-                    "author": article.get('authors', ['Unknown author'])[0],
+                    "author": article.get('authors', [])[0] if article.get('authors') else 'Unknown author',
                     "image_url": raw_data.get('url_to_image')
                 }
                 latest_news_formatted.append(formatted_article)
