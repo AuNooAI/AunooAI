@@ -32,6 +32,7 @@ import ssl
 import uvicorn
 from app.middleware.https_redirect import HTTPSRedirectMiddleware
 from app.routes.prompt_routes import router as prompt_router
+from app.security.auth import User, get_current_active_user
 
 # Set up logging
 logger = logging.getLogger(__name__)

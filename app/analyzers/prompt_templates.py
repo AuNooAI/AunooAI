@@ -96,6 +96,13 @@ class PromptTemplates:
             Driver Type Explanation: [Your explanation here]
             Tags: [tag1, tag2, tag3, ...]
             """
+        },
+        "date_extraction": {
+            "system_prompt": "You are an expert at extracting and parsing publication dates from articles.",
+            "user_prompt": """Extract the publication date from the following article text. Return ONLY the date in YYYY-MM-DD format. If no date is found, return today's date.
+
+Article text:
+{content}"""
         }
     }
 
@@ -202,4 +209,23 @@ class PromptTemplates:
             return hashlib.sha256(template_str.encode()).hexdigest()[:16]
         except PromptManagerError as e:
             logger.error(f"Failed to get template hash: {str(e)}")
-            raise PromptTemplateError(f"Failed to get template hash: {str(e)}") 
+            raise PromptTemplateError(f"Failed to get template hash: {str(e)}")
+
+    def format_prompt(self, prompt_type: str, variables: Dict) -> List[Dict[str, str]]:
+        """Generic prompt formatting method."""
+        try:
+            template = self.DEFAULT_TEMPLATES.get(prompt_type)
+            if not template:
+                raise PromptTemplateError(f"Unknown prompt type: {prompt_type}")
+            
+            # Format both system and user prompts with variables
+            formatted_system = template["system_prompt"].format(**variables)
+            formatted_user = template["user_prompt"].format(**variables)
+            
+            return [
+                {"role": "system", "content": formatted_system},
+                {"role": "user", "content": formatted_user}
+            ]
+        except Exception as e:
+            logger.error(f"Error formatting {prompt_type} prompt: {str(e)}")
+            raise PromptTemplateError(f"Failed to format {prompt_type} prompt: {str(e)}") 

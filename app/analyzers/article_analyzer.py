@@ -7,6 +7,7 @@ from .prompt_templates import PromptTemplates, PromptTemplateError
 from .cache import AnalysisCache, CacheError
 import json
 import traceback
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +15,40 @@ class ArticleAnalyzerError(Exception):
     pass
 
 class ArticleAnalyzer:
+    DATE_FORMATS = [
+        '%Y-%m-%d',           # 2024-03-14
+        '%Y/%m/%d',           # 2024/03/14
+        '%d-%m-%Y',           # 14-03-2024
+        '%d/%m/%Y',           # 14/03/2024
+        '%Y-%m-%dT%H:%M:%S',  # 2024-03-14T15:30:00
+        '%Y-%m-%dT%H:%M:%S.%f%z',  # 2024-03-14T15:30:00.000Z
+        '%Y-%m-%dT%H:%M:%SZ', # 2024-03-14T15:30:00Z
+        '%B %d, %Y',          # March 14, 2024
+        '%d %B %Y',           # 14 March 2024
+        '%d %B, %Y',          # 14 March, 2024
+        '%Y-%m-%d %H:%M:%S',  # 2024-03-14 15:30:00
+        '%d %B %Y',           # 06 December 2024
+        '%d-%B-%Y',           # 06-December-2024
+        '%d %b %Y',           # 06 Dec 2024
+        '%d-%b-%Y',           # 06-Dec-2024
+        '%b %d, %Y',          # Dec 06, 2024
+        '%B %d, %Y',          # December 06, 2024
+    ]
+    
+    DATE_PATTERNS = [
+        r'\d{4}-\d{2}-\d{2}',  # YYYY-MM-DD
+        r'\d{2}/\d{2}/\d{4}',  # DD/MM/YYYY
+        r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}'  # Month DD, YYYY
+    ]
+
+    DATE_EXTRACTION_TEMPLATE = """
+Extract the publication date from the following article text. 
+Return ONLY the date in YYYY-MM-DD format. If no date is found, return today's date.
+
+Article text:
+{content}
+"""
+
     def __init__(self, ai_model, custom_templates_path: str = None, cache_dir: str = "cache", cache_ttl_hours: int = 24):
         if not ai_model:
             raise ArticleAnalyzerError("AI model is required")
@@ -113,7 +148,7 @@ class ArticleAnalyzer:
             # Add uri and publication_date to result
             result["uri"] = uri
             # Try to extract publication date from the analysis or use current date
-            result["publication_date"] = result.get("Publication Date", datetime.now().date().isoformat())
+            result["publication_date"] = self.extract_publication_date(article_text, result.get("Publication Date"))
             
             logger.debug(f"Parsed analysis result: {json.dumps(result, indent=2)}")
 
@@ -155,7 +190,8 @@ class ArticleAnalyzer:
                     
                     # Start a new key
                     key, value = line.split(':', 1)
-                    current_key = key.strip()
+                    # Remove any asterisks and whitespace from key
+                    current_key = key.strip().strip('*').strip()
                     current_value = [value.strip()]
                 elif current_key:
                     # Continue with previous key
@@ -286,3 +322,32 @@ class ArticleAnalyzer:
 
     def get_template_hash(self) -> str:
         return self.prompt_templates.get_template_hash() 
+
+    def extract_publication_date(self, content: str, raw_date: Optional[str] = None) -> str:
+        try:
+            # First try raw_date if provided using existing date formats
+            if raw_date:
+                for date_format in self.DATE_FORMATS:
+                    try:
+                        parsed_date = datetime.strptime(raw_date, date_format)
+                        return parsed_date.date().isoformat()
+                    except ValueError:
+                        continue
+
+            # Use AI to extract date from content
+            prompts = self.prompt_templates.format_prompt('date_extraction', {'content': content[:1000]})
+            ai_extracted_date = self.ai_model.generate_response(prompts)
+            
+            if ai_extracted_date:
+                try:
+                    parsed_date = datetime.strptime(ai_extracted_date.strip(), '%Y-%m-%d')
+                    return parsed_date.date().isoformat()
+                except ValueError:
+                    pass
+
+            # If AI extraction fails, return current date
+            return datetime.now(timezone.utc).date().isoformat()
+            
+        except Exception as e:
+            logger.warning(f"Error extracting publication date: {str(e)}")
+            return datetime.now(timezone.utc).date().isoformat() 
