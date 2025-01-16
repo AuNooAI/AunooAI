@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from .base_collector import ArticleCollector
 import logging
+from app.models.topic import Topic
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,14 @@ class ArxivCollector(ArticleCollector):
         """Search ArXiv articles."""
         try:
             # Get arXiv categories for the topic
-            categories = self.topic_category_mapping.get(topic, [])
+            categories = self.topic_category_mapping.get(topic, [
+                "cs.AI",  # Artificial Intelligence
+                "cs.LG",  # Machine Learning
+                "cs.CL",  # Computation and Language
+                "cs.CV",  # Computer Vision
+                "cs.NE",  # Neural and Evolutionary Computing
+                "cs.RO",  # Robotics
+            ])
             if not categories:
                 logger.warning(f"No ArXiv categories mapped for topic: {topic}")
                 return []
@@ -122,3 +130,13 @@ class ArxivCollector(ArticleCollector):
         except Exception as e:
             logger.error(f"Error fetching ArXiv article: {str(e)}")
             return None
+
+    def get_latest_papers(self, topic: Topic, count: int = 5) -> List[Dict]:
+        if not hasattr(topic, 'arxiv_categories') or not topic.arxiv_categories:
+            # Use default categories if none are specified
+            categories = ["cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.NE", "cs.RO"]
+        else:
+            categories = topic.arxiv_categories
+        
+        category_filter = " OR ".join(f"cat:{cat}" for cat in categories)
+        query = f"{topic.paper_query} AND ({category_filter})"

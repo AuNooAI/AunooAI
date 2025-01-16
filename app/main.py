@@ -31,6 +31,7 @@ import importlib
 import ssl
 import uvicorn
 from app.middleware.https_redirect import HTTPSRedirectMiddleware
+from app.routes.prompt_routes import router as prompt_router
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -100,6 +101,9 @@ class NewsAPIConfig(BaseModel):
 # Only add HTTPS redirect in production
 if os.getenv('ENVIRONMENT') == 'production':
     app.add_middleware(HTTPSRedirectMiddleware)
+
+# Include the prompt router
+app.include_router(prompt_router)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -1314,6 +1318,29 @@ async def get_latest_news_and_papers(
         logger.error(f"Error fetching latest news and papers: {str(e)}")
         logger.exception("Full traceback:")
         raise HTTPException(status_code=500, detail="Error fetching latest news and papers")
+
+@app.post("/api/update-keyword")
+async def update_keyword(request: Request):
+    data = await request.json()
+    topic_id = data.get('topic_id')
+    keyword_type = data.get('keyword_type')
+    new_keyword = data.get('new_keyword')
+    
+    try:
+        if keyword_type == 'news':
+            set_news_query(topic_id, new_keyword)  # Modified to include topic_id
+        elif keyword_type == 'paper':
+            set_paper_query(topic_id, new_keyword)  # Modified to include topic_id
+        else:
+            raise ValueError(f"Invalid keyword type: {keyword_type}")
+            
+        # Clear any cached results for this topic
+        # Add cache invalidation here if you have caching
+        
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error updating keyword: {str(e)}")
+        return {"success": False, "error": str(e)}
 
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

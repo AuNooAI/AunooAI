@@ -64,19 +64,26 @@ def get_paper_filters() -> List[str]:
     config = load_news_monitoring()
     return config.get("paper_filters", [])
 
-def get_news_query(topicId: str) -> str:
-    # Load the configuration
+def get_news_query(topic_id: str) -> str:
     config = load_news_monitoring()
-    # Return the news query for the given topicId
-    return config["news_filters"].get(topicId, "")
+    news_filters = config.get("news_filters", {})
+    return news_filters.get(topic_id, "")
 
-def set_news_query(query: str) -> None:
+def set_news_query(topic_id: str, query: str) -> None:
     config = load_news_monitoring()
-    config["news_filters"] = [query]  # Update the query
+    if "news_filters" not in config:
+        config["news_filters"] = {}
+    config["news_filters"][topic_id] = query
     save_news_monitoring(config)
 
-def get_paper_query(topicId: str) -> str:
-    # Load the configuration
+def get_paper_query(topic_id: str) -> str:
     config = load_news_monitoring()
-    # Return the paper query for the given topicId
-    return config["paper_filters"].get(topicId, "")
+    paper_filters = config.get("paper_filters", {})
+    return paper_filters.get(topic_id, "")
+
+def set_paper_query(topic_id: str, query: str) -> None:
+    config = load_news_monitoring()
+    if "paper_filters" not in config:
+        config["paper_filters"] = {}
+    config["paper_filters"][topic_id] = query
+    save_news_monitoring(config)

@@ -388,6 +388,39 @@ document.addEventListener('DOMContentLoaded', () => {
     loadArticles('{{ topic.topic }}');
     {% endfor %}
 });
+
+function editKeyword(type, topicId) {
+    const elementId = `${type}Keyword-${topicId}`;
+    const currentKeyword = document.getElementById(elementId).textContent.trim();
+    const newKeyword = prompt(`Enter new ${type} keyword:`, currentKeyword);
+    
+    if (newKeyword && newKeyword !== currentKeyword) {
+        fetch('/api/update-keyword', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                topic_id: topicId,
+                keyword_type: type,
+                new_keyword: newKeyword
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                document.getElementById(elementId).textContent = newKeyword;
+                loadArticles(topicId);
+            } else {
+                alert('Failed to update keyword: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to update keyword');
+        });
+    }
+}
 </script>
 {% endblock %}
 

@@ -517,6 +517,10 @@ function displayResultsTable(results) {
     resultsBody.innerHTML = '';
     
     results.forEach((result, index) => {
+        // Format dates to YYYY-MM-DD for input fields
+        const pubDate = result.publication_date ? result.publication_date.split('T')[0] : '';
+        const subDate = result.submission_date ? result.submission_date.split('T')[0] : '';
+        
         const articleEntry = document.createElement('div');
         articleEntry.className = 'article-entry';
         articleEntry.id = `article-${index}`;
@@ -535,11 +539,11 @@ function displayResultsTable(results) {
                 </div>
                 <div class="col">
                     <label for="pubDate${index}">Pub. Date</label>
-                    <input type="date" id="pubDate${index}" class="form-control" value="${result.publication_date || ''}">
+                    <input type="date" id="pubDate${index}" class="form-control" value="${pubDate}">
                 </div>
                 <div class="col">
                     <label for="subDate${index}">Sub. Date</label>
-                    <input type="date" id="subDate${index}" class="form-control" value="${result.submission_date || ''}">
+                    <input type="date" id="subDate${index}" class="form-control" value="${subDate}">
                 </div>
             </div>
             <div class="row">

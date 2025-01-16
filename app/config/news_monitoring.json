@@ -1,7 +1,8 @@
 {
   "news_filters": {
     "AI and Machine Learning": "Artificial Intelligence",
-    "Cloud Computing": "Cloud Services"
+    "Cloud Computing": "Cloud Services",
+    "Test": "Quantum Advantage"
   },
   "paper_filters": {
     "AI and Machine Learning": "GenAI",
