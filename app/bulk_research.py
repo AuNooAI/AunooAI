@@ -44,8 +44,8 @@ class BulkResearch:
             raise
 
     async def analyze_bulk_urls(self, urls: List[str], summary_type: str, 
-                              model_name: str, summary_length: str, 
-                              summary_voice: str, topic: str) -> List[Dict]:
+                                 model_name: str, summary_length: str, 
+                                 summary_voice: str, topic: str) -> List[Dict]:
         results = []
         logger.info(f"Starting analysis of {len(urls)} URLs with topic: {topic}")
         
@@ -78,8 +78,8 @@ class BulkResearch:
                 if not title:
                     title = self.article_analyzer.extract_title(article_content["content"])
 
-                # Get publication date from article_content or use current date
-                publication_date = article_content.get("publication_date", datetime.datetime.now().date().isoformat())
+                # Get publication date from article_content
+                publication_date = self.article_analyzer.extract_publication_date(article_content["content"], article_content.get("publication_date"))
 
                 # Analyze article using ArticleAnalyzer
                 result = self.article_analyzer.analyze_content(
@@ -127,7 +127,7 @@ class BulkResearch:
                     "category": "N/A",
                     "tags": [],
                     "news_source": "N/A",
-                    "publication_date": datetime.datetime.now().date().isoformat(),
+                    "publication_date": self.article_analyzer.extract_publication_date(""),  # Will return today's date as fallback
                     "submission_date": datetime.datetime.now().date().isoformat(),
                     "topic": topic
                 })

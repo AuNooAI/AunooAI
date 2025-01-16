@@ -138,7 +138,17 @@ class Research:
     async def fetch_article_content(self, uri: str):
         logger.debug(f"Fetching article content for URI: {uri}")
         try:
-            # Check if the article already exists
+            # Ensure ArticleAnalyzer is initialized
+            if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
+                if not self.ai_model:
+                    # Use the first available model as default if none is set
+                    if not self.available_models:
+                        raise ValueError("No AI models are configured")
+                    self.set_ai_model(self.available_models[0]['name'])
+                else:
+                    self.article_analyzer = ArticleAnalyzer(self.ai_model)
+
+            # Rest of the existing fetch_article_content code remains exactly the same
             existing_article = self.db.get_raw_article(uri)
             
             if existing_article:
@@ -160,91 +170,38 @@ class Research:
             
             if 'markdown' in scrape_result:
                 content = scrape_result['markdown']
+                
+                # Extract publication date using ArticleAnalyzer
+                raw_date = scrape_result.get('date') or scrape_result.get('published_date') or scrape_result.get('pubDate')
+                publication_date = self.article_analyzer.extract_publication_date(content, raw_date)
+                
                 # Save the raw markdown with current topic
                 self.db.save_raw_article(uri, content, self.current_topic)
                 
-                # Extract and parse publication date
-                publication_date = None
-                raw_date = scrape_result.get('date') or scrape_result.get('published_date') or scrape_result.get('pubDate')
-                
-                if raw_date:
-                    logger.info(f"Raw date from scraper: {raw_date}")
-                    # Try common date formats
-                    date_formats = [
-                        '%Y-%m-%d',           # 2024-03-14
-                        '%Y/%m/%d',           # 2024/03/14
-                        '%d-%m-%Y',           # 14-03-2024
-                        '%d/%m/%Y',           # 14/03/2024
-                        '%Y-%m-%dT%H:%M:%S',  # 2024-03-14T15:30:00
-                        '%Y-%m-%dT%H:%M:%S.%f%z',  # 2024-03-14T15:30:00.000Z
-                        '%Y-%m-%dT%H:%M:%SZ', # 2024-03-14T15:30:00Z
-                        '%B %d, %Y',          # March 14, 2024
-                        '%d %B %Y',           # 14 March 2024
-                        '%d %B, %Y',          # 14 March, 2024
-                        '%Y-%m-%d %H:%M:%S',  # 2024-03-14 15:30:00
-                        '%d %B %Y',           # 06 December 2024
-                        '%d-%B-%Y',           # 06-December-2024
-                        '%d %b %Y',           # 06 Dec 2024
-                        '%d-%b-%Y',           # 06-Dec-2024
-                        '%b %d, %Y',          # Dec 06, 2024
-                        '%B %d, %Y',          # December 06, 2024
-                    ]
-                    
-                    for date_format in date_formats:
-                        try:
-                            parsed_date = datetime.strptime(raw_date, date_format)
-                            publication_date = parsed_date.date().isoformat()
-                            logger.info(f"Successfully parsed date {raw_date} with format {date_format}")
-                            break
-                        except ValueError:
-                            continue
-                    
-                    if not publication_date:
-                        logger.warning(f"Could not parse date {raw_date} with any known format")
-                
-                if not publication_date:
-                    # If we still don't have a date, try to extract it from the content
-                    # This is a fallback mechanism
-                    date_patterns = [
-                        r'\d{4}-\d{2}-\d{2}',  # Match YYYY-MM-DD
-                        r'\d{2}/\d{2}/\d{4}',  # Match DD/MM/YYYY
-                        r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}'  # Match Month DD, YYYY
-                    ]
-                    
-                    for pattern in date_patterns:
-                        matches = re.findall(pattern, content[:1000])  # Look in first 1000 chars
-                        if matches:
-                            try:
-                                # Try to parse the first match
-                                if '-' in matches[0]:
-                                    parsed_date = datetime.strptime(matches[0], '%Y-%m-%d')
-                                elif '/' in matches[0]:
-                                    parsed_date = datetime.strptime(matches[0], '%d/%m/%Y')
-                                else:
-                                    parsed_date = datetime.strptime(matches[0], '%B %d, %Y')
-                                publication_date = parsed_date.date().isoformat()
-                                logger.info(f"Extracted date from content: {publication_date}")
-                                break
-                            except ValueError:
-                                continue
-                
-                if not publication_date:
-                    # If all else fails, use current date
-                    publication_date = datetime.now(timezone.utc).date().isoformat()
-                    logger.warning(f"Using current date as fallback for {uri}: {publication_date}")
-                
                 source = self.extract_source(uri)
-                return {"content": content, "source": source, "publication_date": publication_date, "exists": False}
+                return {
+                    "content": content, 
+                    "source": source, 
+                    "publication_date": publication_date, 
+                    "exists": False
+                }
             else:
                 logger.error(f"Failed to fetch content for {uri}")
-                content = "Failed to fetch article content."
-                publication_date = datetime.now(timezone.utc).date().isoformat()
-
-            source = self.extract_source(uri)
-            return {"content": content, "source": source, "publication_date": publication_date, "exists": False}
+                return {
+                    "content": "Failed to fetch article content.",
+                    "source": self.extract_source(uri),
+                    "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                    "exists": False
+                }
+            
         except Exception as e:
             logger.error(f"Error fetching article content: {str(e)}", exc_info=True)
-            return {"content": "Failed to fetch article content.", "source": self.extract_source(uri), "publication_date": datetime.now(timezone.utc).date().isoformat(), "exists": False}
+            return {
+                "content": "Failed to fetch article content.",
+                "source": self.extract_source(uri),
+                "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                "exists": False
+            }
         
     def get_existing_article_content(self, uri: str):
         """Retrieve existing article content from the database."""
@@ -270,11 +227,10 @@ class Research:
             article_text = article_content["content"]
             source = article_content["source"]
             publication_date = article_content["publication_date"]
-            logger.debug(f"Publication Date extracted: {publication_date}")
         else:
             source = self.extract_source(uri)
-            publication_date = datetime.now(timezone.utc).date().isoformat()
-            logger.debug(f"Publication Date created: {publication_date}")
+            # Use ArticleAnalyzer to extract date from provided text
+            publication_date = self.article_analyzer.extract_publication_date(article_text)
 
         # Truncate article text
         article_text = self.article_analyzer.truncate_text(article_text)
@@ -454,34 +410,22 @@ class Research:
                     logger.error(f"Current topic: {self.current_topic}")
                     raise save_error
 
-                # Extract the date from Firecrawl's output
-                publication_date = scrape_result.get('date')
-                logger.debug(f"Raw publication date from scraper: {publication_date}")
-                
-                if publication_date:
-                    # Try to parse the date in various formats
-                    for date_format in ['%Y-%m-%d', '%Y/%m/%d', '%d-%m-%Y', '%d/%m/%Y']:
-                        try:
-                            parsed_date = datetime.strptime(publication_date, date_format)
-                            publication_date = parsed_date.date().isoformat()
-                            logger.debug(f"Successfully parsed date {publication_date} using format {date_format}")
-                            break
-                        except ValueError:
-                            continue
-                    else:
-                        logger.warning(f"Could not parse date {publication_date}, using current date")
-                        publication_date = datetime.now(timezone.utc).date().isoformat()
-                else:
-                    logger.info("No publication date provided, using current date")
-                    publication_date = datetime.now(timezone.utc).date().isoformat()
+                # Extract the date using ArticleAnalyzer
+                raw_date = scrape_result.get('date')
+                publication_date = self.article_analyzer.extract_publication_date(content, raw_date)
+                logger.debug(f"Publication date extracted: {publication_date}")
+
+                source = self.extract_source(uri)
+                logger.info(f"Article processing complete. Source: {source}, Publication date: {publication_date}")
+                return {"content": content, "source": source, "publication_date": publication_date}
             else:
                 logger.error(f"Failed to fetch content for {uri}")
-                content = "Failed to fetch article content."
-                publication_date = datetime.now(timezone.utc).date().isoformat()
-
-            source = self.extract_source(uri)
-            logger.info(f"Article processing complete. Source: {source}, Publication date: {publication_date}")
-            return {"content": content, "source": source, "publication_date": publication_date}
+                return {
+                    "content": "Failed to fetch article content.", 
+                    "source": self.extract_source(uri), 
+                    "publication_date": datetime.now(timezone.utc).date().isoformat()
+                }
+            
         except Exception as e:
             logger.error(f"Error scraping article: {str(e)}", exc_info=True)
             logger.error(f"URI: {uri}, Current topic: {self.current_topic}")
@@ -505,7 +449,9 @@ class Research:
         if model_name not in [model['name'] for model in self.available_models]:
             raise ValueError(f"Model {model_name} is not configured. Please select a configured model.")
         self.ai_model = get_ai_model(model_name)
-        self.article_analyzer = ArticleAnalyzer(self.ai_model)
+        # Initialize ArticleAnalyzer if not already initialized
+        if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
+            self.article_analyzer = ArticleAnalyzer(self.ai_model)
 
     def get_available_models(self):
         return self.available_models

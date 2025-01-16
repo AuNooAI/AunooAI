@@ -28,7 +28,7 @@ class PromptManager:
             os.makedirs(self.storage_dir, exist_ok=True)
             
             # Create subdirectories for each prompt type
-            for prompt_type in ["title_extraction", "content_analysis"]:
+            for prompt_type in ["title_extraction", "content_analysis", "date_extraction"]:
                 prompt_dir = os.path.join(self.storage_dir, prompt_type)
                 os.makedirs(prompt_dir, exist_ok=True)
                 logger.debug(f"Created prompt directory: {prompt_dir}")
@@ -61,7 +61,7 @@ class PromptManager:
 
     def save_version(self, prompt_type: str, system_prompt: str, user_prompt: str) -> Dict:
         try:
-            if prompt_type not in ["title_extraction", "content_analysis"]:
+            if prompt_type not in ["title_extraction", "content_analysis", "date_extraction"]:
                 raise PromptManagerError(f"Invalid prompt type: {prompt_type}")
 
             prompt_data = {
@@ -92,7 +92,7 @@ class PromptManager:
 
     def get_versions(self, prompt_type: str) -> List[Dict]:
         try:
-            if prompt_type not in ["title_extraction", "content_analysis"]:
+            if prompt_type not in ["title_extraction", "content_analysis", "date_extraction"]:
                 raise PromptManagerError(f"Invalid prompt type: {prompt_type}")
 
             versions = []
@@ -114,7 +114,7 @@ class PromptManager:
 
     def get_version(self, prompt_type: str, version_hash: str) -> Dict:
         try:
-            if prompt_type not in ["title_extraction", "content_analysis"]:
+            if prompt_type not in ["title_extraction", "content_analysis", "date_extraction"]:
                 raise PromptManagerError(f"Invalid prompt type: {prompt_type}")
 
             if version_hash == "current":
@@ -154,7 +154,8 @@ class PromptManager:
     def get_prompt_types(self) -> List[Dict]:
         return [
             {"name": "title_extraction", "display_name": "Title Extraction"},
-            {"name": "content_analysis", "display_name": "Content Analysis"}
+            {"name": "content_analysis", "display_name": "Content Analysis"},
+            {"name": "date_extraction", "display_name": "Date Extraction"}
         ]
 
     def get_current_version(self, prompt_type: str) -> Dict:
@@ -180,7 +181,7 @@ class PromptManager:
         """Initialize storage with default templates if no versions exist."""
         try:
             for prompt_type, template in default_templates.items():
-                if prompt_type not in ["title_extraction", "content_analysis"]:
+                if prompt_type not in ["title_extraction", "content_analysis", "date_extraction"]:
                     logger.warning(f"Skipping unknown prompt type: {prompt_type}")
                     continue
 
