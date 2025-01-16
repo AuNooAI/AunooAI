@@ -6,4 +6,8 @@ router = APIRouter()
 
 @router.get("/config", response_class=HTMLResponse)
 async def config_page(request: Request):
-    return templates.TemplateResponse("config.html", {"request": request}) 
+    return templates.TemplateResponse("config.html", {"request": request})
+
+@router.get("/promptmanager", response_class=HTMLResponse)
+async def prompt_manager_page(request: Request):
+    return templates.TemplateResponse("promptmanager.html", {"request": request}) 

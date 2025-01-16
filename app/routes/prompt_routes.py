@@ -9,6 +9,10 @@ import logging
 import os
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,  # Ensure this is set to DEBUG
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 # Create router with prefix
 router = APIRouter(prefix="/api")
@@ -128,4 +132,7 @@ async def compare_prompt_versions(
         return comparison
     except PromptManagerError as e:
         logger.error(f"Failed to compare versions for {prompt_type}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+

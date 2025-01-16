@@ -1,0 +1,341 @@
+{% extends "base.html" %}
+
+{% block title %}Prompt Manager{% endblock %}
+
+{% block content %}
+<div class="container mt-2">
+    <h1>Prompt Management</h1>
+
+    <div class="row">
+        <div class="col-md-6">
+            <h2>Prompt Selector</h2>
+            <div class="prompt-selector">
+                <select id="prompt-type" class="form-select">
+                    <option value="">Select Prompt Type</option>
+                    <option value="title_extraction">Title Extraction</option>
+                    <option value="content_analysis">Content Analysis</option>
+                </select>
+                <select id="prompt-version" class="form-select" disabled>
+                    <option value="">Select Version</option>
+                </select>
+            </div>
+
+            <div class="prompt-editor mt-4">
+                <h3>System Prompt</h3>
+                <textarea id="system-prompt" rows="5" class="form-control" placeholder="System prompt..."></textarea>
+
+                <h3>User Prompt</h3>
+                <textarea id="user-prompt" rows="10" class="form-control" placeholder="User prompt..."></textarea>
+
+                <div class="prompt-actions mt-3">
+                    <button id="save-prompt" class="btn btn-primary">Save New Version</button>
+                    <button id="restore-version" class="btn btn-secondary" disabled>Restore Selected Version</button>
+                    <button id="compare-versions" class="btn btn-secondary" disabled>Compare with Current</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <h2>Version History</h2>
+            <div id="version-history" class="table-responsive">
+                <!-- Will be populated dynamically -->
+            </div>
+
+            <div id="version-comparison" class="hidden mt-4">
+                <h3>Version Comparison</h3>
+                <div class="comparison-view">
+                    <div class="version-a">
+                        <h4>Version A</h4>
+                        <pre id="version-a-content"></pre>
+                    </div>
+                    <div class="version-b">
+                        <h4>Version B</h4>
+                        <pre id="version-b-content"></pre>
+                    </div>
+                </div>
+                <button id="close-comparison" class="btn btn-secondary">Close Comparison</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // JavaScript functions related to prompt management
+    function loadPromptTypes() {
+        const promptTypeSelect = document.getElementById('prompt-type');
+        
+        fetch('/api/prompts/types')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                promptTypeSelect.innerHTML = '<option value="">Select Prompt Type</option>';
+                if (data.types && Array.isArray(data.types)) {
+                    data.types.forEach(type => {
+                        const option = document.createElement('option');
+                        option.value = type.name;
+                        option.textContent = type.display_name;
+                        promptTypeSelect.appendChild(option);
+                    });
+                    promptTypeSelect.disabled = false;
+                } else {
+                    throw new Error('Invalid response format');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading prompt types:', error);
+                promptTypeSelect.innerHTML = '<option value="">Error loading prompt types</option>';
+                promptTypeSelect.disabled = true;
+            });
+    }
+
+    function loadPromptVersions(promptType) {
+        if (!promptType) {
+            console.error('No prompt type specified');
+            return;
+        }
+
+        const versionSelect = document.getElementById('prompt-version');
+        versionSelect.innerHTML = '<option value="">Loading versions...</option>';
+        versionSelect.disabled = true;
+
+        fetch(`/api/prompts/${promptType}/versions`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                versionSelect.innerHTML = '<option value="">Select Version</option>';
+                if (data.versions && Array.isArray(data.versions)) {
+                    data.versions.forEach(version => {
+                        const option = document.createElement('option');
+                        option.value = version.hash;
+                        option.textContent = `${version.version} (${new Date(version.created_at).toLocaleString()})`;
+                        versionSelect.appendChild(option);
+                    });
+                    versionSelect.disabled = false;
+                    
+                    // Load the current version in the editor
+                    loadPromptContent(promptType, 'current');
+                } else {
+                    throw new Error('Invalid response format');
+                }
+            })
+            .catch(error => {
+                console.error('Error loading prompt versions:', error);
+                versionSelect.innerHTML = '<option value="">Error loading versions</option>';
+                versionSelect.disabled = true;
+                document.getElementById('system-prompt').value = '';
+                document.getElementById('user-prompt').value = '';
+            });
+    }
+
+    function loadPromptContent(promptType, versionHash) {
+        fetch(`/api/prompts/${promptType}/${versionHash}`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('system-prompt').value = data.system_prompt;
+                document.getElementById('user-prompt').value = data.user_prompt;
+                
+                // Enable/disable buttons based on version
+                document.getElementById('restore-version').disabled = versionHash === 'current';
+                document.getElementById('compare-versions').disabled = versionHash === 'current';
+            })
+            .catch(error => console.error('Error loading prompt content:', error));
+    }
+
+    function savePromptVersion(promptType) {
+        const promptData = {
+            system_prompt: document.getElementById('system-prompt').value,
+            user_prompt: document.getElementById('user-prompt').value
+        };
+
+        fetch(`/api/prompts/${promptType}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(promptData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Prompt version saved successfully');
+            loadPromptVersions(promptType);
+        })
+        .catch(error => {
+            console.error('Error saving prompt version:', error);
+            alert('Error saving prompt version');
+        });
+    }
+
+    function restoreVersion(promptType, versionHash) {
+        fetch(`/api/prompts/${promptType}/${versionHash}/restore`, {
+            method: 'POST'
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert('Version restored successfully');
+            loadPromptVersions(promptType);
+        })
+        .catch(error => {
+            console.error('Error restoring version:', error);
+            alert('Error restoring version');
+        });
+    }
+
+    function compareVersions(promptType, versionHashA, versionHashB) {
+        Promise.all([
+            fetch(`/api/prompts/${promptType}/${versionHashA}`).then(r => r.json()),
+            fetch(`/api/prompts/${promptType}/${versionHashB}`).then(r => r.json())
+        ])
+        .then(([versionA, versionB]) => {
+            document.getElementById('version-a-content').textContent = 
+                `System Prompt:\n${versionA.system_prompt}\n\nUser Prompt:\n${versionA.user_prompt}`;
+            document.getElementById('version-b-content').textContent = 
+                `System Prompt:\n${versionB.system_prompt}\n\nUser Prompt:\n${versionB.user_prompt}`;
+            document.getElementById('version-comparison').classList.remove('hidden');
+        })
+        .catch(error => {
+            console.error('Error comparing versions:', error);
+            alert('Error comparing versions');
+        });
+    }
+
+    // Event Listeners
+    document.getElementById('prompt-type').addEventListener('change', function(e) {
+        if (e.target.value) {
+            loadPromptVersions(e.target.value);
+        }
+    });
+
+    document.getElementById('prompt-version').addEventListener('change', function(e) {
+        const promptType = document.getElementById('prompt-type').value;
+        if (e.target.value) {
+            loadPromptContent(promptType, e.target.value);
+        }
+    });
+
+    document.getElementById('save-prompt').addEventListener('click', function() {
+        const promptType = document.getElementById('prompt-type').value;
+        if (promptType) {
+            savePromptVersion(promptType);
+        }
+    });
+
+    document.getElementById('restore-version').addEventListener('click', function() {
+        const promptType = document.getElementById('prompt-type').value;
+        const versionHash = document.getElementById('prompt-version').value;
+        if (promptType && versionHash) {
+            restoreVersion(promptType, versionHash);
+        }
+    });
+
+    document.getElementById('compare-versions').addEventListener('click', function() {
+        const promptType = document.getElementById('prompt-type').value;
+        const versionHash = document.getElementById('prompt-version').value;
+        if (promptType && versionHash) {
+            compareVersions(promptType, versionHash, 'current');
+        }
+    });
+
+    document.getElementById('close-comparison').addEventListener('click', function() {
+        document.getElementById('version-comparison').classList.add('hidden');
+    });
+
+    // Initialize prompt management
+    document.addEventListener('DOMContentLoaded', function() {
+        const promptTypeSelect = document.getElementById('prompt-type');
+        promptTypeSelect.innerHTML = '<option value="">Loading prompt types...</option>';
+        promptTypeSelect.disabled = true;
+
+        loadPromptTypes();
+    });
+</script>
+
+<style>
+    .config-layout {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin-top: 20px;
+    }
+
+    .left-panel, .right-panel {
+        flex: 1;
+        min-width: 300px;
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .config-item {
+        margin-bottom: 20px;
+    }
+
+    .prompt-selector {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    .prompt-selector select {
+        flex: 1;
+    }
+
+    .prompt-editor {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .prompt-editor textarea {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #e9ecef;
+        border-radius: 5px;
+        font-family: monospace;
+        resize: vertical;
+    }
+
+    .prompt-actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+    }
+
+    .version-history {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .comparison-view {
+        display: flex;
+        gap: 20px;
+        margin: 20px 0;
+    }
+
+    .version-a, .version-b {
+        flex: 1;
+        padding: 10px;
+        background-color: #f8f9fa;
+        border-radius: 5px;
+    }
+
+    .version-a pre, .version-b pre {
+        white-space: pre-wrap;
+        word-wrap: break-word;
+        margin: 0;
+        font-family: monospace;
+    }
+
+    .hidden {
+        display: none;
+    }
+</style>
+{% endblock %} 
