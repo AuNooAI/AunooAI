@@ -1,4 +1,12 @@
 {
-  "news_filters": ["AI", "machine learning", "neural networks"],
-  "paper_filters": ["deep learning", "transformer", "language model"]
+  "news_filters": {
+    "AI and Machine Learning": "Artificial Intelligence",
+    "Cloud Computing": "Cloud Services",
+    "Test": "Quantum Advantage"
+  },
+  "paper_filters": {
+    "AI and Machine Learning": "GenAI",
+    "Cloud Computing": "Distributed Systems",
+    "Test": "Quantum Advantage"
+  }
 }

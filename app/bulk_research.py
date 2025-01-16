@@ -3,14 +3,20 @@ from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 from app.research import Research
 from app.database import Database
-from app.analysis_types import get_analysis_type
 from app.ai_models import get_ai_model
+from app.analyzers.article_analyzer import ArticleAnalyzer
 import logging
 import traceback
 import datetime
 import json
+import os
 
+# Set up logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 class BulkResearch:
     def __init__(self, db):
@@ -47,6 +53,13 @@ class BulkResearch:
             # Set the topic before starting analysis
             self.research.set_topic(topic)
             self.research.set_ai_model(model_name)
+            
+            # Create cache directory if it doesn't exist
+            os.makedirs("cache", exist_ok=True)
+            
+            # Initialize ArticleAnalyzer with the AI model
+            self.article_analyzer = ArticleAnalyzer(self.research.ai_model)
+            
         except Exception as e:
             logger.error(f"Error setting up analysis: {str(e)}")
             raise ValueError(f"Error in setup: {str(e)}")
@@ -60,22 +73,40 @@ class BulkResearch:
                 if not article_content or not article_content.get("content"):
                     raise ValueError(f"Failed to fetch content for URL: {url}")
 
-                # Analyze article
-                result = await self.research.analyze_article(
-                    uri=url,
+                # Extract title if not present
+                title = article_content.get("title", "")
+                if not title:
+                    title = self.article_analyzer.extract_title(article_content["content"])
+
+                # Get publication date from article_content or use current date
+                publication_date = article_content.get("publication_date", datetime.datetime.now().date().isoformat())
+
+                # Analyze article using ArticleAnalyzer
+                result = self.article_analyzer.analyze_content(
                     article_text=article_content["content"],
-                    summary_length=summary_length,
+                    title=title,
+                    source=self.extract_source(url),
+                    uri=url,
+                    summary_length=int(summary_length),
                     summary_voice=summary_voice,
                     summary_type=summary_type,
-                    topic=topic,
-                    model_name=model_name
+                    categories=self.research.CATEGORIES,
+                    future_signals=self.research.FUTURE_SIGNALS,
+                    sentiment_options=self.research.SENTIMENT,
+                    time_to_impact_options=self.research.TIME_TO_IMPACT,
+                    driver_types=self.research.DRIVER_TYPES
                 )
 
-                # Add news source and submission date
+                logger.debug(f"Analysis result for {url}: {json.dumps(result, indent=2)}")
+
+                # Add news source, publication date and submission date
                 result["news_source"] = self.extract_source(url)
+                result["publication_date"] = publication_date
                 result["submission_date"] = datetime.datetime.now().date().isoformat()
+                result["uri"] = url  # Ensure URL is included
                 results.append(result)
                 logger.debug(f"Successfully analyzed URL: {url}")
+                logger.debug(f"Final result with metadata: {json.dumps(result, indent=2)}")
                 
             except Exception as e:
                 logger.error(f"Error processing URL {url}: {str(e)}")
@@ -96,7 +127,7 @@ class BulkResearch:
                     "category": "N/A",
                     "tags": [],
                     "news_source": "N/A",
-                    "publication_date": "N/A",
+                    "publication_date": datetime.datetime.now().date().isoformat(),
                     "submission_date": datetime.datetime.now().date().isoformat(),
                     "topic": topic
                 })
@@ -163,53 +194,3 @@ class BulkResearch:
 
     def set_ai_model(self, model_name: str):
         self.ai_model = get_ai_model(model_name)
-
-    def parse_analysis(self, analysis: str, summary_type: str) -> Dict:
-        if summary_type == "curious_ai":
-            return self.parse_curious_ai_analysis(analysis)
-        elif summary_type == "axios":
-            return self.parse_axios_analysis(analysis)
-        else:
-            raise ValueError(f"Unknown summary type: {summary_type}")
-
-    def parse_curious_ai_analysis(self, analysis: str) -> Dict:
-        parsed_analysis = {}
-        for line in analysis.split('\n'):
-            if ':' in line:
-                key, value = line.split(':', 1)
-                parsed_analysis[key.strip()] = value.strip()
-
-        return {
-            "title": parsed_analysis.get("Title", ""),
-            "summary": parsed_analysis.get("Summary", ""),
-            "news_source": parsed_analysis.get("Source", ""),
-            "category": parsed_analysis.get("Category", ""),
-            "future_signal": parsed_analysis.get("Future Signal", ""),
-            "future_signal_explanation": parsed_analysis.get("Future Signal Explanation", ""),
-            "sentiment": parsed_analysis.get("Sentiment", ""),
-            "sentiment_explanation": parsed_analysis.get("Sentiment Explanation", ""),
-            "time_to_impact": parsed_analysis.get("Time to Impact", ""),
-            "time_to_impact_explanation": parsed_analysis.get("Time to Impact Explanation", ""),
-            "driver_type": parsed_analysis.get("Driver Type", ""),
-            "driver_type_explanation": parsed_analysis.get("Driver Type Explanation", ""),
-            "tags": parsed_analysis.get("Tags", "").strip('[]').replace(' ', '').split(','),
-            #"topic": topic  
-        }
-
-    def parse_axios_analysis(self, analysis: str) -> Dict:
-        parsed_analysis = {}
-        current_key = None
-        for line in analysis.split('\n'):
-            if line.startswith('Headline:'):
-                parsed_analysis['title'] = line.split(':', 1)[1].strip()
-            elif line.startswith('Main Point:'):
-                parsed_analysis['summary'] = line.split(':', 1)[1].strip()
-            elif line.startswith('Key Takeaways:'):
-                current_key = 'key_takeaways'
-                parsed_analysis[current_key] = []
-            elif line.startswith('Go deeper:'):
-                parsed_analysis['go_deeper'] = line.split(':', 1)[1].strip()
-            elif line.strip().startswith('•') and current_key == 'key_takeaways':
-                parsed_analysis[current_key].append(line.strip()[2:].strip())
-
-        return parsed_analysis

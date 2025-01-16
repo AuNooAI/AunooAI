@@ -21,9 +21,8 @@
     }
 
     .container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 20px;
+        max-width: 1400px;
+        padding: 40px 20px;
     }
 
     h1 {
@@ -127,106 +126,292 @@
     }
 
     .world-clock {
-        background-color: #fff;
-        padding: 15px;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        margin-bottom: 20px;
+        max-width: 100%;
+        padding: 20px;
+        margin: 0 auto;
         display: flex;
         flex-wrap: wrap;
-        gap: 15px;
-        justify-content: space-between;
+        gap: 20px;
+        justify-content: center;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
 
     .clock-item {
         text-align: center;
+        padding: 10px;
         min-width: 140px;
+        border-radius: 8px;
+        transition: transform 0.2s ease;
+    }
+
+    .clock-item:hover {
+        transform: translateY(-2px);
     }
 
     .clock-city {
-        font-weight: bold;
+        font-weight: 500;
         color: var(--primary-color);
         margin-bottom: 5px;
     }
 
     .clock-time {
-        font-family: monospace;
-        font-size: 1.1em;
+        font-size: 1.2em;
+        font-weight: bold;
+    }
+
+    .card {
+        border: none;
+        border-radius: 15px;
+        box-shadow: 0 10px 20px rgba(0,0,0,0.08);
+        height: 100%;
+    }
+
+    .card-body {
+        padding: 30px;
+    }
+
+    .card-title {
+        font-size: 1.5rem;
+        margin-bottom: 20px;
+        border-bottom: 2px solid var(--primary-color);
+        padding-bottom: 10px;
+    }
+
+    .button-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .btn {
+        border-radius: 25px;
+        padding: 10px 20px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-size: 0.9rem;
+    }
+
+    .table-responsive {
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    }
+
+    .table {
+        margin: 0;
+    }
+
+    .table thead th {
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        padding: 15px;
+    }
+
+    .table tbody td {
+        padding: 12px 15px;
+        border-color: var(--light-gray);
+    }
+
+    .table tbody tr:hover {
+        background-color: var(--light-gray);
+    }
+
+    @media (max-width: 768px) {
+        .site-header {
+            border-radius: 0;
+        }
+        
+        .world-clock {
+            margin: 0 0 30px;
+            padding: 15px;
+        }
+        
+        .clock-item {
+            min-width: 140px;
+        }
+    }
+
+    /* Enhanced World Clock Section */
+    .world-clock-section {
+        margin-bottom: 40px;
+    }
+
+    .world-clock-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 15px;
+        padding: 0 20px;
+    }
+
+    .world-clock-header i {
+        color: var(--primary-color);
+        font-size: 1.2em;
+    }
+
+    .world-clock-header h2 {
+        color: var(--dark-gray);
+        font-size: 1.5rem;
+        margin: 0;
+    }
+
+    /* Soften Active Topic Overview */
+    .topic-overview-card {
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        overflow: hidden;
+    }
+
+    .topic-overview-card .card-title {
+        color: var(--dark-gray);
+        border-bottom: none;
+        padding: 20px;
+        margin: 0;
+        background: var(--light-gray);
+    }
+
+    .table thead th {
+        background: var(--light-gray);
+        color: var(--dark-gray);
+        font-weight: 600;
+        border-bottom: 2px solid var(--medium-gray);
+    }
+
+    .table tbody tr:hover {
+        background-color: var(--light-gray);
+    }
+
+    .table td, .table th {
+        padding: 15px 20px;
+        border-color: var(--light-gray);
+    }
+
+    /* Consistent Section Headers */
+    .section-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 15px;
+        padding: 0 20px;
+    }
+
+    .section-header i {
+        color: var(--primary-color);
+        font-size: 1.2em;
+    }
+
+    .section-header h2 {
+        color: var(--dark-gray);
+        font-size: 1.5rem;
+        margin: 0;
+    }
+
+    /* Remove old card-title styling */
+    .topic-overview-card .card-title {
+        display: none;
+    }
+
+    /* Update card headers to match */
+    .card-title {
+        color: var(--dark-gray);
+        font-size: 1.5rem;
+        margin: 0;
+        padding: 0;
+        border-bottom: none;
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<h1 class="mb-3">N0RN AI</h1>
-<div class="world-clock">
-    <div class="clock-item">
-        <div class="clock-city">London</div>
-        <div class="clock-time" data-timezone="Europe/London"></div>
+<header class="site-header">
+    <h1>N0RN AI</h1>
+</header>
+
+<div class="world-clock-section">
+    <div class="section-header">
+        <i class="fas fa-clock"></i>
+        <h2>Global News Cycle</h2>
     </div>
-    <div class="clock-item">
-        <div class="clock-city">Berlin</div>
-        <div class="clock-time" data-timezone="Europe/Berlin"></div>
-    </div>
-    <div class="clock-item">
-        <div class="clock-city">Moscow</div>
-        <div class="clock-time" data-timezone="Europe/Moscow"></div>
-    </div>
-    <div class="clock-item">
-        <div class="clock-city">New York</div>
-        <div class="clock-time" data-timezone="America/New_York"></div>
-    </div>
-    <div class="clock-item">
-        <div class="clock-city">San Francisco</div>
-        <div class="clock-time" data-timezone="America/Los_Angeles"></div>
-    </div>
-    <div class="clock-item">
-        <div class="clock-city">Beijing</div>
-        <div class="clock-time" data-timezone="Asia/Shanghai"></div>
-    </div>
-    <div class="clock-item">
-        <div class="clock-city">Delhi</div>
-        <div class="clock-time" data-timezone="Asia/Kolkata"></div>
+    <div class="world-clock">
+        <div class="clock-item">
+            <div class="clock-city">London</div>
+            <div class="clock-time" data-timezone="Europe/London"></div>
+        </div>
+        <div class="clock-item">
+            <div class="clock-city">Berlin</div>
+            <div class="clock-time" data-timezone="Europe/Berlin"></div>
+        </div>
+        <div class="clock-item">
+            <div class="clock-city">Moscow</div>
+            <div class="clock-time" data-timezone="Europe/Moscow"></div>
+        </div>
+        <div class="clock-item">
+            <div class="clock-city">New York</div>
+            <div class="clock-time" data-timezone="America/New_York"></div>
+        </div>
+        <div class="clock-item">
+            <div class="clock-city">San Francisco</div>
+            <div class="clock-time" data-timezone="America/Los_Angeles"></div>
+        </div>
+        <div class="clock-item">
+            <div class="clock-city">Beijing</div>
+            <div class="clock-time" data-timezone="Asia/Shanghai"></div>
+        </div>
+        <div class="clock-item">
+            <div class="clock-city">Delhi</div>
+            <div class="clock-time" data-timezone="Asia/Kolkata"></div>
+        </div>
     </div>
 </div>
 
-
 <div class="container mt-2">
-    <!-- Topic Database Info -->
     <div class="col-md-12 mb-4">
-        <div class="card h-100">
-            <div class="card-body">
-                <h5 class="card-title">Active Topic Overview</h5>
-                <div class="table-responsive">
-                    <table class="table" id="topicTable">
-                        <thead>
-                            <tr>
-                                <th>Topic Name</th>
-                                <th>Article Count</th>
-                                <th>Last Article Added</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for topic in topics %}
-                            <tr data-topic-id="{{ topic.id }}">
-                                <td>{{ topic.name }}</td>
-                                <td class="article-count">Loading...</td>
-                                <td class="latest-article">Loading...</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+        <div class="topic-overview-card">
+            <div class="section-header">
+                <i class="fas fa-list"></i>
+                <h2>Active Topic Overview</h2>
+            </div>
+            <div class="table-responsive">
+                <table class="table" id="topicTable">
+                    <thead>
+                        <tr>
+                            <th>Topic Name</th>
+                            <th>Article Count</th>
+                            <th>Last Article Added</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for topic in topics %}
+                        <tr data-topic-id="{{ topic.id }}">
+                            <td>{{ topic.name }}</td>
+                            <td class="article-count">Loading...</td>
+                            <td class="latest-article">Loading...</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
     </div>
 
-    <p class="lead">What do you want to do today?</p>
+    <div class="section-header">
+        <i class="fas fa-question-circle"></i>
+        <h2>What do you want to do today?</h2>
+    </div>
+    
     <div class="row">
-        <!-- Research Card -->
         <div class="col-md-6 mb-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">Research and Collect</h5>
+                    <div class="section-header">
+                        <i class="fas fa-search"></i>
+                        <h2>Research and Collect</h2>
+                    </div>
                     <p class="card-text">Collect and analyze articles from Arxiv, Newsapi, or manually and use AI to extract insights about future trends</p>
                     <div class="button-group">
                         <a href="/dashboard" class="btn btn-primary">Monitor news</a>
@@ -237,26 +422,31 @@
                 </div>
             </div>
         </div>
-        <!-- Analytics Card -->
+
         <div class="col-md-6 mb-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">Report and Visualize</h5>
+                    <div class="section-header">
+                        <i class="fas fa-chart-bar"></i>
+                        <h2>Report and Visualize</h2>
+                    </div>
                     <p class="card-text">Visualize trends, write reports and annotate articles</p>
                     <div class="button-group">
                         <a href="/report" class="btn btn-primary">Write a report</a>
-                        <a href="/analytics" class="btn btn-primary">Visualize treds</a>
+                        <a href="/analytics" class="btn btn-primary">Visualize trends</a>
                         <a href="/database-editor" class="btn btn-primary">Annotate Articles</a>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Configuration Card -->
         <div class="col-md-6 mb-4">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title">Configure</h5>
+                    <div class="section-header">
+                        <i class="fas fa-cog"></i>
+                        <h2>Configure</h2>
+                    </div>
                     <p class="card-text">Configure AI models and other application settings.</p>
                     <div class="button-group">
                         <a href="/config" class="btn btn-primary">Go to Configuration</a>
@@ -265,7 +455,6 @@
                 </div>
             </div>
         </div>
-
     </div>
 </div>
 {% endblock %}
@@ -331,4 +520,7 @@ function updateClocks() {
 updateClocks();
 setInterval(updateClocks, 1000);
 </script>
+
+<!-- Add Font Awesome for the clock icon -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 {% endblock %}

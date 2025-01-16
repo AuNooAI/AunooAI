@@ -63,3 +63,27 @@ def get_news_filters() -> List[str]:
 def get_paper_filters() -> List[str]:
     config = load_news_monitoring()
     return config.get("paper_filters", [])
+
+def get_news_query(topic_id: str) -> str:
+    config = load_news_monitoring()
+    news_filters = config.get("news_filters", {})
+    return news_filters.get(topic_id, "")
+
+def set_news_query(topic_id: str, query: str) -> None:
+    config = load_news_monitoring()
+    if "news_filters" not in config:
+        config["news_filters"] = {}
+    config["news_filters"][topic_id] = query
+    save_news_monitoring(config)
+
+def get_paper_query(topic_id: str) -> str:
+    config = load_news_monitoring()
+    paper_filters = config.get("paper_filters", {})
+    return paper_filters.get(topic_id, "")
+
+def set_paper_query(topic_id: str, query: str) -> None:
+    config = load_news_monitoring()
+    if "paper_filters" not in config:
+        config["paper_filters"] = {}
+    config["paper_filters"][topic_id] = query
+    save_news_monitoring(config)

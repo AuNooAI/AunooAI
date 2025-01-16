@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}FNA - Database Editor{% endblock %}
+{% block title %}N0RN AI  - Database Editor{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -20,76 +20,7 @@
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
         padding: 20px;
-        border: 1px solid var(--primary-color);
-    }
-
-    .filter-section {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 15px;
-        margin-bottom: 20px;
-    }
-
-    .form-control, .form-select {
-        width: 100%;
-        padding: 8px;
-        margin-bottom: 15px;
-        border: 1px solid var(--primary-color);
-        border-radius: 4px;
-    }
-
-    .form-control:focus, .form-select:focus {
-        border-color: var(--primary-dark);
-        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
-    }
-
-    #articleList {
-        max-height: 500px;
-        overflow-y: auto;
-        border: 1px solid var(--primary-color);
-        border-radius: 5px;
-        padding: 10px;
-    }
-
-    .table-responsive {
-        max-height: 500px;
-        overflow-y: auto;
-    }
-
-    .pagination {
-        margin-top: 20px;
-        display: flex;
-        justify-content: center;
-    }
-
-    .date-inputs {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-    }
-
-    .date-separator {
-        margin: 0 5px;
-        color: var(--text-color);
-    }
-
-    .date-inputs input[type="date"] {
-        min-width: 130px;
-    }
-
-    .date-buttons {
-        display: grid;
-        grid-template-columns: repeat(6, 1fr);
-        gap: 5px;
-    }
-
-    .form-group {
-        margin-bottom: 15px;
-    }
-
-    .input-group {
-        display: flex;
-        gap: 5px;
+        border: 1px solid var(--medium-gray);
     }
 
     .filter-panel {
@@ -107,45 +38,93 @@
     }
 
     .date-section {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
         margin-bottom: 20px;
     }
 
     .date-buttons {
-        display: grid;
-        grid-template-columns: repeat(6, 1fr);
+        display: flex;
         gap: 10px;
-        margin-bottom: 15px;
+    }
+
+    .date-buttons button {
+        height: 36px; /* Adjust the height */
+        padding: 5px 10px; /* Adjust the padding */
     }
 
     .date-inputs {
-        display: grid;
-        grid-template-columns: auto 1fr auto 1fr;
+        display: flex;
         gap: 10px;
         align-items: center;
     }
 
-    .search-section {
-        margin-top: 20px;
-    }
-
-    .form-group {
-        display: flex;
-        flex-direction: column;
-        gap: 5px;
-    }
-
-    .form-group label {
-        font-size: 0.9em;
-        color: var(--text-color);
-    }
-
-    .panel-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+    .form-control, .form-select {
+        width: 100%;
+        padding: 8px;
         margin-bottom: 15px;
-        padding-bottom: 15px;
-        border-bottom: 1px solid var(--medium-gray);
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-dark);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        color: #fff;
+        transition: background-color 0.3s ease-in-out;
+        height: 36px; /* Adjust the height */
+        padding: 5px 10px; /* Adjust the padding */
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+        border-color: var(--primary-dark);
+    }
+
+    .btn-secondary {
+        background-color: var(--medium-gray);
+        border-color: var(--medium-gray);
+        color: var(--dark-gray);
+    }
+
+    .btn-secondary:hover {
+        background-color: var(--dark-gray);
+        border-color: var(--dark-gray);
+        color: #fff;
+    }
+
+    .table-responsive {
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    }
+
+    .table thead th {
+        background: var(--light-gray);
+        color: var(--dark-gray);
+        font-weight: 600;
+        border-bottom: 2px solid var(--medium-gray);
+    }
+
+    .table tbody td {
+        padding: 12px 15px;
+        border-color: var(--light-gray);
+    }
+
+    .table tbody tr:hover {
+        background-color: var(--light-gray);
+    }
+
+    .pagination {
+        display: flex;
+        justify-content: center;
+        margin-top: 20px;
     }
 
     .pagination-info {
@@ -157,12 +136,6 @@
     .results-count {
         color: var(--text-color);
         font-size: 0.9em;
-    }
-
-    .pagination {
-        display: flex;
-        align-items: center;
-        gap: 10px;
     }
 </style>
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />

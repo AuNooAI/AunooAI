@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}FNA - Report{% endblock %}
+{% block title %}N0RN AI  - Report{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -376,6 +376,13 @@
                             <input type="date" id="endDate" name="endDate" class="form-control">
                         </div>
                     </div>
+                    <div class="mb-3">
+                        <label for="dateType" class="form-label">Date Type</label>
+                        <select id="dateType" name="dateType" class="form-select">
+                            <option value="publication">Publication Date</option>
+                            <option value="submission">Submission Date</option>
+                        </select>
+                    </div>
                     <button type="submit" class="btn btn-primary">Search</button>
                 </form>
             </div>
@@ -670,6 +677,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const formData = new FormData(elements.searchForm);
         const searchParams = new URLSearchParams(formData);
         
+        // Add date type to search parameters
+        const dateType = document.getElementById('dateType').value;
+        searchParams.append('date_type', dateType);
+
         if (elements.dateRange) {
             const dateRangeValue = elements.dateRange.value;
             if (dateRangeValue !== 'custom') {

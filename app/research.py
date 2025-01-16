@@ -14,9 +14,14 @@ from dotenv import load_dotenv
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
 from app.database import Database 
 import re
-    
-logging.basicConfig(level=logging.DEBUG)
+from app.analyzers.article_analyzer import ArticleAnalyzer
+
+# Set up logging
 logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 class Research:
     DEFAULT_TOPIC = "AI and Machine Learning"
@@ -51,6 +56,7 @@ class Research:
         load_dotenv()
         self.available_models = ai_get_available_models()
         self.ai_model = None
+        self.article_analyzer = None
         self.firecrawl_app = self.initialize_firecrawl()
 
     def load_config(self):
@@ -256,51 +262,25 @@ class Research:
             return None
 
     async def analyze_article(self, uri, article_text, summary_length, summary_voice, summary_type, topic, model_name):
-        """Update analyze_article to use topic-specific configurations."""
-        # Set the topic before analysis
         self.set_topic(topic)
-        
-        # Set the AI model based on the selected model_name
         self.set_ai_model(model_name)
 
         if not article_text:
             article_content = await self.fetch_article_content(uri)
             article_text = article_content["content"]
             source = article_content["source"]
-            publication_date = article_content["publication_date"]  # Get publication_date from the response
+            publication_date = article_content["publication_date"]
+            logger.debug(f"Publication Date extracted: {publication_date}")
         else:
             source = self.extract_source(uri)
             publication_date = datetime.now(timezone.utc).date().isoformat()
+            logger.debug(f"Publication Date created: {publication_date}")
 
-        # Truncate article text to roughly fit within model's context length
-        # Assuming average token length is ~4 characters, and leaving room for prompt
-        max_chars = 65000  # This should be adapted to the model's context length
-        if len(article_text) > max_chars:
-            article_text = article_text[:max_chars] + "..."
-            logger.info(f"Article text truncated to {max_chars} characters")
+        # Truncate article text
+        article_text = self.article_analyzer.truncate_text(article_text)
 
-        # Improved title extraction
-        title_prompt = f"""
-        Extract or generate an appropriate title for the following article. Follow these guidelines:
-
-        1. If there's a clear, existing title in the text, extract and use it.
-        2. If there's no clear title, create a concise and informative title based on the main topic of the article.
-        3. The title should be attention-grabbing but not clickbait.
-        4. Keep the title under 15 words.
-        5. Capitalize the first letter of each major word (except articles, conjunctions, and prepositions unless they're the first or last word).
-        6. Do not use quotation marks in the title unless they're part of a quote that's central to the article.
-
-        Article text:
-        {article_text[:2000]}  # Using first 2000 characters to provide more context
-
-        Respond with only the title, nothing else.
-        """
-
-        title_response = self.ai_model.generate_response([
-            {"role": "system", "content": "You are an expert editor skilled at creating and extracting perfect titles for news articles."},
-            {"role": "user", "content": title_prompt}
-        ])
-        title = title_response.strip()
+        # Extract title
+        title = self.article_analyzer.extract_title(article_text)
 
         # Convert summary_length to words
         try:
@@ -308,102 +288,47 @@ class Research:
         except ValueError:
             summary_length_words = 50  # Default to 50 words if conversion fails
 
-        main_prompt = f"""
-        Summarize the following news article in {summary_length} words, using the voice of a {summary_voice}.
+        # Analyze content
+        parsed_analysis = self.article_analyzer.analyze_content(
+            article_text=article_text,
+            title=title,
+            source=source,
+            uri=uri,
+            summary_length=summary_length_words,
+            summary_voice=summary_voice,
+            summary_type=summary_type,
+            categories=self.CATEGORIES,
+            future_signals=self.FUTURE_SIGNALS,
+            sentiment_options=self.SENTIMENT,
+            time_to_impact_options=self.TIME_TO_IMPACT,
+            driver_types=self.DRIVER_TYPES
+        )
 
-        Title: {title}
-        Source: {source}
-        URL: {uri}
-        Content: {article_text}
+        # Verify and format summary
+        summary = self.article_analyzer.truncate_summary(
+            parsed_analysis.get("summary", ""),
+            summary_length_words
+        )
 
-        Provide a summary with the following characteristics:
-        Length: Maximum {summary_length_words} words
-        Voice: {summary_voice}
-        Type: {summary_type}
-
-        Summarize the content using the specified characteristics. Format your response as follows:
-        Summary: [Your summary here]
-
-        Then, provide the following analyses:
-
-        1. Category:
-        Classify the article into one of these categories:
-        {', '.join(self.CATEGORIES)}
-        If none of these categories fit, suggest a new category or classify it as "Other".
-
-        2. Future Signal:
-        Classify the article into one of these Future Signals:
-        {', '.join(self.FUTURE_SIGNALS)}
-        Base your classification on the overall tone and content of the article regarding the future of AI.
-        Provide a brief explanation for your classification.
-
-        3. Sentiment:
-        Classify the sentiment as one of:
-        {', '.join(self.SENTIMENT)}
-        Provide a brief explanation for your classification.
-
-        4. Time to Impact:
-        Classify the time to impact as one of:
-        {', '.join(self.TIME_TO_IMPACT)}
-        Provide a brief explanation for your classification.
-
-        5. Driver Type:
-        Classify the article into one of these Driver Types:
-        {', '.join(self.DRIVER_TYPES)}
-        Provide a brief explanation for your classification.
-
-        6. Relevant tags:
-        Generate 3-5 relevant tags for the article. These should be concise keywords or short phrases that capture the main topics or themes of the article.
-
-        Format your response as follows:
-        Title: [Your title here]
-        Summary: [Your summary here]
-        Category: [Your classification here]
-        Future Signal: [Your classification here]
-        Future Signal Explanation: [Your explanation here]
-        Sentiment: [Your classification here]
-        Sentiment Explanation: [Your explanation here]
-        Time to Impact: [Your classification here]
-        Time to Impact Explanation: [Your explanation here]
-        Driver Type: [Your classification here]
-        Driver Type Explanation: [Your explanation here]
-        Tags: [tag1, tag2, tag3, ...]
-        """
-
-        analysis = self.ai_model.generate_response([
-            {"role": "system", "content": f"You are an expert assistant that analyzes and summarizes articles. Provide summaries in the style of {summary_voice} and format of {summary_type}."},
-            {"role": "user", "content": main_prompt}
-        ])
-
-        # Parse the analysis text to extract the required fields
-        parsed_analysis = {}
-        for line in analysis.split('\n'):
-            if ':' in line:
-                key, value = line.split(':', 1)
-                parsed_analysis[key.strip()] = value.strip()
-
-        # Verify summary length and truncate if necessary
-        summary = parsed_analysis.get("Summary", "")
-        summary_words = summary.split()
-        if len(summary_words) > summary_length_words:
-            summary = ' '.join(summary_words[:summary_length_words])
+        # Format tags
+        tags = self.article_analyzer.format_tags(parsed_analysis.get("tags", ""))
 
         return {
             "title": title,
             "news_source": source,
             "uri": uri,
             "summary": summary,
-            "sentiment": parsed_analysis.get("Sentiment", ""),
-            "sentiment_explanation": parsed_analysis.get("Sentiment Explanation", ""),
-            "time_to_impact": parsed_analysis.get("Time to Impact", ""),
-            "time_to_impact_explanation": parsed_analysis.get("Time to Impact Explanation", ""),
-            "category": parsed_analysis.get("Category", ""),
-            "future_signal": parsed_analysis.get("Future Signal", ""),
-            "future_signal_explanation": parsed_analysis.get("Future Signal Explanation", ""),
+            "sentiment": parsed_analysis.get("sentiment", ""),
+            "sentiment_explanation": parsed_analysis.get("sentiment_explanation", ""),
+            "time_to_impact": parsed_analysis.get("time_to_impact", ""),
+            "time_to_impact_explanation": parsed_analysis.get("time_to_impact_explanation", ""),
+            "category": parsed_analysis.get("category", ""),
+            "future_signal": parsed_analysis.get("future_signal", ""),
+            "future_signal_explanation": parsed_analysis.get("future_signal_explanation", ""),
             "publication_date": publication_date,
-            "tags": parsed_analysis.get("Tags", "").strip('[]').replace(' ', '').split(','),
-            "driver_type": parsed_analysis.get("Driver Type", ""),
-            "driver_type_explanation": parsed_analysis.get("Driver Type Explanation", ""),
+            "tags": tags,
+            "driver_type": parsed_analysis.get("driver_type", ""),
+            "driver_type_explanation": parsed_analysis.get("driver_type_explanation", ""),
             "topic": topic  
         }
 
@@ -580,6 +505,7 @@ class Research:
         if model_name not in [model['name'] for model in self.available_models]:
             raise ValueError(f"Model {model_name} is not configured. Please select a configured model.")
         self.ai_model = get_ai_model(model_name)
+        self.article_analyzer = ArticleAnalyzer(self.ai_model)
 
     def get_available_models(self):
         return self.available_models
