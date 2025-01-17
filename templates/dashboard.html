@@ -434,6 +434,11 @@ function updateNewsContainer(topicId, articles) {
                            class="btn btn-sm btn-outline-primary me-2">
                             <i class="fas fa-external-link-alt"></i> View
                         </a>
+                        <a href="https://archive.is/${encodeURIComponent(article.url)}" 
+                           target="_blank" rel="noopener noreferrer"
+                           class="btn btn-sm btn-outline-secondary me-2">
+                            <i class="fas fa-unlock"></i> Bypass Paywall
+                        </a>
                         <a href="/research?url=${encodeURIComponent(article.url)}&topic=${encodeURIComponent(topicId)}" 
                            class="btn btn-sm btn-outline-success me-2">
                             <i class="fas fa-microscope"></i> Analyze
@@ -469,6 +474,11 @@ function updatePapersContainer(topicId, articles) {
                    class="btn btn-sm btn-outline-primary me-2">
                     <i class="fas fa-external-link-alt"></i> View
                 </a>
+                <a href="https://archive.is/${encodeURIComponent(article.url)}" 
+                   target="_blank" rel="noopener noreferrer"
+                   class="btn btn-sm btn-outline-secondary me-2">
+                            <i class="fas fa-unlock"></i> Bypass Paywall
+                        </a>
                 <a href="/research?url=${encodeURIComponent(article.url)}&topic=${encodeURIComponent(topicId)}" 
                    class="btn btn-sm btn-outline-success me-2">
                     <i class="fas fa-microscope"></i> Analyze

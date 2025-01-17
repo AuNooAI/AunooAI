@@ -598,22 +598,19 @@ function displayResults(data) {
                 ` : ''}
             </div>
             <div class="article-content ms-4">
-                <p class="article-summary mb-2">${article.summary || 'No summary available'}</p>
-                <div class="article-full-content d-none">
-                    ${article.content || 'No additional content available'}
-                </div>
+                <p class="mb-2">${article.summary || 'No summary available'}</p>
                 <div class="d-flex gap-2 mt-2">
-                    <button class="btn btn-sm btn-link p-0" onclick="toggleContent(this)">
-                        <i class="fas fa-chevron-down"></i> Show more
-                    </button>
                     <a href="${article.url}" target="_blank" class="btn btn-sm btn-link p-0">
                         <i class="fas fa-external-link-alt"></i> View Source
                     </a>
-                    ${hasImage ? `
-                        <button class="btn btn-sm btn-link p-0" onclick="previewImage('${article.raw_data.url_to_image}')">
-                            <i class="fas fa-image"></i> Preview Image
-                        </button>
-                    ` : ''}
+                    <a href="https://archive.is/${encodeURIComponent(article.url)}" 
+                       target="_blank" rel="noopener noreferrer"
+                       class="btn btn-sm btn-link p-0">
+                        <i class="fas fa-unlock"></i> Bypass Paywall
+                    </a>
+                    <button class="btn btn-sm btn-link p-0" onclick="analyzeArticle('${article.url}')">
+                        <i class="fas fa-microscope"></i> Analyze
+                    </button>
                 </div>
             </div>
         `;
