@@ -32,6 +32,34 @@
                     <button id="restore-version" class="btn btn-secondary" disabled>Restore Selected Version</button>
                     <button id="compare-versions" class="btn btn-secondary" disabled>Compare with Current</button>
                 </div>
+
+                <div class="available-variables mt-4">
+                    <h3>Available Variables</h3>
+                    <div class="card">
+                        <div class="card-body">
+                            <h5>Content Analysis Variables:</h5>
+                            <ul>
+                                <li><code>{article_text}</code> - Full article content</li>
+                                <li><code>{title}</code> - Article title</li>
+                                <li><code>{source}</code> - Article source</li>
+                                <li><code>{uri}</code> - Article URI</li>
+                                <li><code>{summary_length}</code> - Requested summary length</li>
+                                <li><code>{summary_voice}</code> - Summary voice style</li>
+                                <li><code>{summary_type}</code> - Type of summary</li>
+                                <li><code>{categories}</code> - Available categories</li>
+                                <li><code>{future_signals}</code> - Available future signals</li>
+                                <li><code>{sentiment_options}</code> - Available sentiment options</li>
+                                <li><code>{time_to_impact_options}</code> - Available time to impact options</li>
+                                <li><code>{driver_types}</code> - Available driver types</li>
+                            </ul>
+
+                            <h5>Date Extraction Variables:</h5>
+                            <ul>
+                                <li><code>{content}</code> - Article content (first 1000 chars)</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -336,6 +364,32 @@
 
     .hidden {
         display: none;
+    }
+
+    .available-variables {
+        background-color: #f8f9fa;
+        border-radius: 5px;
+        padding: 15px;
+    }
+
+    .available-variables code {
+        background-color: #e9ecef;
+        padding: 2px 4px;
+        border-radius: 3px;
+        color: #d63384;
+    }
+
+    .available-variables ul {
+        list-style-type: none;
+        padding-left: 0;
+    }
+
+    .available-variables li {
+        margin-bottom: 8px;
+    }
+
+    .card {
+        border: 1px solid #dee2e6;
     }
 </style>
 {% endblock %} 
