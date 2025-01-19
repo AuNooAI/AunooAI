@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Form, Request, Body, Query, Depends
+from fastapi import FastAPI, HTTPException, Form, Request, Body, Query, Depends, status
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from app.collectors.newsapi_collector import NewsAPICollector
@@ -32,9 +32,11 @@ import ssl
 import uvicorn
 from app.middleware.https_redirect import HTTPSRedirectMiddleware
 from app.routes.prompt_routes import router as prompt_router
-from app.security.auth import User, get_current_active_user
+from app.security.auth import User, get_current_active_user, verify_password
 from app.routes import prompt_routes
 from app.routes.web_routes import router as web_router
+from starlette.middleware.sessions import SessionMiddleware
+from app.security.session import verify_session
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -59,6 +61,12 @@ report = Report(db)
 report_generator = Report(db)
 
 #print("Config in main:", config)
+
+# Add this after app = FastAPI()
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("FLASK_SECRET_KEY", "your-fallback-secret-key"),  # Using existing secret key from .env
+)
 
 class ArticleData(BaseModel):
     title: str
@@ -113,30 +121,106 @@ logger.info("Prompt routes included")
 app.include_router(web_router)  # Web routes at root level
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+async def root(request: Request, session=Depends(verify_session)):
     try:
-        # Get database info
         db_info = db.get_database_info()
-        
-        # Get topics
         config = load_config()
         topics = [{"id": topic["name"], "name": topic["name"]} for topic in config["topics"]]
         
         return templates.TemplateResponse("index.html", {
             "request": request,
             "db_info": db_info,
-            "topics": topics
+            "topics": topics,
+            "session": session
         })
     except Exception as e:
         logger.error(f"Index page error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    if request.session.get("user"):
+        return RedirectResponse(url="/")
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "session": request.session  # Add session to template context
+    })
+
+@app.post("/login")
+async def login(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...)
+):
+    try:
+        # Get user from database
+        user = db.get_user(username)
+        logger.debug(f"Login attempt for user: {username}")
+        logger.debug(f"User found in database: {user is not None}")
+        
+        if not user:
+            logger.warning(f"User not found: {username}")
+            return templates.TemplateResponse(
+                "login.html",
+                {
+                    "request": request,
+                    "session": request.session,
+                    "error": "Invalid credentials"
+                },
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
+        is_valid = verify_password(password, user['password'])
+        logger.debug(f"Password verification result: {is_valid}")
+
+        if not is_valid:
+            logger.warning(f"Invalid password for user: {username}")
+            return templates.TemplateResponse(
+                "login.html",
+                {
+                    "request": request,
+                    "session": request.session,
+                    "error": "Invalid credentials"
+                },
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
+        request.session["user"] = username
+        
+        # Check if first login
+        if user.get('is_first_login', True):
+            return RedirectResponse(url="/change_password", status_code=status.HTTP_302_FOUND)
+        
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+        
+    except Exception as e:
+        logger.error(f"Login error: {str(e)}")
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "session": request.session,
+                "error": "An error occurred during login"
+            },
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@app.get("/logout")
+async def logout(request: Request):
+    request.session.clear()
+    return RedirectResponse(url="/login")
+
 @app.get("/research", response_class=HTMLResponse)
-async def research_get(request: Request):
-    return templates.TemplateResponse("research.html", {"request": request})
+async def research_get(request: Request, session=Depends(verify_session)):
+    return templates.TemplateResponse("research.html", {
+        "request": request,
+        "session": request.session
+    })
 
 @app.post("/research")
 async def research_post(
+    request: Request,
+    session=Depends(verify_session),  # Add session dependency
     articleUrl: str = Form(...),
     articleContent: Optional[str] = Form(None),
     summaryLength: str = Form(...),
@@ -179,11 +263,13 @@ async def research_post(
 @app.get("/bulk-research", response_class=HTMLResponse)
 async def bulk_research_get(
     request: Request,
+    session=Depends(verify_session),
     urlList: str = Query(None),
     topic: str = Query(None)
 ):
     return templates.TemplateResponse("bulk_research.html", {
         "request": request,
+        "session": request.session,
         "prefilled_urls": urlList or "",
         "selected_topic": topic or ""
     })
@@ -191,11 +277,13 @@ async def bulk_research_get(
 @app.post("/bulk-research", response_class=HTMLResponse)
 async def bulk_research_post(
     request: Request,
+    session=Depends(verify_session),
     urlList: str = Form(...),
     topic: str = Form(...)
 ):
     return templates.TemplateResponse("bulk_research.html", {
         "request": request,
+        "session": request.session,
         "prefilled_urls": urlList,
         "selected_topic": topic
     })
@@ -240,8 +328,8 @@ async def save_bulk_articles(
     return JSONResponse(content=results)
 
 @app.get("/analytics", response_class=HTMLResponse)
-async def analytics_route(request: Request):
-    return templates.TemplateResponse("analytics.html", {"request": request})
+async def analytics_route(request: Request, session=Depends(verify_session)):
+    return templates.TemplateResponse("analytics.html", {"request": request, "session": request.session})
 
 @app.get("/api/analytics")
 def get_analytics_data(
@@ -259,8 +347,8 @@ def get_analytics_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/report", response_class=HTMLResponse)
-async def report_route(request: Request):
-    return templates.TemplateResponse("report.html", {"request": request})
+async def report_route(request: Request, session=Depends(verify_session)):
+    return templates.TemplateResponse("report.html", {"request": request, "session": request.session})
 
 @app.get("/config", response_class=HTMLResponse)
 async def config_page(request: Request):
@@ -749,9 +837,11 @@ async def get_available_sources():
     return JSONResponse(content=CollectorFactory.get_available_sources())
 
 @app.get("/collect", response_class=HTMLResponse)
-async def collect_page(request: Request):
-    """Render the article collection page."""
-    return templates.TemplateResponse("collect.html", {"request": request})
+async def collect_page(request: Request, session=Depends(verify_session)):
+    return templates.TemplateResponse("collect.html", {
+        "request": request,
+        "session": request.session
+    })
 
 @app.post("/config/newsapi")
 async def save_newsapi_config(config: NewsAPIConfig):
@@ -846,8 +936,8 @@ async def remove_newsapi_config():
         logger.error(f"Error removing NewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/create_topic")
-async def create_topic_page(request: Request):
+@app.get("/create_topic", response_class=HTMLResponse)
+async def create_topic_page(request: Request, session=Depends(verify_session)):
     config = load_config()
     
     # Gather examples from existing topics
@@ -860,6 +950,7 @@ async def create_topic_page(request: Request):
     
     return templates.TemplateResponse("create_topic.html", {
         "request": request,
+        "session": request.session,
         "example_topics": example_topics,
         "example_categories": example_categories,
         "example_signals": example_signals,
@@ -1096,7 +1187,7 @@ async def update_report_template(section: str, template: dict = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
+async def dashboard(request: Request, session=Depends(verify_session)):
     try:
         db_info = db.get_database_info()
         topics = db.get_topics()
@@ -1117,7 +1208,8 @@ async def dashboard(request: Request):
 
         return templates.TemplateResponse("dashboard.html", {
             "request": request,
-            "topics": topic_data
+            "topics": topic_data,
+            "session": session
         })
     except Exception as e:
         logger.error(f"Dashboard error: {str(e)}")
@@ -1170,7 +1262,7 @@ async def delete_topic(topic_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/database-editor", response_class=HTMLResponse)
-async def database_editor(request: Request):
+async def database_editor_page(request: Request, session=Depends(verify_session)):
     try:
         # Get topics for the dropdown - using existing function referenced in:
         # main.py lines 805-825
@@ -1179,7 +1271,8 @@ async def database_editor(request: Request):
         
         return templates.TemplateResponse("database_editor.html", {
             "request": request,
-            "topics": topics
+            "topics": topics,
+            "session": session
         })
     except Exception as e:
         logger.error(f"Database editor error: {str(e)}")
@@ -1348,6 +1441,61 @@ async def update_keyword(request: Request):
     except Exception as e:
         logger.error(f"Error updating keyword: {str(e)}")
         return {"success": False, "error": str(e)}
+
+@app.get("/change_password", response_class=HTMLResponse)
+async def change_password_page(request: Request, session=Depends(verify_session)):
+    return templates.TemplateResponse(
+        "change_password.html",
+        {"request": request, "session": request.session}
+    )
+
+@app.post("/change_password")
+async def change_password(
+    request: Request,
+    session=Depends(verify_session),
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    confirm_password: str = Form(...)
+):
+    try:
+        username = request.session.get("user")
+        user = db.get_user(username)
+        
+        if not verify_password(current_password, user['password']):
+            return templates.TemplateResponse(
+                "change_password.html",
+                {
+                    "request": request,
+                    "session": request.session,
+                    "error": "Current password is incorrect"
+                }
+            )
+            
+        if new_password != confirm_password:
+            return templates.TemplateResponse(
+                "change_password.html",
+                {
+                    "request": request,
+                    "session": request.session,
+                    "error": "New passwords do not match"
+                }
+            )
+            
+        # Update password and first login status
+        db.update_user_password(username, new_password)
+        
+        return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
+        
+    except Exception as e:
+        logger.error(f"Change password error: {str(e)}")
+        return templates.TemplateResponse(
+            "change_password.html",
+            {
+                "request": request,
+                "session": request.session,
+                "error": "An error occurred while changing password"
+            }
+        )
 
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import logging
 from fastapi import HTTPException
+from app.security.auth import get_password_hash
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -648,6 +649,45 @@ class Database:
             cursor.execute("DELETE FROM articles WHERE topic = ?", (topic_name,))
             conn.commit()
             return cursor.rowcount > 0
+
+    def get_user(self, username: str):
+        """Get user from database."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT username, password, force_password_change FROM users WHERE username = ?", (username,))
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        'username': result[0],
+                        'password': result[1],
+                        'is_first_login': bool(result[2])  # Convert SQLite integer to boolean
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Error getting user: {str(e)}")
+            return None
+
+    def update_user_password(self, username: str, new_password: str) -> bool:
+        """Update user password and set force_password_change to false."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                # Hash the new password
+                hashed_password = get_password_hash(new_password)
+                
+                # Update password and force_password_change flag
+                cursor.execute("""
+                    UPDATE users 
+                    SET password = ?, force_password_change = 0 
+                    WHERE username = ?
+                """, (hashed_password, username))
+                conn.commit()
+                
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error updating user password: {str(e)}")
+            return False
 
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
 
