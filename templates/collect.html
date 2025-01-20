@@ -988,5 +988,22 @@ function getArxivParams(searchParams) {
         }
     }
 }
+
+// Add this function after the existing functions
+function analyzeArticle(url) {
+    const topic = document.getElementById('topicSelect').value;
+    if (!topic) {
+        alert('Please select a topic before analyzing the article');
+        return;
+    }
+
+    // Redirect to research page with URL and topic parameters
+    const params = new URLSearchParams({
+        url: url,
+        topic: topic
+    });
+    
+    window.location.href = `/research?${params.toString()}`;
+}
 </script>
 {% endblock %} 

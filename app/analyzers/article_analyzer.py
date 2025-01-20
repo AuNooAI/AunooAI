@@ -147,8 +147,8 @@ Article text:
             
             # Add uri and publication_date to result
             result["uri"] = uri
-            # Try to extract publication date from the analysis or use current date
-            result["publication_date"] = self.extract_publication_date(article_text, result.get("Publication Date"))
+            # Extract publication date using only article_text
+            result["publication_date"] = self.extract_publication_date(article_text)
             
             logger.debug(f"Parsed analysis result: {json.dumps(result, indent=2)}")
 
@@ -323,22 +323,14 @@ Article text:
     def get_template_hash(self) -> str:
         return self.prompt_templates.get_template_hash() 
 
-    def extract_publication_date(self, content: str, raw_date: Optional[str] = None) -> str:
+    def extract_publication_date(self, content: str) -> str:
         try:
-            # First try raw_date if provided using existing date formats
-            if raw_date:
-                for date_format in self.DATE_FORMATS:
-                    try:
-                        parsed_date = datetime.strptime(raw_date, date_format)
-                        return parsed_date.date().isoformat()
-                    except ValueError:
-                        continue
-
-            # Use AI to extract date from content
-            prompts = self.prompt_templates.format_prompt('date_extraction', {'content': content[:1000]})
+            # Use managed prompt template for date extraction
+            prompts = self.prompt_templates.format_date_extraction_prompt(content)
             ai_extracted_date = self.ai_model.generate_response(prompts)
             
             if ai_extracted_date:
+                logger.debug(f"AI extracted date: {ai_extracted_date}")
                 try:
                     parsed_date = datetime.strptime(ai_extracted_date.strip(), '%Y-%m-%d')
                     return parsed_date.date().isoformat()
@@ -346,8 +338,11 @@ Article text:
                     pass
 
             # If AI extraction fails, return current date
+            logger.debug(f"Using todays date")
             return datetime.now(timezone.utc).date().isoformat()
             
         except Exception as e:
             logger.warning(f"Error extracting publication date: {str(e)}")
             return datetime.now(timezone.utc).date().isoformat() 
+
+    #logger.debug(f"AI extracted date: {ai_extracted_date}") 
