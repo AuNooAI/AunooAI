@@ -127,11 +127,11 @@
 
     .world-clock {
         max-width: 100%;
-        padding: 20px;
+        padding: 15px;
         margin: 0 auto;
         display: flex;
         flex-wrap: wrap;
-        gap: 20px;
+        gap: 15px;
         justify-content: center;
         background: white;
         border-radius: 10px;
@@ -140,8 +140,8 @@
 
     .clock-item {
         text-align: center;
-        padding: 10px;
-        min-width: 140px;
+        padding: 8px;
+        min-width: 120px;
         border-radius: 8px;
         transition: transform 0.2s ease;
     }
@@ -151,13 +151,14 @@
     }
 
     .clock-city {
+        font-size: 0.9rem;
         font-weight: 500;
         color: var(--primary-color);
-        margin-bottom: 5px;
+        margin-bottom: 3px;
     }
 
     .clock-time {
-        font-size: 1.2em;
+        font-size: 1.1em;
         font-weight: bold;
     }
 
@@ -237,7 +238,7 @@
 
     /* Enhanced World Clock Section */
     .world-clock-section {
-        margin-bottom: 40px;
+        margin-bottom: 15px;
     }
 
     .world-clock-header {
@@ -265,6 +266,7 @@
         border-radius: 10px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
         overflow: hidden;
+        margin-bottom: 30px;
     }
 
     .topic-overview-card .card-title {
@@ -296,7 +298,7 @@
         display: flex;
         align-items: center;
         gap: 10px;
-        margin-bottom: 15px;
+        margin-bottom: 12px;
         padding: 0 20px;
     }
 
@@ -324,15 +326,19 @@
         padding: 0;
         border-bottom: none;
     }
+
+    .container.mt-2 {
+        padding-top: 15px;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<header class="site-header">
+<!--<header class="site-header">
     <h1>N0RN AI</h1>
-</header>
+</header>-->
 
-<div class="world-clock-section">
+<div class="world-clock-section h-100">
     <div class="section-header">
         <i class="fas fa-clock"></i>
         <h2>Global News Cycle</h2>
@@ -371,30 +377,33 @@
 
 <div class="container mt-2">
     <div class="col-md-12 mb-4">
-        <div class="topic-overview-card">
-            <div class="section-header">
+        <div class="topic-overview-card h-100">
+            <div class="section-header" onclick="toggleTopicOverview()" style="cursor: pointer;">
                 <i class="fas fa-list"></i>
                 <h2>Active Topic Overview</h2>
+                <i class="fas fa-chevron-up" id="topicOverviewIcon"></i>
             </div>
-            <div class="table-responsive">
-                <table class="table" id="topicTable">
-                    <thead>
-                        <tr>
-                            <th>Topic Name</th>
-                            <th>Article Count</th>
-                            <th>Last Article Added</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for topic in topics %}
-                        <tr data-topic-id="{{ topic.id }}">
-                            <td>{{ topic.name }}</td>
-                            <td class="article-count">Loading...</td>
-                            <td class="latest-article">Loading...</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            <div id="topicOverviewContent" style="display: none;">
+                <div class="table-responsive">
+                    <table class="table" id="topicTable">
+                        <thead>
+                            <tr>
+                                <th>Topic Name</th>
+                                <th>Article Count</th>
+                                <th>Last Article Added</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for topic in topics %}
+                            <tr data-topic-id="{{ topic.id }}">
+                                <td>{{ topic.name }}</td>
+                                <td class="article-count">Loading...</td>
+                                <td class="latest-article">Loading...</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </div>
@@ -520,6 +529,21 @@ function updateClocks() {
 // Update clocks every second
 updateClocks();
 setInterval(updateClocks, 1000);
+
+function toggleTopicOverview() {
+    const content = document.getElementById('topicOverviewContent');
+    const icon = document.getElementById('topicOverviewIcon');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    } else {
+        content.style.display = 'none';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    }
+}
 </script>
 
 <!-- Add Font Awesome for the clock icon -->

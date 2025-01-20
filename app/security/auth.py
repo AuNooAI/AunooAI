@@ -5,9 +5,13 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configuration
-SECRET_KEY = "nornforever"  # Change this to a secure secret key
+SECRET_KEY = os.getenv('NORN_SECRET_KEY', 'nornforever')  # Change this to a secure secret key
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -27,7 +31,12 @@ class User(BaseModel):
 class UserInDB(User):
     hashed_password: str
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__default_rounds=12,  # Adjust rounds as needed
+    bcrypt__ident="2b"         # Explicitly set bcrypt identifier
+)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -69,20 +78,3 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     if current_user.disabled:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
-
-# This is a mock database - replace with your actual database logic
-def get_user(username: str) -> Optional[UserInDB]:
-    # Replace this with your database lookup
-    fake_users_db = {
-        "johndoe": {
-            "username": "johndoe",
-            "full_name": "John Doe",
-            "email": "johndoe@example.com",
-            "hashed_password": get_password_hash("secret"),
-            "disabled": False,
-        }
-    }
-    if username in fake_users_db:
-        user_dict = fake_users_db[username]
-        return UserInDB(**user_dict)
-    return None

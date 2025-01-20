@@ -18,8 +18,8 @@ aiohttp
 newsapi
 # Added packages for SSL and auth
 python-jose[cryptography]
-passlib[bcrypt]
-bcrypt
+bcrypt==4.0.1 
+passlib[bcrypt]==1.7.4
 python-multipart
 starlette
 # For SSL support
@@ -27,3 +27,4 @@ pyOpenSSL
 cryptography
 # For JWT tokens
 PyJWT
+itsdangerous>=2.0.0

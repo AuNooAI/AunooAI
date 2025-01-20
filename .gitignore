@@ -2,10 +2,8 @@ app/__pycache__/
 app/*/__pycache__/
 *.py[cod]
 .venv/
-.env
 reports/
 .DS_Store
 .cursorrules
 *.code-workspace
-data/*.db*
 LA_notes
