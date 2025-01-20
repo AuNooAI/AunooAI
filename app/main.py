@@ -1505,6 +1505,48 @@ async def change_password(
             }
         )
 
+@app.get("/api/topic-options/{topic}")
+async def get_topic_options(topic: str):
+    """Get all options (categories, future signals, sentiments, time to impact) for a topic."""
+    try:
+        analyze_db = AnalyzeDB(db)
+        options = analyze_db.get_topic_options(topic)
+        return JSONResponse(content=options)
+    except Exception as e:
+        logger.error(f"Error getting topic options: {str(e)}")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.post("/api/change-password")
+async def api_change_password(request: Request):
+    try:
+        data = await request.json()
+        username = request.session.get("user")
+        if not username:
+            raise HTTPException(status_code=401, detail="Not authenticated")
+            
+        user = db.get_user(username)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        if not verify_password(data["current_password"], user["password"]):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Current password is incorrect"}
+            )
+            
+        # Update password
+        success = db.update_user_password(username, data["new_password"])
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update password")
+            
+        return JSONResponse(content={"message": "Password updated successfully"})
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Change password error: {str(e)}")
+        raise HTTPException(status_code=500, detail="An error occurred while changing password")
+
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain('cert.pem', keyfile='key.pem')

@@ -376,3 +376,32 @@ class AnalyzeDB:
         ]
 
         return data
+
+    def get_topic_options(self, topic: str):
+        """Get all options (categories, future signals, sentiments, time to impact) for a topic."""
+        query = """
+        SELECT DISTINCT 
+            category,
+            future_signal,
+            sentiment,
+            time_to_impact
+        FROM articles
+        WHERE topic = ?
+        """
+        
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (topic,))
+            results = cursor.fetchall()
+            
+        categories = sorted(list(set(row[0] for row in results if row[0])))
+        future_signals = sorted(list(set(row[1] for row in results if row[1])))
+        sentiments = sorted(list(set(row[2] for row in results if row[2])))
+        time_to_impacts = sorted(list(set(row[3] for row in results if row[3])))
+        
+        return {
+            "categories": categories,
+            "futureSignals": future_signals,
+            "sentiments": sentiments,
+            "timeToImpacts": time_to_impacts
+        }

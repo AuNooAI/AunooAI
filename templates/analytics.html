@@ -227,6 +227,12 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+let topicOptions = {
+    sentiments: [],
+    futureSignals: [],
+    timeToImpacts: []
+};
+
 function loadTopics() {
     return fetch('/api/topics')
         .then(response => response.json())
@@ -250,15 +256,35 @@ function handleTopicChange(event) {
     if (topicName) {
         // Enable category select and load categories for selected topic
         categorySelect.disabled = false;
-        loadCategoriesForTopic(topicName);
-        // Update charts with the new topic (without category)
-        updateCharts();
+        loadTopicOptions(topicName).then(() => {
+            loadCategoriesForTopic(topicName);
+            // Update charts with the new topic (without category)
+            updateCharts();
+        });
     } else {
         // Disable and clear category select
         categorySelect.disabled = true;
         categorySelect.innerHTML = '<option value="">Select a category</option>';
         // Clear all charts
         clearCharts();
+    }
+}
+
+async function loadTopicOptions(topicName) {
+    try {
+        const response = await fetch(`/api/topic-options/${encodeURIComponent(topicName)}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const options = await response.json();
+        topicOptions = {
+            sentiments: options.sentiments,
+            futureSignals: options.futureSignals,
+            timeToImpacts: options.timeToImpacts
+        };
+        console.log('Loaded topic options:', topicOptions);
+    } catch (error) {
+        console.error('Error loading topic options:', error);
     }
 }
 
@@ -330,7 +356,6 @@ async function fetchDataAndUpdateCharts(timeframe, category, topic) {
 }
 
 function updateSentimentDistribution(data) {
-    const orderedSentiments = ['Positive', 'Neutral', 'Negative', 'Critical', 'Mixed'];
     const colors = {
         'Positive': '#32CD32',  // Lime Green
         'Neutral': '#9782ad',   // Lilac
@@ -344,12 +369,22 @@ function updateSentimentDistribution(data) {
     const orderedValues = [];
     const orderedColors = [];
 
-    orderedSentiments.forEach(sentiment => {
+    // Use dynamic sentiments from topicOptions
+    topicOptions.sentiments.forEach(sentiment => {
         const index = data.labels.indexOf(sentiment);
         if (index !== -1) {
             orderedLabels.push(sentiment);
             orderedValues.push(data.values[index]);
-            orderedColors.push(colors[sentiment]);
+            orderedColors.push(colors[sentiment] || 'gray');
+        }
+    });
+
+    // Add any remaining sentiments that weren't in our predefined order
+    data.labels.forEach((label, index) => {
+        if (!orderedLabels.includes(label)) {
+            orderedLabels.push(label);
+            orderedValues.push(data.values[index]);
+            orderedColors.push(colors[label] || 'gray');
         }
     });
 
@@ -367,11 +402,11 @@ function updateSentimentDistribution(data) {
 
     // Bar Chart
     Plotly.newPlot('sentimentDistributionBar', [{
-        x: data.labels,
-        y: data.values,
+        x: orderedLabels,
+        y: orderedValues,
         type: 'bar',
         marker: {
-            color: data.labels.map(label => colors[label] || 'gray')
+            color: orderedColors
         }
     }], {
         title: 'Sentiment Distribution (Bar Chart)',
@@ -383,7 +418,6 @@ function updateSentimentDistribution(data) {
 function updateTimeToImpactDistribution(data) {
     console.log("Time to Impact Distribution data:", data);
 
-    const orderedTimeToImpact = ['Immediate', 'Short-term', 'Mid-term', 'Long-term'];
     const colors = {
         'Immediate': '#FF1493',  // Deep Pink
         'Short-term': '#f05b06',  // Red Orange
@@ -396,7 +430,8 @@ function updateTimeToImpactDistribution(data) {
     const orderedValues = [];
     const orderedColors = [];
 
-    orderedTimeToImpact.forEach(tti => {
+    // Use dynamic time to impacts from topicOptions
+    topicOptions.timeToImpacts.forEach(tti => {
         const index = data.labels.findIndex(label => label.toLowerCase() === tti.toLowerCase());
         if (index !== -1) {
             orderedLabels.push(data.labels[index]);
@@ -446,7 +481,6 @@ function updateTimeToImpactDistribution(data) {
 function updateFutureSignalDistribution(data) {
     console.log("Future Signal Distribution data:", data);
 
-    const orderedFutureSignals = ['AI will accelerate', 'AI will evolve gradually', 'AI is hype', 'AI has plateaued'];
     const colors = {
         'AI will accelerate': '#FF1493',      // Deep Pink
         'AI will evolve gradually': '#32CD32',  // Lime Green
@@ -460,7 +494,8 @@ function updateFutureSignalDistribution(data) {
     const orderedValues = [];
     const orderedColors = [];
 
-    orderedFutureSignals.forEach(signal => {
+    // Use dynamic future signals from topicOptions
+    topicOptions.futureSignals.forEach(signal => {
         const index = data.labels.findIndex(label => label.toLowerCase() === signal.toLowerCase());
         if (index !== -1) {
             orderedLabels.push(data.labels[index]);
@@ -548,8 +583,6 @@ function updateFutureSignalByCategory(data) {
 }
 
 function updateArticlesBubbleChart(data) {
-    const futureSignals = ['AI has plateaued', 'AI is hype', 'AI will accelerate', 'AI will evolve gradually'];
-    const sentiments = ['Critical', 'Negative', 'Neutral', 'Positive'];
     const colors = {
         'Positive': '#32CD32',  // Lime Green
         'Neutral': '#9782ad',   // Lilac
@@ -558,21 +591,21 @@ function updateArticlesBubbleChart(data) {
         'Mixed': '#432f70'      // Indigo
     };
 
-    const traces = sentiments.map(sentiment => ({
-        x: futureSignals,
-        y: new Array(futureSignals.length).fill(sentiment),
+    const traces = topicOptions.sentiments.map(sentiment => ({
+        x: topicOptions.futureSignals,
+        y: new Array(topicOptions.futureSignals.length).fill(sentiment),
         mode: 'markers',
         name: sentiment,
         marker: {
-            color: colors[sentiment],
-            size: futureSignals.map(signal => {
+            color: colors[sentiment] || 'gray',
+            size: topicOptions.futureSignals.map(signal => {
                 const match = data.find(item => item.future_signal === signal && item.sentiment === sentiment);
                 return match ? Math.sqrt(match.count) * 25 : 0;
             }),
             sizemode: 'area',
             sizeref: 0.1
         },
-        text: futureSignals.map(signal => {
+        text: topicOptions.futureSignals.map(signal => {
             const match = data.find(item => item.future_signal === signal && item.sentiment === sentiment);
             return match ? `Count: ${match.count}` : 'Count: 0';
         }),
@@ -590,31 +623,28 @@ function updateArticlesBubbleChart(data) {
 }
 
 function updateArticlesFutureTimeBubbleChart(data) {
-    const futureSignals = ['AI has plateaued', 'AI is hype', 'AI will accelerate', 'AI will evolve gradually'];
-    const timeToImpacts = ['Immediate', 'Short-term', 'Mid-term', 'Long-term'];
     const colors = {
         'Immediate': '#FF1493',  // Deep Pink
         'Short-term': '#f05b06',  // Red Orange
         'Mid-term': '#32CD32',   // Lime Green
         'Long-term': '#9782ad'   // Lilac
-
     };
 
-    const traces = timeToImpacts.map(timeToImpact => ({
-        x: futureSignals,
-        y: new Array(futureSignals.length).fill(timeToImpact),
+    const traces = topicOptions.timeToImpacts.map(timeToImpact => ({
+        x: topicOptions.futureSignals,
+        y: new Array(topicOptions.futureSignals.length).fill(timeToImpact),
         mode: 'markers',
         name: timeToImpact,
         marker: {
-            color: colors[timeToImpact],
-            size: futureSignals.map(signal => {
+            color: colors[timeToImpact] || 'gray',
+            size: topicOptions.futureSignals.map(signal => {
                 const match = data.find(item => item.future_signal === signal && item.time_to_impact === timeToImpact);
                 return match ? Math.sqrt(match.count) * 25 : 0;
             }),
             sizemode: 'area',
             sizeref: 0.1
         },
-        text: futureSignals.map(signal => {
+        text: topicOptions.futureSignals.map(signal => {
             const match = data.find(item => item.future_signal === signal && item.time_to_impact === timeToImpact);
             return match ? `Count: ${match.count}` : 'Count: 0';
         }),
@@ -632,9 +662,6 @@ function updateArticlesFutureTimeBubbleChart(data) {
 }
 
 function updateRadarChart(data) {
-    const futureSignals = ['AI will evolve gradually', 'AI will accelerate', 'AI has plateaued', 'AI is hype'];
-    const sentiments = ['Positive', 'Neutral', 'Negative', 'Critical'];
-    const timeToImpacts = ['Immediate', 'Short-term', 'Mid-term', 'Long-term'];
     const colors = {
         'Positive': '#32CD32',  // Lime Green
         'Neutral': '#9782ad',   // Lilac
@@ -652,23 +679,23 @@ function updateRadarChart(data) {
     const traces = [];
 
     // Create data traces
-    futureSignals.forEach(signal => {
-        sentiments.forEach(sentiment => {
+    topicOptions.futureSignals.forEach(signal => {
+        topicOptions.sentiments.forEach(sentiment => {
             const signalSentimentData = data.filter(item => 
                 item.future_signal === signal && 
                 item.sentiment === sentiment
             );
 
             signalSentimentData.forEach(item => {
-                const baseR = timeToImpacts.indexOf(item.time_to_impact) + 1;
+                const baseR = topicOptions.timeToImpacts.indexOf(item.time_to_impact) + 1;
                 const scatter = (Math.random() - 0.5) * 0.8; // Random value between -0.4 and 0.4
                 traces.push({
                     type: 'scatterpolar',
                     r: [baseR + scatter],
                     theta: [signal],
                     marker: {
-                        color: colors[sentiment],
-                        symbol: symbols[sentiment],
+                        color: colors[sentiment] || 'gray',
+                        symbol: symbols[sentiment] || 'circle',
                         size: 10
                     },
                     showlegend: false
@@ -678,11 +705,12 @@ function updateRadarChart(data) {
     });
 
     // Add concentric circles for time-to-impact stages
-    [1, 2, 3, 4].forEach((r, index) => {
+    topicOptions.timeToImpacts.forEach((_, index) => {
+        const r = index + 1;
         traces.push({
             type: 'scatterpolar',
-            r: Array(futureSignals.length + 1).fill(r),
-            theta: [...futureSignals, futureSignals[0]],
+            r: Array(topicOptions.futureSignals.length + 1).fill(r),
+            theta: [...topicOptions.futureSignals, topicOptions.futureSignals[0]],
             mode: 'lines',
             line: {
                 color: 'lightgray',
@@ -694,15 +722,15 @@ function updateRadarChart(data) {
     });
 
     // Create legend traces
-    sentiments.forEach(sentiment => {
+    topicOptions.sentiments.forEach(sentiment => {
         traces.push({
             type: 'scatterpolar',
             r: [0],
-            theta: [futureSignals[0]],
+            theta: [topicOptions.futureSignals[0]],
             name: sentiment,
             marker: {
-                color: colors[sentiment],
-                symbol: symbols[sentiment],
+                color: colors[sentiment] || 'gray',
+                symbol: symbols[sentiment] || 'circle',
             },
             showlegend: true
         });
@@ -713,9 +741,9 @@ function updateRadarChart(data) {
         polar: {
             radialaxis: {
                 visible: true,
-                range: [0, 4.5],
-                tickvals: [1, 2, 3, 4],
-                ticktext: timeToImpacts,
+                range: [0, topicOptions.timeToImpacts.length + 0.5],
+                tickvals: Array.from({length: topicOptions.timeToImpacts.length}, (_, i) => i + 1),
+                ticktext: topicOptions.timeToImpacts,
                 tickfont: { size: 8 },
                 angle: 90
             },

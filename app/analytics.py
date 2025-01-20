@@ -31,12 +31,14 @@ class Analytics:
             articles_future_time_bubble_chart = self.db.get_articles_by_future_signal_and_time_to_impact(timeframe, category, topic)
             
             radar_chart_data = self.db.get_radar_chart_data(timeframe, category, topic)  # Add topic parameter
+            integrated_analysis = self.db.get_integrated_analysis(timeframe, category, topic)  # Add integrated analysis
             
             logger.info(f"Analytics data for timeframe={timeframe}, category={category}, topic={topic}:")
             logger.info(f"Total articles: {total_articles}")
             logger.info(f"Sentiment distribution: {sentiment_distribution}")
             logger.info(f"Time to impact distribution: {time_to_impact_distribution}")
             logger.info(f"Future signal distribution: {future_signal_distribution}")
+            logger.info(f"Integrated analysis data: {integrated_analysis}")
             
             return {
                 "sentimentDistribution": sentiment_distribution,
@@ -47,7 +49,8 @@ class Analytics:
                 "totalArticles": total_articles,
                 "articlesBubbleChart": articles_bubble_chart,
                 "articlesFutureTimeBubbleChart": articles_future_time_bubble_chart,
-                "radarChartData": radar_chart_data
+                "radarChartData": radar_chart_data,
+                "integratedAnalysis": integrated_analysis
             }
         except Exception as e:
             logger.error(f"Error in get_analytics_data: {str(e)}", exc_info=True)

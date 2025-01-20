@@ -82,6 +82,28 @@
 <!-- Add bottom spacing -->
 <div class="mt-5"></div>
 
+<!-- Password Change Section -->
+<div class="config-layout mt-5">
+    <div class="left-panel">
+        <h2>Change Password</h2>
+        <form id="change-password-form">
+            <input type="password" id="current-password" placeholder="Current Password" required>
+            <input type="password" id="new-password" placeholder="New Password" required>
+            <input type="password" id="confirm-password" placeholder="Confirm New Password" required>
+            <button type="submit">Change Password</button>
+        </form>
+    </div>
+    <div class="right-panel">
+        <h2>Password Requirements</h2>
+        <ul>
+            <li>At least 8 characters long</li>
+            <li>Must contain at least one uppercase letter</li>
+            <li>Must contain at least one number</li>
+            <li>Must contain at least one special character</li>
+        </ul>
+    </div>
+</div>
+
 <script>
     // JavaScript functions related to database and model management
     let activeDatabase = '';
@@ -452,6 +474,46 @@
             console.error('Error loading providers:', error);
         }
     }
+
+    // Add password change functionality
+    document.getElementById('change-password-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const currentPassword = document.getElementById('current-password').value;
+        const newPassword = document.getElementById('new-password').value;
+        const confirmPassword = document.getElementById('confirm-password').value;
+        
+        if (newPassword !== confirmPassword) {
+            alert('New passwords do not match');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/change-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    current_password: currentPassword,
+                    new_password: newPassword
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.detail || 'Failed to change password');
+            }
+            
+            alert('Password changed successfully');
+            document.getElementById('change-password-form').reset();
+            
+        } catch (error) {
+            console.error('Error changing password:', error);
+            alert(`Error changing password: ${error.message}`);
+        }
+    });
 </script>
 
 <style>
@@ -536,6 +598,20 @@
     .status-badge.not-configured {
         background-color: #ff6b6b;
         color: white;
+    }
+
+    /* Add password section specific styles */
+    #change-password-form input {
+        margin-bottom: 10px;
+    }
+
+    .right-panel ul {
+        padding-left: 20px;
+    }
+
+    .right-panel ul li {
+        margin-bottom: 8px;
+        color: #666;
     }
 </style>
 {% endblock %}
