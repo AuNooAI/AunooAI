@@ -1,0 +1,28 @@
+{
+  "uri": "https://www.theregister.com/2025/01/17/nvidia_cisco_ai_guardrails_security/",
+  "content_hash": "2bb1ffa58cf5dabb",
+  "analysis": {
+    "title": "Cisco and Nvidia Seek To Rein In Unruly AI With New Guardrails",
+    "summary": "Cisco and Nvidia have launched new AI guardrails aimed at enhancing the safety of AI systems. Nvidia's three microservices focus on content safety, topic control, and jailbreak detection, while Cisco offers AI Defense tools to mitigate risks and manage unauthorized AI applications in enterprises.",
+    "category": "AI Trust, Risk, and Security Management",
+    "future_signal": "AI will accelerate",
+    "future_signal_explanation": "The article suggests proactive measures being taken by industry leaders to secure AI technologies, indicating a rapidly evolving landscape rather than stagnation.",
+    "sentiment": "Positive",
+    "sentiment_explanation": "The article highlights innovative advancements by Cisco and Nvidia, showcasing their commitment to improving AI guardrails, contributing positively to the AI management landscape.",
+    "time_to_impact": "Short-term",
+    "time_to_impact_explanation": "The immediate introduction of these tools and strategies suggests that organizations can quickly adopt these solutions to enhance their current AI safety protocols.",
+    "driver_type": "Catalyst",
+    "driver_type_explanation": "The new tools and frameworks proposed by industry leaders like Cisco and Nvidia serve as catalysts for improved AI safety measures and organizational practices moving forward.",
+    "tags": [
+      "AIguardrails",
+      "Nvidia",
+      "Cisco",
+      "AIsafety",
+      "enterpriseAImanagement"
+    ],
+    "uri": "https://www.theregister.com/2025/01/17/nvidia_cisco_ai_guardrails_security/",
+    "publication_date": "2025-01-17"
+  },
+  "cached_at": "2025-01-17T20:10:27.432709",
+  "template_hash": "ef6186de8daf90fd"
+}

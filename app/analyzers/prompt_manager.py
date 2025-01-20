@@ -33,7 +33,7 @@ class PromptManager:
                 os.makedirs(prompt_dir, exist_ok=True)
                 logger.debug(f"Created prompt directory: {prompt_dir}")
                 
-                # Ensure current.json exists
+                # Ensure current.json exists with empty template
                 current_path = os.path.join(prompt_dir, "current.json")
                 if not os.path.exists(current_path):
                     with open(current_path, 'w') as f:
@@ -59,15 +59,30 @@ class PromptManager:
     def _get_current_path(self, prompt_type: str) -> str:
         return os.path.join(self.storage_dir, prompt_type, "current.json")
 
+    def _get_next_version(self, prompt_type: str) -> str:
+        try:
+            versions = self.get_versions(prompt_type)
+            if not versions:
+                return "1.0.0"
+            
+            latest = versions[0]  # Already sorted newest first
+            major, minor, patch = map(int, latest["version"].split("."))
+            return f"{major}.{minor}.{patch + 1}"
+        except Exception:
+            return "1.0.0"  # Fallback if anything goes wrong
+
     def save_version(self, prompt_type: str, system_prompt: str, user_prompt: str) -> Dict:
         try:
             if prompt_type not in ["title_extraction", "content_analysis", "date_extraction"]:
                 raise PromptManagerError(f"Invalid prompt type: {prompt_type}")
 
+            # Get next version number
+            next_version = self._get_next_version(prompt_type)
+
             prompt_data = {
                 "system_prompt": system_prompt,
                 "user_prompt": user_prompt,
-                "version": "1.0.0",  # You can implement version numbering logic
+                "version": next_version,
                 "created_at": datetime.now().isoformat()
             }
 
@@ -84,7 +99,7 @@ class PromptManager:
             with open(current_path, 'w') as f:
                 json.dump(prompt_data, f, indent=2)
 
-            logger.info(f"Saved new version of {prompt_type} prompt: {version_hash}")
+            logger.info(f"Saved new version {next_version} of {prompt_type} prompt: {version_hash}")
             return {"hash": version_hash, **prompt_data}
         except Exception as e:
             logger.error(f"Failed to save prompt version: {str(e)}")
@@ -163,7 +178,7 @@ class PromptManager:
 
     def compare_versions(self, prompt_type: str, version_a: str, version_b: str) -> Dict:
         try:
-            if prompt_type not in ["title_extraction", "content_analysis"]:
+            if prompt_type not in ["title_extraction", "content_analysis", "date_extraction"]:
                 raise PromptManagerError(f"Invalid prompt type: {prompt_type}")
 
             version_a_data = self.get_version(prompt_type, version_a)
@@ -186,7 +201,10 @@ class PromptManager:
                     continue
 
                 current_path = self._get_current_path(prompt_type)
-                if not os.path.exists(current_path):
+                versions = self.get_versions(prompt_type)
+                
+                # Initialize if no current version exists or if there are no versions
+                if not os.path.exists(current_path) or not versions:
                     self.save_version(
                         prompt_type,
                         template["system_prompt"],
@@ -195,4 +213,22 @@ class PromptManager:
                     logger.info(f"Initialized default template for {prompt_type}")
         except Exception as e:
             logger.error(f"Failed to initialize default templates: {str(e)}")
-            raise PromptManagerError(f"Failed to initialize default templates: {str(e)}") 
+            raise PromptManagerError(f"Failed to initialize default templates: {str(e)}")
+
+    def delete_version(self, prompt_type: str, version_hash: str) -> None:
+        try:
+            if prompt_type not in ["title_extraction", "content_analysis", "date_extraction"]:
+                raise PromptManagerError(f"Invalid prompt type: {prompt_type}")
+            
+            if version_hash == "current":
+                raise PromptManagerError("Cannot delete current version")
+            
+            version_path = self._get_version_path(prompt_type, version_hash)
+            if not os.path.exists(version_path):
+                raise PromptManagerError(f"Version {version_hash} not found")
+            
+            os.remove(version_path)
+            logger.info(f"Deleted version {version_hash} of {prompt_type} prompt")
+        except Exception as e:
+            logger.error(f"Failed to delete prompt version: {str(e)}")
+            raise PromptManagerError(f"Failed to delete prompt version: {str(e)}") 

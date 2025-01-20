@@ -1,5 +1,5 @@
 {
   "report_sections": {
-    "categories": "# {category}\n\n### {title}\n\n**Source:** {news_source} | [Link]({url})\n\n{summary}\n\n**Sentiment:** {sentiment} | **Time to Impact:** {time_to_impact} | **Future Signal:** {future_signal}\n\n"
+    "categories": "### {title}\n\n**Source:** {news_source} | [Link]({url})\n\n{summary}\n\n**Sentiment:** {sentiment} | **Time to Impact:** {time_to_impact} | **Future Signal:** {future_signal}\n\n"
   }
 }

@@ -134,5 +134,20 @@ async def compare_prompt_versions(
         logger.error(f"Failed to compare versions for {prompt_type}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.delete("/prompts/{prompt_type}/{version_hash}")
+async def delete_prompt_version(
+    prompt_type: str = Path(..., description="The type of prompt"),
+    version_hash: str = Path(..., description="The version hash to delete")
+):
+    try:
+        if version_hash == "current":
+            raise HTTPException(status_code=400, detail="Cannot delete current version")
+        
+        prompt_manager.delete_version(prompt_type, version_hash)
+        return {"status": "success", "message": "Version deleted successfully"}
+    except PromptManagerError as e:
+        logger.error(f"Failed to delete version {version_hash} for {prompt_type}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 

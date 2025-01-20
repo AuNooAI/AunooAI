@@ -79,7 +79,7 @@ class BulkResearch:
                     title = self.article_analyzer.extract_title(article_content["content"])
 
                 # Get publication date from article_content
-                publication_date = self.article_analyzer.extract_publication_date(article_content["content"], article_content.get("publication_date"))
+                publication_date = self.article_analyzer.extract_publication_date(article_content["content"])
 
                 # Analyze article using ArticleAnalyzer
                 result = self.article_analyzer.analyze_content(

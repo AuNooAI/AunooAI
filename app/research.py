@@ -173,7 +173,7 @@ class Research:
                 
                 # Extract publication date using ArticleAnalyzer
                 raw_date = scrape_result.get('date') or scrape_result.get('published_date') or scrape_result.get('pubDate')
-                publication_date = self.article_analyzer.extract_publication_date(content, raw_date)
+                publication_date = self.article_analyzer.extract_publication_date(content)
                 
                 # Save the raw markdown with current topic
                 self.db.save_raw_article(uri, content, self.current_topic)
@@ -411,8 +411,7 @@ class Research:
                     raise save_error
 
                 # Extract the date using ArticleAnalyzer
-                raw_date = scrape_result.get('date')
-                publication_date = self.article_analyzer.extract_publication_date(content, raw_date)
+                publication_date = self.article_analyzer.extract_publication_date(content)
                 logger.debug(f"Publication date extracted: {publication_date}")
 
                 source = self.extract_source(uri)

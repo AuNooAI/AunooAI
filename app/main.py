@@ -1349,8 +1349,9 @@ async def update_paper_query(query: str = Body(...), topicId: str = Body(...)):
 @app.get("/api/latest-news-and-papers")
 async def get_latest_news_and_papers(
     topicId: str,
-    count: int = Query(default=5, ge=3, le=20),
-    sortBy: str = Query(default="publishedAt", regex="^(relevancy|popularity|publishedAt)$")
+    count: int = Query(default=5, ge=1, le=20),  # Changed minimum to 1 to support single article fetch
+    sortBy: str = Query(default="publishedAt", regex="^(relevancy|popularity|publishedAt)$"),
+    offset: int = Query(default=0, ge=0)  # Added offset parameter
 ):
     try:
         news_query = get_news_query(topicId)
@@ -1364,17 +1365,21 @@ async def get_latest_news_and_papers(
             latest_news = await news_collector.search_articles(
                 query=news_query,
                 topic=topicId,
-                max_results=count,
+                max_results=count + offset,  # Fetch extra articles to account for offset
                 sort_by=sortBy
             )
+            # Apply offset
+            latest_news = latest_news[offset:offset + count]
 
         if paper_query:
             arxiv_collector = ArxivCollector()
             latest_papers = await arxiv_collector.search_articles(
                 query=paper_query,
                 topic=topicId,
-                max_results=count
+                max_results=count + offset
             )
+            # Apply offset
+            latest_papers = latest_papers[offset:offset + count]
 
         latest_news_formatted = []
         for article in latest_news:

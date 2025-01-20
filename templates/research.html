@@ -514,24 +514,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initialize the page
     initializeResearchPage();
-    loadTopics();
+    loadTopics().then(() => {
+        // If coming from article collection
+        if (articleUrl && topic) {
+            // Set the topic and hide topic selection
+            const topicSelect = document.getElementById('topicSelect');
+            if (topicSelect) {
+                topicSelect.value = topic;
+                document.getElementById('topicSelector').style.display = 'none';
+            }
+            
+            // Show research content and set URL
+            document.getElementById('researchContent').style.display = 'block';
+            document.getElementById('articleUrl').value = articleUrl;
 
-    // If coming from article collection
-    if (articleUrl && topic) {
-        // Set the topic and hide topic selection
-        const topicSelect = document.getElementById('topicSelect');
-        if (topicSelect) {
-            topicSelect.value = topic;
-            document.getElementById('topicSelector').style.display = 'none';
+            // Fetch latest articles for the selected topic
+            fetchLatestArticles(topic);
         }
-        
-        // Show research content and set URL
-        document.getElementById('researchContent').style.display = 'block';
-        document.getElementById('articleUrl').value = articleUrl;
-
-        // Fetch latest articles for the selected topic
-        fetchLatestArticles(topic);
-    }
+    });
 });
 
 // Make loadTopics return a promise
@@ -559,8 +559,25 @@ function initializeResearchPage() {
         form.addEventListener('submit', handleFormSubmit);
     }
 
-    // Other initializations
-    populateDropdowns();
+    // Get topic from URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const topicFromUrl = urlParams.get('topic');
+    
+    if (topicFromUrl) {
+        // Wait for topics to load before setting the value
+        loadTopics().then(() => {
+            const topicSelect = document.getElementById('topicSelect');
+            if (topicSelect) {
+                topicSelect.value = topicFromUrl;
+                // Only populate dropdowns after topic is set
+                populateDropdowns();
+            }
+        });
+    } else {
+        // If no topic in URL, just set up the dropdowns normally
+        populateDropdowns();
+    }
+
     setupCustomFields();
 
     const topicSelect = document.getElementById('topicSelect');

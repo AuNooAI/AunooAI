@@ -84,13 +84,17 @@ class Report:
         try:
             with open('app/config/templates.json', 'r') as f:
                 templates = json.load(f)
-                template = templates['report_sections']['categories']
+                article_template = templates['report_sections']['categories']
             
             content = []
+            # Process one category at a time
             for category, articles in articles_by_category.items():
+                # Add category header once
+                content.append(f"# {category}\n")
+                
+                # Add all articles under this category
                 for article in articles:
                     article_data = {
-                        'category': category,
                         'title': article.get('title', 'Untitled'),
                         'news_source': article.get('news_source', 'Unknown'),
                         'url': article.get('url', ''),
@@ -99,13 +103,16 @@ class Report:
                         'time_to_impact': article['time_to_impact'],
                         'future_signal': article['future_signal']
                     }
-                    content.append(template.format(**article_data))
+                    # Remove category from template formatting since it's now in the header
+                    formatted_article = article_template.replace('{category}\n', '')
+                    content.append(formatted_article.format(**article_data))
+                
+                content.append("\n")  # Add spacing between categories
             
             return '\n'.join(content)
         except Exception as e:
             logger.error(f"Error generating categories section: {e}")
-            # Fall back to default hardcoded format
-            return self._generate_categories_section_default(articles_by_category)
+            raise
 
     def _generate_overview_section(self, articles: List[Dict]) -> str:
         try:

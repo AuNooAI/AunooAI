@@ -98,11 +98,19 @@ class PromptTemplates:
             """
         },
         "date_extraction": {
-            "system_prompt": "You are an expert at extracting and parsing publication dates from articles.",
-            "user_prompt": """Extract the publication date from the following article text. Return ONLY the date in YYYY-MM-DD format. If no date is found, return today's date.
+            "version": "1.0.0",
+            "system_prompt": "You are an expert at extracting and parsing publication dates from news articles.",
+            "user_prompt": """Extract the publication date from the following article text. Follow these guidelines:
+
+1. Look for explicit publication dates in common formats
+2. Look for contextual date references like 'yesterday', 'last week', etc.
+3. Consider metadata dates if present
+4. Return the date in YYYY-MM-DD format only
 
 Article text:
-{content}"""
+{content}
+
+Respond with only the date in YYYY-MM-DD format, nothing else."""
         }
     }
 
@@ -228,4 +236,13 @@ Article text:
             ]
         except Exception as e:
             logger.error(f"Error formatting {prompt_type} prompt: {str(e)}")
-            raise PromptTemplateError(f"Failed to format {prompt_type} prompt: {str(e)}") 
+            raise PromptTemplateError(f"Failed to format {prompt_type} prompt: {str(e)}")
+
+    def format_date_extraction_prompt(self, content: str) -> List[Dict[str, str]]:
+        template = self.get_template("date_extraction")
+        return [
+            {"role": "system", "content": template["system_prompt"]},
+            {"role": "user", "content": template["user_prompt"].format(
+                content=content[:10000]  # First 10000 chars for date extraction
+            )}
+        ] 

@@ -330,6 +330,13 @@
     .container.mt-2 {
         padding-top: 15px;
     }
+
+    .current-date {
+        color: var(--dark-gray);
+        font-size: 1.1rem;
+        margin-left: auto;
+        font-weight: 500;
+    }
 </style>
 {% endblock %}
 
@@ -342,6 +349,7 @@
     <div class="section-header">
         <i class="fas fa-clock"></i>
         <h2>Global News Cycle</h2>
+        <div class="current-date" id="currentDate"></div>
     </div>
     <div class="world-clock">
         <div class="clock-item">
@@ -544,6 +552,16 @@ function toggleTopicOverview() {
         icon.classList.add('fa-chevron-up');
     }
 }
+
+function updateCurrentDate() {
+    const dateElement = document.getElementById('currentDate');
+    const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const today = new Date().toLocaleDateString('en-US', options);
+    dateElement.textContent = today;
+}
+
+// Update date when page loads
+updateCurrentDate();
 </script>
 
 <!-- Add Font Awesome for the clock icon -->
