@@ -112,6 +112,10 @@
             <small class="text-muted">Select an existing topic to edit or leave empty to create a new one</small>
         </div>
 
+        <div id="deleteTopicContainer" class="mb-3" style="display: none;">
+            <button type="button" id="deleteTopicBtn" class="btn btn-danger">Delete Topic</button>
+        </div>
+
         <div class="mb-3">
             <label for="topicName" class="form-label">Topic Name</label>
             <input type="text" class="form-control" id="topicName" required>
@@ -289,6 +293,11 @@ function addExampleValue(inputId, value) {
 
 document.getElementById('existingTopic').addEventListener('change', async function() {
     const selectedTopic = this.value;
+    const deleteContainer = document.getElementById('deleteTopicContainer');
+    
+    // Show/hide delete button based on selection
+    deleteContainer.style.display = selectedTopic ? 'block' : 'none';
+    
     if (!selectedTopic) {
         // Clear all fields
         document.getElementById('topicName').value = '';
@@ -339,6 +348,31 @@ document.getElementById('existingTopic').addEventListener('change', async functi
         document.getElementById('driverTypesInput').value = driver;
         document.getElementById('driverTypesInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
     });
+});
+
+// Add delete button handler
+document.getElementById('deleteTopicBtn').addEventListener('click', async function() {
+    const topicName = document.getElementById('existingTopic').value;
+    if (!topicName) return;
+    
+    if (!confirm(`Are you sure you want to delete the topic "${topicName}"?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/topic/${topicName}`, {
+            method: 'DELETE',
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to delete topic');
+        }
+
+        alert('Topic deleted successfully!');
+        window.location.href = '/';
+    } catch (error) {
+        alert('Error deleting topic: ' + error.message);
+    }
 });
 </script>
 {% endblock %} 

@@ -1,6 +1,0 @@
-{
-  "system_prompt": "You are an expert at extracting and parsing publication dates from news articles.",
-  "user_prompt": "Extract the publication date from the following article text. Follow these guidelines:\n\n1. Look for explicit publication dates in common formats\n2. Look for contextual date references like 'yesterday', 'last week', etc.\n3. Consider metadata dates if present\n4. Return the date in YYYY-MM-DD format only\n5. If no date can be determined, return today's date\n\nArticle text:\n{content}\n\nRespond with only the date in YYYY-MM-DD format, nothing else.",
-  "version": "1.0.0",
-  "created_at": "2025-01-17T17:01:54.480829"
-}

@@ -23,7 +23,7 @@ import json
 import importlib
 from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
 from app.bulk_research import BulkResearch
-from app.config.config import load_config, get_topic_config, get_news_query, set_news_query, get_paper_query, load_news_monitoring, save_news_monitoring
+from app.config.config import load_config, get_topic_config, get_news_query, set_news_query, get_paper_query, set_paper_query, load_news_monitoring, save_news_monitoring
 import os
 from dotenv import load_dotenv
 from app.collectors.collector_factory import CollectorFactory
@@ -35,6 +35,7 @@ from app.routes.prompt_routes import router as prompt_router
 from app.security.auth import User, get_current_active_user, verify_password
 from app.routes import prompt_routes
 from app.routes.web_routes import router as web_router
+from app.routes.topic_routes import router as topic_router
 from starlette.middleware.sessions import SessionMiddleware
 from app.security.session import verify_session
 
@@ -119,6 +120,7 @@ logger.info("Prompt routes included")
 
 # Include routers
 app.include_router(web_router)  # Web routes at root level
+app.include_router(topic_router)  # Topic routes
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request, session=Depends(verify_session)):
@@ -1190,7 +1192,8 @@ async def update_report_template(section: str, template: dict = Body(...)):
 async def dashboard(request: Request, session=Depends(verify_session)):
     try:
         db_info = db.get_database_info()
-        topics = db.get_topics()
+        config = load_config()
+        topics = config.get('topics', [])
 
         # Prepare data for each topic
         topic_data = []

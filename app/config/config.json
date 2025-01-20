@@ -105,38 +105,6 @@
         "Terminator",
         "Unknown"
       ]
-    },
-    {
-      "name": "Test",
-      "categories": [
-        "Test-1",
-        "Test-2",
-        "Test-3"
-      ],
-      "future_signals": [
-        "Test-Will-Accelerate",
-        "Test-Will-Be-Shit",
-        "Test-Will-Cost-Lot"
-      ],
-      "sentiment": [
-        "Concerned",
-        "Negative",
-        "Pessimistic"
-      ],
-      "time_to_impact": [
-        "Mid-term",
-        "Immediate",
-        "Short-term",
-        "Long-term"
-      ],
-      "driver_types": [
-        "Catalyst",
-        "Terminator",
-        "Unknown",
-        "Accelerator",
-        "Initiator"
-      ],
-      "news_query": "Quantum Advantage"
     }
   ],
   "ai_models": [

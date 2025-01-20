@@ -18,6 +18,17 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+# Database instance for dependency injection
+_db_instance = None
+
+def get_db():
+    global _db_instance
+    logger.debug("get_db called")
+    if _db_instance is None:
+        logger.debug("Creating new Database instance")
+        _db_instance = Database()
+    logger.debug(f"Returning database instance of type: {type(_db_instance)}")
+    return _db_instance
 
 class Database:
     @staticmethod
@@ -61,7 +72,8 @@ class Database:
                     time_to_impact_explanation TEXT,
                     tags TEXT,
                     driver_type TEXT,
-                    driver_type_explanation TEXT
+                    driver_type_explanation TEXT,
+                    topic TEXT
                 )
             """)
             cursor.execute("""
@@ -97,6 +109,44 @@ class Database:
                 ON articles(publication_date)
             """)
             conn.commit()
+            
+            # Run migrations
+            self.migrate_db()
+
+    def migrate_db(self):
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if topic column exists in articles table
+                cursor.execute("PRAGMA table_info(articles)")
+                columns = [col[1] for col in cursor.fetchall()]
+                
+                if 'topic' not in columns:
+                    logger.info("Adding topic column to articles table")
+                    cursor.execute("ALTER TABLE articles ADD COLUMN topic TEXT")
+                    
+                    # Copy topic from raw_articles to articles where possible
+                    cursor.execute("""
+                        UPDATE articles 
+                        SET topic = (
+                            SELECT topic 
+                            FROM raw_articles 
+                            WHERE raw_articles.uri = articles.uri
+                        )
+                        WHERE EXISTS (
+                            SELECT 1 
+                            FROM raw_articles 
+                            WHERE raw_articles.uri = articles.uri
+                        )
+                    """)
+                    
+                    conn.commit()
+                    logger.info("Migration completed successfully")
+                    
+        except Exception as e:
+            logger.error(f"Error during migration: {str(e)}")
+            raise
 
     def migrate_database(self):
         with self.get_connection() as conn:
@@ -644,11 +694,27 @@ class Database:
             return result[0] if result else None
 
     def delete_topic(self, topic_name: str) -> bool:
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM articles WHERE topic = ?", (topic_name,))
-            conn.commit()
-            return cursor.rowcount > 0
+        """Delete a topic and all its associated data from the database."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Delete articles associated with the topic
+                cursor.execute("DELETE FROM articles WHERE topic = ?", (topic_name,))
+                
+                # Delete raw articles associated with the topic
+                cursor.execute("DELETE FROM raw_articles WHERE topic = ?", (topic_name,))
+                
+                # Delete any other topic-related data here if needed
+                # For example:
+                # cursor.execute("DELETE FROM topic_metadata WHERE topic = ?", (topic_name,))
+                
+                conn.commit()
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error deleting topic {topic_name} from database: {str(e)}")
+            return False
 
     def get_user(self, username: str):
         """Get user from database."""

@@ -164,6 +164,23 @@
         color: white;
     }
 
+    .btn-delete {
+        padding: 6px 12px;
+        border-radius: 6px;
+        background-color: #dc3545;
+        border: none;
+        color: white;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        transition: background-color 0.2s;
+    }
+
+    .btn-delete:hover {
+        background-color: #bb2d3b;
+        color: white;
+    }
+
     .loading-spinner {
         display: flex;
         justify-content: center;
@@ -201,7 +218,7 @@
     <h1 class="mb-4">News Monitoring Dashboard</h1>
 
     {% for topic in topics %}
-    <div class="dashboard-card">
+    <div class="dashboard-card" id="topic-card-{{ topic.topic }}">
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
                 <h2 class="card-title">{{ topic.name }}</h2>
@@ -218,6 +235,10 @@
                     <button class="btn-refresh" onclick="loadArticles('{{ topic.topic }}')">
                         <i class="fas fa-sync-alt"></i>
                         Refresh
+                    </button>
+                    <button class="btn-delete" onclick="deleteTopic('{{ topic.topic }}')">
+                        <i class="fas fa-trash"></i>
+                        Delete
                     </button>
                 </div>
             </div>
@@ -528,6 +549,42 @@ function editKeyword(type, topicId) {
             console.error('Error:', error);
             alert('Failed to update keyword');
         });
+    }
+}
+
+async function deleteTopic(topicId) {
+    if (!confirm(`Are you sure you want to delete the topic "${topicId}"?`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/topic/${encodeURIComponent(topicId)}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to delete topic: ${response.statusText}`);
+        }
+
+        // Remove the topic card from the DOM
+        const topicCard = document.getElementById(`topic-card-${topicId}`);
+        if (topicCard) {
+            topicCard.remove();
+        }
+
+        // If no topics left, show a message
+        const remainingTopics = document.querySelectorAll('.dashboard-card');
+        if (remainingTopics.length === 0) {
+            const container = document.querySelector('.container');
+            container.insertAdjacentHTML('beforeend', `
+                <div class="alert alert-info mt-4">
+                    No topics available. <a href="/create_topic">Create a new topic</a>
+                </div>
+            `);
+        }
+    } catch (error) {
+        console.error('Error deleting topic:', error);
+        alert('Failed to delete topic: ' + error.message);
     }
 }
 </script>
