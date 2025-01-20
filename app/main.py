@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from app.collectors.newsapi_collector import NewsAPICollector
 from app.collectors.arxiv_collector import ArxivCollector
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from app.database import Database, get_db
+from app.database import Database, get_database_instance
 from app.research import Research
 from app.analytics import Analytics
 from app.report import Report
@@ -32,7 +32,7 @@ import ssl
 import uvicorn
 from app.middleware.https_redirect import HTTPSRedirectMiddleware
 from app.routes.prompt_routes import router as prompt_router
-from app.security.auth import User, get_current_active_user, verify_password
+from app.security.auth import User, get_current_active_user, verify_password, get_password_hash
 from app.routes import prompt_routes
 from app.routes.web_routes import router as web_router
 from app.routes.topic_routes import router as topic_router
@@ -155,8 +155,23 @@ async def login(
     password: str = Form(...)
 ):
     try:
-        # Get user from database
-        user = db.get_user(username)
+        # Check for admin/admin credentials
+        if username == "admin" and password == "admin":
+            # Get or create admin user
+            user = db.get_user(username)
+            if not user:
+                # Create admin user with force_password_change flag
+                hashed_password = get_password_hash(password)
+                db.create_user(username, hashed_password, force_password_change=True)
+                user = db.get_user(username)
+            elif not user.get('force_password_change'):
+                # If admin/admin is used but force_password_change is False, force it again
+                db.set_force_password_change(username, True)
+                user = db.get_user(username)
+        else:
+            # Get user from database for non-admin login
+            user = db.get_user(username)
+            
         logger.debug(f"Login attempt for user: {username}")
         logger.debug(f"User found in database: {user is not None}")
         
@@ -189,8 +204,8 @@ async def login(
 
         request.session["user"] = username
         
-        # Check if first login
-        if user.get('is_first_login', True):
+        # Check if password change is required
+        if user.get('force_password_change'):
             return RedirectResponse(url="/change_password", status_code=status.HTTP_302_FOUND)
         
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
@@ -294,7 +309,7 @@ async def bulk_research_post(
 async def bulk_research_post(
     data: dict,
     research: Research = Depends(get_research),
-    db: Database = Depends(get_db)
+    db: Database = Depends(get_database_instance)
 ):
     urls = data.get('urls', [])
     summary_type = data.get('summaryType', 'curious_ai')
@@ -322,7 +337,7 @@ async def bulk_research_post(
 async def save_bulk_articles(
     data: dict,
     research: Research = Depends(get_research),
-    db: Database = Depends(get_db)
+    db: Database = Depends(get_database_instance)
 ):
     articles = data.get('articles', [])
     bulk_research = BulkResearch(db)
@@ -642,7 +657,7 @@ async def create_database(database: DatabaseCreate):
 async def set_active_database(database: DatabaseActivate):
     try:
         result = db.set_active_database(database.name)
-        db.migrate_database()
+        db.migrate_db()
         return JSONResponse(content=result)
     except Exception as e:
         logger.error(f"Error setting active database: {str(e)}", exc_info=True)
@@ -697,7 +712,7 @@ async def get_active_database():
 def startup_event():
     global db
     db = Database()
-    db.migrate_database()
+    db.migrate_db()
     logger.info(f"Active database set to: {db.db_path}")
 
 @app.get("/api/fetch_article_content")
@@ -1546,6 +1561,24 @@ async def api_change_password(request: Request):
     except Exception as e:
         logger.error(f"Change password error: {str(e)}")
         raise HTTPException(status_code=500, detail="An error occurred while changing password")
+
+@app.post("/api/databases/backup")
+async def backup_database(backup_name: str = None):
+    try:
+        result = db.backup_database(backup_name)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error backing up database: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/databases/reset")
+async def reset_database():
+    try:
+        result = db.reset_database()
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error resetting database: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

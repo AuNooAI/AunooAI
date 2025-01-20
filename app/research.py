@@ -123,7 +123,8 @@ class Research:
     def initialize_firecrawl(self):
         firecrawl_api_key = settings.FIRECRAWL_API_KEY
         if not firecrawl_api_key:
-            raise ValueError("Firecrawl API key is missing in the settings file")
+            logger.warning("Firecrawl API key is missing. Some functionality will be limited.")
+            return None
         return FirecrawlApp(api_key=firecrawl_api_key)
 
     def check_article_exists(self, uri: str) -> bool:
@@ -148,7 +149,7 @@ class Research:
                 else:
                     self.article_analyzer = ArticleAnalyzer(self.ai_model)
 
-            # Rest of the existing fetch_article_content code remains exactly the same
+            # Check for existing article first
             existing_article = self.db.get_raw_article(uri)
             
             if existing_article:
@@ -158,6 +159,16 @@ class Research:
                     "source": self.extract_source(uri),
                     "publication_date": existing_article['submission_date'],
                     "exists": True
+                }
+            
+            # Check if Firecrawl is available
+            if not self.firecrawl_app:
+                logger.warning("Firecrawl is not configured. Cannot fetch article content.")
+                return {
+                    "content": "Article content cannot be fetched. Firecrawl is not configured.",
+                    "source": self.extract_source(uri),
+                    "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                    "error": "Firecrawl not configured"
                 }
             
             logger.info(f"Article does not exist in database, scraping: {uri}")
@@ -391,6 +402,17 @@ class Research:
         """Scrape the article using Firecrawl."""
         try:
             logger.info(f"Starting article scrape for URI: {uri}")
+            
+            # Check if Firecrawl is available
+            if not self.firecrawl_app:
+                logger.warning("Firecrawl is not configured. Cannot scrape article.")
+                return {
+                    "content": "Article cannot be scraped. Firecrawl is not configured.",
+                    "source": self.extract_source(uri),
+                    "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                    "error": "Firecrawl not configured"
+                }
+            
             scrape_result = self.firecrawl_app.scrape_url(
                 uri,
                 params={

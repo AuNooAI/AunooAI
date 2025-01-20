@@ -10,6 +10,7 @@ from sqlalchemy.ext.declarative import declarative_base
 import logging
 from fastapi import HTTPException
 from app.security.auth import get_password_hash
+import shutil
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -21,13 +22,10 @@ logging.basicConfig(
 # Database instance for dependency injection
 _db_instance = None
 
-def get_db():
+def get_database_instance():
     global _db_instance
-    logger.debug("get_db called")
     if _db_instance is None:
-        logger.debug("Creating new Database instance")
         _db_instance = Database()
-    logger.debug(f"Returning database instance of type: {type(_db_instance)}")
     return _db_instance
 
 class Database:
@@ -55,6 +53,26 @@ class Database:
     def init_db(self):
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            
+            # Add migrations table first
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS migrations (
+                    id INTEGER PRIMARY KEY,
+                    name TEXT UNIQUE,
+                    applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Add users table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    username TEXT PRIMARY KEY,
+                    password TEXT NOT NULL,
+                    force_password_change INTEGER DEFAULT 1
+                )
+            """)
+            
+            # Keep existing table creation
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS articles (
                     uri TEXT PRIMARY KEY,
@@ -118,59 +136,91 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Check if topic column exists in articles table
-                cursor.execute("PRAGMA table_info(articles)")
-                columns = [col[1] for col in cursor.fetchall()]
+                # Get applied migrations
+                cursor.execute("SELECT name FROM migrations")
+                applied = {row[0] for row in cursor.fetchall()}
                 
-                if 'topic' not in columns:
-                    logger.info("Adding topic column to articles table")
-                    cursor.execute("ALTER TABLE articles ADD COLUMN topic TEXT")
-                    
-                    # Copy topic from raw_articles to articles where possible
-                    cursor.execute("""
-                        UPDATE articles 
-                        SET topic = (
-                            SELECT topic 
-                            FROM raw_articles 
-                            WHERE raw_articles.uri = articles.uri
-                        )
-                        WHERE EXISTS (
-                            SELECT 1 
-                            FROM raw_articles 
-                            WHERE raw_articles.uri = articles.uri
-                        )
-                    """)
-                    
-                    conn.commit()
-                    logger.info("Migration completed successfully")
-                    
+                # Define migrations
+                migrations = [
+                    ("add_topic_column", self._migrate_topic),
+                    ("add_driver_type", self._migrate_driver_type)
+                ]
+                
+                # Apply missing migrations
+                for name, migrate_func in migrations:
+                    if name not in applied:
+                        logger.info(f"Applying migration: {name}")
+                        migrate_func(cursor)
+                        cursor.execute("INSERT INTO migrations (name) VALUES (?)", (name,))
+                        conn.commit()
+                        
         except Exception as e:
             logger.error(f"Error during migration: {str(e)}")
             raise
 
-    def migrate_database(self):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+    def _migrate_topic(self, cursor):
+        # Check if topic column exists in articles table
+        cursor.execute("PRAGMA table_info(articles)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        if 'topic' not in columns:
+            logger.info("Adding topic column to articles table")
+            cursor.execute("ALTER TABLE articles ADD COLUMN topic TEXT")
             
-            # ... (rest of the migrations)
-
-            # Add driver_type column if it doesn't exist
+            # Copy topic from raw_articles to articles where possible
             cursor.execute("""
-            SELECT COUNT(*) FROM pragma_table_info('articles') WHERE name='driver_type';
+                UPDATE articles 
+                SET topic = (
+                    SELECT topic 
+                    FROM raw_articles 
+                    WHERE raw_articles.uri = articles.uri
+                )
+                WHERE EXISTS (
+                    SELECT 1 
+                    FROM raw_articles 
+                    WHERE raw_articles.uri = articles.uri
+                )
             """)
-            if cursor.fetchone()[0] == 0:
-                cursor.execute("""
-                ALTER TABLE articles ADD COLUMN driver_type TEXT;
-                """)
-                print("Added driver_type column to articles table")
 
-            conn.commit()
+    def _migrate_driver_type(self, cursor):
+        cursor.execute("""
+        SELECT COUNT(*) FROM pragma_table_info('articles') WHERE name='driver_type'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+            ALTER TABLE articles ADD COLUMN driver_type TEXT
+            """)
+            logger.info("Added driver_type column to articles table")
 
     def create_database(self, name):
         if not name.endswith('.db'):
             name += '.db'
         new_db_path = os.path.join(DATABASE_DIR, name)
-        new_db = Database(name)  # This will call init_db() and create all necessary tables
+        new_db = Database(name)  # This will create tables and run migrations
+        
+        # Copy users from current database to new database if users table exists
+        try:
+            with self.get_connection() as old_conn:
+                old_cursor = old_conn.cursor()
+                # Check if users table exists in old database
+                old_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+                if old_cursor.fetchone():
+                    with new_db.get_connection() as new_conn:
+                        new_cursor = new_conn.cursor()
+                        old_cursor.execute("SELECT * FROM users")
+                        users = old_cursor.fetchall()
+                        
+                        for user in users:
+                            new_cursor.execute("""
+                                INSERT INTO users (username, password, force_password_change)
+                                VALUES (?, ?, ?)
+                            """, user)
+                        
+                        new_conn.commit()
+        except Exception as e:
+            logger.error(f"Error copying users to new database: {str(e)}")
+            # Continue even if user copy fails - new database is still valid
+        
         return {"id": name, "name": name}
 
     def delete_database(self, name):
@@ -195,15 +245,6 @@ class Database:
         config_path = os.path.join(DATABASE_DIR, 'config.json')
         with open(config_path, 'w') as f:
             json.dump({"active_database": name}, f)
-
-    @staticmethod
-    def get_active_database():
-        config_path = os.path.join(DATABASE_DIR, 'config.json')
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-        return config.get('active_database', 'fnaapp.db')
-        DATABASE_URL = f"sqlite:///./{get_active_database()}"
-    
 
     def get_databases(self):
         databases = []
@@ -554,8 +595,6 @@ class Database:
             categories = [row[0] for row in cursor.fetchall()]
         return categories
 
-
-
     def get_database_info(self):
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -717,17 +756,19 @@ class Database:
             return False
 
     def get_user(self, username: str):
-        """Get user from database."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute("SELECT username, password, force_password_change FROM users WHERE username = ?", (username,))
-                result = cursor.fetchone()
-                if result:
+                cursor.execute("""
+                    SELECT username, password, force_password_change
+                    FROM users WHERE username = ?
+                """, (username,))
+                user = cursor.fetchone()
+                if user:
                     return {
-                        'username': result[0],
-                        'password': result[1],
-                        'is_first_login': bool(result[2])  # Convert SQLite integer to boolean
+                        "username": user[0],
+                        "password": user[1],
+                        "force_password_change": bool(user[2])
                     }
                 return None
         except Exception as e:
@@ -755,6 +796,66 @@ class Database:
             logger.error(f"Error updating user password: {str(e)}")
             return False
 
+    def backup_database(self, backup_name: str = None) -> str:
+        if not backup_name:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_name = f"backup_{timestamp}.db"
+        elif not backup_name.endswith('.db'):
+            backup_name += '.db'
+
+        backup_path = os.path.join(DATABASE_DIR, backup_name)
+        shutil.copy2(self.db_path, backup_path)
+        return {"message": f"Database backed up to {backup_name}"}
+
+    def reset_database(self) -> dict:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Delete all data from the tables
+                cursor.execute("DELETE FROM articles")
+                cursor.execute("DELETE FROM raw_articles")
+                cursor.execute("DELETE FROM tags")
+                cursor.execute("DELETE FROM reports")
+                
+                # Reset autoincrement counters
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('reports', 'tags')")
+                
+                conn.commit()
+                return {"message": "Database reset successful"}
+            except Exception as e:
+                logger.error(f"Error resetting database: {str(e)}")
+                raise
+
+    def create_user(self, username: str, hashed_password: str, force_password_change: bool = False) -> bool:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO users (username, password, force_password_change)
+                    VALUES (?, ?, ?)
+                """, (username, hashed_password, 1 if force_password_change else 0))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error creating user: {str(e)}")
+            return False
+
+    def set_force_password_change(self, username: str, force: bool = True) -> bool:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE users 
+                    SET force_password_change = ?
+                    WHERE username = ?
+                """, (1 if force else 0, username))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error setting force_password_change: {str(e)}")
+            return False
+
+# Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
 
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -762,7 +863,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
-def get_db():
+def get_db_session():
     db = SessionLocal()
     try:
         yield db

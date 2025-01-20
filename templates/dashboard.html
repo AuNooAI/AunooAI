@@ -117,6 +117,8 @@
         display: -webkit-box;
         -webkit-line-clamp: 4;
         -webkit-box-orient: vertical;
+        /* Fallback for browsers that don't support -webkit-line-clamp */
+        max-height: 6em;  /* line-height * number of lines */
     }
 
     .controls {

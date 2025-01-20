@@ -26,6 +26,13 @@
                 <button type="submit">Create Database</button>
             </form>
         </div>
+        <div class="config-item">
+            <h3>Database Operations</h3>
+            <div class="database-operations">
+                <button id="backup-database" onclick="backupDatabase()">Backup Database</button>
+                <button id="reset-database" class="danger" onclick="resetDatabase()">Reset Database</button>
+            </div>
+        </div>
     </div>
     <div class="right-panel">
         <h2>Database Information</h2>
@@ -514,6 +521,44 @@
             alert(`Error changing password: ${error.message}`);
         }
     });
+
+    // Function to backup the database
+    function backupDatabase() {
+        if (confirm('Do you want to create a backup of the current database?')) {
+            fetch('/api/databases/backup', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                loadDatabases();  // Refresh the database list
+            })
+            .catch(error => {
+                console.error('Error backing up database:', error);
+                alert('Error backing up database. Please try again.');
+            });
+        }
+    }
+
+    // Function to reset the database
+    function resetDatabase() {
+        if (confirm('WARNING: This will delete all articles, tags, and reports from the database. This action cannot be undone. Are you sure you want to proceed?')) {
+            if (confirm('Last chance: Are you absolutely sure? All data will be permanently deleted.')) {
+                fetch('/api/databases/reset', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message);
+                    loadDatabaseInfo();  // Refresh the database info
+                })
+                .catch(error => {
+                    console.error('Error resetting database:', error);
+                    alert('Error resetting database. Please try again.');
+                });
+            }
+        }
+    }
 </script>
 
 <style>
@@ -612,6 +657,45 @@
     .right-panel ul li {
         margin-bottom: 8px;
         color: #666;
+    }
+
+    .database-operations {
+        display: flex;
+        gap: 10px;
+        margin-top: 10px;
+    }
+
+    .database-operations button {
+        flex: 1;
+        padding: 10px;
+        border-radius: 5px;
+        cursor: pointer;
+        border: none;
+        color: white;
+    }
+
+    .database-operations button#backup-database {
+        background-color: #4CAF50;  /* Green */
+    }
+
+    .database-operations button#backup-database:hover {
+        background-color: #45a049;
+    }
+
+    .database-operations button#reset-database {
+        background-color: #f44336;  /* Red */
+    }
+
+    .database-operations button#reset-database:hover {
+        background-color: #da190b;
+    }
+
+    .danger {
+        background-color: #f44336 !important;
+    }
+
+    .danger:hover {
+        background-color: #da190b !important;
     }
 </style>
 {% endblock %}

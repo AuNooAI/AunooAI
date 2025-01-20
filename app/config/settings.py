@@ -20,8 +20,8 @@ config = load_config()
 # Add this line to define DATABASE_DIR
 DATABASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
 
-# Firecrawl API key
-FIRECRAWL_API_KEY = os.getenv('PROVIDER_FIRECRAWL_KEY')
+# Firecrawl API key with default value
+FIRECRAWL_API_KEY = os.getenv('PROVIDER_FIRECRAWL_KEY', '')
 
 # Ensure the directory exists
 os.makedirs(DATABASE_DIR, exist_ok=True)

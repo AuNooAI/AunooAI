@@ -1,6 +1,6 @@
 from fastapi import Depends
 from app.research import Research
-from app.database import Database, get_db
+from app.database import Database, get_database_instance
 import logging
 
 # Set up logging
@@ -13,7 +13,7 @@ logging.basicConfig(
 # Create a single instance of Research
 _research_instance = None
 
-def get_research(db: Database = Depends(get_db)):
+def get_research(db: Database = Depends(get_database_instance)):
     global _research_instance
     if _research_instance is None:
         _research_instance = Research(db)
