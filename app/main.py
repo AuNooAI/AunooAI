@@ -1580,6 +1580,49 @@ async def reset_database():
         logger.error(f"Error resetting database: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/config/firecrawl")
+async def save_firecrawl_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
+    """Save Firecrawl configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        env_var_name = 'PROVIDER_FIRECRAWL_KEY'
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Update or add the key
+        new_line = f'{env_var_name}="{config.api_key}"\n'
+        key_found = False
+
+        for i, line in enumerate(lines):
+            if line.startswith(f'{env_var_name}='):
+                lines[i] = new_line
+                key_found = True
+                break
+
+        if not key_found:
+            lines.append(new_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment
+        os.environ[env_var_name] = config.api_key
+        
+        return JSONResponse(
+            status_code=200,
+            content={"message": "Firecrawl configuration saved successfully"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error saving Firecrawl configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain('cert.pem', keyfile='key.pem')
