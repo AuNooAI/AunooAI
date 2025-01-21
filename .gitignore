@@ -7,3 +7,4 @@ reports/
 .cursorrules
 *.code-workspace
 LA_notes
+app/data/fnaapp.db
