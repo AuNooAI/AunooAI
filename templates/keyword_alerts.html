@@ -5,55 +5,111 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>Keyword Alerts</h1>
-        <a href="/keyword-monitor" class="btn btn-outline-primary">
+        <div>
+            <h1>Keyword Alerts</h1>
+            <p class="text-muted">
+                Last search: {{ last_check_time|default('Never', true) }}
+                <button class="btn btn-sm btn-outline-primary ms-2" onclick="checkKeywords()">
+                    <i class="fas fa-sync"></i> Check Now
+                </button>
+            </p>
+        </div>
+        <a href="/keyword-monitor" class="btn btn-primary">
             <i class="fas fa-cog"></i> Manage Keywords
         </a>
     </div>
 
     {% if groups %}
-        {% for group in groups %}
-        <div class="card mb-4">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">{{ group.name }}</h5>
-                <span class="badge bg-secondary">{{ group.topic }}</span>
-            </div>
-            <div class="card-body">
-                {% if group.alerts %}
-                <div class="list-group">
-                    {% for alert in group.alerts %}
-                    <div class="list-group-item list-group-item-action">
-                        <div class="d-flex w-100 justify-content-between">
-                            <h6 class="mb-1">{{ alert.article.title }}</h6>
-                            <small class="text-muted">{{ alert.detected_at }}</small>
+        <div class="row">
+            {% for group in groups %}
+            <div class="col-12 mb-4">
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h5 class="mb-0">{{ group.name }}</h5>
+                                <div class="text-muted small">
+                                    Topic: <span class="badge bg-secondary">{{ group.topic }}</span>
+                                    {% if group.keywords %}
+                                        <span class="ms-2">Monitoring: 
+                                            {% for keyword in group.keywords %}
+                                            <span class="badge bg-info">{{ keyword }}</span>
+                                            {% endfor %}
+                                        </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <span class="badge bg-primary">{{ group.alerts|length }} alerts</span>
                         </div>
-                        <p class="mb-1">Keyword: <span class="badge bg-info">{{ alert.keyword }}</span></p>
-                        <small>
-                            <a href="{{ alert.article.url }}" target="_blank" class="me-2">
-                                <i class="fas fa-external-link-alt"></i> View Article
-                            </a>
-                            <a href="/research?url={{ alert.article.url }}&topic={{ group.topic }}" class="me-2">
-                                <i class="fas fa-microscope"></i> Analyze
-                            </a>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="markAsRead({{ alert.id }})">
-                                <i class="fas fa-check"></i> Mark as Read
-                            </button>
-                        </small>
                     </div>
-                    {% endfor %}
+                    
+                    {% if group.alerts %}
+                    <div class="list-group list-group-flush">
+                        {% for alert in group.alerts %}
+                        <div class="list-group-item">
+                            <div class="row align-items-center">
+                                <div class="col">
+                                    <h6 class="mb-1">{{ alert.article.title }}</h6>
+                                    <p class="mb-1 text-muted small">
+                                        <span class="me-3">
+                                            <i class="fas fa-newspaper"></i> {{ alert.article.source }}
+                                        </span>
+                                        <span class="me-3">
+                                            <i class="fas fa-calendar"></i> {{ alert.article.publication_date }}
+                                        </span>
+                                        <span>
+                                            <i class="fas fa-tag"></i> Matched: <span class="badge bg-info">{{ alert.keyword }}</span>
+                                        </span>
+                                    </p>
+                                    <p class="mb-2 small">{{ alert.article.summary }}</p>
+                                    <div class="btn-group btn-group-sm">
+                                        <a href="{{ alert.article.url }}" target="_blank" class="btn btn-outline-primary">
+                                            <i class="fas fa-external-link-alt"></i> View Article
+                                        </a>
+                                        <a href="/research?url={{ alert.article.url }}&topic={{ group.topic }}" 
+                                           class="btn btn-outline-secondary">
+                                            <i class="fas fa-microscope"></i> Analyze
+                                        </a>
+                                        <button class="btn btn-outline-success" onclick="markAsRead({{ alert.id }})">
+                                            <i class="fas fa-check"></i> Mark as Read
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="card-body">
+                        <div class="alert alert-info mb-0">
+                            <i class="fas fa-info-circle"></i> No new alerts for this group
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
-                {% else %}
-                <div class="alert alert-info">No alerts for this group</div>
-                {% endif %}
             </div>
+            {% endfor %}
         </div>
-        {% endfor %}
     {% else %}
     <div class="alert alert-info">
         <i class="fas fa-info-circle"></i> No unread alerts found.
+        <a href="/keyword-monitor" class="alert-link">Set up keyword monitoring</a> to get notified about relevant articles.
     </div>
     {% endif %}
 </div>
+
+<style>
+.badge {
+    font-weight: normal;
+}
+.list-group-item:hover {
+    background-color: #f8f9fa;
+}
+.btn-group-sm .btn {
+    padding: .25rem .5rem;
+    font-size: .875rem;
+}
+</style>
 {% endblock %}
 
 {% block extra_js %}
@@ -70,6 +126,28 @@ async function markAsRead(alertId) {
     } catch (error) {
         console.error('Error:', error);
         alert('Failed to mark alert as read');
+    }
+}
+
+async function checkKeywords() {
+    try {
+        const button = event.target.closest('button');
+        const originalHtml = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+        
+        const response = await fetch('/api/keyword-monitor/check-now', {
+            method: 'POST'
+        });
+        
+        if (!response.ok) throw new Error('Failed to check keywords');
+        
+        window.location.reload();
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to check keywords');
+        button.disabled = false;
+        button.innerHTML = originalHtml;
     }
 }
 </script>

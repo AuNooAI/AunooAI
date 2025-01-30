@@ -1686,9 +1686,16 @@ async def keyword_monitor_page(request: Request, session=Depends(verify_session)
 @app.get("/keyword-alerts", response_class=HTMLResponse)
 async def keyword_alerts_page(request: Request, session=Depends(verify_session)):
     try:
-        # Get alerts directly from the database
         with db.get_connection() as conn:
             cursor = conn.cursor()
+            
+            # Get the last check time
+            cursor.execute("""
+                SELECT MAX(last_checked) as last_check_time
+                FROM monitored_keywords
+            """)
+            last_check = cursor.fetchone()[0]
+            last_check_time = datetime.fromisoformat(last_check).strftime('%Y-%m-%d %H:%M:%S') if last_check else None
             
             # Get all unread alerts with article and keyword info
             cursor.execute("""
@@ -1703,7 +1710,12 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                     a.title,
                     a.news_source,
                     a.publication_date,
-                    a.summary
+                    a.summary,
+                    (
+                        SELECT GROUP_CONCAT(keyword, '||')
+                        FROM monitored_keywords
+                        WHERE group_id = kg.id
+                    ) as group_keywords
                 FROM keyword_alerts ka
                 JOIN monitored_keywords mk ON ka.keyword_id = mk.id
                 JOIN keyword_groups kg ON mk.group_id = kg.id
@@ -1717,38 +1729,45 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
             # Group alerts by keyword group
             groups = {}
             for alert in alerts:
-                group_id = alert[3]  # group_id from the query
-                if group_id not in groups:
-                    groups[group_id] = {
-                        'id': group_id,
-                        'name': alert[4],  # group_name
-                        'topic': alert[5],  # topic
-                        'alerts': []
-                    }
-                
-                groups[group_id]['alerts'].append({
-                    'id': alert[0],  # alert_id
-                    'detected_at': alert[1],
-                    'keyword': alert[2],
-                    'article': {
-                        'url': alert[6],  # uri
-                        'title': alert[7],
-                        'source': alert[8],
-                        'publication_date': alert[9],
-                        'summary': alert[10]
-                    }
-                })
+                try:
+                    group_id = alert[3]
+                    if group_id not in groups:
+                        groups[group_id] = {
+                            'id': group_id,
+                            'name': alert[4],
+                            'topic': alert[5],
+                            'keywords': alert[11].split('||') if alert[11] else [],
+                            'alerts': []
+                        }
+                    
+                    groups[group_id]['alerts'].append({
+                        'id': alert[0],
+                        'detected_at': alert[1],
+                        'keyword': alert[2],
+                        'article': {
+                            'url': alert[6],
+                            'title': alert[7],
+                            'source': alert[8],
+                            'publication_date': alert[9],
+                            'summary': alert[10]
+                        }
+                    })
+                except Exception as e:
+                    logger.error(f"Error processing alert: {str(e)}")
+                    continue
         
         return templates.TemplateResponse(
             "keyword_alerts.html",
             {
                 "request": request,
                 "groups": list(groups.values()),
+                "last_check_time": last_check_time,
                 "session": session
             }
         )
     except Exception as e:
         logger.error(f"Keyword alerts page error: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
