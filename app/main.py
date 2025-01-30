@@ -38,6 +38,9 @@ from app.routes.web_routes import router as web_router
 from app.routes.topic_routes import router as topic_router
 from starlette.middleware.sessions import SessionMiddleware
 from app.security.session import verify_session
+from app.routes.keyword_monitor import router as keyword_monitor_router, get_alerts
+from app.tasks.keyword_monitor import run_keyword_monitor
+import sqlite3
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -121,6 +124,7 @@ logger.info("Prompt routes included")
 # Include routers
 app.include_router(web_router)  # Web routes at root level
 app.include_router(topic_router)  # Topic routes
+app.include_router(keyword_monitor_router)
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request, session=Depends(verify_session)):
@@ -714,6 +718,7 @@ def startup_event():
     db = Database()
     db.migrate_db()
     logger.info(f"Active database set to: {db.db_path}")
+    asyncio.create_task(run_keyword_monitor())
 
 @app.get("/api/fetch_article_content")
 async def fetch_article_content(uri: str):
@@ -1621,6 +1626,129 @@ async def save_firecrawl_config(config: NewsAPIConfig):  # Reusing the same mode
 
     except Exception as e:
         logger.error(f"Error saving Firecrawl configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/keyword-monitor", response_class=HTMLResponse)
+async def keyword_monitor_page(request: Request, session=Depends(verify_session)):
+    try:
+        with db.get_connection() as conn:
+            # First, make the connection row factory return dictionaries
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Get keyword groups and their keywords
+            cursor.execute("""
+                SELECT kg.id, kg.name, kg.topic, 
+                       mk.id as keyword_id, 
+                       mk.keyword
+                FROM keyword_groups kg
+                LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                ORDER BY kg.name, mk.keyword
+            """)
+            rows = cursor.fetchall()
+            
+            # Group the results
+            groups = {}
+            for row in rows:
+                group_id = row['id']
+                if group_id not in groups:
+                    groups[group_id] = {
+                        'id': group_id,
+                        'name': row['name'],
+                        'topic': row['topic'],
+                        'keywords': []
+                    }
+                if row['keyword_id']:
+                    groups[group_id]['keywords'].append({
+                        'id': row['keyword_id'],
+                        'keyword': row['keyword']
+                    })
+            
+            # Get topics from config instead of database
+            config = load_config()
+            topics = [{"id": topic["name"], "name": topic["name"]} 
+                     for topic in config.get("topics", [])]
+            
+            return templates.TemplateResponse(
+                "keyword_monitor.html",
+                {
+                    "request": request,
+                    "keyword_groups": list(groups.values()),
+                    "topics": topics,
+                    "session": session
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error in keyword monitor page: {str(e)}")
+        logger.error(traceback.format_exc())  # Add this to get full traceback
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/keyword-alerts", response_class=HTMLResponse)
+async def keyword_alerts_page(request: Request, session=Depends(verify_session)):
+    try:
+        # Get alerts directly from the database
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get all unread alerts with article and keyword info
+            cursor.execute("""
+                SELECT 
+                    ka.id as alert_id,
+                    ka.detected_at,
+                    mk.keyword,
+                    kg.id as group_id,
+                    kg.name as group_name,
+                    kg.topic,
+                    a.uri,
+                    a.title,
+                    a.news_source,
+                    a.publication_date,
+                    a.summary
+                FROM keyword_alerts ka
+                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                JOIN keyword_groups kg ON mk.group_id = kg.id
+                JOIN articles a ON ka.article_uri = a.uri
+                WHERE ka.is_read = 0
+                ORDER BY ka.detected_at DESC
+            """)
+            
+            alerts = cursor.fetchall()
+            
+            # Group alerts by keyword group
+            groups = {}
+            for alert in alerts:
+                group_id = alert[3]  # group_id from the query
+                if group_id not in groups:
+                    groups[group_id] = {
+                        'id': group_id,
+                        'name': alert[4],  # group_name
+                        'topic': alert[5],  # topic
+                        'alerts': []
+                    }
+                
+                groups[group_id]['alerts'].append({
+                    'id': alert[0],  # alert_id
+                    'detected_at': alert[1],
+                    'keyword': alert[2],
+                    'article': {
+                        'url': alert[6],  # uri
+                        'title': alert[7],
+                        'source': alert[8],
+                        'publication_date': alert[9],
+                        'summary': alert[10]
+                    }
+                })
+        
+        return templates.TemplateResponse(
+            "keyword_alerts.html",
+            {
+                "request": request,
+                "groups": list(groups.values()),
+                "session": session
+            }
+        )
+    except Exception as e:
+        logger.error(f"Keyword alerts page error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

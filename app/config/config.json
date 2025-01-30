@@ -105,6 +105,37 @@
         "Terminator",
         "Unknown"
       ]
+    },
+    {
+      "name": "Security Data Fabric",
+      "categories": [
+        "Abstract Security",
+        "Auguria",
+        "Tarsal",
+        "Cribl",
+        "RunReveal"
+      ],
+      "future_signals": [
+        "Strong Growth",
+        "M&A"
+      ],
+      "sentiment": [
+        "Positive",
+        "Neutral",
+        "Negative"
+      ],
+      "time_to_impact": [
+        "Mid-term",
+        "Immediate",
+        "Long-term",
+        "Short-term"
+      ],
+      "driver_types": [
+        "New Feature",
+        "Funding",
+        "New Product",
+        "New Hire"
+      ]
     }
   ],
   "ai_models": [

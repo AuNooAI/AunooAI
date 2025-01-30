@@ -143,7 +143,8 @@ class Database:
                 # Define migrations
                 migrations = [
                     ("add_topic_column", self._migrate_topic),
-                    ("add_driver_type", self._migrate_driver_type)
+                    ("add_driver_type", self._migrate_driver_type),
+                    ("add_keyword_monitor_tables", self._migrate_keyword_monitor)
                 ]
                 
                 # Apply missing migrations
@@ -191,6 +192,41 @@ class Database:
             ALTER TABLE articles ADD COLUMN driver_type TEXT
             """)
             logger.info("Added driver_type column to articles table")
+
+    def _migrate_keyword_monitor(self, cursor):
+        """Add keyword monitoring related tables"""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS keyword_groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                topic TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS monitored_keywords (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL,
+                keyword TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_checked TEXT,
+                FOREIGN KEY (group_id) REFERENCES keyword_groups(id) ON DELETE CASCADE,
+                UNIQUE(group_id, keyword)
+            )
+        """)
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS keyword_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                keyword_id INTEGER NOT NULL,
+                article_uri TEXT NOT NULL,
+                detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_read INTEGER DEFAULT 0,
+                FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
+                FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE
+            )
+        """)
 
     def create_database(self, name):
         if not name.endswith('.db'):

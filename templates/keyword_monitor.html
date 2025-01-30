@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}N0RN AI - Keyword Monitor{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1>Keyword Monitor</h1>
+            <p class="text-muted">Create keyword groups and add keywords to monitor news articles</p>
+        </div>
+        <div>
+            <button class="btn btn-secondary me-2" onclick="checkKeywords()">
+                <i class="fas fa-sync"></i> Check Now
+            </button>
+            <button class="btn btn-primary" onclick="showNewGroupModal()">
+                <i class="fas fa-plus"></i> New Keyword Group
+            </button>
+        </div>
+    </div>
+
+    {% if not keyword_groups %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle"></i> 
+        Start by creating a keyword group for a specific topic, then add keywords to monitor.
+    </div>
+    {% endif %}
+
+    <div class="row">
+        {% for group in keyword_groups %}
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">{{ group.name }}</h5>
+                        <span class="badge bg-secondary">Topic: {{ group.topic }}</span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        {% if group.keywords %}
+                        <h6 class="mb-2">Monitored Keywords:</h6>
+                        <div class="d-flex gap-2 flex-wrap">
+                            {% for keyword in group.keywords %}
+                            <div class="badge bg-light text-dark border">
+                                {{ keyword.keyword }}
+                                <button class="btn-close ms-2" 
+                                        onclick="deleteKeyword({{ keyword.id }})"
+                                        aria-label="Delete keyword"></button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="alert alert-light">
+                            No keywords added yet. Add keywords to start monitoring.
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <button class="btn btn-sm btn-outline-primary" onclick="showAddKeywordModal({{ group.id }})">
+                            <i class="fas fa-plus"></i> Add Keyword
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteGroup({{ group.id }})">
+                            <i class="fas fa-trash"></i> Delete Group
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- New Group Modal -->
+<div class="modal fade" id="newGroupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">New Keyword Group</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="newGroupForm">
+                    <div class="mb-3">
+                        <label for="groupName" class="form-label">Group Name</label>
+                        <input type="text" class="form-control" id="groupName" required
+                               placeholder="Enter a descriptive name for this group">
+                        <div class="form-text">Example: "AI Safety News" or "Cloud Computing Updates"</div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="topicSelect" class="form-label">Topic</label>
+                        <select class="form-select" id="topicSelect" required>
+                            <option value="">Select a topic...</option>
+                            {% for topic in topics %}
+                            <option value="{{ topic.name }}">{{ topic.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">Select the topic this keyword group will monitor</div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="createGroup()">Create Group</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Keyword Modal -->
+<div class="modal fade" id="addKeywordModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Keyword</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addKeywordForm">
+                    <input type="hidden" id="groupId">
+                    <div class="mb-3">
+                        <label for="keyword" class="form-label">Keyword or Phrase</label>
+                        <input type="text" class="form-control" id="keyword" required
+                               placeholder="Enter keyword or phrase to monitor">
+                        <div class="form-text">
+                            Tips:
+                            <ul class="mb-0">
+                                <li>Use quotes for exact phrases: "artificial intelligence"</li>
+                                <li>Use OR for alternatives: AI OR "artificial intelligence"</li>
+                                <li>Use AND for combinations: AI AND safety</li>
+                            </ul>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="addKeyword()">Add Keyword</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showNewGroupModal() {
+    const modal = new bootstrap.Modal(document.getElementById('newGroupModal'));
+    modal.show();
+}
+
+function showAddKeywordModal(groupId) {
+    document.getElementById('groupId').value = groupId;
+    const modal = new bootstrap.Modal(document.getElementById('addKeywordModal'));
+    modal.show();
+}
+
+async function createGroup() {
+    const name = document.getElementById('groupName').value;
+    const topic = document.getElementById('topicSelect').value;
+    
+    try {
+        const response = await fetch('/api/keyword-monitor/groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, topic })
+        });
+        
+        if (!response.ok) throw new Error('Failed to create group');
+        
+        window.location.reload();
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to create group');
+    }
+}
+
+async function addKeyword() {
+    const groupId = document.getElementById('groupId').value;
+    const keyword = document.getElementById('keyword').value;
+    
+    try {
+        const response = await fetch('/api/keyword-monitor/keywords', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ group_id: groupId, keyword })
+        });
+        
+        if (!response.ok) throw new Error('Failed to add keyword');
+        
+        window.location.reload();
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to add keyword');
+    }
+}
+
+async function deleteKeyword(keywordId) {
+    if (!confirm('Are you sure you want to delete this keyword?')) return;
+    
+    try {
+        const response = await fetch(`/api/keyword-monitor/keywords/${keywordId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error('Failed to delete keyword');
+        
+        window.location.reload();
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to delete keyword');
+    }
+}
+
+async function deleteGroup(groupId) {
+    if (!confirm('Are you sure you want to delete this group and all its keywords?')) return;
+    
+    try {
+        const response = await fetch(`/api/keyword-monitor/groups/${groupId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error('Failed to delete group');
+        
+        window.location.reload();
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to delete group');
+    }
+}
+
+async function checkKeywords() {
+    try {
+        const response = await fetch('/api/keyword-monitor/check-now', {
+            method: 'POST'
+        });
+        
+        if (!response.ok) throw new Error('Failed to check keywords');
+        
+        alert('Keyword check completed successfully');
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to check keywords');
+    }
+}
+</script>
+{% endblock %} 
