@@ -7,6 +7,8 @@ from app.tasks.keyword_monitor import KeywordMonitor
 import logging
 import json
 import traceback
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -109,6 +111,16 @@ async def get_alerts(db=Depends(get_database_instance)):
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
+            # Get the last check time and error
+            cursor.execute("""
+                SELECT last_check_time, last_error
+                FROM keyword_monitor_status
+                WHERE id = 1
+            """)
+            status = cursor.fetchone()
+            last_check_time = status[0] if status else None
+            last_error = status[1] if status and len(status) > 1 else None
+            
             # Get all unread alerts with article and keyword info
             cursor.execute("""
                 SELECT 
@@ -158,7 +170,16 @@ async def get_alerts(db=Depends(get_database_instance)):
                     }
                 })
             
-            return {"groups": list(groups.values())}
+            return templates.TemplateResponse(
+                "keyword_alerts.html",
+                {
+                    "request": request,
+                    "groups": groups,
+                    "last_check_time": last_check_time,
+                    "last_error": last_error,
+                    "session": session
+                }
+            )
             
     except Exception as e:
         logger.error(f"Error fetching keyword alerts: {str(e)}")

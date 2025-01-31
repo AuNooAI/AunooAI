@@ -9,6 +9,11 @@
             <h1>Keyword Alerts</h1>
             <p class="text-muted">
                 Last search: {{ last_check_time|default('Never', true) }}
+                {% if last_error %}
+                    <span class="text-danger ms-2">
+                        <i class="fas fa-exclamation-circle"></i> {{ last_error }}
+                    </span>
+                {% endif %}
                 <button class="btn btn-sm btn-outline-primary ms-2" onclick="checkKeywords()">
                     <i class="fas fa-sync"></i> Check Now
                 </button>

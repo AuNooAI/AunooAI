@@ -4,6 +4,7 @@ from typing import List, Dict, Optional
 from .base_collector import ArticleCollector
 import logging
 import os
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,8 @@ class NewsAPICollector(ArticleCollector):
             raise ValueError("NewsAPI key not configured")
             
         self.base_url = "https://newsapi.org/v2"
+        self.requests_today = 0
+        self.last_request_time = None
 
     async def fetch_article_content(self, url: str) -> Optional[Dict]:
         """Implement abstract method from ArticleCollector"""
@@ -40,6 +43,7 @@ class NewsAPICollector(ArticleCollector):
         topic: Optional[str] = None,
         max_results: int = 10,
         start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
         search_fields: Optional[str] = None,
         language: Optional[str] = None,
         sort_by: Optional[str] = None
@@ -56,6 +60,7 @@ class NewsAPICollector(ArticleCollector):
             if search_fields:
                 params['searchIn'] = search_fields
 
+            # Handle start_date
             if start_date:
                 if isinstance(start_date, str):
                     try:
@@ -67,25 +72,64 @@ class NewsAPICollector(ArticleCollector):
                 if start_date:
                     params['from'] = start_date.strftime('%Y-%m-%d')
 
+            # Handle end_date
+            if end_date:
+                if isinstance(end_date, str):
+                    try:
+                        end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                    except ValueError:
+                        logger.warning(f"Invalid end_date format: {end_date}")
+                        end_date = None
+                
+                if end_date:
+                    params['to'] = end_date.strftime('%Y-%m-%d')
+
             # Handle topic/category mapping
             valid_categories = ['business', 'entertainment', 'general', 'health', 
                               'science', 'sports', 'technology']
             if topic and topic.lower() in valid_categories:
                 params['category'] = topic.lower()
 
+            logger.info(f"Making NewsAPI request: query='{query}', requests_today={self.requests_today}")
+            
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     f"{self.base_url}/everything",
                     params=params
                 ) as response:
                     data = await response.json()
+                    status = response.status
                     
-                    if response.status != 200:
+                    # Log the complete API response for debugging
+                    logger.info(
+                        f"NewsAPI response: status={status}, "
+                        f"headers={dict(response.headers)}, "
+                        f"data={json.dumps(data, indent=2)}"
+                    )
+                    
+                    if status != 200:
                         error_msg = data.get('message', 'Unknown error')
-                        logger.error(f"NewsAPI error: {error_msg}")
+                        error_code = data.get('code', 'unknown')
+                        
+                        if status == 429:
+                            logger.error(f"NewsAPI rate limit exceeded: {error_msg}")
+                            raise ValueError(f"Rate limit exceeded: {error_msg}")
+                        
+                        logger.error(
+                            f"NewsAPI error: status={status}, code={error_code}, "
+                            f"message={error_msg}, query='{query}'"
+                        )
                         return []
 
+                    # Track successful request
+                    self.requests_today += 1
+                    self.last_request_time = datetime.now()
+                    
                     articles = data.get("articles", [])
+                    logger.info(
+                        f"NewsAPI search successful: found {len(articles)} articles "
+                        f"for query '{query}' (request {self.requests_today}/100)"
+                    )
                     
                     # Transform to our standard format, maintaining compatibility
                     return [{
@@ -104,8 +148,14 @@ class NewsAPICollector(ArticleCollector):
                         }
                     } for article in articles if article.get('url')]
 
+        except ValueError as e:
+            # Re-raise rate limit errors
+            if "Rate limit exceeded" in str(e):
+                raise
+            logger.error(f"Error searching NewsAPI: {str(e)}, query='{query}'")
+            return []
         except Exception as e:
-            logger.error(f"Error searching NewsAPI: {str(e)}")
+            logger.error(f"Error searching NewsAPI: {str(e)}, query='{query}'")
             return []
 
     async def get_article(self, url: str) -> Optional[Dict]:
