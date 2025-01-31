@@ -217,96 +217,126 @@
 
 {% block content %}
 <div class="container mt-4">
-    <h1 class="mb-4">News Monitoring Dashboard</h1>
-
-    {% for topic in topics %}
-    <div class="dashboard-card" id="topic-card-{{ topic.topic }}">
-        <div class="card-header">
-            <div class="d-flex justify-content-between align-items-center">
-                <h2 class="card-title">{{ topic.name }}</h2>
-                <div class="controls">
-                    <label class="mb-0">Show:</label>
-                    <select class="form-control form-control-sm" 
-                            id="articleCount-{{ topic.topic }}" 
-                            style="width: 70px"
-                            onchange="loadArticles('{{ topic.topic }}')">
-                        {% for n in [3, 5, 10, 15, 20] %}
-                        <option value="{{ n }}" {% if n == 5 %}selected{% endif %}>{{ n }}</option>
-                        {% endfor %}
-                    </select>
-                    <button class="btn-refresh" onclick="loadArticles('{{ topic.topic }}')">
-                        <i class="fas fa-sync-alt"></i>
-                        Refresh
-                    </button>
-                    <button class="btn-delete" onclick="deleteTopic('{{ topic.topic }}')">
-                        <i class="fas fa-trash"></i>
-                        Delete
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <div class="row g-0">
-            <!-- News Column -->
-            <div class="col-md-6 border-end">
-                <div class="content-section">
-                    <div class="section-title">
-                        <div class="d-flex align-items-center justify-content-between">
-                            <div class="d-flex align-items-center">
-                                <span class="me-2">News</span>
-                                <div class="keyword-badge me-2">
-                                    <span id="newsKeyword-{{ topic.topic }}">{{ topic.news_query }}</span>
-                                    <button class="btn-edit ms-2" onclick="editKeyword('news', '{{ topic.topic }}')">
-                                        <i class="fas fa-pencil-alt"></i>
-                                    </button>
-                                </div>
-                                <select class="form-control form-control-sm" 
-                                        id="newsSort-{{ topic.topic }}" 
-                                        style="width: 130px"
-                                        onchange="loadArticles('{{ topic.topic }}')">
-                                    <option value="publishedAt">Newest First</option>
-                                    <option value="relevancy">Most Relevant</option>
-                                    <option value="popularity">Most Popular</option>
-                                </select>
-                            </div>
-                        </div>
+    <!-- Add status messages section -->
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1>News Monitoring Dashboard</h1>
+            <div class="d-flex flex-column gap-2">
+                {% if last_error %}
+                    <div class="alert alert-warning d-flex align-items-center">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        {{ last_error }}
                     </div>
-                    <div id="latestNews-{{ topic.topic }}" class="articles-container">
-                        <div class="loading-spinner">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
+                {% endif %}
+                <div class="d-flex align-items-center gap-3">
+                    <div class="text-muted">
+                        <i class="fas fa-chart-line"></i> API Requests Today: 
+                        <span id="requestCount">0</span>/<span id="requestLimit">100</span>
                     </div>
-                </div>
-            </div>
-
-            <!-- Papers Column -->
-            <div class="col-md-6">
-                <div class="content-section">
-                    <div class="section-title">
-                        <div class="d-flex align-items-center">
-                            <span class="me-2">Papers</span>
-                            <div class="keyword-badge">
-                                <span id="paperKeyword-{{ topic.topic }}">{{ topic.paper_query }}</span>
-                                <button class="btn-edit ms-2" onclick="editKeyword('paper', '{{ topic.topic }}')">
-                                    <i class="fas fa-pencil-alt"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="latestPapers-{{ topic.topic }}" class="articles-container">
-                        <div class="loading-spinner">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
-                    </div>
+                    {% if is_rate_limited %}
+                        <span class="text-warning">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Daily request limit reached. Some content may be unavailable.
+                        </span>
+                    {% endif %}
                 </div>
             </div>
         </div>
     </div>
-    {% endfor %}
+
+    <!-- Existing dashboard content -->
+    <div class="row">
+        {% for topic in topics %}
+        <div class="col-lg-6 mb-4" id="topic-card-{{ topic.id }}">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h2 class="card-title">{{ topic.name }}</h2>
+                        <div class="controls">
+                            <label class="mb-0">Show:</label>
+                            <select class="form-control form-control-sm" 
+                                    id="articleCount-{{ topic.topic }}" 
+                                    style="width: 70px"
+                                    onchange="loadArticles('{{ topic.topic }}')">
+                                {% for n in [3, 5, 10, 15, 20] %}
+                                <option value="{{ n }}" {% if n == 5 %}selected{% endif %}>{{ n }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn-refresh" onclick="loadArticles('{{ topic.topic }}')">
+                                <i class="fas fa-sync-alt"></i>
+                                Refresh
+                            </button>
+                            <button class="btn-delete" onclick="deleteTopic('{{ topic.topic }}')">
+                                <i class="fas fa-trash"></i>
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-0">
+                    <!-- News Column -->
+                    <div class="col-md-6 border-end">
+                        <div class="content-section">
+                            <div class="section-title">
+                                <div class="d-flex align-items-center justify-content-between">
+                                    <div class="d-flex align-items-center">
+                                        <span class="me-2">News</span>
+                                        <div class="keyword-badge me-2">
+                                            <span id="newsKeyword-{{ topic.topic }}">{{ topic.news_query }}</span>
+                                            <button class="btn-edit ms-2" onclick="editKeyword('news', '{{ topic.topic }}')">
+                                                <i class="fas fa-pencil-alt"></i>
+                                            </button>
+                                        </div>
+                                        <select class="form-control form-control-sm" 
+                                                id="newsSort-{{ topic.topic }}" 
+                                                style="width: 130px"
+                                                onchange="loadArticles('{{ topic.topic }}')">
+                                            <option value="publishedAt">Newest First</option>
+                                            <option value="relevancy">Most Relevant</option>
+                                            <option value="popularity">Most Popular</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="latestNews-{{ topic.topic }}" class="articles-container">
+                                <div class="loading-spinner">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Papers Column -->
+                    <div class="col-md-6">
+                        <div class="content-section">
+                            <div class="section-title">
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2">Papers</span>
+                                    <div class="keyword-badge">
+                                        <span id="paperKeyword-{{ topic.topic }}">{{ topic.paper_query }}</span>
+                                        <button class="btn-edit ms-2" onclick="editKeyword('paper', '{{ topic.topic }}')">
+                                            <i class="fas fa-pencil-alt"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="latestPapers-{{ topic.topic }}" class="articles-container">
+                                <div class="loading-spinner">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
 </div>
 
 <script>
@@ -589,6 +619,50 @@ async function deleteTopic(topicId) {
         alert('Failed to delete topic: ' + error.message);
     }
 }
+
+// Add function to update request count and status message
+async function updateRequestStatus() {
+    try {
+        const response = await fetch('/api/keyword-monitor/settings');
+        if (response.ok) {
+            const settings = await response.json();
+            const requestCount = document.getElementById('requestCount');
+            const requestLimit = document.getElementById('requestLimit');
+            
+            if (settings.last_error && (
+                settings.last_error.includes("Rate limit exceeded") || 
+                settings.last_error.includes("limit reached")
+            )) {
+                requestCount.textContent = settings.daily_request_limit;
+                requestCount.parentElement.classList.add('text-warning');
+                
+                // Show rate limit message if not already shown
+                if (!document.querySelector('.alert-warning')) {
+                    const statusDiv = document.querySelector('.d-flex.flex-column.gap-2');
+                    const alert = document.createElement('div');
+                    alert.className = 'alert alert-warning d-flex align-items-center';
+                    alert.innerHTML = `
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        API daily request limit reached. Some content may be unavailable.
+                    `;
+                    statusDiv.prepend(alert);
+                }
+            } else {
+                requestCount.textContent = settings.requests_today;
+                requestLimit.textContent = settings.daily_request_limit;
+                requestCount.parentElement.classList.remove('text-warning');
+            }
+        }
+    } catch (error) {
+        console.error('Error updating request status:', error);
+    }
+}
+
+// Update status every minute
+setInterval(updateRequestStatus, 60000);
+
+// Initial load
+document.addEventListener('DOMContentLoaded', updateRequestStatus);
 </script>
 {% endblock %}
 

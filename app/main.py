@@ -1265,33 +1265,60 @@ async def update_report_template(section: str, template: dict = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request, session=Depends(verify_session)):
+async def dashboard(
+    request: Request,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)  # Add session verification
+):
     try:
-        db_info = db.get_database_info()
-        config = load_config()
-        topics = config.get('topics', [])
+        # Get rate limit status
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT requests_today, last_error 
+                FROM keyword_monitor_status 
+                WHERE id = 1
+            """)
+            row = cursor.fetchone()
+            requests_today = row[0] if row else 0
+            last_error = row[1] if row and len(row) > 1 else None
+            
+            # Check if rate limited
+            is_rate_limited = (
+                last_error and 
+                ("Rate limit exceeded" in last_error or "limit reached" in last_error)
+            )
 
-        # Prepare data for each topic
-        topic_data = []
-        for topic in topics:
+        # Get topics from config
+        config = load_config()
+        topics = []
+        for topic in config.get('topics', []):
             topic_id = topic['name']
             news_query = get_news_query(topic_id)
             paper_query = get_paper_query(topic_id)
-
-            topic_data.append({
-                "topic": topic_id,  # This is used as the ID in the frontend
-                "name": topic_id,   # This is displayed as the title
+            
+            topics.append({
+                "topic": topic_id,  # Used as ID in frontend
+                "name": topic_id,   # Displayed as title
                 "news_query": news_query,
                 "paper_query": paper_query
             })
 
-        return templates.TemplateResponse("dashboard.html", {
-            "request": request,
-            "topics": topic_data,
-            "session": session
-        })
+        return templates.TemplateResponse(
+            "dashboard.html",
+            {
+                "request": request,
+                "topics": topics,
+                "last_error": last_error if is_rate_limited else None,
+                "is_rate_limited": is_rate_limited,
+                "requests_today": requests_today,
+                "session": session  # Add session to template context
+            }
+        )
+
     except Exception as e:
-        logger.error(f"Dashboard error: {str(e)}")
+        logger.error(f"Error loading dashboard: {str(e)}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/topics/{topic_name}/articles")
@@ -1428,80 +1455,95 @@ async def update_paper_query(query: str = Body(...), topicId: str = Body(...)):
 @app.get("/api/latest-news-and-papers")
 async def get_latest_news_and_papers(
     topicId: str,
-    count: int = Query(default=5, ge=1, le=20),  # Changed minimum to 1 to support single article fetch
-    sortBy: str = Query(default="publishedAt", regex="^(relevancy|popularity|publishedAt)$"),
-    offset: int = Query(default=0, ge=0)  # Added offset parameter
+    count: int = 5,
+    sortBy: str = "publishedAt",
+    db: Database = Depends(get_database_instance)
 ):
     try:
+        # Initialize collectors with database instance
+        news_collector = NewsAPICollector(db)
+        arxiv_collector = ArxivCollector()
+        
+        # Get news query for topic
         news_query = get_news_query(topicId)
-        paper_query = get_paper_query(topicId)
-
-        latest_news = []
-        latest_papers = []
-
-        if news_query:
-            news_collector = NewsAPICollector()
-            latest_news = await news_collector.search_articles(
-                query=news_query,
-                topic=topicId,
-                max_results=count + offset,  # Fetch extra articles to account for offset
-                sort_by=sortBy
-            )
-            # Apply offset
-            latest_news = latest_news[offset:offset + count]
-
-        if paper_query:
-            arxiv_collector = ArxivCollector()
-            latest_papers = await arxiv_collector.search_articles(
-                query=paper_query,
-                topic=topicId,
-                max_results=count + offset
-            )
-            # Apply offset
-            latest_papers = latest_papers[offset:offset + count]
+        if not news_query:
+            news_query = topicId
+            
+        # Get papers query for topic    
+        papers_query = get_paper_query(topicId)
+        if not papers_query:
+            papers_query = topicId
 
         latest_news_formatted = []
-        for article in latest_news:
-            try:
-                raw_data = article.get('raw_data', {})
-                formatted_article = {
-                    "title": article.get('title', 'No title'),
-                    "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y %I:%M %p"),
-                    "source": raw_data.get('source_name', 'Unknown'),
-                    "summary": article.get('summary', 'No summary available'),
-                    "url": article.get('url', '#'),
-                    "author": article.get('authors', [])[0] if article.get('authors') else 'Unknown author',
-                    "image_url": raw_data.get('url_to_image')
-                }
-                latest_news_formatted.append(formatted_article)
-            except Exception as e:
-                logger.error(f"Error formatting news article: {e}")
-                logger.error(f"Problematic article data: {article}")
-                continue
+        try:
+            # Get news articles
+            latest_news = await news_collector.search_articles(
+                query=news_query,
+                max_results=count,
+                sort_by=sortBy
+            )
+            
+            # Format news articles
+            for article in latest_news:
+                try:
+                    raw_data = article.get('raw_data', {})
+                    formatted_article = {
+                        "title": article.get('title', 'No title'),
+                        "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y %I:%M %p"),
+                        "source": article.get('news_source', 'Unknown'),
+                        "summary": article.get('summary', 'No summary available'),
+                        "url": article.get('url', '#'),
+                        "author": raw_data.get('author', 'Unknown author'),
+                        "image_url": raw_data.get('url_to_image')
+                    }
+                    latest_news_formatted.append(formatted_article)
+                except Exception as e:
+                    logger.error(f"Error formatting news article: {e}")
+                    continue
+                    
+        except ValueError as e:
+            if "Rate limit exceeded" in str(e) or "limit reached" in str(e):
+                # Log the rate limit but continue with papers
+                logger.warning(f"NewsAPI rate limit reached: {str(e)}")
+            else:
+                raise
 
+        # Get papers (continue even if news failed)
         latest_papers_formatted = []
-        for article in latest_papers:
-            try:
-                formatted_article = {
-                    "title": article.get('title', 'No title'),
-                    "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y"),
-                    "authors": article.get('authors', []),
-                    "summary": article.get('summary', 'No summary available'),
-                    "url": article.get('url', '#')
-                }
-                latest_papers_formatted.append(formatted_article)
-            except Exception as e:
-                logger.error(f"Error formatting paper article: {e}")
-                continue
+        try:
+            latest_papers = await arxiv_collector.search_articles(
+                query=papers_query,
+                topic=topicId,  # Add the missing topic parameter
+                max_results=count
+            )
+            
+            # Format papers
+            for article in latest_papers:
+                try:
+                    formatted_article = {
+                        "title": article.get('title', 'No title'),
+                        "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y"),
+                        "authors": article.get('authors', []),
+                        "summary": article.get('summary', 'No summary available'),
+                        "url": article.get('url', '#')
+                    }
+                    latest_papers_formatted.append(formatted_article)
+                except Exception as e:
+                    logger.error(f"Error formatting paper article: {e}")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Error fetching papers: {str(e)}")
 
-        return JSONResponse(content={
+        return {
             "latest_news": latest_news_formatted,
             "latest_papers": latest_papers_formatted
-        })
+        }
+
     except Exception as e:
         logger.error(f"Error fetching latest news and papers: {str(e)}")
-        logger.exception("Full traceback:")
-        raise HTTPException(status_code=500, detail="Error fetching latest news and papers")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/update-keyword")
 async def update_keyword(request: Request):
