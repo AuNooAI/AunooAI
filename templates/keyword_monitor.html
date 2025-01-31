@@ -163,6 +163,12 @@
                             </select>
                         </div>
                         <small class="text-muted">How often to check for new articles</small>
+                        <div id="recommendedInterval" class="mt-2 text-info" style="display: none;">
+                            <i class="fas fa-info-circle"></i> 
+                            Recommended interval: <span id="recommendedValue"></span> 
+                            based on <span id="totalKeywords"></span> monitored keywords 
+                            (<span id="requestsPerDay"></span> requests per day available)
+                        </div>
                     </div>
 
                     <div class="mb-4">
@@ -317,7 +323,6 @@ async function deleteGroup(groupId) {
 }
 
 async function showSettingsModal() {
-    // Load current settings
     try {
         const response = await fetch('/api/keyword-monitor/settings');
         if (response.ok) {
@@ -335,6 +340,18 @@ async function showSettingsModal() {
             document.querySelectorAll('[name="searchFields"]').forEach(cb => {
                 cb.checked = fields.includes(cb.value);
             });
+            
+            // Show recommended interval if available
+            const recommendedDiv = document.getElementById('recommendedInterval');
+            if (settings.recommended_interval) {
+                document.getElementById('recommendedValue').textContent = 
+                    `${settings.recommended_interval.interval} ${settings.recommended_interval.unit_name}`;
+                document.getElementById('totalKeywords').textContent = settings.total_keywords;
+                document.getElementById('requestsPerDay').textContent = '100';
+                recommendedDiv.style.display = 'block';
+            } else {
+                recommendedDiv.style.display = 'none';
+            }
         }
     } catch (error) {
         console.error('Error loading settings:', error);

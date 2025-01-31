@@ -21,21 +21,38 @@ class KeywordMonitor:
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Create table if it doesn't exist
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS keyword_monitor_settings (
-                        id INTEGER PRIMARY KEY,
-                        check_interval INTEGER NOT NULL,
-                        interval_unit INTEGER NOT NULL,
-                        search_fields TEXT NOT NULL,
-                        language TEXT NOT NULL,
-                        sort_by TEXT NOT NULL,
-                        page_size INTEGER NOT NULL
-                    )
-                """)
-                conn.commit()
+                # Check if table exists and get its columns
+                cursor.execute("PRAGMA table_info(keyword_monitor_settings)")
+                columns = {col[1] for col in cursor.fetchall()}
                 
-                # Use column names in SELECT
+                if not columns:
+                    # Create table if it doesn't exist
+                    cursor.execute("""
+                        CREATE TABLE keyword_monitor_settings (
+                            id INTEGER PRIMARY KEY,
+                            check_interval INTEGER NOT NULL DEFAULT 15,
+                            interval_unit INTEGER NOT NULL DEFAULT 60,
+                            search_fields TEXT NOT NULL DEFAULT 'title,description,content',
+                            language TEXT NOT NULL DEFAULT 'en',
+                            sort_by TEXT NOT NULL DEFAULT 'publishedAt',
+                            page_size INTEGER NOT NULL DEFAULT 10,
+                            is_enabled BOOLEAN NOT NULL DEFAULT 1
+                        )
+                    """)
+                    # Insert default settings
+                    cursor.execute("""
+                        INSERT INTO keyword_monitor_settings (id) VALUES (1)
+                    """)
+                    conn.commit()
+                elif 'is_enabled' not in columns:
+                    # Add is_enabled column if it doesn't exist
+                    cursor.execute("""
+                        ALTER TABLE keyword_monitor_settings 
+                        ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT 1
+                    """)
+                    conn.commit()
+                
+                # Load settings
                 cursor.execute("""
                     SELECT 
                         check_interval,
@@ -43,7 +60,8 @@ class KeywordMonitor:
                         search_fields,
                         language,
                         sort_by,
-                        page_size
+                        page_size,
+                        is_enabled
                     FROM keyword_monitor_settings 
                     WHERE id = 1
                 """)
@@ -55,6 +73,7 @@ class KeywordMonitor:
                     self.language = settings[3]
                     self.sort_by = settings[4]
                     self.page_size = settings[5]
+                    self.is_enabled = settings[6]
                 else:
                     # Use defaults
                     self.check_interval = 900  # 15 minutes
@@ -62,6 +81,7 @@ class KeywordMonitor:
                     self.language = "en"
                     self.sort_by = "publishedAt"
                     self.page_size = 10
+                    self.is_enabled = True
                     
         except Exception as e:
             logger.error(f"Error loading settings: {str(e)}")
@@ -71,6 +91,7 @@ class KeywordMonitor:
             self.language = "en"
             self.sort_by = "publishedAt"
             self.page_size = 10
+            self.is_enabled = True
     
     def _init_tables(self):
         """Initialize required database tables"""
@@ -253,7 +274,16 @@ async def run_keyword_monitor():
     
     while True:
         try:
-            await monitor.check_keywords()
+            # Check if polling is enabled
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT is_enabled FROM keyword_monitor_settings WHERE id = 1")
+                row = cursor.fetchone()
+                is_enabled = row[0] if row and row[0] is not None else True
+
+            if is_enabled:
+                await monitor.check_keywords()
+                
         except Exception as e:
             logger.error(f"Keyword monitor error: {str(e)}")
         

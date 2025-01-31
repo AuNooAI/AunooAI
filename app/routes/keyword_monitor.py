@@ -31,6 +31,9 @@ class KeywordMonitorSettings(BaseModel):
     sort_by: str
     page_size: int
 
+class PollingToggle(BaseModel):
+    enabled: bool
+
 @router.post("/groups")
 async def create_group(group: KeywordGroup, db=Depends(get_database_instance)):
     try:
@@ -192,21 +195,7 @@ async def get_settings(db=Depends(get_database_instance)):
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Create table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS keyword_monitor_settings (
-                    id INTEGER PRIMARY KEY,
-                    check_interval INTEGER NOT NULL,
-                    interval_unit INTEGER NOT NULL,
-                    search_fields TEXT NOT NULL,
-                    language TEXT NOT NULL,
-                    sort_by TEXT NOT NULL,
-                    page_size INTEGER NOT NULL
-                )
-            """)
-            conn.commit()
-            
-            # Use column names in SELECT
+            # Get current settings
             cursor.execute("""
                 SELECT 
                     check_interval,
@@ -214,47 +203,56 @@ async def get_settings(db=Depends(get_database_instance)):
                     search_fields,
                     language,
                     sort_by,
-                    page_size
+                    page_size,
+                    is_enabled
                 FROM keyword_monitor_settings 
                 WHERE id = 1
             """)
             settings = cursor.fetchone()
             
-            if not settings:
-                # Insert default settings
-                default_settings = {
-                    "check_interval": 15,
-                    "interval_unit": 60,  # minutes
-                    "search_fields": "title,description,content",
-                    "language": "en",
-                    "sort_by": "publishedAt",
-                    "page_size": 10
-                }
-                
-                cursor.execute("""
-                    INSERT INTO keyword_monitor_settings (
-                        id, check_interval, interval_unit, search_fields,
-                        language, sort_by, page_size
-                    ) VALUES (1, ?, ?, ?, ?, ?, ?)
-                """, (
-                    default_settings["check_interval"],
-                    default_settings["interval_unit"],
-                    default_settings["search_fields"],
-                    default_settings["language"],
-                    default_settings["sort_by"],
-                    default_settings["page_size"]
-                ))
-                conn.commit()
-                return default_settings
+            # Count total keywords
+            cursor.execute("SELECT COUNT(*) FROM monitored_keywords")
+            total_keywords = cursor.fetchone()[0]
             
-            # Map tuple indices to dictionary keys
+            # Calculate recommended interval
+            REQUESTS_PER_DAY = 100
+            if total_keywords > 0:
+                # Calculate how many minutes we should wait between checks
+                minutes_per_day = 24 * 60
+                recommended_interval = max(15, int(minutes_per_day / (REQUESTS_PER_DAY / total_keywords)))
+                
+                # Convert to most appropriate unit
+                if recommended_interval >= 1440:  # 24 hours
+                    recommended = {
+                        'interval': recommended_interval // 1440,
+                        'unit': 86400,  # days in seconds
+                        'unit_name': 'days'
+                    }
+                elif recommended_interval >= 60:
+                    recommended = {
+                        'interval': recommended_interval // 60,
+                        'unit': 3600,  # hours in seconds
+                        'unit_name': 'hours'
+                    }
+                else:
+                    recommended = {
+                        'interval': recommended_interval,
+                        'unit': 60,  # minutes in seconds
+                        'unit_name': 'minutes'
+                    }
+            else:
+                recommended = None
+            
             return {
-                "check_interval": settings[0],
-                "interval_unit": settings[1],
-                "search_fields": settings[2],
-                "language": settings[3],
-                "sort_by": settings[4],
-                "page_size": settings[5]
+                "check_interval": settings[0] if settings else 15,
+                "interval_unit": settings[1] if settings else 60,
+                "search_fields": settings[2] if settings else "title,description,content",
+                "language": settings[3] if settings else "en",
+                "sort_by": settings[4] if settings else "publishedAt",
+                "page_size": settings[5] if settings else 10,
+                "is_enabled": settings[6] if settings else True,
+                "total_keywords": total_keywords,
+                "recommended_interval": recommended
             }
             
     except Exception as e:
@@ -350,4 +348,52 @@ async def get_trends(db=Depends(get_database_instance)):
             
     except Exception as e:
         logger.error(f"Error getting trends: {str(e)}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/toggle-polling")
+async def toggle_polling(toggle: PollingToggle, db=Depends(get_database_instance)):
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # First check if settings exist
+            cursor.execute("SELECT 1 FROM keyword_monitor_settings WHERE id = 1")
+            exists = cursor.fetchone() is not None
+            
+            if exists:
+                # Just update is_enabled if settings exist
+                cursor.execute("""
+                    UPDATE keyword_monitor_settings 
+                    SET is_enabled = ?
+                    WHERE id = 1
+                """, (toggle.enabled,))
+            else:
+                # Insert with defaults if no settings exist
+                cursor.execute("""
+                    INSERT INTO keyword_monitor_settings (
+                        id,
+                        check_interval,
+                        interval_unit,
+                        search_fields,
+                        language,
+                        sort_by,
+                        page_size,
+                        is_enabled
+                    ) VALUES (
+                        1,
+                        15,
+                        60,
+                        'title,description,content',
+                        'en',
+                        'publishedAt',
+                        10,
+                        ?
+                    )
+                """, (toggle.enabled,))
+            
+            conn.commit()
+            return {"status": "success", "enabled": toggle.enabled}
+            
+    except Exception as e:
+        logger.error(f"Error toggling polling: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

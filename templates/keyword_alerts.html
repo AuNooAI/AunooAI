@@ -7,14 +7,43 @@
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1>Keyword Alerts</h1>
-            <p class="text-muted">
-                Last search: {{ last_check_time|default('Never', true) }}
+            <p class="text-muted d-flex align-items-center gap-3">
+                <span>
+                    <i class="fas fa-clock"></i> Last search: {{ last_check_time|default('Never', true) }}
+                </span>
                 {% if last_error %}
-                    <span class="text-danger ms-2">
+                    <span class="text-danger">
                         <i class="fas fa-exclamation-circle"></i> {{ last_error }}
                     </span>
                 {% endif %}
-                <button class="btn btn-sm btn-outline-primary ms-2" onclick="checkKeywords()">
+                <span class="text-muted">
+                    <i class="fas fa-sync"></i> Polling every {{ display_interval }}
+                </span>
+                <span class="text-muted">
+                    <i class="fas fa-hourglass-half"></i> 
+                    {% if not is_enabled %}
+                        Polling disabled
+                    {% elif next_check_time %}
+                        {% set next_check = next_check_time|datetime %}
+                        {% set current_time = now|datetime %}
+                        {% if next_check <= current_time %}
+                            Checking soon...
+                        {% else %}
+                            {{ next_check_time|timeago }}
+                        {% endif %}
+                    {% else %}
+                        Checking soon...
+                    {% endif %}
+                </span>
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="pollingToggle" 
+                           {% if is_enabled %}checked{% endif %}
+                           onchange="togglePolling(this.checked)">
+                    <label class="form-check-label" for="pollingToggle">
+                        Auto-polling {{ 'enabled' if is_enabled else 'disabled' }}
+                    </label>
+                </div>
+                <button class="btn btn-sm btn-outline-primary" onclick="checkKeywords()">
                     <i class="fas fa-sync"></i> Check Now
                 </button>
             </p>
@@ -145,45 +174,74 @@
                     </div>
                     
                     {% if group.alerts %}
-                    <div class="list-group list-group-flush">
-                        {% for alert in group.alerts %}
-                        <div class="list-group-item">
-                            <div class="row align-items-center">
-                                <div class="col">
-                                    <h6 class="mb-1">{{ alert.article.title }}</h6>
-                                    <p class="mb-1 text-muted small">
-                                        <span class="me-3">
-                                            <i class="fas fa-newspaper"></i> {{ alert.article.source }}
-                                        </span>
-                                        <span class="me-3">
-                                            <i class="fas fa-calendar"></i> {{ alert.article.publication_date }}
-                                        </span>
-                                        <span>
-                                            <i class="fas fa-tag"></i> Matched: <span class="badge bg-info">{{ alert.keyword }}</span>
-                                        </span>
-                                    </p>
-                                    <p class="mb-2 small">{{ alert.article.summary }}</p>
-                                    <div class="btn-group btn-group-sm">
-                                        <a href="{{ alert.article.url }}" target="_blank" class="btn btn-outline-primary">
-                                            <i class="fas fa-external-link-alt"></i> View Article
-                                        </a>
-                                        <a href="/research?url={{ alert.article.url }}&topic={{ group.topic }}" 
-                                           class="btn btn-outline-secondary">
-                                            <i class="fas fa-microscope"></i> Analyze
-                                        </a>
-                                        <button class="btn btn-outline-success" onclick="markAsRead({{ alert.id }})">
-                                            <i class="fas fa-check"></i> Mark as Read
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                                <tr>
+                                    <th style="width: 80px">Status</th>
+                                    <th>Article</th>
+                                    <th style="width: 150px">Source</th>
+                                    <th style="width: 150px">Detected</th>
+                                    <th style="width: 100px">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for alert in group.alerts %}
+                                <tr>
+                                    <td>
+                                        <span class="badge bg-primary">New</span>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-column" style="max-width: 600px;">
+                                            <div class="mb-1">
+                                                <a href="{{ alert.article.url }}" target="_blank" class="h6 text-decoration-none">
+                                                    {{ alert.article.title }}
+                                                </a>
+                                            </div>
+                                            <div class="mb-1">
+                                                <span class="badge bg-light text-dark">
+                                                    <i class="fas fa-tag"></i> {{ alert.matched_keyword }}
+                                                </span>
+                                            </div>
+                                            {% if alert.article.summary %}
+                                            <div class="text-muted small" style="max-height: 60px; overflow-y: auto;">
+                                                {{ alert.article.summary[:200] }}...
+                                            </div>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="small">
+                                            <div class="fw-bold">{{ alert.article.source }}</div>
+                                            <div class="text-muted">
+                                                {{ alert.article.publication_date|datetime }}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="small">
+                                            <div>{{ alert.detected_at|timeago }}</div>
+                                            <div class="text-muted">
+                                                {{ alert.detected_at|datetime }}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-success" onclick="markAsRead('{{ alert.id }}')">
+                                            <i class="fas fa-check"></i> Mark Read
                                         </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        {% endfor %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
                     </div>
                     {% else %}
-                    <div class="card-body">
-                        <div class="alert alert-info mb-0">
-                            <i class="fas fa-info-circle"></i> No new alerts for this group
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <div class="alert alert-info mb-0">
+                                <i class="fas fa-info-circle"></i> No new alerts for this group
+                            </div>
                         </div>
                     </div>
                     {% endif %}
@@ -401,6 +459,81 @@ async function checkKeywords() {
         alert('Failed to check keywords');
         button.disabled = false;
         button.innerHTML = originalHtml;
+    }
+}
+
+// Add custom date formatting
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+}
+
+function timeAgo(dateStr) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const seconds = Math.floor((now - date) / 1000);
+    
+    let interval = Math.floor(seconds / 31536000);
+    if (interval > 1) return interval + ' years ago';
+    
+    interval = Math.floor(seconds / 2592000);
+    if (interval > 1) return interval + ' months ago';
+    
+    interval = Math.floor(seconds / 86400);
+    if (interval > 1) return interval + ' days ago';
+    
+    interval = Math.floor(seconds / 3600);
+    if (interval > 1) return interval + ' hours ago';
+    
+    interval = Math.floor(seconds / 60);
+    if (interval > 1) return interval + ' minutes ago';
+    
+    return Math.floor(seconds) + ' seconds ago';
+}
+
+// Add Jinja filters
+document.addEventListener('DOMContentLoaded', function() {
+    const dates = document.querySelectorAll('[data-date]');
+    dates.forEach(el => {
+        const dateStr = el.dataset.date;
+        if (el.classList.contains('timeago')) {
+            el.textContent = timeAgo(dateStr);
+        } else {
+            el.textContent = formatDate(dateStr);
+        }
+    });
+});
+
+async function togglePolling(enabled) {
+    try {
+        const response = await fetch('/api/keyword-monitor/toggle-polling', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ enabled })
+        });
+        
+        if (!response.ok) throw new Error('Failed to toggle polling');
+        
+        // Update the label text
+        const label = document.querySelector('label[for="pollingToggle"]');
+        label.textContent = `Auto-polling ${enabled ? 'enabled' : 'disabled'}`;
+        
+        // Update the next check time display
+        const nextCheckSpan = document.querySelector('span.text-muted i.fa-hourglass-half').parentElement;
+        if (nextCheckSpan) {
+            nextCheckSpan.innerHTML = `<i class="fas fa-hourglass-half"></i> ${enabled ? 'Checking soon...' : 'Polling disabled'}`;
+        }
+        
+        // Optionally refresh the page to update all states
+        window.location.reload();
+        
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to toggle polling');
+        // Revert the toggle if there was an error
+        document.getElementById('pollingToggle').checked = !enabled;
     }
 }
 </script>

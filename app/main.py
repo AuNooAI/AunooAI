@@ -57,6 +57,63 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Setup Jinja2 templates
 templates = Jinja2Templates(directory="templates")
 
+# Add custom filters
+def datetime_filter(value):
+    if not value:
+        return ""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            return value
+    return value.strftime('%Y-%m-%d %H:%M:%S')
+
+def timeago_filter(value):
+    if not value:
+        return ""
+    try:
+        if isinstance(value, str):
+            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        else:
+            dt = value
+            
+        now = datetime.now()
+        diff = dt - now
+        
+        # Handle future dates
+        if diff.total_seconds() > 0:
+            seconds = int(diff.total_seconds())
+            if seconds < 60:
+                return f"in {seconds} seconds"
+            minutes = seconds // 60
+            if minutes < 60:
+                return f"in {minutes} minute{'s' if minutes != 1 else ''}"
+            hours = minutes // 60
+            if hours < 24:
+                return f"in {hours} hour{'s' if hours != 1 else ''}"
+            days = hours // 24
+            return f"in {days} day{'s' if days != 1 else ''}"
+        
+        # Handle past dates (existing logic)
+        seconds = int(abs(diff.total_seconds()))
+        if seconds < 60:
+            return f"{seconds} seconds ago"
+        minutes = seconds // 60
+        if minutes < 60:
+            return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        days = hours // 24
+        return f"{days} day{'s' if days != 1 else ''} ago"
+    except Exception as e:
+        logger.error(f"Error in timeago filter: {str(e)}")
+        return str(value)
+
+# Register the filters
+templates.env.filters["datetime"] = datetime_filter
+templates.env.filters["timeago"] = timeago_filter
+
 # Initialize components
 db = Database()
 research = Research(db)
@@ -995,7 +1052,6 @@ async def create_topic(topic_data: dict):
         # Check if updating existing topic
         existing_topic_index = next((i for i, topic in enumerate(config['topics']) 
                                    if topic['name'] == topic_data['name']), None)
-        
         if existing_topic_index is not None:
             config['topics'][existing_topic_index] = topic_data
         else:
@@ -1691,12 +1747,47 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
             
             # Get the last check time
             cursor.execute("""
-                SELECT MAX(last_checked) as last_check_time
+                SELECT 
+                    MAX(last_checked) as last_check_time,
+                    (SELECT check_interval FROM keyword_monitor_settings WHERE id = 1) as check_interval,
+                    (SELECT interval_unit FROM keyword_monitor_settings WHERE id = 1) as interval_unit,
+                    (SELECT last_error FROM keyword_monitor_status WHERE id = 1) as last_error,
+                    (SELECT is_enabled FROM keyword_monitor_settings WHERE id = 1) as is_enabled
                 FROM monitored_keywords
             """)
-            last_check = cursor.fetchone()[0]
-            last_check_time = datetime.fromisoformat(last_check).strftime('%Y-%m-%d %H:%M:%S') if last_check else None
-            
+            row = cursor.fetchone()
+            last_check = row[0]
+            check_interval = row[1] if row[1] else 15
+            interval_unit = row[2] if row[2] else 60  # Default to minutes
+            last_error = row[3]
+            is_enabled = row[4] if row[4] is not None else True  # Default to enabled
+
+            # Format the display interval
+            if interval_unit == 3600:  # Hours
+                display_interval = f"{check_interval} hour{'s' if check_interval != 1 else ''}"
+            elif interval_unit == 86400:  # Days
+                display_interval = f"{check_interval} day{'s' if check_interval != 1 else ''}"
+            else:  # Minutes
+                display_interval = f"{check_interval} minute{'s' if check_interval != 1 else ''}"
+
+            # Calculate next check time
+            now = datetime.now()
+            if last_check:
+                last_check_time = datetime.fromisoformat(last_check.replace('Z', '+00:00'))
+                next_check = last_check_time + timedelta(seconds=check_interval * interval_unit)
+                
+                # Only show next check time if it's in the future
+                if next_check > now:
+                    next_check_time = next_check.isoformat()
+                else:
+                    next_check_time = now.isoformat()
+            else:
+                last_check_time = None
+                next_check_time = now.isoformat()
+
+            # Format the last_check_time for display
+            display_last_check = last_check_time.strftime('%Y-%m-%d %H:%M:%S') if last_check_time else None
+
             # Get all groups with their alerts and status
             cursor.execute("""
                 WITH alert_counts AS (
@@ -1734,7 +1825,11 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                         ka.detected_at,
                         ka.article_uri,
                         a.title,
-                        a.uri as url
+                        a.uri as url,
+                        a.news_source,
+                        a.publication_date,
+                        a.summary,
+                        mk.keyword as matched_keyword
                     FROM keyword_alerts ka
                     JOIN monitored_keywords mk ON ka.keyword_id = mk.id
                     JOIN articles a ON ka.article_uri = a.uri
@@ -1749,10 +1844,15 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                         'article': {
                             'uri': article_uri,
                             'title': title,
-                            'url': url
-                        }
+                            'url': url,
+                            'source': news_source,
+                            'publication_date': publication_date,
+                            'summary': summary
+                        },
+                        'matched_keyword': matched_keyword
                     }
-                    for alert_id, detected_at, article_uri, title, url in cursor.fetchall()
+                    for alert_id, detected_at, article_uri, title, url, news_source, 
+                        publication_date, summary, matched_keyword in cursor.fetchall()
                 ]
                 
                 growth_status = 'No Data'
@@ -1774,8 +1874,13 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                 {
                     "request": request,
                     "groups": groups,
-                    "last_check_time": last_check_time,
-                    "session": session
+                    "last_check_time": display_last_check,
+                    "display_interval": display_interval,
+                    "next_check_time": next_check_time,
+                    "last_error": last_error,
+                    "session": session,
+                    "now": now.isoformat(),
+                    "is_enabled": is_enabled
                 }
             )
             
