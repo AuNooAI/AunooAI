@@ -1,9 +1,9 @@
+import logging
 import asyncio
 from datetime import datetime
 from typing import List, Dict
 from app.collectors.newsapi_collector import NewsAPICollector
 from app.database import Database
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -121,47 +121,68 @@ class KeywordMonitor:
                             id INTEGER PRIMARY KEY,
                             last_check_time TEXT,
                             last_error TEXT,
-                            requests_today INTEGER DEFAULT 0
+                            requests_today INTEGER DEFAULT 0,
+                            last_reset_date TEXT
                         )
                     """)
-                elif 'requests_today' not in columns:
-                    # Table exists but needs the new column
+                elif 'last_reset_date' not in columns:
+                    # Add last_reset_date column if it doesn't exist
                     cursor.execute("""
                         ALTER TABLE keyword_monitor_status
-                        ADD COLUMN requests_today INTEGER DEFAULT 0
+                        ADD COLUMN last_reset_date TEXT
                     """)
                 
                 # Create initial status record if it doesn't exist
                 cursor.execute("""
                     INSERT OR IGNORE INTO keyword_monitor_status (
-                        id, last_check_time, last_error, requests_today
-                    ) VALUES (1, NULL, NULL, 0)
+                        id, last_check_time, last_error, requests_today, last_reset_date
+                    ) VALUES (1, NULL, NULL, 0, NULL)
                 """)
                 
                 conn.commit()
                 
+                # Check if we need to reset the counter
+                cursor.execute("""
+                    SELECT requests_today, last_reset_date 
+                    FROM keyword_monitor_status 
+                    WHERE id = 1
+                """)
+                row = cursor.fetchone()
+                if row:
+                    last_reset = row[1]
+                    today = datetime.now().date().isoformat()
+                    
+                    if not last_reset or last_reset < today:
+                        # Reset counter for new day
+                        cursor.execute("""
+                            UPDATE keyword_monitor_status 
+                            SET requests_today = 0,
+                                last_reset_date = ?
+                            WHERE id = 1
+                        """, (today,))
+                        conn.commit()
+            
         except Exception as e:
             logger.error(f"Error initializing tables: {str(e)}")
             raise
     
     def _init_collector(self):
-        """Try to initialize the collector if not already initialized"""
-        try:
-            if not self.collector:
-                logger.info("Initializing NewsAPI collector...")
-                self.collector = NewsAPICollector()
-                logger.info("NewsAPI collector initialized successfully")
-            return True
-        except ValueError as e:
-            current_time = datetime.now()
-            logger.error(f"Failed to initialize NewsAPI collector: {str(e)}")
-            self.last_collector_init_attempt = current_time
-            return False
+        """Initialize the NewsAPI collector with database access"""
+        if not self.collector:
+            try:
+                self.collector = NewsAPICollector(self.db)
+                self.last_collector_init_attempt = datetime.now()
+                return True  # Return True on successful initialization
+            except Exception as e:
+                logger.error(f"Failed to initialize collector: {str(e)}")
+                self.last_collector_init_attempt = datetime.now()
+                return False  # Return False if initialization fails
+        return True  # Return True if collector already exists
     
     async def check_keywords(self):
         """Check all keywords for new matches"""
         logger.info("Starting keyword check...")
-        if not self._init_collector():
+        if not self._init_collector():  # Check return value
             logger.error("Failed to initialize collector, skipping check")
             return
         

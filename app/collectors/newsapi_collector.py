@@ -5,21 +5,60 @@ from .base_collector import ArticleCollector
 import logging
 import os
 import json
+from app.database import Database
 
 logger = logging.getLogger(__name__)
 
 class NewsAPICollector(ArticleCollector):
     """NewsAPI article collector implementation."""
     
-    def __init__(self):
+    def __init__(self, db: Database):
         self.api_key = os.getenv('PROVIDER_NEWSAPI_KEY')
         if not self.api_key:
             logger.error("NewsAPI key not found in environment")
             raise ValueError("NewsAPI key not configured")
             
+        self.db = db
         self.base_url = "https://newsapi.org/v2"
-        self.requests_today = 0
+        self._init_request_counter()
         self.last_request_time = None
+
+    def _init_request_counter(self):
+        """Initialize request counter from database"""
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Get today's request count and last reset date
+                cursor.execute("""
+                    SELECT requests_today, last_reset_date 
+                    FROM keyword_monitor_status 
+                    WHERE id = 1
+                """)
+                row = cursor.fetchone()
+                today = datetime.now().date().isoformat()
+                
+                if row:
+                    requests_today, last_reset = row
+                    
+                    if not last_reset or last_reset < today:
+                        # Reset counter for new day
+                        self.requests_today = 0
+                        cursor.execute("""
+                            UPDATE keyword_monitor_status 
+                            SET requests_today = 0,
+                                last_reset_date = ?
+                            WHERE id = 1
+                        """, (today,))
+                        conn.commit()
+                    else:
+                        self.requests_today = requests_today
+                else:
+                    self.requests_today = 0
+                    
+        except Exception as e:
+            logger.error(f"Error initializing request counter: {str(e)}")
+            self.requests_today = 0
 
     async def fetch_article_content(self, url: str) -> Optional[Dict]:
         """Implement abstract method from ArticleCollector"""
@@ -49,6 +88,24 @@ class NewsAPICollector(ArticleCollector):
         sort_by: Optional[str] = None
     ) -> List[Dict]:
         try:
+            # Check if we're already at the limit before making request
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT requests_today FROM keyword_monitor_status WHERE id = 1")
+                row = cursor.fetchone()
+                current_requests = row[0] if row else 0
+                
+                if current_requests >= 100:  # Hard limit from NewsAPI
+                    error_msg = "NewsAPI daily request limit reached (100/100 requests used)"
+                    cursor.execute("""
+                        UPDATE keyword_monitor_status 
+                        SET last_error = ?,
+                            requests_today = 100
+                        WHERE id = 1
+                    """, (error_msg,))
+                    conn.commit()
+                    raise ValueError(error_msg)
+
             params = {
                 'q': query,
                 'apiKey': self.api_key,
@@ -107,13 +164,52 @@ class NewsAPICollector(ArticleCollector):
                         f"data={json.dumps(data, indent=2)}"
                     )
                     
-                    if status != 200:
+                    if status == 200:
+                        # Track successful request
+                        self.requests_today += 1
+                        
+                        # Update request count in database
+                        with self.db.get_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                UPDATE keyword_monitor_status 
+                                SET requests_today = ?,
+                                    last_check_time = ?
+                                WHERE id = 1
+                            """, (self.requests_today, datetime.now().isoformat()))
+                            conn.commit()
+                        
+                        articles = data.get("articles", [])
+                        logger.info(
+                            f"NewsAPI search successful: found {len(articles)} articles "
+                            f"for query '{query}' (request {self.requests_today}/100)"
+                        )
+                        
+                        # Transform to our standard format, maintaining compatibility
+                        return [{
+                            'title': article.get('title', ''),
+                            'summary': article.get('description', '') or '',
+                            'url': article.get('url', ''),  # Keep url for new code
+                            'uri': article.get('url', ''),  # Keep uri for old code
+                            'source': article.get('source', {}).get('name', ''),
+                            'news_source': article.get('source', {}).get('name', ''),  # For compatibility
+                            'published_date': article.get('publishedAt', ''),
+                            'publication_date': article.get('publishedAt', ''),  # For compatibility
+                            'raw_data': {
+                                'author': article.get('author'),
+                                'url_to_image': article.get('urlToImage'),
+                                'content': article.get('content')
+                            }
+                        } for article in articles if article.get('url')]
+
+                    elif status == 429:
+                        error_msg = data.get('message', 'Unknown error')
+                        logger.error(f"NewsAPI rate limit exceeded: {error_msg}")
+                        raise ValueError(f"Rate limit exceeded: {error_msg}")
+                    
+                    else:
                         error_msg = data.get('message', 'Unknown error')
                         error_code = data.get('code', 'unknown')
-                        
-                        if status == 429:
-                            logger.error(f"NewsAPI rate limit exceeded: {error_msg}")
-                            raise ValueError(f"Rate limit exceeded: {error_msg}")
                         
                         logger.error(
                             f"NewsAPI error: status={status}, code={error_code}, "
@@ -121,36 +217,19 @@ class NewsAPICollector(ArticleCollector):
                         )
                         return []
 
-                    # Track successful request
-                    self.requests_today += 1
-                    self.last_request_time = datetime.now()
-                    
-                    articles = data.get("articles", [])
-                    logger.info(
-                        f"NewsAPI search successful: found {len(articles)} articles "
-                        f"for query '{query}' (request {self.requests_today}/100)"
-                    )
-                    
-                    # Transform to our standard format, maintaining compatibility
-                    return [{
-                        'title': article.get('title', ''),
-                        'summary': article.get('description', '') or '',
-                        'url': article.get('url', ''),  # Keep url for new code
-                        'uri': article.get('url', ''),  # Keep uri for old code
-                        'source': article.get('source', {}).get('name', ''),
-                        'news_source': article.get('source', {}).get('name', ''),  # For compatibility
-                        'published_date': article.get('publishedAt', ''),
-                        'publication_date': article.get('publishedAt', ''),  # For compatibility
-                        'raw_data': {
-                            'author': article.get('author'),
-                            'url_to_image': article.get('urlToImage'),
-                            'content': article.get('content')
-                        }
-                    } for article in articles if article.get('url')]
-
         except ValueError as e:
-            # Re-raise rate limit errors
-            if "Rate limit exceeded" in str(e):
+            if "Rate limit exceeded" in str(e) or "limit reached" in str(e):
+                # Always ensure the counter shows 100 when rate limited
+                with self.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE keyword_monitor_status 
+                        SET requests_today = 100,
+                            last_error = ?
+                        WHERE id = 1
+                    """, (str(e),))
+                    conn.commit()
+                    self.requests_today = 100  # Update in-memory counter too
                 raise
             logger.error(f"Error searching NewsAPI: {str(e)}, query='{query}'")
             return []

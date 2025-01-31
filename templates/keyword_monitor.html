@@ -9,12 +9,20 @@
             <h1>Keyword Monitor</h1>
             <p class="text-muted">Create keyword groups and add keywords to monitor news articles</p>
         </div>
-        <div>
-            <button class="btn btn-secondary me-2" onclick="showSettingsModal()">
+        <div class="d-flex align-items-center gap-3">
+            <div class="d-flex align-items-center">
+                <div class="me-3">
+                    <div class="text-muted small">API Requests Today</div>
+                    <div class="progress" style="width: 150px; height: 5px;">
+                        <div id="mainRequestProgress" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <div class="text-end small">
+                        <span id="mainRequestsUsed" class="text-muted">0</span>/<span id="mainRequestLimit">100</span>
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-primary" onclick="showSettingsModal()">
                 <i class="fas fa-cog"></i> Settings
-            </button>
-            <button class="btn btn-primary" onclick="showNewGroupModal()">
-                <i class="fas fa-plus"></i> New Keyword Group
             </button>
         </div>
     </div>
@@ -170,7 +178,7 @@
                     </div>
 
                     <div class="mb-4">
-                        <h6>API Limits</h6>
+                        <h6>API Settings</h6>
                         <div class="form-group">
                             <label for="dailyRequestLimit">Daily Request Limit</label>
                             <input type="number" class="form-control" id="dailyRequestLimit" 
@@ -330,18 +338,43 @@ async function deleteGroup(groupId) {
     }
 }
 
+function updateRequestCounters(requestsToday, requestLimit) {
+    const mainRequestsUsed = document.getElementById('mainRequestsUsed');
+    const mainRequestLimit = document.getElementById('mainRequestLimit');
+    const mainRequestProgress = document.getElementById('mainRequestProgress');
+    
+    if (mainRequestsUsed) mainRequestsUsed.textContent = requestsToday;
+    if (mainRequestLimit) mainRequestLimit.textContent = requestLimit;
+    if (mainRequestProgress) {
+        const percentage = (requestsToday / requestLimit) * 100;
+        mainRequestProgress.style.width = `${percentage}%`;
+        
+        // Update progress bar color based on usage
+        if (percentage >= 100) {
+            mainRequestProgress.classList.remove('bg-warning');
+            mainRequestProgress.classList.add('bg-danger');
+        } else if (percentage >= 80) {
+            mainRequestProgress.classList.remove('bg-danger');
+            mainRequestProgress.classList.add('bg-warning');
+        } else {
+            mainRequestProgress.classList.remove('bg-warning', 'bg-danger');
+        }
+    }
+}
+
 async function showSettingsModal() {
     try {
         const response = await fetch('/api/keyword-monitor/settings');
         if (response.ok) {
             const settings = await response.json();
             
-            // Set form values
+            // Update both the main counter and settings form
+            updateRequestCounters(settings.requests_today, settings.daily_request_limit);
+            
             document.getElementById('checkInterval').value = settings.check_interval;
             document.getElementById('intervalUnit').value = settings.interval_unit;
             document.getElementById('dailyRequestLimit').value = settings.daily_request_limit;
             
-            // Calculate and show recommended interval
             if (settings.total_keywords > 0) {
                 const minutesPerDay = 24 * 60;
                 const requestsPerDay = settings.daily_request_limit;
@@ -350,20 +383,18 @@ async function showSettingsModal() {
                 let recommendedValue, recommendedUnit;
                 if (recommendedMinutes >= 1440) {
                     recommendedValue = Math.ceil(recommendedMinutes / 1440);
-                    recommendedUnit = 86400; // days in seconds
+                    recommendedUnit = 86400;
                 } else if (recommendedMinutes >= 60) {
                     recommendedValue = Math.ceil(recommendedMinutes / 60);
-                    recommendedUnit = 3600; // hours in seconds
+                    recommendedUnit = 3600;
                 } else {
                     recommendedValue = recommendedMinutes;
-                    recommendedUnit = 60; // minutes in seconds
+                    recommendedUnit = 60;
                 }
                 
-                // Set the recommended values
                 document.getElementById('checkInterval').value = recommendedValue;
                 document.getElementById('intervalUnit').value = recommendedUnit;
                 
-                // Show recommendation text
                 const unitText = recommendedUnit === 86400 ? 'days' : 
                                recommendedUnit === 3600 ? 'hours' : 'minutes';
                 document.getElementById('recommendedValue').textContent = 
@@ -373,13 +404,11 @@ async function showSettingsModal() {
                 document.getElementById('recommendedInterval').style.display = 'none';
             }
             
-            // Set search fields
             const fields = settings.search_fields.split(',');
             document.querySelectorAll('[name="searchFields"]').forEach(cb => {
                 cb.checked = fields.includes(cb.value);
             });
             
-            // Set other settings...
             document.getElementById('language').value = settings.language;
             document.getElementById('sortBy').value = settings.sort_by;
             document.getElementById('pageSize').value = settings.page_size;
@@ -392,13 +421,13 @@ async function showSettingsModal() {
     modal.show();
 }
 
-// Add event listener for daily request limit changes
 document.getElementById('dailyRequestLimit').addEventListener('change', function() {
-    const settings = {
+    const requestsToday = parseInt(document.getElementById('mainRequestsUsed').textContent);
+    
+    updateRecommendedInterval({
         total_keywords: parseInt(document.getElementById('recommendedValue').textContent.split(' ')[5]),
         daily_request_limit: parseInt(this.value)
-    };
-    updateRecommendedInterval(settings);
+    });
 });
 
 function updateRecommendedInterval(settings) {
@@ -419,11 +448,9 @@ function updateRecommendedInterval(settings) {
             recommendedUnit = 60;
         }
         
-        // Set the recommended values
         document.getElementById('checkInterval').value = recommendedValue;
         document.getElementById('intervalUnit').value = recommendedUnit;
         
-        // Update recommendation text
         const unitText = recommendedUnit === 86400 ? 'days' : 
                         recommendedUnit === 3600 ? 'hours' : 'minutes';
         document.getElementById('recommendedValue').textContent = 
@@ -458,6 +485,67 @@ async function saveSettings() {
     } catch (error) {
         console.error('Error:', error);
         alert('Failed to save settings');
+    }
+}
+
+// Update the refreshRequestCount function to handle rate limit messages
+async function refreshRequestCount() {
+    try {
+        const response = await fetch('/api/keyword-monitor/settings');
+        if (response.ok) {
+            const settings = await response.json();
+            
+            // If there's a rate limit error, force count to 100
+            if (settings.last_error && (
+                settings.last_error.includes("Rate limit exceeded") || 
+                settings.last_error.includes("limit reached")
+            )) {
+                updateRequestCounters(100, settings.daily_request_limit);
+            } else {
+                updateRequestCounters(settings.requests_today, settings.daily_request_limit);
+            }
+        }
+    } catch (error) {
+        console.error('Error refreshing request count:', error);
+    }
+}
+
+// Update request count every minute
+setInterval(refreshRequestCount, 60000);
+
+// Initial load
+document.addEventListener('DOMContentLoaded', refreshRequestCount);
+
+// Update the check keywords function to handle rate limit
+async function checkKeywords() {
+    const button = event.target.closest('button');
+    const originalHtml = button.innerHTML;
+    
+    try {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+        
+        const response = await fetch('/api/keyword-monitor/check-now', {
+            method: 'POST'
+        });
+        
+        if (response.status === 429) {
+            // Force update counter to show 100 on rate limit
+            updateRequestCounters(100, 100);
+            showAlert('API daily request limit reached. Please try again tomorrow.', 'warning');
+        } else if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.detail || 'Failed to check keywords');
+        } else {
+            window.location.reload();
+        }
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert(error.message || 'Failed to check keywords. Please try again.');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
     }
 }
 </script>

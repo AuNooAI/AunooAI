@@ -265,6 +265,12 @@
     {% endif %}
 </div>
 
+<!-- Add this at the top of the page for error messages -->
+<div id="alertMessage" class="alert alert-danger alert-dismissible fade" role="alert" style="display: none;">
+    <span id="alertText"></span>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+
 <style>
 .sparkline-container {
     position: relative;
@@ -306,6 +312,33 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+}
+
+/* Update the alert styling */
+#alertMessage {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1050;
+    min-width: 300px;
+    max-width: 500px;
+}
+
+.alert {
+    margin: 0;
+    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+
+.alert.fade {
+    transition: opacity 0.15s linear;
+}
+
+.alert.fade.show {
+    opacity: 1;
+}
+
+.alert.fade:not(.show) {
+    opacity: 0;
 }
 </style>
 
@@ -448,10 +481,63 @@ async function markAsRead(alertId) {
     }
 }
 
+function showAlert(message, type = 'danger') {
+    let alert = document.getElementById('alertMessage');
+    if (!alert) {
+        // Create alert element if it doesn't exist
+        alert = document.createElement('div');
+        alert.id = 'alertMessage';
+        alert.className = 'alert alert-dismissible fade';
+        alert.setAttribute('role', 'alert');
+        alert.style.position = 'fixed';
+        alert.style.top = '20px';
+        alert.style.right = '20px';
+        alert.style.zIndex = '1050';
+        alert.style.minWidth = '300px';
+        alert.style.maxWidth = '500px';
+        alert.style.boxShadow = '0 0.5rem 1rem rgba(0, 0, 0, 0.15)';
+        
+        document.body.appendChild(alert);
+    }
+
+    // Update alert content
+    alert.className = `alert alert-${type} alert-dismissible fade show`;
+    alert.innerHTML = `
+        <span id="alertText">${message}</span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    alert.style.display = 'block';
+    
+    // Clear any existing timeout
+    if (alert.timeoutId) {
+        clearTimeout(alert.timeoutId);
+    }
+    
+    // Auto-dismiss after 5 seconds
+    alert.timeoutId = setTimeout(() => {
+        alert.classList.remove('show');
+        setTimeout(() => {
+            alert.style.display = 'none';
+        }, 150); // Match the fade transition time
+    }, 5000);
+    
+    // Add click handler for manual dismissal
+    const closeButton = alert.querySelector('.btn-close');
+    if (closeButton) {
+        closeButton.onclick = () => {
+            alert.classList.remove('show');
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 150);
+        };
+    }
+}
+
 async function checkKeywords() {
+    const button = event.target.closest('button');
+    const originalHtml = button.innerHTML;
+    
     try {
-        const button = event.target.closest('button');
-        const originalHtml = button.innerHTML;
         button.disabled = true;
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
         
@@ -459,12 +545,20 @@ async function checkKeywords() {
             method: 'POST'
         });
         
-        if (!response.ok) throw new Error('Failed to check keywords');
+        const data = await response.json();
         
-        window.location.reload();
+        if (response.status === 429) {
+            showAlert('API daily request limit reached. Please try again tomorrow.', 'warning');
+        } else if (!response.ok) {
+            throw new Error(data.detail || 'Failed to check keywords');
+        } else {
+            window.location.reload();
+        }
+        
     } catch (error) {
         console.error('Error:', error);
-        alert('Failed to check keywords');
+        showAlert(error.message || 'Failed to check keywords. Please try again.');
+    } finally {
         button.disabled = false;
         button.innerHTML = originalHtml;
     }
@@ -522,27 +616,60 @@ async function togglePolling(enabled) {
             body: JSON.stringify({ enabled })
         });
         
-        if (!response.ok) throw new Error('Failed to toggle polling');
+        if (!response.ok) {
+            throw new Error('Failed to toggle polling');
+        }
         
         // Update the label text
         const label = document.querySelector('label[for="pollingToggle"]');
-        label.textContent = `Auto-polling ${enabled ? 'enabled' : 'disabled'}`;
-        
-        // Update the next check time display
-        const nextCheckSpan = document.querySelector('span.text-muted i.fa-hourglass-half').parentElement;
-        if (nextCheckSpan) {
-            nextCheckSpan.innerHTML = `<i class="fas fa-hourglass-half"></i> ${enabled ? 'Checking soon...' : 'Polling disabled'}`;
+        if (label) {
+            label.textContent = `Auto-polling ${enabled ? 'enabled' : 'disabled'}`;
         }
         
-        // Optionally refresh the page to update all states
-        window.location.reload();
+        // Update the next check time display
+        const nextCheckSpan = document.querySelector('span.text-muted i.fa-hourglass-half')?.parentElement;
+        if (nextCheckSpan) {
+            const now = new Date();
+            const nextCheck = new Date(now.getTime() + (enabled ? 15 * 60 * 1000 : 0)); // 15 minutes from now if enabled
+            
+            if (enabled) {
+                nextCheckSpan.innerHTML = `
+                    <i class="fas fa-hourglass-half"></i> 
+                    Next check: <span class="timeago" data-date="${nextCheck.toISOString()}">
+                        ${timeAgo(nextCheck)}
+                    </span>
+                `;
+            } else {
+                nextCheckSpan.innerHTML = `<i class="fas fa-hourglass-half"></i> Polling disabled`;
+            }
+        }
+        
+        showAlert(`Auto-polling ${enabled ? 'enabled' : 'disabled'}`, 'success');
         
     } catch (error) {
         console.error('Error:', error);
-        alert('Failed to toggle polling');
+        showAlert('Failed to toggle polling');
         // Revert the toggle if there was an error
-        document.getElementById('pollingToggle').checked = !enabled;
+        const toggle = document.getElementById('pollingToggle');
+        if (toggle) {
+            toggle.checked = !enabled;
+        }
     }
 }
+
+// Add this function to update the next check time periodically
+function updateNextCheckTime() {
+    const nextCheckSpan = document.querySelector('span.text-muted i.fa-hourglass-half')?.parentElement;
+    if (nextCheckSpan && !nextCheckSpan.textContent.includes('Polling disabled')) {
+        const timeagoSpan = nextCheckSpan.querySelector('.timeago');
+        if (timeagoSpan) {
+            const dateStr = timeagoSpan.dataset.date;
+            timeagoSpan.textContent = timeAgo(dateStr);
+        }
+    }
+}
+
+// Update next check time every minute
+setInterval(updateNextCheckTime, 60000);
 </script>
 {% endblock %} 

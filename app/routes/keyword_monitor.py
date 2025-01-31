@@ -100,13 +100,22 @@ async def mark_alert_read(alert_id: int, db=Depends(get_database_instance)):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/check-now")
-async def check_keywords_now(db=Depends(get_database_instance)):
-    """Manually trigger a keyword check"""
+async def check_now(db=Depends(get_database_instance)):
+    """Trigger an immediate keyword check"""
     try:
         monitor = KeywordMonitor(db)
         await monitor.check_keywords()
-        return {"success": True, "message": "Keyword check completed"}
+        return {"status": "success"}
+    except ValueError as e:
+        if "Rate limit exceeded" in str(e) or "request limit reached" in str(e):
+            # Return a specific status code for rate limiting
+            raise HTTPException(
+                status_code=429,  # Too Many Requests
+                detail="API daily request limit reached. Please try again tomorrow."
+            )
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error(f"Error checking keywords: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/alerts")
@@ -196,35 +205,40 @@ async def get_settings(db=Depends(get_database_instance)):
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Get current settings
+            # Get current settings and status
             cursor.execute("""
                 SELECT 
-                    check_interval,
-                    interval_unit,
-                    search_fields,
-                    language,
-                    sort_by,
-                    page_size,
-                    is_enabled,
-                    daily_request_limit
-                FROM keyword_monitor_settings 
-                WHERE id = 1
+                    s.check_interval,
+                    s.interval_unit,
+                    s.search_fields,
+                    s.language,
+                    s.sort_by,
+                    s.page_size,
+                    s.is_enabled,
+                    s.daily_request_limit,
+                    st.requests_today,
+                    st.last_error
+                FROM keyword_monitor_settings s
+                LEFT JOIN keyword_monitor_status st ON st.id = 1
+                WHERE s.id = 1
             """)
-            settings = cursor.fetchone()
+            row = cursor.fetchone()
             
-            # Count total keywords for recommendation
+            # Count total keywords
             cursor.execute("SELECT COUNT(*) FROM monitored_keywords")
             total_keywords = cursor.fetchone()[0]
             
             return {
-                "check_interval": settings[0] if settings else 15,
-                "interval_unit": settings[1] if settings else 60,
-                "search_fields": settings[2] if settings else "title,description,content",
-                "language": settings[3] if settings else "en",
-                "sort_by": settings[4] if settings else "publishedAt",
-                "page_size": settings[5] if settings else 10,
-                "is_enabled": settings[6] if settings else True,
-                "daily_request_limit": settings[7] if settings else 100,
+                "check_interval": row[0] if row else 15,
+                "interval_unit": row[1] if row else 60,
+                "search_fields": row[2] if row else "title,description,content",
+                "language": row[3] if row else "en",
+                "sort_by": row[4] if row else "publishedAt",
+                "page_size": row[5] if row else 10,
+                "is_enabled": row[6] if row else True,
+                "daily_request_limit": row[7] if row else 100,
+                "requests_today": row[8] if row and row[8] is not None else 0,
+                "last_error": row[9] if row else None,
                 "total_keywords": total_keywords
             }
             
