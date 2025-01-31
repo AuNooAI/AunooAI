@@ -1697,77 +1697,90 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
             last_check = cursor.fetchone()[0]
             last_check_time = datetime.fromisoformat(last_check).strftime('%Y-%m-%d %H:%M:%S') if last_check else None
             
-            # Get all unread alerts with article and keyword info
+            # Get all groups with their alerts and status
             cursor.execute("""
+                WITH alert_counts AS (
+                    SELECT 
+                        kg.id as group_id,
+                        COUNT(DISTINCT ka.id) as unread_count
+                    FROM keyword_groups kg
+                    LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                    LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id AND ka.is_read = 0
+                    GROUP BY kg.id
+                )
                 SELECT 
-                    ka.id as alert_id,
-                    ka.detected_at,
-                    mk.keyword,
-                    kg.id as group_id,
-                    kg.name as group_name,
+                    kg.id,
+                    kg.name,
                     kg.topic,
-                    a.uri,
-                    a.title,
-                    a.news_source,
-                    a.publication_date,
-                    a.summary,
+                    ac.unread_count,
                     (
                         SELECT GROUP_CONCAT(keyword, '||')
                         FROM monitored_keywords
                         WHERE group_id = kg.id
-                    ) as group_keywords
-                FROM keyword_alerts ka
-                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                JOIN keyword_groups kg ON mk.group_id = kg.id
-                JOIN articles a ON ka.article_uri = a.uri
-                WHERE ka.is_read = 0
-                ORDER BY ka.detected_at DESC
+                    ) as keywords
+                FROM keyword_groups kg
+                LEFT JOIN alert_counts ac ON kg.id = ac.group_id
+                ORDER BY ac.unread_count DESC, kg.name
             """)
             
-            alerts = cursor.fetchall()
+            groups_data = cursor.fetchall()
             
-            # Group alerts by keyword group
-            groups = {}
-            for alert in alerts:
-                try:
-                    group_id = alert[3]
-                    if group_id not in groups:
-                        groups[group_id] = {
-                            'id': group_id,
-                            'name': alert[4],
-                            'topic': alert[5],
-                            'keywords': alert[11].split('||') if alert[11] else [],
-                            'alerts': []
-                        }
-                    
-                    groups[group_id]['alerts'].append({
-                        'id': alert[0],
-                        'detected_at': alert[1],
-                        'keyword': alert[2],
+            # Get alerts for each group
+            groups = []
+            for group_id, name, topic, unread_count, keywords in groups_data:
+                cursor.execute("""
+                    SELECT 
+                        ka.id,
+                        ka.detected_at,
+                        ka.article_uri,
+                        a.title,
+                        a.uri as url
+                    FROM keyword_alerts ka
+                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                    JOIN articles a ON ka.article_uri = a.uri
+                    WHERE mk.group_id = ? AND ka.is_read = 0
+                    ORDER BY ka.detected_at DESC
+                """, (group_id,))
+                
+                alerts = [
+                    {
+                        'id': alert_id,
+                        'detected_at': detected_at,
                         'article': {
-                            'url': alert[6],
-                            'title': alert[7],
-                            'source': alert[8],
-                            'publication_date': alert[9],
-                            'summary': alert[10]
+                            'uri': article_uri,
+                            'title': title,
+                            'url': url
                         }
-                    })
-                except Exception as e:
-                    logger.error(f"Error processing alert: {str(e)}")
-                    continue
-        
-        return templates.TemplateResponse(
-            "keyword_alerts.html",
-            {
-                "request": request,
-                "groups": list(groups.values()),
-                "last_check_time": last_check_time,
-                "session": session
-            }
-        )
+                    }
+                    for alert_id, detected_at, article_uri, title, url in cursor.fetchall()
+                ]
+                
+                growth_status = 'No Data'
+                if unread_count:
+                    growth_status = 'NEW'  # We'll make it more sophisticated later
+                
+                groups.append({
+                    'id': group_id,
+                    'name': name,
+                    'topic': topic,
+                    'alerts': alerts,
+                    'keywords': keywords.split('||') if keywords else [],
+                    'growth_status': growth_status,
+                    'unread_count': unread_count or 0
+                })
+            
+            return templates.TemplateResponse(
+                "keyword_alerts.html",
+                {
+                    "request": request,
+                    "groups": groups,
+                    "last_check_time": last_check_time,
+                    "session": session
+                }
+            )
+            
     except Exception as e:
-        logger.error(f"Keyword alerts page error: {str(e)}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Error loading keyword alerts page: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

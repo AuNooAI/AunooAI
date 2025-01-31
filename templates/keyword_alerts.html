@@ -19,6 +19,102 @@
         </a>
     </div>
 
+    <!-- Replace the existing trend chart section with this -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">EMERGING TRENDS DASHBOARD</h5>
+                <div>
+                    <button class="btn btn-outline-secondary btn-sm">
+                        <i class="fas fa-file-export"></i> Export
+                    </button>
+                </div>
+            </div>
+            <div class="mt-2">
+                <span class="badge bg-success me-2">Real time monitoring</span>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>EMERGING TREND</th>
+                            <th>REFERENCES</th>
+                            <th style="width: 200px;">GROWTH</th>
+                            <th>SIZE</th>
+                            <th>TAGS</th>
+                            <th>ACTIONS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for group in groups %}
+                        <tr>
+                            <td>
+                                <div>
+                                    <strong>{{ group.name }}</strong>
+                                    <p class="text-muted small mb-0">{{ group.topic }}</p>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="d-flex gap-1">
+                                    {% if group.alerts %}
+                                        {% for alert in group.alerts[:3] %}
+                                        <a href="{{ alert.article.url }}" 
+                                           class="badge rounded-pill bg-light text-dark text-decoration-none" 
+                                           title="{{ alert.article.title }}" 
+                                           target="_blank">
+                                            {{ loop.index }}
+                                        </a>
+                                        {% endfor %}
+                                    {% else %}
+                                        <span class="text-muted">No recent references</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="sparkline-container" style="width: 120px; height: 30px;">
+                                        <canvas id="sparkline-{{ group.id }}" 
+                                                width="120" 
+                                                height="30" 
+                                                style="width: 120px; height: 30px;"></canvas>
+                                    </div>
+                                    {% set status_colors = {
+                                        'NEW': 'primary',
+                                        'Exploding': 'danger',
+                                        'Surging': 'warning',
+                                        'Growing': 'success',
+                                        'Stable': 'secondary',
+                                        'Declining': 'info',
+                                        'No Data': 'secondary'
+                                    } %}
+                                    <span class="badge bg-{{ status_colors[group.growth_status] }} ms-2">
+                                        {{ group.growth_status }}
+                                    </span>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge bg-secondary">{{ group.alerts|length }} articles</span>
+                            </td>
+                            <td>
+                                {% for keyword in group.keywords[:3] %}
+                                <span class="badge bg-light text-dark border">{{ keyword }}</span>
+                                {% endfor %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-secondary">
+                                    <i class="fas fa-eye-slash"></i> Hide
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     {% if groups %}
         <div class="row">
             {% for group in groups %}
@@ -99,21 +195,173 @@
 </div>
 
 <style>
+.sparkline-container {
+    position: relative;
+    margin-right: 10px;
+    background-color: #fff;
+    border: 1px solid #eee;
+    width: 120px;
+    height: 30px;
+}
+
+.sparkline-container canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.table th {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    color: #666;
+    border-top: none;
+    padding: 0.5rem 0.75rem;
+}
+
+.table td {
+    padding: 0.75rem;
+    vertical-align: middle;
+}
+
 .badge {
     font-weight: normal;
 }
-.list-group-item:hover {
-    background-color: #f8f9fa;
-}
-.btn-group-sm .btn {
-    padding: .25rem .5rem;
-    font-size: .875rem;
+
+.rounded-pill {
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 </style>
-{% endblock %}
 
-{% block extra_js %}
 <script>
+function drawSparkline(canvas, points) {
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 4;
+    
+    ctx.clearRect(0, 0, width, height);
+    
+    // Draw very light grid background
+    ctx.strokeStyle = '#fafafa';  // Even lighter grid
+    ctx.lineWidth = 0.5;
+    
+    // Vertical grid lines
+    for (let i = 0; i <= 4; i++) {
+        const x = padding + (i * (width - padding * 2) / 4);
+        ctx.beginPath();
+        ctx.moveTo(x, padding);
+        ctx.lineTo(x, height - padding);
+        ctx.stroke();
+    }
+    
+    // Horizontal grid lines
+    for (let i = 0; i <= 2; i++) {
+        const y = padding + (i * (height - padding * 2) / 2);
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+    }
+    
+    if (!points || points.length === 0) return;
+    
+    const max = Math.max(...points, 1);
+    const range = max;
+    
+    ctx.beginPath();
+    ctx.strokeStyle = '#1a73e8';  // Google blue
+    ctx.lineWidth = 1;
+    
+    if (points.length === 1) {
+        // For single point, draw a flat line with sharp uptick at the end
+        const startX = padding;
+        const startY = height - padding;
+        const endX = width - padding;
+        const endY = height - padding - ((points[0] / range) * (height - padding * 2));
+        
+        // Draw flat line for 80% of the width
+        const uptickX = width * 0.8;
+        
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(uptickX, startY);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+        
+        // Add end point dot
+        ctx.beginPath();
+        ctx.arc(endX, endY, 2, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.strokeStyle = '#1a73e8';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    } else {
+        // Draw smooth curved line for multiple points
+        const points = groupData.counts.map((count, i) => ({
+            x: padding + (i * (width - padding * 2) / (groupData.counts.length - 1)),
+            y: height - padding - ((count / range) * (height - padding * 2))
+        }));
+        
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        
+        // Create smooth curve through points
+        for (let i = 1; i < points.length; i++) {
+            const prev = points[i - 1];
+            const curr = points[i];
+            
+            // Control points for smooth curve
+            const cp1x = prev.x + (curr.x - prev.x) / 3;
+            const cp1y = prev.y;
+            const cp2x = prev.x + (curr.x - prev.x) * 2 / 3;
+            const cp2y = curr.y;
+            
+            ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, curr.x, curr.y);
+        }
+        ctx.stroke();
+        
+        // Add end point dot
+        const lastPoint = points[points.length - 1];
+        ctx.beginPath();
+        ctx.arc(lastPoint.x, lastPoint.y, 2, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+        ctx.strokeStyle = '#1a73e8';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    }
+}
+
+async function loadTrendChart() {
+    try {
+        const response = await fetch('/api/keyword-monitor/trends');
+        if (!response.ok) throw new Error('Failed to fetch trend data');
+        
+        const data = await response.json();
+        
+        Object.entries(data).forEach(([groupName, groupData]) => {
+            const canvas = document.getElementById(`sparkline-${groupData.id}`);
+            if (!canvas) return;
+
+            canvas.width = 120;
+            canvas.height = 30;
+            
+            drawSparkline(canvas, groupData.counts);
+        });
+    } catch (error) {
+        console.error('Error loading trend charts:', error);
+    }
+}
+
+// Load charts when page loads
+document.addEventListener('DOMContentLoaded', loadTrendChart);
+
 async function markAsRead(alertId) {
     try {
         const response = await fetch(`/api/keyword-monitor/alerts/${alertId}/read`, {

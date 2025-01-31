@@ -8,11 +8,68 @@ import logging
 logger = logging.getLogger(__name__)
 
 class KeywordMonitor:
-    def __init__(self, db: Database, check_interval: int = 900):  # 900 seconds = 15 minutes
+    def __init__(self, db: Database):
         self.db = db
         self.collector = None
         self.last_collector_init_attempt = None
-        self.check_interval = check_interval
+        self._load_settings()
+    
+    def _load_settings(self):
+        """Load settings from database"""
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Create table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS keyword_monitor_settings (
+                        id INTEGER PRIMARY KEY,
+                        check_interval INTEGER NOT NULL,
+                        interval_unit INTEGER NOT NULL,
+                        search_fields TEXT NOT NULL,
+                        language TEXT NOT NULL,
+                        sort_by TEXT NOT NULL,
+                        page_size INTEGER NOT NULL
+                    )
+                """)
+                conn.commit()
+                
+                # Use column names in SELECT
+                cursor.execute("""
+                    SELECT 
+                        check_interval,
+                        interval_unit,
+                        search_fields,
+                        language,
+                        sort_by,
+                        page_size
+                    FROM keyword_monitor_settings 
+                    WHERE id = 1
+                """)
+                settings = cursor.fetchone()
+                
+                if settings:
+                    self.check_interval = settings[0] * settings[1]  # interval * unit
+                    self.search_fields = settings[2]
+                    self.language = settings[3]
+                    self.sort_by = settings[4]
+                    self.page_size = settings[5]
+                else:
+                    # Use defaults
+                    self.check_interval = 900  # 15 minutes
+                    self.search_fields = "title,description,content"
+                    self.language = "en"
+                    self.sort_by = "publishedAt"
+                    self.page_size = 10
+                    
+        except Exception as e:
+            logger.error(f"Error loading settings: {str(e)}")
+            # Use defaults
+            self.check_interval = 900
+            self.search_fields = "title,description,content"
+            self.language = "en"
+            self.sort_by = "publishedAt"
+            self.page_size = 10
     
     def _init_collector(self):
         """Try to initialize the collector if not already initialized"""
@@ -47,12 +104,15 @@ class KeywordMonitor:
                 for keyword in keywords:
                     keyword_id, keyword_text, last_checked, topic = keyword
                     
-                    # Search for articles
+                    # Search for articles with settings
                     articles = await self.collector.search_articles(
                         query=keyword_text,
                         topic=topic,
-                        max_results=10,
-                        start_date=last_checked if last_checked else None
+                        max_results=self.page_size,
+                        start_date=last_checked if last_checked else None,
+                        search_fields=self.search_fields,
+                        language=self.language,
+                        sort_by=self.sort_by
                     )
                     
                     # Process each article

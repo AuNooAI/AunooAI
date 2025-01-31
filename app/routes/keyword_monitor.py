@@ -1,10 +1,15 @@
 from fastapi import APIRouter, HTTPException, Depends
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 from app.database import get_database_instance
 from app.tasks.keyword_monitor import KeywordMonitor
 import logging
+import json
+import traceback
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/keyword-monitor")
 
@@ -15,6 +20,14 @@ class KeywordGroup(BaseModel):
 class Keyword(BaseModel):
     group_id: int
     keyword: str
+
+class KeywordMonitorSettings(BaseModel):
+    check_interval: int
+    interval_unit: int
+    search_fields: str
+    language: str
+    sort_by: str
+    page_size: int
 
 @router.post("/groups")
 async def create_group(group: KeywordGroup, db=Depends(get_database_instance)):
@@ -149,4 +162,171 @@ async def get_alerts(db=Depends(get_database_instance)):
             
     except Exception as e:
         logger.error(f"Error fetching keyword alerts: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/settings")
+async def get_settings(db=Depends(get_database_instance)):
+    """Get keyword monitor settings"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Create table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS keyword_monitor_settings (
+                    id INTEGER PRIMARY KEY,
+                    check_interval INTEGER NOT NULL,
+                    interval_unit INTEGER NOT NULL,
+                    search_fields TEXT NOT NULL,
+                    language TEXT NOT NULL,
+                    sort_by TEXT NOT NULL,
+                    page_size INTEGER NOT NULL
+                )
+            """)
+            conn.commit()
+            
+            # Use column names in SELECT
+            cursor.execute("""
+                SELECT 
+                    check_interval,
+                    interval_unit,
+                    search_fields,
+                    language,
+                    sort_by,
+                    page_size
+                FROM keyword_monitor_settings 
+                WHERE id = 1
+            """)
+            settings = cursor.fetchone()
+            
+            if not settings:
+                # Insert default settings
+                default_settings = {
+                    "check_interval": 15,
+                    "interval_unit": 60,  # minutes
+                    "search_fields": "title,description,content",
+                    "language": "en",
+                    "sort_by": "publishedAt",
+                    "page_size": 10
+                }
+                
+                cursor.execute("""
+                    INSERT INTO keyword_monitor_settings (
+                        id, check_interval, interval_unit, search_fields,
+                        language, sort_by, page_size
+                    ) VALUES (1, ?, ?, ?, ?, ?, ?)
+                """, (
+                    default_settings["check_interval"],
+                    default_settings["interval_unit"],
+                    default_settings["search_fields"],
+                    default_settings["language"],
+                    default_settings["sort_by"],
+                    default_settings["page_size"]
+                ))
+                conn.commit()
+                return default_settings
+            
+            # Map tuple indices to dictionary keys
+            return {
+                "check_interval": settings[0],
+                "interval_unit": settings[1],
+                "search_fields": settings[2],
+                "language": settings[3],
+                "sort_by": settings[4],
+                "page_size": settings[5]
+            }
+            
+    except Exception as e:
+        logger.error(f"Error getting settings: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/settings")
+async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_database_instance)):
+    """Save keyword monitor settings"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Create table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS keyword_monitor_settings (
+                    id INTEGER PRIMARY KEY,
+                    check_interval INTEGER NOT NULL,
+                    interval_unit INTEGER NOT NULL,
+                    search_fields TEXT NOT NULL,
+                    language TEXT NOT NULL,
+                    sort_by TEXT NOT NULL,
+                    page_size INTEGER NOT NULL
+                )
+            """)
+            
+            # Update or insert settings
+            cursor.execute("""
+                INSERT OR REPLACE INTO keyword_monitor_settings (
+                    id, check_interval, interval_unit, search_fields,
+                    language, sort_by, page_size
+                ) VALUES (
+                    1, ?, ?, ?, ?, ?, ?
+                )
+            """, (
+                settings.check_interval,
+                settings.interval_unit,
+                settings.search_fields,
+                settings.language,
+                settings.sort_by,
+                settings.page_size
+            ))
+            
+            conn.commit()
+            return {"success": True}
+            
+    except Exception as e:
+        logger.error(f"Error saving settings: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/trends")
+async def get_trends(db=Depends(get_database_instance)):
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # First, get all groups with their unread alerts count
+            cursor.execute("""
+                SELECT 
+                    kg.id,
+                    kg.name,
+                    kg.topic,
+                    COUNT(DISTINCT ka.id) as unread_count,
+                    MAX(ka.detected_at) as latest_alert
+                FROM keyword_groups kg
+                LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id AND ka.is_read = 0
+                GROUP BY kg.id, kg.name, kg.topic
+            """)
+            
+            results = cursor.fetchall()
+            logger.debug(f"Initial query results: {results}")
+            
+            trends = {}
+            for row in results:
+                group_id, name, topic, unread_count, latest_alert = row
+                
+                growth_status = 'No Data'
+                if unread_count > 0:
+                    growth_status = 'NEW'
+                    
+                trends[name] = {
+                    'id': group_id,
+                    'name': name,
+                    'topic': topic,
+                    'counts': [1] if unread_count > 0 else [],  # Single point for new alerts
+                    'unread_alerts': unread_count,
+                    'growth_status': growth_status
+                }
+            
+            logger.debug(f"Final trends data: {json.dumps(trends, indent=2, default=str)}")
+            return trends
+            
+    except Exception as e:
+        logger.error(f"Error getting trends: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e)) 

@@ -40,22 +40,24 @@ class NewsAPICollector(ArticleCollector):
         topic: Optional[str] = None,
         max_results: int = 10,
         start_date: Optional[str] = None,
-        end_date: Optional[str] = None  # Added for compatibility with bulk_research
+        search_fields: Optional[str] = None,
+        language: Optional[str] = None,
+        sort_by: Optional[str] = None
     ) -> List[Dict]:
         try:
-            # Build the query parameters
             params = {
                 'q': query,
                 'apiKey': self.api_key,
-                'language': 'en',
-                'sortBy': 'publishedAt',
-                'pageSize': max_results
+                'pageSize': max_results,
+                'language': language or 'en',
+                'sortBy': sort_by or 'publishedAt'
             }
 
-            # Handle date parameters consistently
+            if search_fields:
+                params['searchIn'] = search_fields
+
             if start_date:
                 if isinstance(start_date, str):
-                    # Handle ISO format from keyword monitor
                     try:
                         start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
                     except ValueError:
@@ -64,17 +66,6 @@ class NewsAPICollector(ArticleCollector):
                 
                 if start_date:
                     params['from'] = start_date.strftime('%Y-%m-%d')
-
-            if end_date:
-                if isinstance(end_date, str):
-                    try:
-                        end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-                    except ValueError:
-                        logger.warning(f"Invalid end_date format: {end_date}")
-                        end_date = None
-                
-                if end_date:
-                    params['to'] = end_date.strftime('%Y-%m-%d')
 
             # Handle topic/category mapping
             valid_categories = ['business', 'entertainment', 'general', 'health', 
