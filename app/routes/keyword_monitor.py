@@ -30,6 +30,7 @@ class KeywordMonitorSettings(BaseModel):
     language: str
     sort_by: str
     page_size: int
+    daily_request_limit: int = 100
 
 class PollingToggle(BaseModel):
     enabled: bool
@@ -204,44 +205,16 @@ async def get_settings(db=Depends(get_database_instance)):
                     language,
                     sort_by,
                     page_size,
-                    is_enabled
+                    is_enabled,
+                    daily_request_limit
                 FROM keyword_monitor_settings 
                 WHERE id = 1
             """)
             settings = cursor.fetchone()
             
-            # Count total keywords
+            # Count total keywords for recommendation
             cursor.execute("SELECT COUNT(*) FROM monitored_keywords")
             total_keywords = cursor.fetchone()[0]
-            
-            # Calculate recommended interval
-            REQUESTS_PER_DAY = 100
-            if total_keywords > 0:
-                # Calculate how many minutes we should wait between checks
-                minutes_per_day = 24 * 60
-                recommended_interval = max(15, int(minutes_per_day / (REQUESTS_PER_DAY / total_keywords)))
-                
-                # Convert to most appropriate unit
-                if recommended_interval >= 1440:  # 24 hours
-                    recommended = {
-                        'interval': recommended_interval // 1440,
-                        'unit': 86400,  # days in seconds
-                        'unit_name': 'days'
-                    }
-                elif recommended_interval >= 60:
-                    recommended = {
-                        'interval': recommended_interval // 60,
-                        'unit': 3600,  # hours in seconds
-                        'unit_name': 'hours'
-                    }
-                else:
-                    recommended = {
-                        'interval': recommended_interval,
-                        'unit': 60,  # minutes in seconds
-                        'unit_name': 'minutes'
-                    }
-            else:
-                recommended = None
             
             return {
                 "check_interval": settings[0] if settings else 15,
@@ -251,8 +224,8 @@ async def get_settings(db=Depends(get_database_instance)):
                 "sort_by": settings[4] if settings else "publishedAt",
                 "page_size": settings[5] if settings else 10,
                 "is_enabled": settings[6] if settings else True,
-                "total_keywords": total_keywords,
-                "recommended_interval": recommended
+                "daily_request_limit": settings[7] if settings else 100,
+                "total_keywords": total_keywords
             }
             
     except Exception as e:
@@ -275,7 +248,8 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
                     search_fields TEXT NOT NULL,
                     language TEXT NOT NULL,
                     sort_by TEXT NOT NULL,
-                    page_size INTEGER NOT NULL
+                    page_size INTEGER NOT NULL,
+                    daily_request_limit INTEGER NOT NULL
                 )
             """)
             
@@ -283,9 +257,9 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
             cursor.execute("""
                 INSERT OR REPLACE INTO keyword_monitor_settings (
                     id, check_interval, interval_unit, search_fields,
-                    language, sort_by, page_size
+                    language, sort_by, page_size, daily_request_limit
                 ) VALUES (
-                    1, ?, ?, ?, ?, ?, ?
+                    1, ?, ?, ?, ?, ?, ?, ?
                 )
             """, (
                 settings.check_interval,
@@ -293,7 +267,8 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
                 settings.search_fields,
                 settings.language,
                 settings.sort_by,
-                settings.page_size
+                settings.page_size,
+                settings.daily_request_limit
             ))
             
             conn.commit()

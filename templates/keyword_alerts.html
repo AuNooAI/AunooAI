@@ -4,53 +4,61 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-start mb-4">
         <div>
-            <h1>Keyword Alerts</h1>
-            <p class="text-muted d-flex align-items-center gap-3">
-                <span>
-                    <i class="fas fa-clock"></i> Last search: {{ last_check_time|default('Never', true) }}
-                </span>
-                {% if last_error %}
-                    <span class="text-danger">
-                        <i class="fas fa-exclamation-circle"></i> {{ last_error }}
+            <h1 class="mb-3">Keyword Alerts</h1>
+            <div class="d-flex flex-column gap-2">
+                <div class="d-flex align-items-center gap-3">
+                    <span class="text-muted">
+                        <i class="fas fa-clock"></i> Last search: {{ last_check_time|default('Never', true) }}
                     </span>
-                {% endif %}
-                <span class="text-muted">
-                    <i class="fas fa-sync"></i> Polling every {{ display_interval }}
-                </span>
-                <span class="text-muted">
-                    <i class="fas fa-hourglass-half"></i> 
-                    {% if not is_enabled %}
-                        Polling disabled
-                    {% elif next_check_time %}
-                        {% set next_check = next_check_time|datetime %}
-                        {% set current_time = now|datetime %}
-                        {% if next_check <= current_time %}
-                            Checking soon...
-                        {% else %}
-                            {{ next_check_time|timeago }}
-                        {% endif %}
-                    {% else %}
-                        Checking soon...
+                    {% if last_error %}
+                        <span class="text-danger">
+                            <i class="fas fa-exclamation-circle"></i> {{ last_error }}
+                        </span>
                     {% endif %}
-                </span>
-                <div class="form-check form-switch">
-                    <input class="form-check-input" type="checkbox" id="pollingToggle" 
-                           {% if is_enabled %}checked{% endif %}
-                           onchange="togglePolling(this.checked)">
-                    <label class="form-check-label" for="pollingToggle">
-                        Auto-polling {{ 'enabled' if is_enabled else 'disabled' }}
-                    </label>
                 </div>
-                <button class="btn btn-sm btn-outline-primary" onclick="checkKeywords()">
-                    <i class="fas fa-sync"></i> Check Now
-                </button>
-            </p>
+                <div class="d-flex align-items-center gap-3">
+                    <span class="text-muted">
+                        <i class="fas fa-sync"></i> Polling every {{ display_interval }}
+                    </span>
+                    <span class="text-muted">
+                        <i class="fas fa-hourglass-half"></i> 
+                        {% if not is_enabled %}
+                            Polling disabled
+                        {% elif next_check_time %}
+                            {% set next_check = next_check_time|datetime %}
+                            {% set current_time = now|datetime %}
+                            {% if next_check <= current_time %}
+                                Checking soon...
+                            {% else %}
+                                {{ next_check_time|timeago }}
+                            {% endif %}
+                        {% else %}
+                            Checking soon...
+                        {% endif %}
+                    </span>
+                </div>
+                <div class="d-flex align-items-center gap-3 mt-1">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="pollingToggle" 
+                               {% if is_enabled %}checked{% endif %}
+                               onchange="togglePolling(this.checked)">
+                        <label class="form-check-label" for="pollingToggle">
+                            Auto-polling {{ 'enabled' if is_enabled else 'disabled' }}
+                        </label>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="checkKeywords()">
+                        <i class="fas fa-sync"></i> Check Now
+                    </button>
+                </div>
+            </div>
         </div>
-        <a href="/keyword-monitor" class="btn btn-primary">
-            <i class="fas fa-cog"></i> Manage Keywords
-        </a>
+        <div>
+            <a href="/keyword-monitor" class="btn btn-primary">
+                <i class="fas fa-cog"></i> Manage Keywords
+            </a>
+        </div>
     </div>
 
     <!-- Replace the existing trend chart section with this -->

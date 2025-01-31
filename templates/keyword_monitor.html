@@ -163,11 +163,19 @@
                             </select>
                         </div>
                         <small class="text-muted">How often to check for new articles</small>
-                        <div id="recommendedInterval" class="mt-2 text-info" style="display: none;">
+                        <div id="recommendedInterval" class="mt-2 text-info">
                             <i class="fas fa-info-circle"></i> 
-                            Recommended interval: <span id="recommendedValue"></span> 
-                            based on <span id="totalKeywords"></span> monitored keywords 
-                            (<span id="requestsPerDay"></span> requests per day available)
+                            Recommended interval: <span id="recommendedValue"></span>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <h6>API Limits</h6>
+                        <div class="form-group">
+                            <label for="dailyRequestLimit">Daily Request Limit</label>
+                            <input type="number" class="form-control" id="dailyRequestLimit" 
+                                   name="dailyRequestLimit" min="1" value="{{ daily_request_limit|default(100) }}">
+                            <small class="text-muted">Maximum API requests allowed per day (default: 100 for NewsAPI)</small>
                         </div>
                     </div>
 
@@ -331,9 +339,39 @@ async function showSettingsModal() {
             // Set form values
             document.getElementById('checkInterval').value = settings.check_interval;
             document.getElementById('intervalUnit').value = settings.interval_unit;
-            document.getElementById('language').value = settings.language;
-            document.getElementById('sortBy').value = settings.sort_by;
-            document.getElementById('pageSize').value = settings.page_size;
+            document.getElementById('dailyRequestLimit').value = settings.daily_request_limit;
+            
+            // Calculate and show recommended interval
+            if (settings.total_keywords > 0) {
+                const minutesPerDay = 24 * 60;
+                const requestsPerDay = settings.daily_request_limit;
+                const recommendedMinutes = Math.max(15, Math.ceil(minutesPerDay / (requestsPerDay / settings.total_keywords)));
+                
+                let recommendedValue, recommendedUnit;
+                if (recommendedMinutes >= 1440) {
+                    recommendedValue = Math.ceil(recommendedMinutes / 1440);
+                    recommendedUnit = 86400; // days in seconds
+                } else if (recommendedMinutes >= 60) {
+                    recommendedValue = Math.ceil(recommendedMinutes / 60);
+                    recommendedUnit = 3600; // hours in seconds
+                } else {
+                    recommendedValue = recommendedMinutes;
+                    recommendedUnit = 60; // minutes in seconds
+                }
+                
+                // Set the recommended values
+                document.getElementById('checkInterval').value = recommendedValue;
+                document.getElementById('intervalUnit').value = recommendedUnit;
+                
+                // Show recommendation text
+                const unitText = recommendedUnit === 86400 ? 'days' : 
+                               recommendedUnit === 3600 ? 'hours' : 'minutes';
+                document.getElementById('recommendedValue').textContent = 
+                    `${recommendedValue} ${unitText} based on ${settings.total_keywords} keywords and ${requestsPerDay} daily requests`;
+                document.getElementById('recommendedInterval').style.display = 'block';
+            } else {
+                document.getElementById('recommendedInterval').style.display = 'none';
+            }
             
             // Set search fields
             const fields = settings.search_fields.split(',');
@@ -341,17 +379,10 @@ async function showSettingsModal() {
                 cb.checked = fields.includes(cb.value);
             });
             
-            // Show recommended interval if available
-            const recommendedDiv = document.getElementById('recommendedInterval');
-            if (settings.recommended_interval) {
-                document.getElementById('recommendedValue').textContent = 
-                    `${settings.recommended_interval.interval} ${settings.recommended_interval.unit_name}`;
-                document.getElementById('totalKeywords').textContent = settings.total_keywords;
-                document.getElementById('requestsPerDay').textContent = '100';
-                recommendedDiv.style.display = 'block';
-            } else {
-                recommendedDiv.style.display = 'none';
-            }
+            // Set other settings...
+            document.getElementById('language').value = settings.language;
+            document.getElementById('sortBy').value = settings.sort_by;
+            document.getElementById('pageSize').value = settings.page_size;
         }
     } catch (error) {
         console.error('Error loading settings:', error);
@@ -359,6 +390,45 @@ async function showSettingsModal() {
     
     const modal = new bootstrap.Modal(document.getElementById('settingsModal'));
     modal.show();
+}
+
+// Add event listener for daily request limit changes
+document.getElementById('dailyRequestLimit').addEventListener('change', function() {
+    const settings = {
+        total_keywords: parseInt(document.getElementById('recommendedValue').textContent.split(' ')[5]),
+        daily_request_limit: parseInt(this.value)
+    };
+    updateRecommendedInterval(settings);
+});
+
+function updateRecommendedInterval(settings) {
+    if (settings.total_keywords > 0) {
+        const minutesPerDay = 24 * 60;
+        const requestsPerDay = settings.daily_request_limit;
+        const recommendedMinutes = Math.max(15, Math.ceil(minutesPerDay / (requestsPerDay / settings.total_keywords)));
+        
+        let recommendedValue, recommendedUnit;
+        if (recommendedMinutes >= 1440) {
+            recommendedValue = Math.ceil(recommendedMinutes / 1440);
+            recommendedUnit = 86400;
+        } else if (recommendedMinutes >= 60) {
+            recommendedValue = Math.ceil(recommendedMinutes / 60);
+            recommendedUnit = 3600;
+        } else {
+            recommendedValue = recommendedMinutes;
+            recommendedUnit = 60;
+        }
+        
+        // Set the recommended values
+        document.getElementById('checkInterval').value = recommendedValue;
+        document.getElementById('intervalUnit').value = recommendedUnit;
+        
+        // Update recommendation text
+        const unitText = recommendedUnit === 86400 ? 'days' : 
+                        recommendedUnit === 3600 ? 'hours' : 'minutes';
+        document.getElementById('recommendedValue').textContent = 
+            `${recommendedValue} ${unitText} based on ${settings.total_keywords} keywords and ${requestsPerDay} daily requests`;
+    }
 }
 
 async function saveSettings() {
@@ -370,6 +440,7 @@ async function saveSettings() {
         const settings = {
             check_interval: parseInt(document.getElementById('checkInterval').value),
             interval_unit: parseInt(document.getElementById('intervalUnit').value),
+            daily_request_limit: parseInt(document.getElementById('dailyRequestLimit').value),
             search_fields: searchFields,
             language: document.getElementById('language').value,
             sort_by: document.getElementById('sortBy').value,
@@ -378,14 +449,11 @@ async function saveSettings() {
         
         const response = await fetch('/api/keyword-monitor/settings', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(settings)
         });
         
         if (!response.ok) throw new Error('Failed to save settings');
-        
         window.location.reload();
     } catch (error) {
         console.error('Error:', error);

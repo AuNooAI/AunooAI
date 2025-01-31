@@ -36,7 +36,8 @@ class KeywordMonitor:
                             language TEXT NOT NULL DEFAULT 'en',
                             sort_by TEXT NOT NULL DEFAULT 'publishedAt',
                             page_size INTEGER NOT NULL DEFAULT 10,
-                            is_enabled BOOLEAN NOT NULL DEFAULT 1
+                            is_enabled BOOLEAN NOT NULL DEFAULT 1,
+                            daily_request_limit INTEGER NOT NULL DEFAULT 100
                         )
                     """)
                     # Insert default settings
@@ -44,12 +45,18 @@ class KeywordMonitor:
                         INSERT INTO keyword_monitor_settings (id) VALUES (1)
                     """)
                     conn.commit()
-                elif 'is_enabled' not in columns:
-                    # Add is_enabled column if it doesn't exist
-                    cursor.execute("""
-                        ALTER TABLE keyword_monitor_settings 
-                        ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT 1
-                    """)
+                else:
+                    # Add any missing columns
+                    if 'is_enabled' not in columns:
+                        cursor.execute("""
+                            ALTER TABLE keyword_monitor_settings 
+                            ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT 1
+                        """)
+                    if 'daily_request_limit' not in columns:
+                        cursor.execute("""
+                            ALTER TABLE keyword_monitor_settings 
+                            ADD COLUMN daily_request_limit INTEGER NOT NULL DEFAULT 100
+                        """)
                     conn.commit()
                 
                 # Load settings
@@ -61,7 +68,8 @@ class KeywordMonitor:
                         language,
                         sort_by,
                         page_size,
-                        is_enabled
+                        is_enabled,
+                        daily_request_limit
                     FROM keyword_monitor_settings 
                     WHERE id = 1
                 """)
@@ -74,6 +82,7 @@ class KeywordMonitor:
                     self.sort_by = settings[4]
                     self.page_size = settings[5]
                     self.is_enabled = settings[6]
+                    self.daily_request_limit = settings[7]
                 else:
                     # Use defaults
                     self.check_interval = 900  # 15 minutes
@@ -82,6 +91,7 @@ class KeywordMonitor:
                     self.sort_by = "publishedAt"
                     self.page_size = 10
                     self.is_enabled = True
+                    self.daily_request_limit = 100
                     
         except Exception as e:
             logger.error(f"Error loading settings: {str(e)}")
@@ -92,6 +102,7 @@ class KeywordMonitor:
             self.sort_by = "publishedAt"
             self.page_size = 10
             self.is_enabled = True
+            self.daily_request_limit = 100
     
     def _init_tables(self):
         """Initialize required database tables"""
