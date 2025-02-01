@@ -13,27 +13,82 @@
         --dark-gray: #343a40;
     }
 
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
     .card {
-        border: 1px solid var(--primary-color);
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
+        border: none;
+        height: 100%;
+    }
+
+    .card-header {
+        background-color: #fff;
+        border-bottom: 1px solid var(--medium-gray);
+        padding: 1rem 1.25rem;
+    }
+
+    .card-header h5 {
+        color: var(--text-color);
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .card-body {
+        padding: 1.25rem;
+    }
+
+    .card-title {
+        color: var(--primary-color);
+        font-size: 1.25rem;
+        font-weight: bold;
+        margin-bottom: 10px;
     }
 
     .article-card {
-        border: 1px solid var(--medium-gray);
-        padding: 15px;
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         margin-bottom: 15px;
-        border-radius: 5px;
-        transition: opacity 0.3s ease-out;
+        border: 1px solid var(--medium-gray);
+        transition: transform 0.2s ease;
+    }
+
+    .article-card:hover {
+        transform: translateY(-2px);
     }
 
     .btn-primary {
         background-color: var(--primary-color);
         border-color: var(--primary-color);
+        color: #fff;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: flex-start;
+        padding: 8px 16px;
     }
 
     .btn-primary:hover {
         background-color: var(--primary-dark);
         border-color: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .form-control, .form-select {
+        border: 1px solid var(--medium-gray);
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
     }
 
     .btn-danger {
@@ -51,8 +106,52 @@
         margin-right: 5px;
     }
 
-    .article-card:hover {
+    /* Add these styles to your existing CSS */
+    .article-container {
+        max-height: calc(100vh - 250px);  /* Adjust based on your header/footer size */
+        overflow-y: auto;
+        padding-right: 10px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--primary-color) var(--light-gray);
+    }
+
+    .article-container::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .article-container::-webkit-scrollbar-track {
+        background: var(--light-gray);
+        border-radius: 3px;
+    }
+
+    .article-container::-webkit-scrollbar-thumb {
+        background-color: var(--primary-color);
+        border-radius: 3px;
+    }
+
+    .article-summary {
+        max-height: 200px;
+        overflow-y: auto;
+        margin-bottom: 15px;
+        line-height: 1.5;
+    }
+
+    .article-meta {
+        font-size: 0.9rem;
+        color: var(--dark-gray);
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .source-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
         background-color: var(--light-gray);
+        color: var(--dark-gray);
     }
 </style>
 
@@ -64,8 +163,12 @@
     <div class="row">
         <div class="col-md-4">
             <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-search"></i> Search Articles
+                    </h5>
+                </div>
                 <div class="card-body">
-                    <h5 class="card-title">Search Articles</h5>
                     <form id="searchForm">
                         <!-- Topic Selection -->
                         <div class="mb-3">
@@ -327,12 +430,19 @@
 
         <div class="col-md-8">
             <div class="card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list"></i> Search Results
+                        </h5>
+                        <span id="resultCount" class="text-muted"></span>
+                    </div>
+                </div>
                 <div class="card-body">
-                    <h5 class="card-title">Search Results <span id="resultCount"></span></h5>
                     <div id="searchResults"></div>
                     <div id="selectedArticles" class="mt-3">
-                        <button id="analyzeSelectedBtn" class="btn btn-primary" style="display: none;">
-                            Analyze Selected Articles
+                        <button id="bulkAnalyzeBtn" class="btn btn-primary" style="display: none;">
+                            <i class="fas fa-microscope"></i> Analyze Selected Articles (<span id="selectedCount">0</span>)
                         </button>
                     </div>
                 </div>
@@ -547,84 +657,79 @@ async function handleSearch(event) {
 
 function displayResults(data) {
     const resultsDiv = document.getElementById('searchResults');
-    if (!resultsDiv) return;
-    
-    if (currentPage === 1) {
-        resultsDiv.innerHTML = '';
-    }
-    
-    data.articles.forEach(article => {
-        const articleElement = document.createElement('div');
-        articleElement.className = 'article-card mb-3 p-3 border rounded';
-        
-        const formattedDate = formatDate(article.published_date || article.raw_data?.published_date);
-        const hasImage = article.raw_data?.url_to_image;
-        
-        articleElement.innerHTML = `
-            <div class="d-flex justify-content-between align-items-start">
-                <div class="form-check flex-grow-1">
-                    <input class="form-check-input article-checkbox" 
-                           type="checkbox" 
-                           value="${article.url || ''}"
-                           onchange="toggleArticleSelection(this)">
-                    <label class="form-check-label w-100">
-                        <h5 class="mb-2">${article.title || 'Untitled'}</h5>
-                        <div class="article-metadata mb-2">
-                            <small class="text-muted">
-                                <span class="me-3">
-                                    <i class="fas fa-newspaper"></i> 
-                                    ${article.raw_data?.source_name || 'Unknown source'}
-                                </span>
-                                <span class="me-3">
-                                    <i class="fas fa-calendar"></i> 
-                                    ${formattedDate}
-                                </span>
-                                <span>
-                                    <i class="fas fa-user"></i> 
-                                    ${formatAuthors(article.authors)}
-                                </span>
-                            </small>
-                        </div>
-                    </label>
-                </div>
-                ${hasImage ? `
-                    <div class="ms-3">
-                        <img src="${article.raw_data.url_to_image}" 
-                             class="article-thumbnail" 
-                             style="width: 60px; height: 60px; object-fit: cover; cursor: pointer;"
-                             onclick="previewImage('${article.raw_data.url_to_image}')"
-                             onerror="this.style.display='none'">
-                    </div>
-                ` : ''}
-            </div>
-            <div class="article-content ms-4">
-                <p class="mb-2">${article.summary || 'No summary available'}</p>
-                <div class="d-flex gap-2 mt-2">
-                    <a href="${article.url}" target="_blank" class="btn btn-sm btn-link p-0">
-                        <i class="fas fa-external-link-alt"></i> View Source
-                    </a>
-                    <a href="https://archive.is/${encodeURIComponent(article.url)}" 
-                       target="_blank" rel="noopener noreferrer"
-                       class="btn btn-sm btn-link p-0">
-                        <i class="fas fa-unlock"></i> Bypass Paywall
-                    </a>
-                    <button class="btn btn-sm btn-link p-0" onclick="analyzeArticle('${article.url}')">
-                        <i class="fas fa-microscope"></i> Analyze
+    resultsDiv.innerHTML = `
+        <div class="article-container">
+            <div id="articlesList"></div>
+            ${data.total > allArticles.length ? 
+                `<div class="text-center mt-3">
+                    <button onclick="loadMore()" class="btn btn-outline-primary">
+                        <i class="fas fa-plus"></i> Load More Results
                     </button>
+                </div>` : ''
+            }
+        </div>
+    `;
+
+    const articlesDiv = document.getElementById('articlesList');
+    allArticles.forEach(article => {
+        // Format the source name properly
+        let sourceName = article.source || 'Unknown';
+        if (sourceName.toLowerCase() === 'arxiv') {
+            sourceName = 'arXiv';  // Correct capitalization
+        } else if (typeof sourceName === 'object' && sourceName.name) {
+            sourceName = sourceName.name;  // Handle NewsAPI source format
+        }
+        sourceName = escapeHtml(sourceName);
+        
+        const articleElement = document.createElement('div');
+        articleElement.className = 'card mb-3';
+        articleElement.innerHTML = `
+            <div class="card-body">
+                <div class="d-flex align-items-start">
+                    <div class="form-check me-3">
+                        <input class="form-check-input" type="checkbox" 
+                               onchange="toggleArticleSelection(this)" 
+                               data-url="${escapeHtml(article.url)}"
+                               data-title="${escapeHtml(article.title)}"
+                               data-summary="${escapeHtml(article.summary || '')}">
+                    </div>
+                    <div class="flex-grow-1">
+                        <h5 class="card-title">${escapeHtml(article.title)}</h5>
+                        <div class="article-meta mb-3">
+                            <span class="badge bg-light text-dark">
+                                <i class="fas ${getSourceIcon(sourceName)}"></i> ${sourceName}
+                            </span>
+                            <span class="ms-2">
+                                <i class="far fa-calendar"></i> ${formatDate(article.published_date)}
+                            </span>
+                            <span class="ms-2">
+                                <i class="fas fa-users"></i> ${formatAuthors(article.authors)}
+                            </span>
+                        </div>
+                        <div class="article-summary">
+                            ${escapeHtml(article.summary || 'No summary available')}
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <div class="btn-group">
+                                <button class="btn btn-primary btn-sm" onclick="analyzeArticle('${escapeHtml(article.url)}')">
+                                    <i class="fas fa-microscope"></i> Analyze
+                                </button>
+                                <a href="${escapeHtml(article.url)}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                                    <i class="fas fa-external-link-alt"></i> View Source
+                                </a>
+                                <a href="https://archive.is/${encodeURIComponent(article.url)}" 
+                                   target="_blank" rel="noopener noreferrer"
+                                   class="btn btn-outline-secondary btn-sm">
+                                    <i class="fas fa-unlock"></i> Bypass Paywall
+                                </a>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
-        
-        resultsDiv.appendChild(articleElement);
+        articlesDiv.appendChild(articleElement);
     });
-    
-    // Update result count
-    const resultCount = document.getElementById('resultCount');
-    if (resultCount) {
-        resultCount.textContent = `(${data.article_count || data.articles.length} articles)`;
-    }
-    
-    updateBulkAnalysisButton();
 }
 
 function toggleContent(button) {
@@ -644,36 +749,25 @@ function toggleContent(button) {
 }
 
 function formatDate(dateString) {
-    if (!dateString) return 'No date';
+    if (!dateString) return 'Unknown Date';
     try {
-        // Handle different date formats
-        let date;
-        if (dateString.includes('T')) {
-            // ISO format
-            date = new Date(dateString);
-        } else {
-            // Simple date format
-            date = new Date(dateString + 'T00:00:00');
-        }
-        
-        if (isNaN(date.getTime())) {
-            throw new Error('Invalid date');
-        }
-        
-        return new Intl.DateTimeFormat('en-US', {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        return date.toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'short',
             day: 'numeric'
-        }).format(date);
+        });
     } catch (e) {
-        console.error('Date formatting error:', e, dateString);
-        return 'Invalid date';
+        console.error('Error formatting date:', e);
+        return 'Invalid Date';
     }
 }
 
 function formatAuthors(authors) {
-    if (!authors || !Array.isArray(authors) || authors.length === 0) return 'Unknown author';
-    return authors.filter(author => author).join(', ') || 'Unknown author';
+    if (!authors || !authors.length) return 'Unknown Author';
+    if (authors.length === 1) return escapeHtml(authors[0]);
+    return `${escapeHtml(authors[0])} +${authors.length - 1}`;
 }
 
 function previewImage(imageUrl) {
@@ -713,23 +807,12 @@ function previewImage(imageUrl) {
 }
 
 function updateBulkAnalysisButton() {
-    const selectedCount = selectedArticles.length;
-    let bulkAnalyzeBtn = document.getElementById('bulkAnalyzeBtn');
+    const bulkAnalyzeBtn = document.getElementById('bulkAnalyzeBtn');
+    const selectedCount = document.getElementById('selectedCount');
     
-    if (!bulkAnalyzeBtn) {
-        bulkAnalyzeBtn = document.createElement('button');
-        bulkAnalyzeBtn.id = 'bulkAnalyzeBtn';
-        bulkAnalyzeBtn.className = 'btn btn-primary position-fixed bottom-0 end-0 m-3 d-flex align-items-center';
-        bulkAnalyzeBtn.style.zIndex = '1000';
-        document.body.appendChild(bulkAnalyzeBtn);
-    }
-    
-    if (selectedCount > 0) {
-        bulkAnalyzeBtn.innerHTML = `
-            <i class="fas fa-microscope me-2"></i>
-            Analyze Selected (${selectedCount})
-        `;
-        bulkAnalyzeBtn.style.display = 'flex';
+    if (selectedArticles.length > 0) {
+        bulkAnalyzeBtn.style.display = 'block';
+        selectedCount.textContent = selectedArticles.length;
         bulkAnalyzeBtn.onclick = analyzeBulkArticles;
     } else {
         bulkAnalyzeBtn.style.display = 'none';
@@ -743,10 +826,7 @@ async function analyzeBulkArticles() {
         return;
     }
 
-    // Get URLs from selected articles
     const urls = selectedArticles.map(article => article.url).join('\n');
-    
-    // Redirect to bulk research page with query parameters
     const params = new URLSearchParams({
         urlList: urls,
         topic: topic
@@ -927,15 +1007,10 @@ function getNewsAPIParams(searchParams) {
 }
 
 function toggleArticleSelection(checkbox) {
-    if (!checkbox) return;
-    
-    const articleCard = checkbox.closest('.article-card');
-    if (!articleCard) return;
-    
     const articleData = {
-        url: checkbox.value,
-        title: articleCard.querySelector('h5')?.textContent || '',
-        summary: articleCard.querySelector('.article-summary')?.textContent || ''
+        url: checkbox.dataset.url,
+        title: checkbox.dataset.title,
+        summary: checkbox.dataset.summary
     };
     
     if (checkbox.checked) {
@@ -1004,6 +1079,52 @@ function analyzeArticle(url) {
     });
     
     window.location.href = `/research?${params.toString()}`;
+}
+
+// Update the getSourceIcon function
+function getSourceIcon(source) {
+    const sourceIcons = {
+        'arxiv': 'fa-file-alt',
+        'arXiv': 'fa-file-alt',
+        'newsapi': 'fa-newspaper',
+        'default': 'fa-link'
+    };
+    return sourceIcons[source?.toLowerCase()] || sourceIcons.default;
+}
+
+// Add these helper functions before displayResults
+function escapeHtml(unsafe) {
+    if (!unsafe) return '';
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// Helper function to format authors list
+function formatAuthors(authors) {
+    if (!authors || !authors.length) return 'Unknown Author';
+    if (authors.length === 1) return escapeHtml(authors[0]);
+    return `${escapeHtml(authors[0])} +${authors.length - 1}`;
+}
+
+// Helper function to format date
+function formatDate(dateString) {
+    if (!dateString) return 'Unknown Date';
+    try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    } catch (e) {
+        console.error('Error formatting date:', e);
+        return 'Invalid Date';
+    }
 }
 </script>
 {% endblock %} 

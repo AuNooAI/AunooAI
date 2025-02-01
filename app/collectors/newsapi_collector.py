@@ -189,14 +189,11 @@ class NewsAPICollector(ArticleCollector):
                         return [{
                             'title': article.get('title', ''),
                             'summary': article.get('description', '') or '',
-                            'url': article.get('url', ''),  # Keep url for new code
-                            'uri': article.get('url', ''),  # Keep uri for old code
-                            'source': article.get('source', {}).get('name', ''),
-                            'news_source': article.get('source', {}).get('name', ''),  # For compatibility
+                            'url': article.get('url', ''),
+                            'source': article.get('source', {}).get('name', 'NewsAPI'),  # Set default source name
+                            'authors': [article.get('author')] if article.get('author') else [],
                             'published_date': article.get('publishedAt', ''),
-                            'publication_date': article.get('publishedAt', ''),  # For compatibility
                             'raw_data': {
-                                'author': article.get('author'),
                                 'url_to_image': article.get('urlToImage'),
                                 'content': article.get('content')
                             }

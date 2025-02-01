@@ -732,5 +732,41 @@ document.addEventListener('DOMContentLoaded', updateRequestStatus);
 
 {% block extra_js %}
 <script>
+// Existing world clock functionality
+function updateClocks() {
+    const clockElements = document.querySelectorAll('.clock-time');
+    clockElements.forEach(clock => {
+        const timezone = clock.dataset.timezone;
+        const time = new Date().toLocaleTimeString('en-US', {
+            timeZone: timezone,
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        clock.textContent = time;
+    });
+}
+
+// Keep existing topic overview functionality
+function toggleTopicOverview() {
+    const content = document.getElementById('topicOverviewContent');
+    const icon = document.getElementById('topicOverviewIcon');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    } else {
+        content.style.display = 'none';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    }
+}
+
+// Keep existing initialization
+document.addEventListener('DOMContentLoaded', function() {
+    updateClocks();
+    setInterval(updateClocks, 1000);
+});
 </script>
 {% endblock %} 

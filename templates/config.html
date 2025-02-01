@@ -3,113 +3,338 @@
 {% block content %}
 <h1>Configuration</h1>
 
-<div class="config-layout">
-    <div class="left-panel">
-        <h2>Database Management</h2>
-        <div class="config-item">
-            <h3>Active Database</h3>
-            <select id="active-database">
-                <option value="">Select active database</option>
-                <!-- Options will be populated dynamically -->
-            </select>
-        </div>
-        <div class="config-item">
-            <h3>Available Databases</h3>
-            <ul id="database-list">
-                <!-- Database list will be populated dynamically -->
-            </ul>
-        </div>
-        <div class="config-item">
-            <h3>New Database</h3>
-            <form id="create-database-form">
-                <input type="text" id="database-name" placeholder="Enter database name" required>
-                <button type="submit">Create Database</button>
-            </form>
-        </div>
-        <div class="config-item">
-            <h3>Database Operations</h3>
-            <div class="database-operations">
-                <button id="backup-database" onclick="backupDatabase()">Backup Database</button>
-                <button id="reset-database" class="danger" onclick="resetDatabase()">Reset Database</button>
+<!-- Add tab navigation -->
+<ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active" id="database-tab" data-bs-toggle="tab" data-bs-target="#database" type="button" role="tab">
+            <i class="fas fa-database"></i> Database
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="ai-models-tab" data-bs-toggle="tab" data-bs-target="#ai-models" type="button" role="tab">
+            <i class="fas fa-robot"></i> AI Models
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="providers-tab" data-bs-toggle="tab" data-bs-target="#providers" type="button" role="tab">
+            <i class="fas fa-plug"></i> Providers
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link" id="security-tab" data-bs-toggle="tab" data-bs-target="#security" type="button" role="tab">
+            <i class="fas fa-lock"></i> Security
+        </button>
+    </li>
+</ul>
+
+<!-- Tab content -->
+<div class="tab-content" id="configTabContent">
+    <!-- Database Management Tab -->
+    <div class="tab-pane fade show active" id="database" role="tabpanel">
+        <div class="config-layout">
+            <div class="left-panel">
+                <h2>Database Management</h2>
+                <div class="config-item">
+                    <h3>Active Database</h3>
+                    <select id="active-database">
+                        <option value="">Select active database</option>
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+                <div class="config-item">
+                    <h3>Available Databases</h3>
+                    <ul id="database-list">
+                        <!-- Database list will be populated dynamically -->
+                    </ul>
+                </div>
+                <div class="config-item">
+                    <h3>New Database</h3>
+                    <form id="create-database-form">
+                        <input type="text" id="database-name" placeholder="Enter database name" required>
+                        <button type="submit">Create Database</button>
+                    </form>
+                </div>
+                <div class="config-item">
+                    <h3>Database Operations</h3>
+                    <div class="database-operations">
+                        <button id="backup-database" onclick="backupDatabase()">Backup Database</button>
+                        <button id="reset-database" class="danger" onclick="resetDatabase()">Reset Database</button>
+                    </div>
+                </div>
+            </div>
+            <div class="right-panel">
+                <h2>Database Information</h2>
+                <div id="database-info">
+                    <!-- This will be populated dynamically -->
+                </div>
             </div>
         </div>
     </div>
-    <div class="right-panel">
-        <h2>Database Information</h2>
-        <div id="database-info">
-            <!-- This will be populated dynamically -->
+
+    <!-- AI Models Tab -->
+    <div class="tab-pane fade" id="ai-models" role="tabpanel">
+        <div class="config-layout">
+            <div class="left-panel">
+                <h2>AI Model Configuration</h2>
+                <form id="add-model-form">
+                    <select id="model-name" required>
+                        <option value="">Select a model</option>
+                        {% for model in models %}
+                            <option value="{{ model.name }}" data-provider="{{ model.provider }}">{{ model.name }} ({{ model.provider }})</option>
+                        {% endfor %}
+                    </select>
+                    <input type="text" id="api-key" placeholder="API Key" required>
+                    <button type="submit">Add Model</button>
+                </form>
+            </div>
+            <div class="right-panel">
+                <h2>Available Models</h2>
+                <ul id="model-list">
+                    <!-- This will be populated dynamically -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Providers Tab -->
+    <div class="tab-pane fade" id="providers" role="tabpanel">
+        <div class="config-layout">
+            <div class="left-panel">
+                <h2>Article Provider Configuration</h2>
+                <form id="provider-config-form">
+                    <select id="provider-name" required>
+                        <option value="">Select a provider</option>
+                        <!-- Will be populated dynamically -->
+                    </select>
+                    <input type="text" id="provider-key" placeholder="API Key" required>
+                    <button type="submit">Add Provider</button>
+                </form>
+            </div>
+            <div class="right-panel">
+                <h2>Available Providers</h2>
+                <ul id="provider-list">
+                    <!-- Will be populated dynamically -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Security Tab -->
+    <div class="tab-pane fade" id="security" role="tabpanel">
+        <div class="config-layout">
+            <div class="left-panel">
+                <h2>Change Password</h2>
+                <form id="change-password-form">
+                    <input type="password" id="current-password" placeholder="Current Password" required>
+                    <input type="password" id="new-password" placeholder="New Password" required>
+                    <input type="password" id="confirm-password" placeholder="Confirm New Password" required>
+                    <button type="submit">Change Password</button>
+                </form>
+            </div>
+            <div class="right-panel">
+                <h2>Password Requirements</h2>
+                <ul>
+                    <li>At least 8 characters long</li>
+                    <li>Must contain at least one uppercase letter</li>
+                    <li>Must contain at least one number</li>
+                    <li>Must contain at least one special character</li>
+                </ul>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- AI Model Configuration Section -->
-<div class="config-layout mt-5">
-    <div class="left-panel">
-        <h2>AI Model Configuration</h2>
-        <form id="add-model-form">
-            <select id="model-name" required>
-                <option value="">Select a model</option>
-                {% for model in models %}
-                    <option value="{{ model.name }}" data-provider="{{ model.provider }}">{{ model.name }} ({{ model.provider }})</option>
-                {% endfor %}
-            </select>
-            <input type="text" id="api-key" placeholder="API Key" required>
-            <button type="submit">Add Model</button>
-        </form>
-    </div>
-    <div class="right-panel">
-        <h2>Available Models</h2>
-        <ul id="model-list">
-            <!-- This will be populated dynamically -->
-        </ul>
-    </div>
-</div>
+<style>
+    .config-layout {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin-top: 20px;
+    }
 
-<!-- Replace the Article Provider Configuration section with this updated version -->
-<div class="config-layout mt-5">
-    <div class="left-panel">
-        <h2>Article Provider Configuration</h2>
-        <form id="provider-config-form">
-            <select id="provider-name" required>
-                <option value="">Select a provider</option>
-                <!-- Will be populated dynamically -->
-            </select>
-            <input type="text" id="provider-key" placeholder="API Key" required>
-            <button type="submit">Add Provider</button>
-        </form>
-    </div>
-    <div class="right-panel">
-        <h2>Available Providers</h2>
-        <ul id="provider-list">
-            <!-- Will be populated dynamically -->
-        </ul>
-    </div>
-</div>
+    .left-panel, .right-panel {
+        flex: 1;
+        min-width: 300px;
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
 
-<!-- Add bottom spacing -->
-<div class="mt-5"></div>
+    .config-item {
+        margin-bottom: 20px;
+    }
 
-<!-- Password Change Section -->
-<div class="config-layout mt-5">
-    <div class="left-panel">
-        <h2>Change Password</h2>
-        <form id="change-password-form">
-            <input type="password" id="current-password" placeholder="Current Password" required>
-            <input type="password" id="new-password" placeholder="New Password" required>
-            <input type="password" id="confirm-password" placeholder="Confirm New Password" required>
-            <button type="submit">Change Password</button>
-        </form>
-    </div>
-    <div class="right-panel">
-        <h2>Password Requirements</h2>
-        <ul>
-            <li>At least 8 characters long</li>
-            <li>Must contain at least one uppercase letter</li>
-            <li>Must contain at least one number</li>
-            <li>Must contain at least one special character</li>
-        </ul>
-    </div>
-</div>
+    #database-list, #model-list, #provider-list {
+        padding-left: 0;
+        list-style-type: none;
+    }
+
+    #database-list li, #model-list li, #provider-list li {
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px;
+        background-color: #f8f9fa;
+        border-radius: 4px;
+    }
+
+    #create-database-form, #add-model-form, #provider-config-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    input, select, button {
+        padding: 10px;
+        border-radius: 5px;
+        border: 1px solid #e9ecef;
+    }
+
+    button {
+        background-color: #FF1493;
+        color: white;
+        cursor: pointer;
+    }
+
+    button:hover {
+        background-color: #FF69B4;
+    }
+
+    h2 {
+        color: #333;
+        border-bottom: 2px solid #FF1493;
+        padding-bottom: 10px;
+    }
+
+    h3 {
+        color: #FF1493;
+    }
+
+    .status-badge {
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 0.8em;
+    }
+
+    .status-badge.configured {
+        background-color: #32CD32;
+        color: white;
+    }
+
+    .status-badge.not-configured {
+        background-color: #ff6b6b;
+        color: white;
+    }
+
+    /* Add password section specific styles */
+    #change-password-form input {
+        margin-bottom: 10px;
+    }
+
+    .right-panel ul {
+        padding-left: 20px;
+    }
+
+    .right-panel ul li {
+        margin-bottom: 8px;
+        color: #666;
+    }
+
+    .database-operations {
+        display: flex;
+        gap: 10px;
+        margin-top: 10px;
+    }
+
+    .database-operations button {
+        flex: 1;
+        padding: 10px;
+        border-radius: 5px;
+        cursor: pointer;
+        border: none;
+        color: white;
+    }
+
+    .database-operations button#backup-database {
+        background-color: #4CAF50;  /* Green */
+    }
+
+    .database-operations button#backup-database:hover {
+        background-color: #45a049;
+    }
+
+    .database-operations button#reset-database {
+        background-color: #f44336;  /* Red */
+    }
+
+    .database-operations button#reset-database:hover {
+        background-color: #da190b;
+    }
+
+    .danger {
+        background-color: #f44336 !important;
+    }
+
+    .danger:hover {
+        background-color: #da190b !important;
+    }
+
+    /* Add new styles for tabs */
+    .nav-tabs {
+        border-bottom: 2px solid var(--medium-gray);
+    }
+
+    .nav-tabs .nav-link {
+        border: none;
+        color: var(--dark-gray);
+        padding: 12px 20px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s ease;
+    }
+
+    .nav-tabs .nav-link i {
+        font-size: 1.1em;
+    }
+
+    .nav-tabs .nav-link:hover {
+        border: none;
+        color: var(--primary-color);
+    }
+
+    .nav-tabs .nav-link.active {
+        border: none;
+        color: var(--primary-color);
+        border-bottom: 2px solid var(--primary-color);
+        margin-bottom: -2px;
+    }
+
+    .tab-content {
+        padding-top: 20px;
+    }
+
+    .config-layout {
+        margin-top: 0;
+    }
+
+    /* Make tabs responsive */
+    @media (max-width: 768px) {
+        .nav-tabs {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .nav-tabs .nav-link {
+            padding: 12px 15px;
+        }
+    }
+</style>
 
 <script>
     // JavaScript functions related to database and model management
@@ -559,143 +784,22 @@
             }
         }
     }
+
+    // Add this to handle tab persistence
+    document.addEventListener('DOMContentLoaded', function() {
+        // Get active tab from localStorage if it exists
+        const activeTab = localStorage.getItem('configActiveTab');
+        if (activeTab) {
+            const tab = new bootstrap.Tab(document.querySelector(`#configTabs button[data-bs-target="${activeTab}"]`));
+            tab.show();
+        }
+
+        // Store active tab in localStorage when changed
+        document.querySelectorAll('#configTabs button').forEach(button => {
+            button.addEventListener('shown.bs.tab', function(e) {
+                localStorage.setItem('configActiveTab', e.target.dataset.bsTarget);
+            });
+        });
+    });
 </script>
-
-<style>
-    .config-layout {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 20px;
-        margin-top: 20px;
-    }
-
-    .left-panel, .right-panel {
-        flex: 1;
-        min-width: 300px;
-        background-color: white;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    .config-item {
-        margin-bottom: 20px;
-    }
-
-    #database-list, #model-list, #provider-list {
-        padding-left: 0;
-        list-style-type: none;
-    }
-
-    #database-list li, #model-list li, #provider-list li {
-        margin-bottom: 10px;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 8px;
-        background-color: #f8f9fa;
-        border-radius: 4px;
-    }
-
-    #create-database-form, #add-model-form, #provider-config-form {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-
-    input, select, button {
-        padding: 10px;
-        border-radius: 5px;
-        border: 1px solid #e9ecef;
-    }
-
-    button {
-        background-color: #FF1493;
-        color: white;
-        cursor: pointer;
-    }
-
-    button:hover {
-        background-color: #FF69B4;
-    }
-
-    h2 {
-        color: #333;
-        border-bottom: 2px solid #FF1493;
-        padding-bottom: 10px;
-    }
-
-    h3 {
-        color: #FF1493;
-    }
-
-    .status-badge {
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 0.8em;
-    }
-
-    .status-badge.configured {
-        background-color: #32CD32;
-        color: white;
-    }
-
-    .status-badge.not-configured {
-        background-color: #ff6b6b;
-        color: white;
-    }
-
-    /* Add password section specific styles */
-    #change-password-form input {
-        margin-bottom: 10px;
-    }
-
-    .right-panel ul {
-        padding-left: 20px;
-    }
-
-    .right-panel ul li {
-        margin-bottom: 8px;
-        color: #666;
-    }
-
-    .database-operations {
-        display: flex;
-        gap: 10px;
-        margin-top: 10px;
-    }
-
-    .database-operations button {
-        flex: 1;
-        padding: 10px;
-        border-radius: 5px;
-        cursor: pointer;
-        border: none;
-        color: white;
-    }
-
-    .database-operations button#backup-database {
-        background-color: #4CAF50;  /* Green */
-    }
-
-    .database-operations button#backup-database:hover {
-        background-color: #45a049;
-    }
-
-    .database-operations button#reset-database {
-        background-color: #f44336;  /* Red */
-    }
-
-    .database-operations button#reset-database:hover {
-        background-color: #da190b;
-    }
-
-    .danger {
-        background-color: #f44336 !important;
-    }
-
-    .danger:hover {
-        background-color: #da190b !important;
-    }
-</style>
 {% endblock %}

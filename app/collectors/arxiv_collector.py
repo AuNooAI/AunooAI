@@ -1,5 +1,5 @@
 import arxiv
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from .base_collector import ArticleCollector
 import logging
@@ -40,6 +40,15 @@ class ArxivCollector(ArticleCollector):
     ) -> List[Dict]:
         """Search ArXiv articles."""
         try:
+            # Convert string dates to timezone-aware datetime objects
+            start_dt = None
+            end_dt = None
+            
+            if start_date:
+                start_dt = start_date.replace(tzinfo=timezone.utc)
+            if end_date:
+                end_dt = end_date.replace(tzinfo=timezone.utc)
+
             # Get arXiv categories for the topic
             categories = self.topic_category_mapping.get(topic, [
                 "cs.AI",  # Artificial Intelligence
@@ -66,21 +75,24 @@ class ArxivCollector(ArticleCollector):
             )
 
             results = []
-            # Replace async for with regular iteration
+            # Use regular iteration instead of async for
             for result in self.client.results(search):
-                # Filter by date if specified
-                if start_date and result.published < start_date:
+                # Convert arXiv result published date to timezone-aware
+                pub_date = result.published.replace(tzinfo=timezone.utc)
+                
+                # Apply date filtering
+                if start_dt and pub_date < start_dt:
                     continue
-                if end_date and result.published > end_date:
+                if end_dt and pub_date > end_dt:
                     continue
 
                 article = {
                     'title': result.title,
                     'summary': result.summary,
                     'authors': [author.name for author in result.authors],
-                    'published_date': result.published.isoformat(),  # Convert to ISO format string
-                    'url': result.pdf_url,  # Using PDF URL as main URL
-                    'source': 'arxiv',
+                    'published_date': result.published.isoformat(),
+                    'url': result.entry_id,  # Use entry_id for abstract URL instead of PDF
+                    'source': 'arXiv',  # Capitalize X in arXiv
                     'topic': topic,
                     'raw_data': {
                         'arxiv_id': result.entry_id,
@@ -98,7 +110,7 @@ class ArxivCollector(ArticleCollector):
 
         except Exception as e:
             logger.error(f"Error searching ArXiv: {str(e)}")
-            return []
+            raise ValueError(f"ArXiv search failed: {str(e)}")
 
     async def fetch_article_content(self, url: str) -> Optional[Dict]:
         """Fetch article content from ArXiv."""
