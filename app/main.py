@@ -61,8 +61,6 @@ analytics = Analytics(db)
 report = Report(db)
 report_generator = Report(db)
 
-#print("Config in main:", config)
-
 # Add this after app = FastAPI()
 app.add_middleware(
     SessionMiddleware,
@@ -816,11 +814,19 @@ async def collect_articles(
     topic: str,
     max_results: int = Query(10, ge=1, le=100),
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    language: str = Query("en", min_length=2, max_length=2),
+    locale: Optional[str] = None,
+    domains: Optional[str] = None,
+    exclude_domains: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    source_ids: Optional[str] = None,
+    exclude_source_ids: Optional[str] = None,
+    categories: Optional[str] = None,
+    exclude_categories: Optional[str] = None,
+    search_fields: Optional[str] = None,
+    page: int = Query(1, ge=1)
 ):
-    """
-    Collect articles from specified source.
-    """
     try:
         collector = CollectorFactory.get_collector(source)
         
@@ -828,12 +834,32 @@ async def collect_articles(
         start_date_obj = datetime.fromisoformat(start_date) if start_date else None
         end_date_obj = datetime.fromisoformat(end_date) if end_date else None
         
+        # Convert comma-separated strings to lists
+        domains_list = domains.split(',') if domains else None
+        exclude_domains_list = exclude_domains.split(',') if exclude_domains else None
+        source_ids_list = source_ids.split(',') if source_ids else None
+        exclude_source_ids_list = exclude_source_ids.split(',') if exclude_source_ids else None
+        categories_list = categories.split(',') if categories else None
+        exclude_categories_list = exclude_categories.split(',') if exclude_categories else None
+        search_fields_list = search_fields.split(',') if search_fields else None
+        
         articles = await collector.search_articles(
             query=query,
             topic=topic,
             max_results=max_results,
             start_date=start_date_obj,
-            end_date=end_date_obj
+            end_date=end_date_obj,
+            language=language,
+            locale=locale,
+            domains=domains_list,
+            exclude_domains=exclude_domains_list,
+            sort_by=sort_by,
+            source_ids=source_ids_list,
+            exclude_source_ids=exclude_source_ids_list,
+            categories=categories_list,
+            exclude_categories=exclude_categories_list,
+            search_fields=search_fields_list,
+            page=page
         )
         
         return JSONResponse(content={
@@ -1621,6 +1647,97 @@ async def save_firecrawl_config(config: NewsAPIConfig):  # Reusing the same mode
 
     except Exception as e:
         logger.error(f"Error saving Firecrawl configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/thenewsapi")
+async def get_thenewsapi_config():
+    """Get TheNewsAPI configuration status."""
+    try:
+        # Force reload of environment variables
+        load_dotenv(override=True)
+        
+        thenewsapi_key = os.getenv('PROVIDER_THENEWSAPI_KEY')
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": bool(thenewsapi_key),
+                "message": "TheNewsAPI is configured" if thenewsapi_key else "TheNewsAPI is not configured"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error in get_thenewsapi_config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/config/thenewsapi")
+async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
+    """Save TheNewsAPI configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        env_var_name = 'PROVIDER_THENEWSAPI_KEY'
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Update or add the key
+        new_line = f'{env_var_name}="{config.api_key}"\n'
+        key_found = False
+
+        for i, line in enumerate(lines):
+            if line.startswith(f'{env_var_name}='):
+                lines[i] = new_line
+                key_found = True
+                break
+
+        if not key_found:
+            lines.append(new_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment
+        os.environ[env_var_name] = config.api_key
+        
+        return JSONResponse(
+            status_code=200,
+            content={"message": "TheNewsAPI configuration saved successfully"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error saving TheNewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/thenewsapi")
+async def remove_thenewsapi_config():
+    """Remove TheNewsAPI configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        
+        # Read existing content
+        with open(env_path, "r") as env_file:
+            lines = env_file.readlines()
+
+        # Remove the THENEWSAPI_KEY line
+        lines = [line for line in lines if not line.startswith('PROVIDER_THENEWSAPI_KEY=')]
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Remove from current environment
+        if 'PROVIDER_THENEWSAPI_KEY' in os.environ:
+            del os.environ['PROVIDER_THENEWSAPI_KEY']
+
+        return {"message": "TheNewsAPI configuration removed successfully"}
+
+    except Exception as e:
+        logger.error(f"Error removing TheNewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

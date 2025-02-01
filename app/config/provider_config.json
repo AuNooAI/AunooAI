@@ -8,6 +8,13 @@
       "enabled": true
     },
     {
+      "name": "thenewsapi",
+      "display_name": "TheNewsAPI",
+      "config_type": "api_key",
+      "description": "Access news articles from TheNewsAPI service",
+      "enabled": true
+    },
+    {
       "name": "firecrawl",
       "display_name": "Firecrawl Scraper",
       "config_type": "api_key",
