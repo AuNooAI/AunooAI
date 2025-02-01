@@ -47,6 +47,25 @@
             background-color: var(--medium-gray);
             color: var(--dark-gray);
         }
+
+        .dropdown-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+        }
+
+        .dropdown-item i {
+            width: 16px;
+            text-align: center;
+            color: var(--primary-color);
+        }
+
+        .nav-link i {
+            margin-right: 4px;
+            width: 16px;
+            text-align: center;
+        }
     </style>
     {% block extra_css %}{% endblock %}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -56,7 +75,7 @@
         <div class="container">
             <a class="navbar-brand" href="/">
                 <img src="{{ url_for('static', path='FNA.png') }}" alt="FNA Logo" height="30" class="d-inline-block align-top">
-                N0RN AI
+                AunooAI
             </a>
             {% if session.get('user') %}
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -65,37 +84,40 @@
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav">
                     <li class="nav-item">
-                        <a class="nav-link" href="/">Home</a>
+                        <a class="nav-link" href="/">
+                            <i class="fas fa-home"></i> Home
+                        </a>
                     </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="researchDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            Research
+                            <i class="fas fa-search"></i> Research
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="researchDropdown">
-                            <li><a class="dropdown-item" href="/dashboard">Monitor news</a></li>
-                            <li><a class="dropdown-item" href="/collect">Search news</a></li>
-                            <li><a class="dropdown-item" href="/research">Add an article</a></li>
-                            <li><a class="dropdown-item" href="/bulk-research">Add multiple articles</a></li>
+                            <li><a class="dropdown-item" href="/dashboard"><i class="fas fa-newspaper"></i> Monitor news</a></li>
+                            <li><a class="dropdown-item" href="/collect"><i class="fas fa-search"></i> Search news</a></li>
+                            <li><a class="dropdown-item" href="/research"><i class="fas fa-plus-circle"></i> Add an article</a></li>
+                            <li><a class="dropdown-item" href="/bulk-research"><i class="fas fa-file-upload"></i> Add multiple articles</a></li>
                         </ul>
                     </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="analysisDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            Analysis
+                            <i class="fas fa-chart-bar"></i> Analysis
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="analysisDropdown">
-                            <li><a class="dropdown-item" href="/report">Write a report</a></li>
-                            <li><a class="dropdown-item" href="/analytics">Visualize Trends</a></li>
-                            <li><a class="dropdown-item" href="/database-editor">Edit Articles</a></li>
+                            <li><a class="dropdown-item" href="/report"><i class="fas fa-file-alt"></i> Write a report</a></li>
+                            <li><a class="dropdown-item" href="/analytics"><i class="fas fa-chart-line"></i> Visualize Trends</a></li>
+                            <li><a class="dropdown-item" href="/database-editor"><i class="fas fa-edit"></i> Edit Articles</a></li>
                         </ul>
                     </li>
                     <li class="nav-item dropdown">
                         <a class="nav-link dropdown-toggle" href="#" id="configDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            Configuration
+                            <i class="fas fa-cog"></i> Configuration
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="configDropdown">
-                            <li><a class="dropdown-item" href="/config">Go to Configuration</a></li>
-                            <li><a class="dropdown-item" href="/promptmanager">Prompt Manager</a></li>
-                            <li><a class="dropdown-item" href="/create_topic">Create or Update a Scenario Topic</a></li>
+                            <li><a class="dropdown-item" href="/config"><i class="fas fa-sliders-h"></i> Go to Configuration</a></li>
+                            <li><a class="dropdown-item" href="/promptmanager"><i class="fas fa-brain"></i> Prompt Manager</a></li>
+                            <li><a class="dropdown-item" href="/create_topic"><i class="fas fa-folder-plus"></i> Create or Update a Scenario Topic</a></li>
+                            <li><a class="dropdown-item" href="/keyword-monitor"><i class="fas fa-search"></i> Keyword Monitor</a></li>
                         </ul>
                     </li>
                     <li class="nav-item">
@@ -103,15 +125,12 @@
                             <i class="fas fa-bell"></i> Keyword Alerts
                         </a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="/keyword-monitor">
-                            <i class="fas fa-search"></i> Keyword Monitor
-                        </a>
-                    </li>
                 </ul>
                 <ul class="navbar-nav ms-auto">
                     <li class="nav-item">
-                        <a class="nav-link" href="/logout">Logout</a>
+                        <a class="nav-link" href="/logout">
+                            <i class="fas fa-sign-out-alt"></i> Logout
+                        </a>
                     </li>
                 </ul>
             </div>
