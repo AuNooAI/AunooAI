@@ -57,6 +57,8 @@
 </style>
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <div class="container mt-4">
     <h1>Article Collection</h1>
@@ -157,6 +159,183 @@
                                             <option value="de">German</option>
                                             <option value="es">Spanish</option>
                                         </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TheNewsAPI Options -->
+                        <div id="thenewsapiOptions" style="display: none;">
+                            <!-- Sort By -->
+                            <div class="mb-3">
+                                <label for="thenewsapiSortBy" class="form-label">Sort By</label>
+                                <select class="form-select" id="thenewsapiSortBy">
+                                    <option value="relevancy">Relevancy</option>
+                                    <option value="published_at">Published Date</option>
+                                </select>
+                            </div>
+
+                            <!-- Categories -->
+                            <div class="mb-3">
+                                <label for="thenewsapiCategories" class="form-label">Categories</label>
+                                <div class="dropdown">
+                                    <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" id="categoryDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                        Select Categories
+                                    </button>
+                                    <ul class="dropdown-menu w-100" id="thenewsapiCategories">
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="general" id="categoryGeneral">
+                                                <label class="form-check-label" for="categoryGeneral">General</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="science" id="categoryScience">
+                                                <label class="form-check-label" for="categoryScience">Science</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="sports" id="categorySports">
+                                                <label class="form-check-label" for="categorySports">Sports</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="business" id="categoryBusiness">
+                                                <label class="form-check-label" for="categoryBusiness">Business</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="health" id="categoryHealth">
+                                                <label class="form-check-label" for="categoryHealth">Health</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="entertainment" id="categoryEntertainment">
+                                                <label class="form-check-label" for="categoryEntertainment">Entertainment</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="tech" id="categoryTech">
+                                                <label class="form-check-label" for="categoryTech">Technology</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="politics" id="categoryPolitics">
+                                                <label class="form-check-label" for="categoryPolitics">Politics</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="food" id="categoryFood">
+                                                <label class="form-check-label" for="categoryFood">Food</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="travel" id="categoryTravel">
+                                                <label class="form-check-label" for="categoryTravel">Travel</label>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <!-- Search Fields -->
+                            <div class="mb-3">
+                                <label class="form-label">Search In</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="title" id="thenewsapiSearchTitle" checked>
+                                    <label class="form-check-label" for="thenewsapiSearchTitle">Title</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="description" id="thenewsapiSearchDescription" checked>
+                                    <label class="form-check-label" for="thenewsapiSearchDescription">Description</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="keywords" id="thenewsapiSearchKeywords">
+                                    <label class="form-check-label" for="thenewsapiSearchKeywords">Keywords</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="main_text" id="thenewsapiSearchMainText" checked>
+                                    <label class="form-check-label" for="thenewsapiSearchMainText">Main Text</label>
+                                </div>
+                            </div>
+
+                            <!-- Advanced Options -->
+                            <div class="mb-3">
+                                <button class="btn btn-sm btn-outline-secondary w-100" type="button" 
+                                        data-bs-toggle="collapse" data-bs-target="#thenewsapiAdvancedOptions">
+                                    Advanced Options ▼
+                                </button>
+                                <div id="thenewsapiAdvancedOptions" class="collapse mt-2">
+                                    <!-- Locale Selection -->
+                                    <div class="mb-3">
+                                        <label for="thenewsapiLocale" class="form-label">Country</label>
+                                        <select class="form-select" id="thenewsapiLocale">
+                                            <option value="">All Countries</option>
+                                            <option value="us">United States</option>
+                                            <option value="gb">United Kingdom</option>
+                                            <option value="ca">Canada</option>
+                                            <option value="au">Australia</option>
+                                            <option value="de">Germany</option>
+                                            <option value="fr">France</option>
+                                            <option value="in">India</option>
+                                            <option value="jp">Japan</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Exclude Categories -->
+                                    <div class="mb-3">
+                                        <label for="thenewsapiExcludeCategories" class="form-label">Exclude Categories</label>
+                                        <select class="form-select" id="thenewsapiExcludeCategories" multiple>
+                                            <option value="general">General</option>
+                                            <option value="science">Science</option>
+                                            <option value="sports">Sports</option>
+                                            <option value="business">Business</option>
+                                            <option value="health">Health</option>
+                                            <option value="entertainment">Entertainment</option>
+                                            <option value="tech">Technology</option>
+                                            <option value="politics">Politics</option>
+                                            <option value="food">Food</option>
+                                            <option value="travel">Travel</option>
+                                        </select>
+                                        <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple categories</small>
+                                    </div>
+
+                                    <!-- Domain Filters -->
+                                    <div class="mb-3">
+                                        <label for="thenewsapiDomains" class="form-label">Include Domains</label>
+                                        <div class="input-group mb-2">
+                                            <input type="text" class="form-control" id="thenewsapiNewDomain" 
+                                                   placeholder="e.g., techcrunch.com">
+                                            <button class="btn btn-outline-secondary" type="button" 
+                                                    onclick="addThenewsapiDomain(false)">Add</button>
+                                        </div>
+                                        <select class="form-select" id="thenewsapiDomains" multiple size="5">
+                                        </select>
+                                        <button class="btn btn-sm btn-outline-danger mt-1" type="button" 
+                                                onclick="removeThenewsapiDomain(false)">Remove Selected</button>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="thenewsapiExcludedDomains" class="form-label">Exclude Domains</label>
+                                        <div class="input-group mb-2">
+                                            <input type="text" class="form-control" id="thenewsapiNewExcludedDomain" 
+                                                   placeholder="e.g., example.com">
+                                            <button class="btn btn-outline-secondary" type="button" 
+                                                    onclick="addThenewsapiDomain(true)">Add</button>
+                                        </div>
+                                        <select class="form-select" id="thenewsapiExcludedDomains" multiple size="5">
+                                        </select>
+                                        <button class="btn btn-sm btn-outline-danger mt-1" type="button" 
+                                                onclick="removeThenewsapiDomain(true)">Remove Selected</button>
                                     </div>
                                 </div>
                             </div>
@@ -413,13 +592,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const source = e.target.value;
             const newsapiOptions = document.getElementById('newsapiOptions');
             const arxivOptions = document.getElementById('arxivOptions');
+            const thenewsapiOptions = document.getElementById('thenewsapiOptions');
             
-            if (newsapiOptions) {
-                newsapiOptions.style.display = source === 'newsapi' ? 'block' : 'none';
-            }
-            if (arxivOptions) {
-                arxivOptions.style.display = source === 'arxiv' ? 'block' : 'none';
-            }
+            newsapiOptions.style.display = source === 'newsapi' ? 'block' : 'none';
+            arxivOptions.style.display = source === 'arxiv' ? 'block' : 'none';
+            thenewsapiOptions.style.display = source === 'thenewsapi' ? 'block' : 'none';
             
             loadStoredArticles();
         });
@@ -524,6 +701,8 @@ async function handleSearch(event) {
         getNewsAPIParams(searchParams);
     } else if (source === 'arxiv') {
         getArxivParams(searchParams);
+    } else if (source === 'thenewsapi') {
+        getTheNewsAPIParams(searchParams);
     }
 
     try {
@@ -554,11 +733,47 @@ function displayResults(data) {
     }
     
     data.articles.forEach(article => {
+        console.log('Article data:', article); // Debug log
+        
         const articleElement = document.createElement('div');
         articleElement.className = 'article-card mb-3 p-3 border rounded';
         
         const formattedDate = formatDate(article.published_date || article.raw_data?.published_date);
         const hasImage = article.raw_data?.url_to_image;
+        const source = article.raw_data?.source || 'Unknown source';
+        const relevanceScore = article.raw_data?.data?.relevance_score;
+        const categories = article.raw_data?.categories;
+        
+        let metadataHtml = `
+            <small class="text-muted">
+                <span class="me-3">
+                    <i class="fas fa-newspaper"></i> 
+                    ${source}
+                </span>
+                <span class="me-3">
+                    <i class="fas fa-calendar"></i> 
+                    ${formattedDate}
+                </span>`;
+
+        // Add relevance score and categories for TheNewsAPI results
+        if (article.source === 'thenewsapi') {
+            if (relevanceScore !== undefined && relevanceScore !== null) {
+                metadataHtml += `
+                    <span class="ms-3">
+                        <i class="fas fa-star"></i> 
+                        Score: ${(relevanceScore * 100).toFixed(2)}%
+                    </span>`;
+            }
+            if (categories && categories.length > 0) {
+                metadataHtml += `
+                    <span class="ms-3">
+                        <i class="fas fa-tags"></i> 
+                        ${categories.join(', ')}
+                    </span>`;
+            }
+        }
+
+        metadataHtml += '</small>';
         
         articleElement.innerHTML = `
             <div class="d-flex justify-content-between align-items-start">
@@ -570,20 +785,7 @@ function displayResults(data) {
                     <label class="form-check-label w-100">
                         <h5 class="mb-2">${article.title || 'Untitled'}</h5>
                         <div class="article-metadata mb-2">
-                            <small class="text-muted">
-                                <span class="me-3">
-                                    <i class="fas fa-newspaper"></i> 
-                                    ${article.raw_data?.source_name || 'Unknown source'}
-                                </span>
-                                <span class="me-3">
-                                    <i class="fas fa-calendar"></i> 
-                                    ${formattedDate}
-                                </span>
-                                <span>
-                                    <i class="fas fa-user"></i> 
-                                    ${formatAuthors(article.authors)}
-                                </span>
-                            </small>
+                            ${metadataHtml}
                         </div>
                     </label>
                 </div>
@@ -594,8 +796,7 @@ function displayResults(data) {
                              style="width: 60px; height: 60px; object-fit: cover; cursor: pointer;"
                              onclick="previewImage('${article.raw_data.url_to_image}')"
                              onerror="this.style.display='none'">
-                    </div>
-                ` : ''}
+                    </div>` : ''}
             </div>
             <div class="article-content ms-4">
                 <p class="mb-2">${article.summary || 'No summary available'}</p>
@@ -612,8 +813,7 @@ function displayResults(data) {
                         <i class="fas fa-microscope"></i> Analyze
                     </button>
                 </div>
-            </div>
-        `;
+            </div>`;
         
         resultsDiv.appendChild(articleElement);
     });
@@ -1005,5 +1205,128 @@ function analyzeArticle(url) {
     
     window.location.href = `/research?${params.toString()}`;
 }
+
+// Add TheNewsAPI specific functions
+function getTheNewsAPIParams(searchParams) {
+    // Add sort option
+    const sortBy = document.getElementById('thenewsapiSortBy').value;
+    if (sortBy) {
+        searchParams.append('sort_by', sortBy);
+    }
+
+    // Add categories
+    const categories = Array.from(document.querySelectorAll('#thenewsapiCategories input[type="checkbox"]:checked'))
+        .map(cb => cb.value);
+    if (categories.length > 0) {
+        searchParams.append('categories', categories.join(','));
+    }
+
+    // Update dropdown button text
+    const categoryDropdown = document.getElementById('categoryDropdown');
+    if (categories.length > 0) {
+        categoryDropdown.textContent = `${categories.length} categories selected`;
+    } else {
+        categoryDropdown.textContent = 'Select Categories';
+    }
+
+    // Add search fields
+    const searchFields = Array.from(document.querySelectorAll('#thenewsapiOptions input[type="checkbox"]:checked'))
+        .map(cb => cb.value);
+    if (searchFields.length > 0) {
+        searchParams.append('search_fields', searchFields.join(','));
+    }
+
+    // Advanced Options
+    // Add locale
+    const locale = document.getElementById('thenewsapiLocale').value;
+    if (locale) {
+        searchParams.append('locale', locale);
+    }
+
+    // Add excluded categories
+    const excludeCategories = Array.from(document.getElementById('thenewsapiExcludeCategories').selectedOptions)
+        .map(opt => opt.value);
+    if (excludeCategories.length > 0) {
+        searchParams.append('exclude_categories', excludeCategories.join(','));
+    }
+
+    // Add domains
+    const domains = Array.from(document.getElementById('thenewsapiDomains').options)
+        .map(opt => opt.value);
+    if (domains.length > 0) {
+        searchParams.append('domains', domains.join(','));
+    }
+
+    // Add excluded domains
+    const excludedDomains = Array.from(document.getElementById('thenewsapiExcludedDomains').options)
+        .map(opt => opt.value);
+    if (excludedDomains.length > 0) {
+        searchParams.append('exclude_domains', excludedDomains.join(','));
+    }
+}
+
+function addThenewsapiDomain(isExcluded) {
+    const selectId = isExcluded ? 'thenewsapiExcludedDomains' : 'thenewsapiDomains';
+    const select = document.getElementById(selectId);
+    
+    const inputId = isExcluded ? 'thenewsapiNewExcludedDomain' : 'thenewsapiNewDomain';
+    const input = document.getElementById(inputId);
+    const domain = input.value.trim().toLowerCase();
+    
+    if (domain && !Array.from(select.options).some(opt => opt.value === domain)) {
+        select.add(new Option(domain, domain));
+        input.value = '';
+        saveThenewsapiDomains();
+    }
+}
+
+function removeThenewsapiDomain(isExcluded) {
+    const selectId = isExcluded ? 'thenewsapiExcludedDomains' : 'thenewsapiDomains';
+    const select = document.getElementById(selectId);
+    Array.from(select.selectedOptions)
+        .forEach(option => option.remove());
+    saveThenewsapiDomains();
+}
+
+function saveThenewsapiDomains() {
+    const domains = Array.from(document.getElementById('thenewsapiDomains').options)
+        .map(opt => opt.value);
+    const excludedDomains = Array.from(document.getElementById('thenewsapiExcludedDomains').options)
+        .map(opt => opt.value);
+    
+    localStorage.setItem('thenewsapiDomains', JSON.stringify({
+        include: domains,
+        exclude: excludedDomains
+    }));
+}
+
+function loadSavedThenewsapiDomains() {
+    const saved = localStorage.getItem('thenewsapiDomains');
+    if (saved) {
+        const { include, exclude } = JSON.parse(saved);
+        const domainsSelect = document.getElementById('thenewsapiDomains');
+        const excludedSelect = document.getElementById('thenewsapiExcludedDomains');
+        
+        domainsSelect.innerHTML = '';
+        excludedSelect.innerHTML = '';
+        
+        include.forEach(domain => domainsSelect.add(new Option(domain, domain)));
+        exclude.forEach(domain => excludedSelect.add(new Option(domain, domain)));
+    }
+}
+
+// Add event listener for category changes
+document.querySelectorAll('#thenewsapiCategories input[type="checkbox"]').forEach(checkbox => {
+    checkbox.addEventListener('change', () => {
+        const categories = Array.from(document.querySelectorAll('#thenewsapiCategories input[type="checkbox"]:checked'))
+            .map(cb => cb.value);
+        const categoryDropdown = document.getElementById('categoryDropdown');
+        if (categories.length > 0) {
+            categoryDropdown.textContent = `${categories.length} categories selected`;
+        } else {
+            categoryDropdown.textContent = 'Select Categories';
+        }
+    });
+});
 </script>
 {% endblock %} 
