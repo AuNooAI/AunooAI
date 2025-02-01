@@ -156,6 +156,8 @@
 </style>
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 
 <div class="container mt-4">
     <h1>Article Collection</h1>
@@ -260,6 +262,183 @@
                                             <option value="de">German</option>
                                             <option value="es">Spanish</option>
                                         </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TheNewsAPI Options -->
+                        <div id="thenewsapiOptions" style="display: none;">
+                            <!-- Sort By -->
+                            <div class="mb-3">
+                                <label for="thenewsapiSortBy" class="form-label">Sort By</label>
+                                <select class="form-select" id="thenewsapiSortBy">
+                                    <option value="relevancy">Relevancy</option>
+                                    <option value="published_at">Published Date</option>
+                                </select>
+                            </div>
+
+                            <!-- Categories -->
+                            <div class="mb-3">
+                                <label for="thenewsapiCategories" class="form-label">Categories</label>
+                                <div class="dropdown">
+                                    <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" id="categoryDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                        Select Categories
+                                    </button>
+                                    <ul class="dropdown-menu w-100" id="thenewsapiCategories">
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="general" id="categoryGeneral">
+                                                <label class="form-check-label" for="categoryGeneral">General</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="science" id="categoryScience">
+                                                <label class="form-check-label" for="categoryScience">Science</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="sports" id="categorySports">
+                                                <label class="form-check-label" for="categorySports">Sports</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="business" id="categoryBusiness">
+                                                <label class="form-check-label" for="categoryBusiness">Business</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="health" id="categoryHealth">
+                                                <label class="form-check-label" for="categoryHealth">Health</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="entertainment" id="categoryEntertainment">
+                                                <label class="form-check-label" for="categoryEntertainment">Entertainment</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="tech" id="categoryTech">
+                                                <label class="form-check-label" for="categoryTech">Technology</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="politics" id="categoryPolitics">
+                                                <label class="form-check-label" for="categoryPolitics">Politics</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="food" id="categoryFood">
+                                                <label class="form-check-label" for="categoryFood">Food</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="travel" id="categoryTravel">
+                                                <label class="form-check-label" for="categoryTravel">Travel</label>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <!-- Search Fields -->
+                            <div class="mb-3">
+                                <label class="form-label">Search In</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="title" id="thenewsapiSearchTitle" checked>
+                                    <label class="form-check-label" for="thenewsapiSearchTitle">Title</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="description" id="thenewsapiSearchDescription" checked>
+                                    <label class="form-check-label" for="thenewsapiSearchDescription">Description</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="keywords" id="thenewsapiSearchKeywords">
+                                    <label class="form-check-label" for="thenewsapiSearchKeywords">Keywords</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="main_text" id="thenewsapiSearchMainText" checked>
+                                    <label class="form-check-label" for="thenewsapiSearchMainText">Main Text</label>
+                                </div>
+                            </div>
+
+                            <!-- Advanced Options -->
+                            <div class="mb-3">
+                                <button class="btn btn-sm btn-outline-secondary w-100" type="button" 
+                                        data-bs-toggle="collapse" data-bs-target="#thenewsapiAdvancedOptions">
+                                    Advanced Options ▼
+                                </button>
+                                <div id="thenewsapiAdvancedOptions" class="collapse mt-2">
+                                    <!-- Locale Selection -->
+                                    <div class="mb-3">
+                                        <label for="thenewsapiLocale" class="form-label">Country</label>
+                                        <select class="form-select" id="thenewsapiLocale">
+                                            <option value="">All Countries</option>
+                                            <option value="us">United States</option>
+                                            <option value="gb">United Kingdom</option>
+                                            <option value="ca">Canada</option>
+                                            <option value="au">Australia</option>
+                                            <option value="de">Germany</option>
+                                            <option value="fr">France</option>
+                                            <option value="in">India</option>
+                                            <option value="jp">Japan</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Exclude Categories -->
+                                    <div class="mb-3">
+                                        <label for="thenewsapiExcludeCategories" class="form-label">Exclude Categories</label>
+                                        <select class="form-select" id="thenewsapiExcludeCategories" multiple>
+                                            <option value="general">General</option>
+                                            <option value="science">Science</option>
+                                            <option value="sports">Sports</option>
+                                            <option value="business">Business</option>
+                                            <option value="health">Health</option>
+                                            <option value="entertainment">Entertainment</option>
+                                            <option value="tech">Technology</option>
+                                            <option value="politics">Politics</option>
+                                            <option value="food">Food</option>
+                                            <option value="travel">Travel</option>
+                                        </select>
+                                        <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple categories</small>
+                                    </div>
+
+                                    <!-- Domain Filters -->
+                                    <div class="mb-3">
+                                        <label for="thenewsapiDomains" class="form-label">Include Domains</label>
+                                        <div class="input-group mb-2">
+                                            <input type="text" class="form-control" id="thenewsapiNewDomain" 
+                                                   placeholder="e.g., techcrunch.com">
+                                            <button class="btn btn-outline-secondary" type="button" 
+                                                    onclick="addThenewsapiDomain(false)">Add</button>
+                                        </div>
+                                        <select class="form-select" id="thenewsapiDomains" multiple size="5">
+                                        </select>
+                                        <button class="btn btn-sm btn-outline-danger mt-1" type="button" 
+                                                onclick="removeThenewsapiDomain(false)">Remove Selected</button>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="thenewsapiExcludedDomains" class="form-label">Exclude Domains</label>
+                                        <div class="input-group mb-2">
+                                            <input type="text" class="form-control" id="thenewsapiNewExcludedDomain" 
+                                                   placeholder="e.g., example.com">
+                                            <button class="btn btn-outline-secondary" type="button" 
+                                                    onclick="addThenewsapiDomain(true)">Add</button>
+                                        </div>
+                                        <select class="form-select" id="thenewsapiExcludedDomains" multiple size="5">
+                                        </select>
+                                        <button class="btn btn-sm btn-outline-danger mt-1" type="button" 
+                                                onclick="removeThenewsapiDomain(true)">Remove Selected</button>
                                     </div>
                                 </div>
                             </div>
@@ -523,13 +702,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const source = e.target.value;
             const newsapiOptions = document.getElementById('newsapiOptions');
             const arxivOptions = document.getElementById('arxivOptions');
+            const thenewsapiOptions = document.getElementById('thenewsapiOptions');
             
-            if (newsapiOptions) {
-                newsapiOptions.style.display = source === 'newsapi' ? 'block' : 'none';
-            }
-            if (arxivOptions) {
-                arxivOptions.style.display = source === 'arxiv' ? 'block' : 'none';
-            }
+            newsapiOptions.style.display = source === 'newsapi' ? 'block' : 'none';
+            arxivOptions.style.display = source === 'arxiv' ? 'block' : 'none';
+            thenewsapiOptions.style.display = source === 'thenewsapi' ? 'block' : 'none';
             
             loadStoredArticles();
         });
@@ -634,6 +811,8 @@ async function handleSearch(event) {
         getNewsAPIParams(searchParams);
     } else if (source === 'arxiv') {
         getArxivParams(searchParams);
+    } else if (source === 'thenewsapi') {
+        getTheNewsAPIParams(searchParams);
     }
 
     try {
@@ -657,78 +836,75 @@ async function handleSearch(event) {
 
 function displayResults(data) {
     const resultsDiv = document.getElementById('searchResults');
-    resultsDiv.innerHTML = `
-        <div class="article-container">
-            <div id="articlesList"></div>
-            ${data.total > allArticles.length ? 
-                `<div class="text-center mt-3">
-                    <button onclick="loadMore()" class="btn btn-outline-primary">
-                        <i class="fas fa-plus"></i> Load More Results
-                    </button>
-                </div>` : ''
-            }
-        </div>
-    `;
-
-    const articlesDiv = document.getElementById('articlesList');
-    allArticles.forEach(article => {
-        // Format the source name properly
-        let sourceName = article.source || 'Unknown';
-        if (sourceName.toLowerCase() === 'arxiv') {
-            sourceName = 'arXiv';  // Correct capitalization
-        } else if (typeof sourceName === 'object' && sourceName.name) {
-            sourceName = sourceName.name;  // Handle NewsAPI source format
-        }
-        sourceName = escapeHtml(sourceName);
-        
+    if (!resultsDiv) return;
+    
+    if (currentPage === 1) {
+        resultsDiv.innerHTML = '';
+    }
+    
+    data.articles.forEach(article => {
         const articleElement = document.createElement('div');
-        articleElement.className = 'card mb-3';
+        articleElement.className = 'article-card mb-3 p-3 border rounded';
+        
+        const formattedDate = formatDate(article.published_date || article.raw_data?.published_date);
+        const hasImage = article.raw_data?.url_to_image;
+        
         articleElement.innerHTML = `
-            <div class="card-body">
-                <div class="d-flex align-items-start">
-                    <div class="form-check me-3">
-                        <input class="form-check-input" type="checkbox" 
-                               onchange="toggleArticleSelection(this)" 
-                               data-url="${escapeHtml(article.url)}"
-                               data-title="${escapeHtml(article.title)}"
-                               data-summary="${escapeHtml(article.summary || '')}">
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="form-check flex-grow-1">
+                    <input class="form-check-input article-checkbox" 
+                           type="checkbox" 
+                           value="${article.url || ''}"
+                           onchange="toggleArticleSelection(this)">
+                    <label class="form-check-label w-100">
+                        <h5 class="mb-2">${article.title || 'Untitled'}</h5>
+                        <div class="article-metadata mb-2">
+                            <small class="text-muted">
+                                <span class="me-3">
+                                    <i class="fas fa-newspaper"></i> 
+                                    ${article.raw_data?.source_name || 'Unknown source'}
+                                </span>
+                                <span class="me-3">
+                                    <i class="fas fa-calendar"></i> 
+                                    ${formattedDate}
+                                </span>
+                                <span>
+                                    <i class="fas fa-user"></i> 
+                                    ${formatAuthors(article.authors)}
+                                </span>
+                            </small>
+                        </div>
+                    </label>
+                </div>
+                ${hasImage ? `
+                    <div class="ms-3">
+                        <img src="${article.raw_data.url_to_image}" 
+                             class="article-thumbnail" 
+                             style="width: 60px; height: 60px; object-fit: cover; cursor: pointer;"
+                             onclick="previewImage('${article.raw_data.url_to_image}')"
+                             onerror="this.style.display='none'">
                     </div>
-                    <div class="flex-grow-1">
-                        <h5 class="card-title">${escapeHtml(article.title)}</h5>
-                        <div class="article-meta mb-3">
-                            <span class="badge bg-light text-dark">
-                                <i class="fas ${getSourceIcon(sourceName)}"></i> ${sourceName}
-                            </span>
-                            <span class="ms-2">
-                                <i class="far fa-calendar"></i> ${formatDate(article.published_date)}
-                            </span>
-                            <span class="ms-2">
-                                <i class="fas fa-users"></i> ${formatAuthors(article.authors)}
-                            </span>
-                        </div>
-                        <div class="article-summary">
-                            ${escapeHtml(article.summary || 'No summary available')}
-                        </div>
-                        <div class="d-flex justify-content-between align-items-center mt-3">
-                            <div class="btn-group">
-                                <button class="btn btn-primary btn-sm" onclick="analyzeArticle('${escapeHtml(article.url)}')">
-                                    <i class="fas fa-microscope"></i> Analyze
-                                </button>
-                                <a href="${escapeHtml(article.url)}" target="_blank" class="btn btn-outline-secondary btn-sm">
-                                    <i class="fas fa-external-link-alt"></i> View Source
-                                </a>
-                                <a href="https://archive.is/${encodeURIComponent(article.url)}" 
-                                   target="_blank" rel="noopener noreferrer"
-                                   class="btn btn-outline-secondary btn-sm">
-                                    <i class="fas fa-unlock"></i> Bypass Paywall
-                                </a>
-                            </div>
-                        </div>
-                    </div>
+                ` : ''}
+            </div>
+            <div class="article-content ms-4">
+                <p class="mb-2">${article.summary || 'No summary available'}</p>
+                <div class="d-flex gap-2 mt-2">
+                    <a href="${article.url}" target="_blank" class="btn btn-sm btn-link p-0">
+                        <i class="fas fa-external-link-alt"></i> View Source
+                    </a>
+                    <a href="https://archive.is/${encodeURIComponent(article.url)}" 
+                       target="_blank" rel="noopener noreferrer"
+                       class="btn btn-sm btn-link p-0">
+                        <i class="fas fa-unlock"></i> Bypass Paywall
+                    </a>
+                    <button class="btn btn-sm btn-link p-0" onclick="analyzeArticle('${article.url}')">
+                        <i class="fas fa-microscope"></i> Analyze
+                    </button>
                 </div>
             </div>
         `;
-        articlesDiv.appendChild(articleElement);
+        
+        resultsDiv.appendChild(articleElement);
     });
 }
 
@@ -1079,52 +1255,6 @@ function analyzeArticle(url) {
     });
     
     window.location.href = `/research?${params.toString()}`;
-}
-
-// Update the getSourceIcon function
-function getSourceIcon(source) {
-    const sourceIcons = {
-        'arxiv': 'fa-file-alt',
-        'arXiv': 'fa-file-alt',
-        'newsapi': 'fa-newspaper',
-        'default': 'fa-link'
-    };
-    return sourceIcons[source?.toLowerCase()] || sourceIcons.default;
-}
-
-// Add these helper functions before displayResults
-function escapeHtml(unsafe) {
-    if (!unsafe) return '';
-    return unsafe
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-// Helper function to format authors list
-function formatAuthors(authors) {
-    if (!authors || !authors.length) return 'Unknown Author';
-    if (authors.length === 1) return escapeHtml(authors[0]);
-    return `${escapeHtml(authors[0])} +${authors.length - 1}`;
-}
-
-// Helper function to format date
-function formatDate(dateString) {
-    if (!dateString) return 'Unknown Date';
-    try {
-        const date = new Date(dateString);
-        if (isNaN(date.getTime())) return 'Invalid Date';
-        return date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        });
-    } catch (e) {
-        console.error('Error formatting date:', e);
-        return 'Invalid Date';
-    }
 }
 </script>
 {% endblock %} 
