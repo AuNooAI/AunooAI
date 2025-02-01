@@ -38,6 +38,9 @@ from app.routes.web_routes import router as web_router
 from app.routes.topic_routes import router as topic_router
 from starlette.middleware.sessions import SessionMiddleware
 from app.security.session import verify_session
+from app.routes.keyword_monitor import router as keyword_monitor_router, get_alerts
+from app.tasks.keyword_monitor import run_keyword_monitor
+import sqlite3
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -53,6 +56,63 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Setup Jinja2 templates
 templates = Jinja2Templates(directory="templates")
+
+# Add custom filters
+def datetime_filter(value):
+    if not value:
+        return ""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        except ValueError:
+            return value
+    return value.strftime('%Y-%m-%d %H:%M:%S')
+
+def timeago_filter(value):
+    if not value:
+        return ""
+    try:
+        if isinstance(value, str):
+            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+        else:
+            dt = value
+            
+        now = datetime.now()
+        diff = dt - now
+        
+        # Handle future dates
+        if diff.total_seconds() > 0:
+            seconds = int(diff.total_seconds())
+            if seconds < 60:
+                return f"in {seconds} seconds"
+            minutes = seconds // 60
+            if minutes < 60:
+                return f"in {minutes} minute{'s' if minutes != 1 else ''}"
+            hours = minutes // 60
+            if hours < 24:
+                return f"in {hours} hour{'s' if hours != 1 else ''}"
+            days = hours // 24
+            return f"in {days} day{'s' if days != 1 else ''}"
+        
+        # Handle past dates (existing logic)
+        seconds = int(abs(diff.total_seconds()))
+        if seconds < 60:
+            return f"{seconds} seconds ago"
+        minutes = seconds // 60
+        if minutes < 60:
+            return f"{minutes} minute{'s' if minutes != 1 else ''} ago"
+        hours = minutes // 60
+        if hours < 24:
+            return f"{hours} hour{'s' if hours != 1 else ''} ago"
+        days = hours // 24
+        return f"{days} day{'s' if days != 1 else ''} ago"
+    except Exception as e:
+        logger.error(f"Error in timeago filter: {str(e)}")
+        return str(value)
+
+# Register the filters
+templates.env.filters["datetime"] = datetime_filter
+templates.env.filters["timeago"] = timeago_filter
 
 # Initialize components
 db = Database()
@@ -119,6 +179,7 @@ logger.info("Prompt routes included")
 # Include routers
 app.include_router(web_router)  # Web routes at root level
 app.include_router(topic_router)  # Topic routes
+app.include_router(keyword_monitor_router)
 
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request, session=Depends(verify_session)):
@@ -712,6 +773,7 @@ def startup_event():
     db = Database()
     db.migrate_db()
     logger.info(f"Active database set to: {db.db_path}")
+    asyncio.create_task(run_keyword_monitor())
 
 @app.get("/api/fetch_article_content")
 async def fetch_article_content(uri: str):
@@ -1016,7 +1078,6 @@ async def create_topic(topic_data: dict):
         # Check if updating existing topic
         existing_topic_index = next((i for i, topic in enumerate(config['topics']) 
                                    if topic['name'] == topic_data['name']), None)
-        
         if existing_topic_index is not None:
             config['topics'][existing_topic_index] = topic_data
         else:
@@ -1230,33 +1291,60 @@ async def update_report_template(section: str, template: dict = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request, session=Depends(verify_session)):
+async def dashboard(
+    request: Request,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)  # Add session verification
+):
     try:
-        db_info = db.get_database_info()
-        config = load_config()
-        topics = config.get('topics', [])
+        # Get rate limit status
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT requests_today, last_error 
+                FROM keyword_monitor_status 
+                WHERE id = 1
+            """)
+            row = cursor.fetchone()
+            requests_today = row[0] if row else 0
+            last_error = row[1] if row and len(row) > 1 else None
+            
+            # Check if rate limited
+            is_rate_limited = (
+                last_error and 
+                ("Rate limit exceeded" in last_error or "limit reached" in last_error)
+            )
 
-        # Prepare data for each topic
-        topic_data = []
-        for topic in topics:
+        # Get topics from config
+        config = load_config()
+        topics = []
+        for topic in config.get('topics', []):
             topic_id = topic['name']
             news_query = get_news_query(topic_id)
             paper_query = get_paper_query(topic_id)
-
-            topic_data.append({
-                "topic": topic_id,  # This is used as the ID in the frontend
-                "name": topic_id,   # This is displayed as the title
+            
+            topics.append({
+                "topic": topic_id,  # Used as ID in frontend
+                "name": topic_id,   # Displayed as title
                 "news_query": news_query,
                 "paper_query": paper_query
             })
 
-        return templates.TemplateResponse("dashboard.html", {
-            "request": request,
-            "topics": topic_data,
-            "session": session
-        })
+        return templates.TemplateResponse(
+            "dashboard.html",
+            {
+                "request": request,
+                "topics": topics,
+                "last_error": last_error if is_rate_limited else None,
+                "is_rate_limited": is_rate_limited,
+                "requests_today": requests_today,
+                "session": session  # Add session to template context
+            }
+        )
+
     except Exception as e:
-        logger.error(f"Dashboard error: {str(e)}")
+        logger.error(f"Error loading dashboard: {str(e)}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/topics/{topic_name}/articles")
@@ -1393,80 +1481,95 @@ async def update_paper_query(query: str = Body(...), topicId: str = Body(...)):
 @app.get("/api/latest-news-and-papers")
 async def get_latest_news_and_papers(
     topicId: str,
-    count: int = Query(default=5, ge=1, le=20),  # Changed minimum to 1 to support single article fetch
-    sortBy: str = Query(default="publishedAt", regex="^(relevancy|popularity|publishedAt)$"),
-    offset: int = Query(default=0, ge=0)  # Added offset parameter
+    count: int = 5,
+    sortBy: str = "publishedAt",
+    db: Database = Depends(get_database_instance)
 ):
     try:
+        # Initialize collectors with database instance
+        news_collector = NewsAPICollector(db)
+        arxiv_collector = ArxivCollector()
+        
+        # Get news query for topic
         news_query = get_news_query(topicId)
-        paper_query = get_paper_query(topicId)
-
-        latest_news = []
-        latest_papers = []
-
-        if news_query:
-            news_collector = NewsAPICollector()
-            latest_news = await news_collector.search_articles(
-                query=news_query,
-                topic=topicId,
-                max_results=count + offset,  # Fetch extra articles to account for offset
-                sort_by=sortBy
-            )
-            # Apply offset
-            latest_news = latest_news[offset:offset + count]
-
-        if paper_query:
-            arxiv_collector = ArxivCollector()
-            latest_papers = await arxiv_collector.search_articles(
-                query=paper_query,
-                topic=topicId,
-                max_results=count + offset
-            )
-            # Apply offset
-            latest_papers = latest_papers[offset:offset + count]
+        if not news_query:
+            news_query = topicId
+            
+        # Get papers query for topic    
+        papers_query = get_paper_query(topicId)
+        if not papers_query:
+            papers_query = topicId
 
         latest_news_formatted = []
-        for article in latest_news:
-            try:
-                raw_data = article.get('raw_data', {})
-                formatted_article = {
-                    "title": article.get('title', 'No title'),
-                    "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y %I:%M %p"),
-                    "source": raw_data.get('source_name', 'Unknown'),
-                    "summary": article.get('summary', 'No summary available'),
-                    "url": article.get('url', '#'),
-                    "author": article.get('authors', [])[0] if article.get('authors') else 'Unknown author',
-                    "image_url": raw_data.get('url_to_image')
-                }
-                latest_news_formatted.append(formatted_article)
-            except Exception as e:
-                logger.error(f"Error formatting news article: {e}")
-                logger.error(f"Problematic article data: {article}")
-                continue
+        try:
+            # Get news articles
+            latest_news = await news_collector.search_articles(
+                query=news_query,
+                max_results=count,
+                sort_by=sortBy
+            )
+            
+            # Format news articles
+            for article in latest_news:
+                try:
+                    raw_data = article.get('raw_data', {})
+                    formatted_article = {
+                        "title": article.get('title', 'No title'),
+                        "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y %I:%M %p"),
+                        "source": article.get('news_source', 'Unknown'),
+                        "summary": article.get('summary', 'No summary available'),
+                        "url": article.get('url', '#'),
+                        "author": raw_data.get('author', 'Unknown author'),
+                        "image_url": raw_data.get('url_to_image')
+                    }
+                    latest_news_formatted.append(formatted_article)
+                except Exception as e:
+                    logger.error(f"Error formatting news article: {e}")
+                    continue
+                    
+        except ValueError as e:
+            if "Rate limit exceeded" in str(e) or "limit reached" in str(e):
+                # Log the rate limit but continue with papers
+                logger.warning(f"NewsAPI rate limit reached: {str(e)}")
+            else:
+                raise
 
+        # Get papers (continue even if news failed)
         latest_papers_formatted = []
-        for article in latest_papers:
-            try:
-                formatted_article = {
-                    "title": article.get('title', 'No title'),
-                    "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y"),
-                    "authors": article.get('authors', []),
-                    "summary": article.get('summary', 'No summary available'),
-                    "url": article.get('url', '#')
-                }
-                latest_papers_formatted.append(formatted_article)
-            except Exception as e:
-                logger.error(f"Error formatting paper article: {e}")
-                continue
+        try:
+            latest_papers = await arxiv_collector.search_articles(
+                query=papers_query,
+                topic=topicId,  # Add the missing topic parameter
+                max_results=count
+            )
+            
+            # Format papers
+            for article in latest_papers:
+                try:
+                    formatted_article = {
+                        "title": article.get('title', 'No title'),
+                        "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y"),
+                        "authors": article.get('authors', []),
+                        "summary": article.get('summary', 'No summary available'),
+                        "url": article.get('url', '#')
+                    }
+                    latest_papers_formatted.append(formatted_article)
+                except Exception as e:
+                    logger.error(f"Error formatting paper article: {e}")
+                    continue
+                    
+        except Exception as e:
+            logger.error(f"Error fetching papers: {str(e)}")
 
-        return JSONResponse(content={
+        return {
             "latest_news": latest_news_formatted,
             "latest_papers": latest_papers_formatted
-        })
+        }
+
     except Exception as e:
         logger.error(f"Error fetching latest news and papers: {str(e)}")
-        logger.exception("Full traceback:")
-        raise HTTPException(status_code=500, detail="Error fetching latest news and papers")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/update-keyword")
 async def update_keyword(request: Request):
@@ -1649,6 +1752,210 @@ async def save_firecrawl_config(config: NewsAPIConfig):  # Reusing the same mode
         logger.error(f"Error saving Firecrawl configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+<<<<<<< HEAD
+@app.get("/keyword-monitor", response_class=HTMLResponse)
+async def keyword_monitor_page(request: Request, session=Depends(verify_session)):
+    try:
+        with db.get_connection() as conn:
+            # First, make the connection row factory return dictionaries
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Get keyword groups and their keywords
+            cursor.execute("""
+                SELECT kg.id, kg.name, kg.topic, 
+                       mk.id as keyword_id, 
+                       mk.keyword
+                FROM keyword_groups kg
+                LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                ORDER BY kg.name, mk.keyword
+            """)
+            rows = cursor.fetchall()
+            
+            # Group the results
+            groups = {}
+            for row in rows:
+                group_id = row['id']
+                if group_id not in groups:
+                    groups[group_id] = {
+                        'id': group_id,
+                        'name': row['name'],
+                        'topic': row['topic'],
+                        'keywords': []
+                    }
+                if row['keyword_id']:
+                    groups[group_id]['keywords'].append({
+                        'id': row['keyword_id'],
+                        'keyword': row['keyword']
+                    })
+            
+            # Get topics from config instead of database
+            config = load_config()
+            topics = [{"id": topic["name"], "name": topic["name"]} 
+                     for topic in config.get("topics", [])]
+            
+            return templates.TemplateResponse(
+                "keyword_monitor.html",
+                {
+                    "request": request,
+                    "keyword_groups": list(groups.values()),
+                    "topics": topics,
+                    "session": session
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error in keyword monitor page: {str(e)}")
+        logger.error(traceback.format_exc())  # Add this to get full traceback
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/keyword-alerts", response_class=HTMLResponse)
+async def keyword_alerts_page(request: Request, session=Depends(verify_session)):
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get the last check time
+            cursor.execute("""
+                SELECT 
+                    MAX(last_checked) as last_check_time,
+                    (SELECT check_interval FROM keyword_monitor_settings WHERE id = 1) as check_interval,
+                    (SELECT interval_unit FROM keyword_monitor_settings WHERE id = 1) as interval_unit,
+                    (SELECT last_error FROM keyword_monitor_status WHERE id = 1) as last_error,
+                    (SELECT is_enabled FROM keyword_monitor_settings WHERE id = 1) as is_enabled
+                FROM monitored_keywords
+            """)
+            row = cursor.fetchone()
+            last_check = row[0]
+            check_interval = row[1] if row[1] else 15
+            interval_unit = row[2] if row[2] else 60  # Default to minutes
+            last_error = row[3]
+            is_enabled = row[4] if row[4] is not None else True  # Default to enabled
+
+            # Format the display interval
+            if interval_unit == 3600:  # Hours
+                display_interval = f"{check_interval} hour{'s' if check_interval != 1 else ''}"
+            elif interval_unit == 86400:  # Days
+                display_interval = f"{check_interval} day{'s' if check_interval != 1 else ''}"
+            else:  # Minutes
+                display_interval = f"{check_interval} minute{'s' if check_interval != 1 else ''}"
+
+            # Calculate next check time
+            now = datetime.now()
+            if last_check:
+                last_check_time = datetime.fromisoformat(last_check.replace('Z', '+00:00'))
+                next_check = last_check_time + timedelta(seconds=check_interval * interval_unit)
+                
+                # Only show next check time if it's in the future
+                if next_check > now:
+                    next_check_time = next_check.isoformat()
+                else:
+                    next_check_time = now.isoformat()
+            else:
+                last_check_time = None
+                next_check_time = now.isoformat()
+
+            # Format the last_check_time for display
+            display_last_check = last_check_time.strftime('%Y-%m-%d %H:%M:%S') if last_check_time else None
+
+            # Get all groups with their alerts and status
+            cursor.execute("""
+                WITH alert_counts AS (
+                    SELECT 
+                        kg.id as group_id,
+                        COUNT(DISTINCT ka.id) as unread_count
+                    FROM keyword_groups kg
+                    LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                    LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id AND ka.is_read = 0
+                    GROUP BY kg.id
+                )
+                SELECT 
+                    kg.id,
+                    kg.name,
+                    kg.topic,
+                    ac.unread_count,
+                    (
+                        SELECT GROUP_CONCAT(keyword, '||')
+                        FROM monitored_keywords
+                        WHERE group_id = kg.id
+                    ) as keywords
+                FROM keyword_groups kg
+                LEFT JOIN alert_counts ac ON kg.id = ac.group_id
+                ORDER BY ac.unread_count DESC, kg.name
+            """)
+            
+            groups_data = cursor.fetchall()
+            
+            # Get alerts for each group
+            groups = []
+            for group_id, name, topic, unread_count, keywords in groups_data:
+                cursor.execute("""
+                    SELECT 
+                        ka.id,
+                        ka.detected_at,
+                        ka.article_uri,
+                        a.title,
+                        a.uri as url,
+                        a.news_source,
+                        a.publication_date,
+                        a.summary,
+                        mk.keyword as matched_keyword
+                    FROM keyword_alerts ka
+                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                    JOIN articles a ON ka.article_uri = a.uri
+                    WHERE mk.group_id = ? AND ka.is_read = 0
+                    ORDER BY ka.detected_at DESC
+                """, (group_id,))
+                
+                alerts = [
+                    {
+                        'id': alert_id,
+                        'detected_at': detected_at,
+                        'article': {
+                            'uri': article_uri,
+                            'title': title,
+                            'url': url,
+                            'source': news_source,
+                            'publication_date': publication_date,
+                            'summary': summary
+                        },
+                        'matched_keyword': matched_keyword
+                    }
+                    for alert_id, detected_at, article_uri, title, url, news_source, 
+                        publication_date, summary, matched_keyword in cursor.fetchall()
+                ]
+                
+                growth_status = 'No Data'
+                if unread_count:
+                    growth_status = 'NEW'  # We'll make it more sophisticated later
+                
+                groups.append({
+                    'id': group_id,
+                    'name': name,
+                    'topic': topic,
+                    'alerts': alerts,
+                    'keywords': keywords.split('||') if keywords else [],
+                    'growth_status': growth_status,
+                    'unread_count': unread_count or 0
+                })
+            
+            return templates.TemplateResponse(
+                "keyword_alerts.html",
+                {
+                    "request": request,
+                    "groups": groups,
+                    "last_check_time": display_last_check,
+                    "display_interval": display_interval,
+                    "next_check_time": next_check_time,
+                    "last_error": last_error,
+                    "session": session,
+                    "now": now.isoformat(),
+                    "is_enabled": is_enabled
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error loading keyword alerts page: {str(e)}\n{traceback.format_exc()}")
+=======
 @app.get("/config/thenewsapi")
 async def get_thenewsapi_config():
     """Get TheNewsAPI configuration status."""
@@ -1738,6 +2045,7 @@ async def remove_thenewsapi_config():
 
     except Exception as e:
         logger.error(f"Error removing TheNewsAPI configuration: {str(e)}")
+>>>>>>> f2eda33cb1111b52a88868088d504db02b196b76
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

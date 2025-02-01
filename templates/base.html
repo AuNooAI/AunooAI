@@ -49,6 +49,7 @@
         }
     </style>
     {% block extra_css %}{% endblock %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <nav class="navbar navbar-expand-lg">
@@ -96,6 +97,16 @@
                             <li><a class="dropdown-item" href="/promptmanager">Prompt Manager</a></li>
                             <li><a class="dropdown-item" href="/create_topic">Create or Update a Scenario Topic</a></li>
                         </ul>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/keyword-alerts">
+                            <i class="fas fa-bell"></i> Keyword Alerts
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/keyword-monitor">
+                            <i class="fas fa-search"></i> Keyword Monitor
+                        </a>
                     </li>
                 </ul>
                 <ul class="navbar-nav ms-auto">
