@@ -13,27 +13,82 @@
         --dark-gray: #343a40;
     }
 
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
     .card {
-        border: 1px solid var(--primary-color);
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
+        border: none;
+        height: 100%;
+    }
+
+    .card-header {
+        background-color: #fff;
+        border-bottom: 1px solid var(--medium-gray);
+        padding: 1rem 1.25rem;
+    }
+
+    .card-header h5 {
+        color: var(--text-color);
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .card-body {
+        padding: 1.25rem;
+    }
+
+    .card-title {
+        color: var(--primary-color);
+        font-size: 1.25rem;
+        font-weight: bold;
+        margin-bottom: 10px;
     }
 
     .article-card {
-        border: 1px solid var(--medium-gray);
-        padding: 15px;
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         margin-bottom: 15px;
-        border-radius: 5px;
-        transition: opacity 0.3s ease-out;
+        border: 1px solid var(--medium-gray);
+        transition: transform 0.2s ease;
+    }
+
+    .article-card:hover {
+        transform: translateY(-2px);
     }
 
     .btn-primary {
         background-color: var(--primary-color);
         border-color: var(--primary-color);
+        color: #fff;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: flex-start;
+        padding: 8px 16px;
     }
 
     .btn-primary:hover {
         background-color: var(--primary-dark);
         border-color: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .form-control, .form-select {
+        border: 1px solid var(--medium-gray);
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
     }
 
     .btn-danger {
@@ -51,8 +106,52 @@
         margin-right: 5px;
     }
 
-    .article-card:hover {
+    /* Add these styles to your existing CSS */
+    .article-container {
+        max-height: calc(100vh - 250px);  /* Adjust based on your header/footer size */
+        overflow-y: auto;
+        padding-right: 10px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--primary-color) var(--light-gray);
+    }
+
+    .article-container::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .article-container::-webkit-scrollbar-track {
+        background: var(--light-gray);
+        border-radius: 3px;
+    }
+
+    .article-container::-webkit-scrollbar-thumb {
+        background-color: var(--primary-color);
+        border-radius: 3px;
+    }
+
+    .article-summary {
+        max-height: 200px;
+        overflow-y: auto;
+        margin-bottom: 15px;
+        line-height: 1.5;
+    }
+
+    .article-meta {
+        font-size: 0.9rem;
+        color: var(--dark-gray);
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .source-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
         background-color: var(--light-gray);
+        color: var(--dark-gray);
     }
 </style>
 
@@ -66,8 +165,12 @@
     <div class="row">
         <div class="col-md-4">
             <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-search"></i> Search Articles
+                    </h5>
+                </div>
                 <div class="card-body">
-                    <h5 class="card-title">Search Articles</h5>
                     <form id="searchForm">
                         <!-- Topic Selection -->
                         <div class="mb-3">
@@ -506,12 +609,19 @@
 
         <div class="col-md-8">
             <div class="card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list"></i> Search Results
+                        </h5>
+                        <span id="resultCount" class="text-muted"></span>
+                    </div>
+                </div>
                 <div class="card-body">
-                    <h5 class="card-title">Search Results <span id="resultCount"></span></h5>
                     <div id="searchResults"></div>
                     <div id="selectedArticles" class="mt-3">
-                        <button id="analyzeSelectedBtn" class="btn btn-primary" style="display: none;">
-                            Analyze Selected Articles
+                        <button id="bulkAnalyzeBtn" class="btn btn-primary" style="display: none;">
+                            <i class="fas fa-microscope"></i> Analyze Selected Articles (<span id="selectedCount">0</span>)
                         </button>
                     </div>
                 </div>
@@ -733,47 +843,11 @@ function displayResults(data) {
     }
     
     data.articles.forEach(article => {
-        console.log('Article data:', article); // Debug log
-        
         const articleElement = document.createElement('div');
         articleElement.className = 'article-card mb-3 p-3 border rounded';
         
         const formattedDate = formatDate(article.published_date || article.raw_data?.published_date);
         const hasImage = article.raw_data?.url_to_image;
-        const source = article.raw_data?.source || 'Unknown source';
-        const relevanceScore = article.raw_data?.data?.relevance_score;
-        const categories = article.raw_data?.categories;
-        
-        let metadataHtml = `
-            <small class="text-muted">
-                <span class="me-3">
-                    <i class="fas fa-newspaper"></i> 
-                    ${source}
-                </span>
-                <span class="me-3">
-                    <i class="fas fa-calendar"></i> 
-                    ${formattedDate}
-                </span>`;
-
-        // Add relevance score and categories for TheNewsAPI results
-        if (article.source === 'thenewsapi') {
-            if (relevanceScore !== undefined && relevanceScore !== null) {
-                metadataHtml += `
-                    <span class="ms-3">
-                        <i class="fas fa-star"></i> 
-                        Score: ${(relevanceScore * 100).toFixed(2)}%
-                    </span>`;
-            }
-            if (categories && categories.length > 0) {
-                metadataHtml += `
-                    <span class="ms-3">
-                        <i class="fas fa-tags"></i> 
-                        ${categories.join(', ')}
-                    </span>`;
-            }
-        }
-
-        metadataHtml += '</small>';
         
         articleElement.innerHTML = `
             <div class="d-flex justify-content-between align-items-start">
@@ -785,7 +859,20 @@ function displayResults(data) {
                     <label class="form-check-label w-100">
                         <h5 class="mb-2">${article.title || 'Untitled'}</h5>
                         <div class="article-metadata mb-2">
-                            ${metadataHtml}
+                            <small class="text-muted">
+                                <span class="me-3">
+                                    <i class="fas fa-newspaper"></i> 
+                                    ${article.raw_data?.source_name || 'Unknown source'}
+                                </span>
+                                <span class="me-3">
+                                    <i class="fas fa-calendar"></i> 
+                                    ${formattedDate}
+                                </span>
+                                <span>
+                                    <i class="fas fa-user"></i> 
+                                    ${formatAuthors(article.authors)}
+                                </span>
+                            </small>
                         </div>
                     </label>
                 </div>
@@ -796,7 +883,8 @@ function displayResults(data) {
                              style="width: 60px; height: 60px; object-fit: cover; cursor: pointer;"
                              onclick="previewImage('${article.raw_data.url_to_image}')"
                              onerror="this.style.display='none'">
-                    </div>` : ''}
+                    </div>
+                ` : ''}
             </div>
             <div class="article-content ms-4">
                 <p class="mb-2">${article.summary || 'No summary available'}</p>
@@ -813,18 +901,11 @@ function displayResults(data) {
                         <i class="fas fa-microscope"></i> Analyze
                     </button>
                 </div>
-            </div>`;
+            </div>
+        `;
         
         resultsDiv.appendChild(articleElement);
     });
-    
-    // Update result count
-    const resultCount = document.getElementById('resultCount');
-    if (resultCount) {
-        resultCount.textContent = `(${data.article_count || data.articles.length} articles)`;
-    }
-    
-    updateBulkAnalysisButton();
 }
 
 function toggleContent(button) {
@@ -844,36 +925,25 @@ function toggleContent(button) {
 }
 
 function formatDate(dateString) {
-    if (!dateString) return 'No date';
+    if (!dateString) return 'Unknown Date';
     try {
-        // Handle different date formats
-        let date;
-        if (dateString.includes('T')) {
-            // ISO format
-            date = new Date(dateString);
-        } else {
-            // Simple date format
-            date = new Date(dateString + 'T00:00:00');
-        }
-        
-        if (isNaN(date.getTime())) {
-            throw new Error('Invalid date');
-        }
-        
-        return new Intl.DateTimeFormat('en-US', {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        return date.toLocaleDateString('en-US', {
             year: 'numeric',
             month: 'short',
             day: 'numeric'
-        }).format(date);
+        });
     } catch (e) {
-        console.error('Date formatting error:', e, dateString);
-        return 'Invalid date';
+        console.error('Error formatting date:', e);
+        return 'Invalid Date';
     }
 }
 
 function formatAuthors(authors) {
-    if (!authors || !Array.isArray(authors) || authors.length === 0) return 'Unknown author';
-    return authors.filter(author => author).join(', ') || 'Unknown author';
+    if (!authors || !authors.length) return 'Unknown Author';
+    if (authors.length === 1) return escapeHtml(authors[0]);
+    return `${escapeHtml(authors[0])} +${authors.length - 1}`;
 }
 
 function previewImage(imageUrl) {
@@ -913,23 +983,12 @@ function previewImage(imageUrl) {
 }
 
 function updateBulkAnalysisButton() {
-    const selectedCount = selectedArticles.length;
-    let bulkAnalyzeBtn = document.getElementById('bulkAnalyzeBtn');
+    const bulkAnalyzeBtn = document.getElementById('bulkAnalyzeBtn');
+    const selectedCount = document.getElementById('selectedCount');
     
-    if (!bulkAnalyzeBtn) {
-        bulkAnalyzeBtn = document.createElement('button');
-        bulkAnalyzeBtn.id = 'bulkAnalyzeBtn';
-        bulkAnalyzeBtn.className = 'btn btn-primary position-fixed bottom-0 end-0 m-3 d-flex align-items-center';
-        bulkAnalyzeBtn.style.zIndex = '1000';
-        document.body.appendChild(bulkAnalyzeBtn);
-    }
-    
-    if (selectedCount > 0) {
-        bulkAnalyzeBtn.innerHTML = `
-            <i class="fas fa-microscope me-2"></i>
-            Analyze Selected (${selectedCount})
-        `;
-        bulkAnalyzeBtn.style.display = 'flex';
+    if (selectedArticles.length > 0) {
+        bulkAnalyzeBtn.style.display = 'block';
+        selectedCount.textContent = selectedArticles.length;
         bulkAnalyzeBtn.onclick = analyzeBulkArticles;
     } else {
         bulkAnalyzeBtn.style.display = 'none';
@@ -943,10 +1002,7 @@ async function analyzeBulkArticles() {
         return;
     }
 
-    // Get URLs from selected articles
     const urls = selectedArticles.map(article => article.url).join('\n');
-    
-    // Redirect to bulk research page with query parameters
     const params = new URLSearchParams({
         urlList: urls,
         topic: topic
@@ -1127,15 +1183,10 @@ function getNewsAPIParams(searchParams) {
 }
 
 function toggleArticleSelection(checkbox) {
-    if (!checkbox) return;
-    
-    const articleCard = checkbox.closest('.article-card');
-    if (!articleCard) return;
-    
     const articleData = {
-        url: checkbox.value,
-        title: articleCard.querySelector('h5')?.textContent || '',
-        summary: articleCard.querySelector('.article-summary')?.textContent || ''
+        url: checkbox.dataset.url,
+        title: checkbox.dataset.title,
+        summary: checkbox.dataset.summary
     };
     
     if (checkbox.checked) {
@@ -1205,128 +1256,5 @@ function analyzeArticle(url) {
     
     window.location.href = `/research?${params.toString()}`;
 }
-
-// Add TheNewsAPI specific functions
-function getTheNewsAPIParams(searchParams) {
-    // Add sort option
-    const sortBy = document.getElementById('thenewsapiSortBy').value;
-    if (sortBy) {
-        searchParams.append('sort_by', sortBy);
-    }
-
-    // Add categories
-    const categories = Array.from(document.querySelectorAll('#thenewsapiCategories input[type="checkbox"]:checked'))
-        .map(cb => cb.value);
-    if (categories.length > 0) {
-        searchParams.append('categories', categories.join(','));
-    }
-
-    // Update dropdown button text
-    const categoryDropdown = document.getElementById('categoryDropdown');
-    if (categories.length > 0) {
-        categoryDropdown.textContent = `${categories.length} categories selected`;
-    } else {
-        categoryDropdown.textContent = 'Select Categories';
-    }
-
-    // Add search fields
-    const searchFields = Array.from(document.querySelectorAll('#thenewsapiOptions input[type="checkbox"]:checked'))
-        .map(cb => cb.value);
-    if (searchFields.length > 0) {
-        searchParams.append('search_fields', searchFields.join(','));
-    }
-
-    // Advanced Options
-    // Add locale
-    const locale = document.getElementById('thenewsapiLocale').value;
-    if (locale) {
-        searchParams.append('locale', locale);
-    }
-
-    // Add excluded categories
-    const excludeCategories = Array.from(document.getElementById('thenewsapiExcludeCategories').selectedOptions)
-        .map(opt => opt.value);
-    if (excludeCategories.length > 0) {
-        searchParams.append('exclude_categories', excludeCategories.join(','));
-    }
-
-    // Add domains
-    const domains = Array.from(document.getElementById('thenewsapiDomains').options)
-        .map(opt => opt.value);
-    if (domains.length > 0) {
-        searchParams.append('domains', domains.join(','));
-    }
-
-    // Add excluded domains
-    const excludedDomains = Array.from(document.getElementById('thenewsapiExcludedDomains').options)
-        .map(opt => opt.value);
-    if (excludedDomains.length > 0) {
-        searchParams.append('exclude_domains', excludedDomains.join(','));
-    }
-}
-
-function addThenewsapiDomain(isExcluded) {
-    const selectId = isExcluded ? 'thenewsapiExcludedDomains' : 'thenewsapiDomains';
-    const select = document.getElementById(selectId);
-    
-    const inputId = isExcluded ? 'thenewsapiNewExcludedDomain' : 'thenewsapiNewDomain';
-    const input = document.getElementById(inputId);
-    const domain = input.value.trim().toLowerCase();
-    
-    if (domain && !Array.from(select.options).some(opt => opt.value === domain)) {
-        select.add(new Option(domain, domain));
-        input.value = '';
-        saveThenewsapiDomains();
-    }
-}
-
-function removeThenewsapiDomain(isExcluded) {
-    const selectId = isExcluded ? 'thenewsapiExcludedDomains' : 'thenewsapiDomains';
-    const select = document.getElementById(selectId);
-    Array.from(select.selectedOptions)
-        .forEach(option => option.remove());
-    saveThenewsapiDomains();
-}
-
-function saveThenewsapiDomains() {
-    const domains = Array.from(document.getElementById('thenewsapiDomains').options)
-        .map(opt => opt.value);
-    const excludedDomains = Array.from(document.getElementById('thenewsapiExcludedDomains').options)
-        .map(opt => opt.value);
-    
-    localStorage.setItem('thenewsapiDomains', JSON.stringify({
-        include: domains,
-        exclude: excludedDomains
-    }));
-}
-
-function loadSavedThenewsapiDomains() {
-    const saved = localStorage.getItem('thenewsapiDomains');
-    if (saved) {
-        const { include, exclude } = JSON.parse(saved);
-        const domainsSelect = document.getElementById('thenewsapiDomains');
-        const excludedSelect = document.getElementById('thenewsapiExcludedDomains');
-        
-        domainsSelect.innerHTML = '';
-        excludedSelect.innerHTML = '';
-        
-        include.forEach(domain => domainsSelect.add(new Option(domain, domain)));
-        exclude.forEach(domain => excludedSelect.add(new Option(domain, domain)));
-    }
-}
-
-// Add event listener for category changes
-document.querySelectorAll('#thenewsapiCategories input[type="checkbox"]').forEach(checkbox => {
-    checkbox.addEventListener('change', () => {
-        const categories = Array.from(document.querySelectorAll('#thenewsapiCategories input[type="checkbox"]:checked'))
-            .map(cb => cb.value);
-        const categoryDropdown = document.getElementById('categoryDropdown');
-        if (categories.length > 0) {
-            categoryDropdown.textContent = `${categories.length} categories selected`;
-        } else {
-            categoryDropdown.textContent = 'Select Categories';
-        }
-    });
-});
 </script>
 {% endblock %} 

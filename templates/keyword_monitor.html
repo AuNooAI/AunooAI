@@ -18,6 +18,7 @@
                     </div>
                     <div class="text-end small">
                         <span id="mainRequestsUsed" class="text-muted">0</span>/<span id="mainRequestLimit">100</span>
+                        <div id="resetTimer" class="text-muted" style="font-size: 0.8rem;"></div>
                     </div>
                 </div>
             </div>
@@ -338,6 +339,22 @@ async function deleteGroup(groupId) {
     }
 }
 
+function updateResetTimer() {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    
+    const timeUntilReset = tomorrow - now;
+    const hours = Math.floor(timeUntilReset / (1000 * 60 * 60));
+    const minutes = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const resetTimer = document.getElementById('resetTimer');
+    if (resetTimer) {
+        resetTimer.textContent = `Resets in ${hours}h ${minutes}m`;
+    }
+}
+
 function updateRequestCounters(requestsToday, requestLimit) {
     const mainRequestsUsed = document.getElementById('mainRequestsUsed');
     const mainRequestLimit = document.getElementById('mainRequestLimit');
@@ -353,13 +370,29 @@ function updateRequestCounters(requestsToday, requestLimit) {
         if (percentage >= 100) {
             mainRequestProgress.classList.remove('bg-warning');
             mainRequestProgress.classList.add('bg-danger');
+            // Show warning about rate limit
+            const resetTimer = document.getElementById('resetTimer');
+            if (resetTimer) {
+                resetTimer.classList.add('text-danger');
+            }
         } else if (percentage >= 80) {
             mainRequestProgress.classList.remove('bg-danger');
             mainRequestProgress.classList.add('bg-warning');
+            const resetTimer = document.getElementById('resetTimer');
+            if (resetTimer) {
+                resetTimer.classList.add('text-warning');
+            }
         } else {
             mainRequestProgress.classList.remove('bg-warning', 'bg-danger');
+            const resetTimer = document.getElementById('resetTimer');
+            if (resetTimer) {
+                resetTimer.classList.remove('text-warning', 'text-danger');
+            }
         }
     }
+    
+    // Update reset timer
+    updateResetTimer();
 }
 
 async function showSettingsModal() {
@@ -514,7 +547,14 @@ async function refreshRequestCount() {
 setInterval(refreshRequestCount, 60000);
 
 // Initial load
-document.addEventListener('DOMContentLoaded', refreshRequestCount);
+document.addEventListener('DOMContentLoaded', function() {
+    refreshRequestCount();
+    updateResetTimer();
+    // Update reset timer every minute
+    setInterval(updateResetTimer, 60000);
+    // Update request count every minute
+    setInterval(refreshRequestCount, 60000);
+});
 
 // Update the check keywords function to handle rate limit
 async function checkKeywords() {

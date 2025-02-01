@@ -38,6 +38,9 @@
                             Checking soon...
                         {% endif %}
                     </span>
+                    <span class="text-muted" id="resetTimer" style="font-size: 0.9rem;">
+                        <i class="fas fa-refresh"></i> Loading reset time...
+                    </span>
                 </div>
                 <div class="d-flex align-items-center gap-3 mt-1">
                     <div class="form-check form-switch">
@@ -671,5 +674,58 @@ function updateNextCheckTime() {
 
 // Update next check time every minute
 setInterval(updateNextCheckTime, 60000);
+
+function updateResetTimer() {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    
+    const timeUntilReset = tomorrow - now;
+    const hours = Math.floor(timeUntilReset / (1000 * 60 * 60));
+    const minutes = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const resetTimer = document.getElementById('resetTimer');
+    if (resetTimer) {
+        resetTimer.innerHTML = `<i class="fas fa-refresh"></i> API resets in ${hours}h ${minutes}m`;
+        
+        // Update color based on API usage status
+        if (resetTimer.dataset.status === 'danger') {
+            resetTimer.classList.add('text-danger');
+        } else if (resetTimer.dataset.status === 'warning') {
+            resetTimer.classList.add('text-warning');
+        } else {
+            resetTimer.classList.remove('text-danger', 'text-warning');
+        }
+    }
+}
+
+// Update the existing DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', function() {
+    // Existing code...
+    
+    // Add reset timer update
+    updateResetTimer();
+    setInterval(updateResetTimer, 60000);
+    
+    // Check API status and update reset timer color
+    fetch('/api/keyword-monitor/settings')
+        .then(response => response.json())
+        .then(settings => {
+            const resetTimer = document.getElementById('resetTimer');
+            if (resetTimer) {
+                const percentage = (settings.requests_today / settings.daily_request_limit) * 100;
+                if (percentage >= 100) {
+                    resetTimer.dataset.status = 'danger';
+                } else if (percentage >= 80) {
+                    resetTimer.dataset.status = 'warning';
+                } else {
+                    resetTimer.dataset.status = 'normal';
+                }
+                updateResetTimer();
+            }
+        })
+        .catch(error => console.error('Error checking API status:', error));
+});
 </script>
 {% endblock %} 
