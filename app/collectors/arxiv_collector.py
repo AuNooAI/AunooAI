@@ -1,5 +1,5 @@
 import arxiv
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional
 from .base_collector import ArticleCollector
 import logging
@@ -36,63 +36,111 @@ class ArxivCollector(ArticleCollector):
         topic: str,
         max_results: int = 10,
         start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
+        end_date: Optional[datetime] = None,
+        language: Optional[str] = None,
+        sort_by: Optional[str] = None,
+        search_fields: Optional[List[str]] = None,
+        page: Optional[int] = None,
+        **kwargs
     ) -> List[Dict]:
         """Search ArXiv articles."""
         try:
-            # Convert string dates to timezone-aware datetime objects
-            start_dt = None
-            end_dt = None
+            # Convert string dates to timezone-aware datetime objects and adjust future dates
+            now = datetime.now(timezone.utc)
             
             if start_date:
-                start_dt = start_date.replace(tzinfo=timezone.utc)
+                if isinstance(start_date, str):
+                    try:
+                        start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                    except ValueError:
+                        start_dt = now - timedelta(days=30)
+                else:
+                    start_dt = start_date
+                start_dt = start_dt.replace(tzinfo=timezone.utc)
+                if start_dt > now:
+                    start_dt = now - timedelta(days=30)
+            else:
+                start_dt = now - timedelta(days=30)
+
             if end_date:
-                end_dt = end_date.replace(tzinfo=timezone.utc)
+                if isinstance(end_date, str):
+                    try:
+                        end_dt = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                    except ValueError:
+                        end_dt = now
+                else:
+                    end_dt = end_date
+                end_dt = end_dt.replace(tzinfo=timezone.utc)
+                if end_dt > now:
+                    end_dt = now
+            else:
+                end_dt = now
 
-            # Get arXiv categories for the topic
+            # Build search query parts
+            search_query_parts = []
+            
+            # Add date range to query
+            date_query = f"submittedDate:[{start_dt.strftime('%Y%m%d')}0000 TO {end_dt.strftime('%Y%m%d')}2359]"
+            search_query_parts.append(date_query)
+
+            # Add field-specific searches
+            if search_fields:
+                field_mapping = {
+                    'title': 'ti',
+                    'abstract': 'abs',
+                    'author': 'au',
+                    'comments': 'co',
+                    'journal_ref': 'jr'
+                }
+                
+                field_queries = []
+                for field in search_fields:
+                    if field in field_mapping:
+                        field_queries.append(f"{field_mapping[field]}:{query}")
+                if field_queries:
+                    search_query_parts.append(f"({' OR '.join(field_queries)})")
+            else:
+                search_query_parts.append(f"all:{query}")
+
+            # Add category filters
             categories = self.topic_category_mapping.get(topic, [
-                "cs.AI",  # Artificial Intelligence
-                "cs.LG",  # Machine Learning
-                "cs.CL",  # Computation and Language
-                "cs.CV",  # Computer Vision
-                "cs.NE",  # Neural and Evolutionary Computing
-                "cs.RO",  # Robotics
+                "cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.NE", "cs.RO"
             ])
-            if not categories:
-                logger.warning(f"No ArXiv categories mapped for topic: {topic}")
-                return []
+            category_filter = " OR ".join(f"cat:{cat}" for cat in categories)
+            if category_filter:
+                search_query_parts.append(f"({category_filter})")
 
-            # Build the search query
-            search_query = f"{query} AND ("
-            search_query += " OR ".join(f"cat:{cat}" for cat in categories)
-            search_query += ")"
+            # Combine all parts
+            final_query = " AND ".join(f"({part})" for part in search_query_parts if part)
+            
+            logger.info(f"Final arXiv query: {final_query}")
+
+            # Map sort_by to arxiv.SortCriterion
+            sort_criterion = arxiv.SortCriterion.Relevance
+            if sort_by:
+                sort_mapping = {
+                    'relevance': arxiv.SortCriterion.Relevance,
+                    'lastUpdatedDate': arxiv.SortCriterion.LastUpdatedDate,
+                    'submittedDate': arxiv.SortCriterion.SubmittedDate
+                }
+                sort_criterion = sort_mapping.get(sort_by, arxiv.SortCriterion.Relevance)
 
             # Create the search
             search = arxiv.Search(
-                query=search_query,
+                query=final_query,
                 max_results=max_results,
-                sort_by=arxiv.SortCriterion.SubmittedDate
+                sort_by=sort_criterion
             )
 
             results = []
-            # Use regular iteration instead of async for
             for result in self.client.results(search):
-                # Convert arXiv result published date to timezone-aware
-                pub_date = result.published.replace(tzinfo=timezone.utc)
-                
-                # Apply date filtering
-                if start_dt and pub_date < start_dt:
-                    continue
-                if end_dt and pub_date > end_dt:
-                    continue
-
                 article = {
                     'title': result.title,
                     'summary': result.summary,
                     'authors': [author.name for author in result.authors],
                     'published_date': result.published.isoformat(),
-                    'url': result.entry_id,  # Use entry_id for abstract URL instead of PDF
-                    'source': 'arXiv',  # Capitalize X in arXiv
+                    'url': result.entry_id,
+                    'source': 'arXiv',
                     'topic': topic,
                     'raw_data': {
                         'arxiv_id': result.entry_id,
@@ -101,11 +149,16 @@ class ArxivCollector(ArticleCollector):
                         'links': {
                             'abstract': result.entry_id,
                             'pdf': result.pdf_url,
-                        }
+                        },
+                        'source_name': 'arXiv'
                     }
                 }
                 results.append(article)
+                
+                if len(results) >= max_results:
+                    break
 
+            logger.info(f"Found {len(results)} articles matching criteria")
             return results
 
         except Exception as e:

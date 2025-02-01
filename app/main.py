@@ -1752,7 +1752,6 @@ async def save_firecrawl_config(config: NewsAPIConfig):  # Reusing the same mode
         logger.error(f"Error saving Firecrawl configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-<<<<<<< HEAD
 @app.get("/keyword-monitor", response_class=HTMLResponse)
 async def keyword_monitor_page(request: Request, session=Depends(verify_session)):
     try:
@@ -1955,7 +1954,8 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
             
     except Exception as e:
         logger.error(f"Error loading keyword alerts page: {str(e)}\n{traceback.format_exc()}")
-=======
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/config/thenewsapi")
 async def get_thenewsapi_config():
     """Get TheNewsAPI configuration status."""
@@ -2045,7 +2045,6 @@ async def remove_thenewsapi_config():
 
     except Exception as e:
         logger.error(f"Error removing TheNewsAPI configuration: {str(e)}")
->>>>>>> f2eda33cb1111b52a88868088d504db02b196b76
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

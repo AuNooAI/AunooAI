@@ -42,6 +42,9 @@
 
     .card-body {
         padding: 1.25rem;
+        max-height: calc(100vh - 200px);  /* Adjust height based on header size */
+        overflow-y: auto;
+        position: relative;
     }
 
     .card-title {
@@ -58,6 +61,8 @@
         margin-bottom: 15px;
         border: 1px solid var(--medium-gray);
         transition: transform 0.2s ease;
+        position: relative;
+        padding-bottom: 60px;  /* Increased space for buttons */
     }
 
     .article-card:hover {
@@ -130,10 +135,10 @@
     }
 
     .article-summary {
-        max-height: 200px;
+        max-height: 150px;
         overflow-y: auto;
         margin-bottom: 15px;
-        line-height: 1.5;
+        padding-right: 10px;
     }
 
     .article-meta {
@@ -152,6 +157,23 @@
         font-weight: 500;
         background-color: var(--light-gray);
         color: var(--dark-gray);
+    }
+
+    .article-actions {
+        position: absolute;
+        bottom: 10px;
+        left: 15px;
+        right: 15px;
+        display: flex;
+        gap: 10px;
+        padding-top: 10px;
+        background-color: #fff;  /* Ensure buttons are on white background */
+        border-top: 1px solid #eee;
+    }
+
+    .btn-group-sm > .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
     }
 </style>
 
@@ -618,7 +640,8 @@
                     </div>
                 </div>
                 <div class="card-body">
-                    <div id="searchResults"></div>
+                    <div id="searchResults" class="mt-4"></div>
+                    <div id="pagination" class="mt-3 mb-4"></div>
                     <div id="selectedArticles" class="mt-3">
                         <button id="bulkAnalyzeBtn" class="btn btn-primary" style="display: none;">
                             <i class="fas fa-microscope"></i> Analyze Selected Articles (<span id="selectedCount">0</span>)
@@ -737,6 +760,15 @@ document.addEventListener('DOMContentLoaded', function() {
             fetchArticles();
         }
     });
+
+    // Set default dates when arXiv is selected
+    if (sourceSelect) {
+        sourceSelect.addEventListener('change', function(e) {
+            if (e.target.value === 'arxiv') {
+                setDefaultDates();
+            }
+        });
+    }
 });
 
 function loadSources() {
@@ -816,11 +848,13 @@ async function handleSearch(event) {
     }
 
     try {
+        console.log('Searching with params:', searchParams.toString());
         const response = await fetch(`/api/collect_articles?${searchParams.toString()}`);
         if (!response.ok) {
-            throw new Error('Search failed');
+            throw new Error(`Search failed: ${response.status} ${response.statusText}`);
         }
         const data = await response.json();
+        console.log('Search results:', data);
         
         if (currentPage === 1) {
             allArticles = [];
@@ -830,7 +864,10 @@ async function handleSearch(event) {
         displayResults(data);
     } catch (error) {
         console.error('Error searching articles:', error);
-        alert(`Error searching articles: ${error.message}`);
+        const resultsDiv = document.getElementById('searchResults');
+        if (resultsDiv) {
+            resultsDiv.innerHTML = `<div class="alert alert-danger">Error searching articles: ${error.message}</div>`;
+        }
     }
 }
 
@@ -842,70 +879,183 @@ function displayResults(data) {
         resultsDiv.innerHTML = '';
     }
     
+    // Add a check to ensure we have articles
+    if (!data.articles || !Array.isArray(data.articles)) {
+        console.error('No articles found in response:', data);
+        resultsDiv.innerHTML = '<p class="text-muted">No articles found</p>';
+        return;
+    }
+    
+    // Update result count
+    const resultCount = document.getElementById('resultCount');
+    if (resultCount) {
+        resultCount.textContent = `Found ${data.article_count || data.articles.length} results`;
+    }
+    
     data.articles.forEach(article => {
         const articleElement = document.createElement('div');
         articleElement.className = 'article-card mb-3 p-3 border rounded';
         
-        const formattedDate = formatDate(article.published_date || article.raw_data?.published_date);
-        const hasImage = article.raw_data?.url_to_image;
+        // Add checkbox for multi-select
+        const checkboxDiv = document.createElement('div');
+        checkboxDiv.className = 'form-check mb-2';
         
-        articleElement.innerHTML = `
-            <div class="d-flex justify-content-between align-items-start">
-                <div class="form-check flex-grow-1">
-                    <input class="form-check-input article-checkbox" 
-                           type="checkbox" 
-                           value="${article.url || ''}"
-                           onchange="toggleArticleSelection(this)">
-                    <label class="form-check-label w-100">
-                        <h5 class="mb-2">${article.title || 'Untitled'}</h5>
-                        <div class="article-metadata mb-2">
-                            <small class="text-muted">
-                                <span class="me-3">
-                                    <i class="fas fa-newspaper"></i> 
-                                    ${article.raw_data?.source_name || 'Unknown source'}
-                                </span>
-                                <span class="me-3">
-                                    <i class="fas fa-calendar"></i> 
-                                    ${formattedDate}
-                                </span>
-                                <span>
-                                    <i class="fas fa-user"></i> 
-                                    ${formatAuthors(article.authors)}
-                                </span>
-                            </small>
-                        </div>
-                    </label>
-                </div>
-                ${hasImage ? `
-                    <div class="ms-3">
-                        <img src="${article.raw_data.url_to_image}" 
-                             class="article-thumbnail" 
-                             style="width: 60px; height: 60px; object-fit: cover; cursor: pointer;"
-                             onclick="previewImage('${article.raw_data.url_to_image}')"
-                             onerror="this.style.display='none'">
-                    </div>
-                ` : ''}
-            </div>
-            <div class="article-content ms-4">
-                <p class="mb-2">${article.summary || 'No summary available'}</p>
-                <div class="d-flex gap-2 mt-2">
-                    <a href="${article.url}" target="_blank" class="btn btn-sm btn-link p-0">
-                        <i class="fas fa-external-link-alt"></i> View Source
-                    </a>
-                    <a href="https://archive.is/${encodeURIComponent(article.url)}" 
-                       target="_blank" rel="noopener noreferrer"
-                       class="btn btn-sm btn-link p-0">
-                        <i class="fas fa-unlock"></i> Bypass Paywall
-                    </a>
-                    <button class="btn btn-sm btn-link p-0" onclick="analyzeArticle('${article.url}')">
-                        <i class="fas fa-microscope"></i> Analyze
-                    </button>
-                </div>
-            </div>
-        `;
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'form-check-input article-checkbox';
+        checkbox.dataset.url = article.url;
+        checkbox.dataset.title = article.title;
+        checkbox.dataset.summary = article.summary;
+        checkbox.onchange = () => toggleArticleSelection(checkbox);
         
+        const checkboxLabel = document.createElement('label');
+        checkboxLabel.className = 'form-check-label';
+        checkboxLabel.htmlFor = `article-${article.url}`;
+        checkbox.id = `article-${article.url}`;
+        checkboxLabel.appendChild(checkbox);
+        checkboxDiv.appendChild(checkbox);
+        checkboxDiv.appendChild(checkboxLabel);
+        
+        articleElement.appendChild(checkboxDiv);
+        
+        // Add title
+        const title = document.createElement('h5');
+        title.className = 'mb-2';
+        title.textContent = article.title;
+        articleElement.appendChild(title);
+        
+        // Add metadata
+        const metadata = document.createElement('div');
+        metadata.className = 'text-muted small mb-2';
+        metadata.textContent = `${article.source} | ${new Date(article.published_date).toLocaleDateString()}`;
+        if (article.authors && article.authors.length > 0) {
+            metadata.textContent += ` | ${article.authors.join(', ')}`;
+        }
+        articleElement.appendChild(metadata);
+        
+        // Add summary
+        const summary = document.createElement('p');
+        summary.className = 'article-summary mb-3';
+        summary.textContent = article.summary;
+        articleElement.appendChild(summary);
+        
+        // Add action buttons
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'article-actions';
+        
+        // View Source/Abstract button
+        const viewSourceBtn = document.createElement('a');
+        viewSourceBtn.href = article.url;
+        viewSourceBtn.target = '_blank';
+        viewSourceBtn.className = 'btn btn-sm btn-outline-primary';
+        viewSourceBtn.innerHTML = `<i class="fas fa-external-link-alt"></i> ${article.source === 'arxiv' ? 'View Abstract' : 'View Source'}`;
+        actionsDiv.appendChild(viewSourceBtn);
+        
+        // Add PDF link for arXiv papers
+        if (article.source === 'arxiv' && article.raw_data?.links?.pdf) {
+            const pdfBtn = document.createElement('a');
+            pdfBtn.href = article.raw_data.links.pdf;
+            pdfBtn.target = '_blank';
+            pdfBtn.className = 'btn btn-sm btn-outline-danger';
+            pdfBtn.innerHTML = '<i class="fas fa-file-pdf"></i> PDF';
+            actionsDiv.appendChild(pdfBtn);
+        }
+        
+        // Add Bypass Paywall button for news sources
+        if (article.source !== 'arxiv') {
+            const bypassBtn = document.createElement('a');
+            bypassBtn.href = `https://12ft.io/${article.url}`;
+            bypassBtn.target = '_blank';
+            bypassBtn.className = 'btn btn-sm btn-outline-secondary';
+            bypassBtn.innerHTML = '<i class="fas fa-unlock"></i> Bypass Paywall';
+            actionsDiv.appendChild(bypassBtn);
+        }
+        
+        // Analyze button
+        const analyzeBtn = document.createElement('button');
+        analyzeBtn.className = 'btn btn-sm btn-outline-success';
+        analyzeBtn.innerHTML = '<i class="fas fa-microscope"></i> Analyze';
+        analyzeBtn.onclick = () => analyzeArticle(article.url);
+        actionsDiv.appendChild(analyzeBtn);
+        
+        articleElement.appendChild(actionsDiv);
         resultsDiv.appendChild(articleElement);
     });
+    
+    // Add pagination controls
+    addPaginationControls(data.article_count || data.articles.length);
+    
+    // Update bulk analyze button visibility
+    updateBulkAnalysisButton();
+}
+
+function addPaginationControls(totalResults) {
+    const paginationDiv = document.getElementById('pagination');
+    if (!paginationDiv) return;
+    
+    const maxResults = document.getElementById('unlimitedResults').checked ? 100 : 
+                      parseInt(document.getElementById('maxResults').value);
+    const totalPages = Math.ceil(totalResults / maxResults);
+    
+    paginationDiv.innerHTML = '';
+    
+    if (totalPages <= 1) return;
+    
+    const nav = document.createElement('nav');
+    nav.setAttribute('aria-label', 'Search results pagination');
+    
+    const ul = document.createElement('ul');
+    ul.className = 'pagination justify-content-center';
+    
+    // Previous button
+    const prevLi = document.createElement('li');
+    prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'page-link';
+    prevBtn.textContent = 'Previous';
+    prevBtn.onclick = () => loadPage(currentPage - 1);
+    prevLi.appendChild(prevBtn);
+    ul.appendChild(prevLi);
+    
+    // Page numbers
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+            const li = document.createElement('li');
+            li.className = `page-item ${i === currentPage ? 'active' : ''}`;
+            const btn = document.createElement('button');
+            btn.className = 'page-link';
+            btn.textContent = i;
+            btn.onclick = () => loadPage(i);
+            li.appendChild(btn);
+            ul.appendChild(li);
+        } else if (i === currentPage - 3 || i === currentPage + 3) {
+            const li = document.createElement('li');
+            li.className = 'page-item disabled';
+            const span = document.createElement('span');
+            span.className = 'page-link';
+            span.textContent = '...';
+            li.appendChild(span);
+            ul.appendChild(li);
+        }
+    }
+    
+    // Next button
+    const nextLi = document.createElement('li');
+    nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'page-link';
+    nextBtn.textContent = 'Next';
+    nextBtn.onclick = () => loadPage(currentPage + 1);
+    nextLi.appendChild(nextBtn);
+    ul.appendChild(nextLi);
+    
+    nav.appendChild(ul);
+    paginationDiv.appendChild(nav);
+}
+
+async function loadPage(page) {
+    currentPage = page;
+    await handleSearch(new Event('submit'));
 }
 
 function toggleContent(button) {
@@ -989,6 +1139,7 @@ function updateBulkAnalysisButton() {
     if (selectedArticles.length > 0) {
         bulkAnalyzeBtn.style.display = 'block';
         selectedCount.textContent = selectedArticles.length;
+        console.log('Selected articles:', selectedArticles);  // Debug log
         bulkAnalyzeBtn.onclick = analyzeBulkArticles;
     } else {
         bulkAnalyzeBtn.style.display = 'none';
@@ -1184,9 +1335,9 @@ function getNewsAPIParams(searchParams) {
 
 function toggleArticleSelection(checkbox) {
     const articleData = {
-        url: checkbox.dataset.url,
-        title: checkbox.dataset.title,
-        summary: checkbox.dataset.summary
+        url: checkbox.getAttribute('data-url'),
+        title: checkbox.getAttribute('data-title'),
+        summary: checkbox.getAttribute('data-summary')
     };
     
     if (checkbox.checked) {
@@ -1255,6 +1406,75 @@ function analyzeArticle(url) {
     });
     
     window.location.href = `/research?${params.toString()}`;
+}
+
+function setDefaultDates() {
+    const today = new Date();
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(today.getFullYear() - 1);  // Changed from 30 days to 1 year
+    
+    const startDate = document.getElementById('startDate');
+    const endDate = document.getElementById('endDate');
+    
+    if (startDate && endDate) {
+        startDate.value = oneYearAgo.toISOString().split('T')[0];
+        endDate.value = today.toISOString().split('T')[0];
+        
+        // Also update the min/max attributes
+        startDate.max = today.toISOString().split('T')[0];
+        endDate.max = today.toISOString().split('T')[0];
+        endDate.min = startDate.value;
+    }
+}
+
+function getTheNewsAPIParams(searchParams) {
+    // Add TheNewsAPI specific parameters
+    const source = document.getElementById('sourceSelect').value;
+    if (source !== 'thenewsapi') return;
+
+    // Add language parameter
+    const language = document.getElementById('language')?.value;
+    if (language) {
+        searchParams.append('language', language);
+    }
+
+    // Add sort parameter
+    const sortBy = document.getElementById('thenewsapiSortBy')?.value;
+    if (sortBy) {
+        searchParams.append('sort_by', sortBy);
+    }
+
+    // Add categories if available
+    const categories = Array.from(document.querySelectorAll('#thenewsapiCategories input[type="checkbox"]:checked'))
+        .map(cb => cb.value);
+    if (categories.length > 0) {
+        searchParams.append('categories', categories.join(','));
+    }
+
+    // Add search fields
+    const searchFields = Array.from(document.querySelectorAll('#thenewsapiSearchFields input[type="checkbox"]:checked'))
+        .map(cb => cb.value);
+    if (searchFields.length > 0) {
+        searchParams.append('search_fields', searchFields.join(','));
+    }
+
+    // Add domains if available
+    const domains = document.getElementById('domains')?.value.trim();
+    if (domains) {
+        searchParams.append('domains', domains);
+    }
+
+    // Add exclude domains if available
+    const excludeDomains = document.getElementById('excludeDomains')?.value.trim();
+    if (excludeDomains) {
+        searchParams.append('exclude_domains', excludeDomains);
+    }
+
+    // Add locale if available
+    const locale = document.getElementById('thenewsapiLocale')?.value;
+    if (locale) {
+        searchParams.append('locale', locale);
+    }
 }
 </script>
 {% endblock %} 
