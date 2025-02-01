@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}N0RN AI - Keyword Monitor{% endblock %}
+{% block title %}Aunoo AI - Keyword Monitor{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
@@ -464,10 +464,20 @@ document.getElementById('dailyRequestLimit').addEventListener('change', function
 });
 
 function updateRecommendedInterval(settings) {
+    // Add debugging log
+    console.log('Settings received:', settings);
+    
     if (settings.total_keywords > 0) {
         const minutesPerDay = 24 * 60;
         const requestsPerDay = settings.daily_request_limit;
         const recommendedMinutes = Math.max(15, Math.ceil(minutesPerDay / (requestsPerDay / settings.total_keywords)));
+        
+        // Add debugging logs
+        console.log('Calculation values:', {
+            totalKeywords: settings.total_keywords,
+            requestsPerDay,
+            recommendedMinutes
+        });
         
         let recommendedValue, recommendedUnit;
         if (recommendedMinutes >= 1440) {
@@ -486,8 +496,11 @@ function updateRecommendedInterval(settings) {
         
         const unitText = recommendedUnit === 86400 ? 'days' : 
                         recommendedUnit === 3600 ? 'hours' : 'minutes';
-        document.getElementById('recommendedValue').textContent = 
-            `${recommendedValue} ${unitText} based on ${settings.total_keywords} keywords and ${requestsPerDay} daily requests`;
+                        
+        // Add the actual keyword count to the display for verification
+        const message = `${recommendedValue} ${unitText} based on ${settings.total_keywords} keywords (verified count) and ${requestsPerDay} daily requests`;
+        console.log('Displaying message:', message);
+        document.getElementById('recommendedValue').textContent = message;
     }
 }
 
@@ -554,6 +567,7 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(updateResetTimer, 60000);
     // Update request count every minute
     setInterval(refreshRequestCount, 60000);
+    verifyKeywordCount();
 });
 
 // Update the check keywords function to handle rate limit
@@ -586,6 +600,29 @@ async function checkKeywords() {
     } finally {
         button.disabled = false;
         button.innerHTML = originalHtml;
+    }
+}
+
+// Add this function to verify keyword count on page load
+async function verifyKeywordCount() {
+    try {
+        const response = await fetch('/api/keyword-monitor/settings');
+        const settings = await response.json();
+        console.log('Current settings from API:', settings);
+        
+        // Count keywords manually from the DOM
+        const keywordElements = document.querySelectorAll('.badge.bg-light.text-dark.border');
+        const domKeywordCount = keywordElements.length;
+        console.log('Keywords counted in DOM:', domKeywordCount);
+        
+        if (domKeywordCount !== settings.total_keywords) {
+            console.warn('Keyword count mismatch:', {
+                domCount: domKeywordCount,
+                apiCount: settings.total_keywords
+            });
+        }
+    } catch (error) {
+        console.error('Error verifying keyword count:', error);
     }
 }
 </script>
