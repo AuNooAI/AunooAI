@@ -200,12 +200,26 @@ async def get_alerts(db=Depends(get_database_instance)):
 
 @router.get("/settings")
 async def get_settings(db=Depends(get_database_instance)):
-    """Get keyword monitor settings"""
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Get current settings and status
+            # Get accurate keyword count
+            cursor.execute("""
+                SELECT COUNT(*) 
+                FROM monitored_keywords mk
+                WHERE EXISTS (
+                    SELECT 1 
+                    FROM keyword_groups kg 
+                    WHERE kg.id = mk.group_id
+                )
+            """)
+            total_keywords = cursor.fetchone()[0]
+            
+            # Log the count for debugging
+            logger.debug(f"Active keywords count: {total_keywords}")
+            
+            # Get settings and status together
             cursor.execute("""
                 SELECT 
                     s.check_interval,
@@ -214,33 +228,45 @@ async def get_settings(db=Depends(get_database_instance)):
                     s.language,
                     s.sort_by,
                     s.page_size,
-                    s.is_enabled,
                     s.daily_request_limit,
+                    s.is_enabled,
                     st.requests_today,
                     st.last_error
                 FROM keyword_monitor_settings s
                 LEFT JOIN keyword_monitor_status st ON st.id = 1
                 WHERE s.id = 1
             """)
-            row = cursor.fetchone()
             
-            # Count total keywords
-            cursor.execute("SELECT COUNT(*) FROM monitored_keywords")
-            total_keywords = cursor.fetchone()[0]
+            settings = cursor.fetchone()
             
-            return {
-                "check_interval": row[0] if row else 15,
-                "interval_unit": row[1] if row else 60,
-                "search_fields": row[2] if row else "title,description,content",
-                "language": row[3] if row else "en",
-                "sort_by": row[4] if row else "publishedAt",
-                "page_size": row[5] if row else 10,
-                "is_enabled": row[6] if row else True,
-                "daily_request_limit": row[7] if row else 100,
-                "requests_today": row[8] if row and row[8] is not None else 0,
-                "last_error": row[9] if row else None,
-                "total_keywords": total_keywords
-            }
+            if settings:
+                return {
+                    "check_interval": settings[0],
+                    "interval_unit": settings[1],
+                    "search_fields": settings[2],
+                    "language": settings[3],
+                    "sort_by": settings[4],
+                    "page_size": settings[5],
+                    "daily_request_limit": settings[6],
+                    "is_enabled": settings[7],
+                    "requests_today": settings[8] if settings[8] is not None else 0,
+                    "last_error": settings[9],
+                    "total_keywords": total_keywords
+                }
+            else:
+                return {
+                    "check_interval": 15,
+                    "interval_unit": 60,
+                    "search_fields": "title,description,content",
+                    "language": "en",
+                    "sort_by": "publishedAt",
+                    "page_size": 10,
+                    "daily_request_limit": 100,
+                    "is_enabled": True,
+                    "requests_today": 0,
+                    "last_error": None,
+                    "total_keywords": total_keywords
+                }
             
     except Exception as e:
         logger.error(f"Error getting settings: {str(e)}")
