@@ -11,6 +11,7 @@ import logging
 from fastapi import HTTPException
 from app.security.auth import get_password_hash
 import shutil
+from fastapi.responses import FileResponse
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -890,6 +891,39 @@ class Database:
         except Exception as e:
             logger.error(f"Error setting force_password_change: {str(e)}")
             return False
+
+    def get_database_path(self, db_name: str) -> str:
+        """Get the full path to a database file."""
+        # Ensure the database name ends with .db
+        if not db_name.endswith('.db'):
+            db_name = f"{db_name}.db"
+        return os.path.join(DATABASE_DIR, db_name)
+
+    def download_database(self, db_name: str) -> str:
+        """
+        Prepare database for download and return the path.
+        Creates a copy to avoid locking issues.
+        """
+        try:
+            # Ensure the database name ends with .db
+            if not db_name.endswith('.db'):
+                db_name = f"{db_name}.db"
+            
+            src_path = self.get_database_path(db_name)
+            if not os.path.exists(src_path):
+                raise FileNotFoundError(f"Database {db_name} not found")
+
+            # Create a temporary copy for download
+            download_path = os.path.join(DATABASE_DIR, f"download_{db_name}")
+            
+            # Ensure the source database is not locked
+            with open(src_path, 'rb') as src, open(download_path, 'wb') as dst:
+                dst.write(src.read())
+            
+            return download_path
+        except Exception as e:
+            logger.error(f"Error preparing database for download: {str(e)}")
+            raise
 
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
