@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}N0RN AI - Home{% endblock %}
+{% block title %}Aunoo AI - Home{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -37,18 +37,31 @@
     .card {
         background-color: #fff;
         border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
-        border: 1px solid var(--primary-color);
-        transition: transform 0.3s ease-in-out;
+        border: 1px solid var(--medium-gray);
+        transition: transform 0.2s ease;
     }
 
     .card:hover {
-        transform: translateY(-5px);
+        transform: translateY(-2px);
+    }
+
+    .card-header {
+        background-color: #fff;
+        border-bottom: 1px solid var(--medium-gray);
+        padding: 1rem 1.25rem;
+    }
+
+    .card-header h5 {
+        color: var(--text-color);
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0;
     }
 
     .card-body {
-        padding: 20px;
+        padding: 1.25rem;
     }
 
     .card-title {
@@ -67,12 +80,23 @@
         background-color: var(--primary-color);
         border-color: var(--primary-color);
         color: #fff;
-        transition: background-color 0.3s ease-in-out;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: flex-start;
+        padding: 8px 16px;
     }
 
     .btn-primary:hover {
         background-color: var(--primary-dark);
         border-color: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .btn-primary i {
+        width: 16px;
+        text-align: center;
     }
 
     .form-control, .form-select {
@@ -337,139 +361,321 @@
         margin-left: auto;
         font-weight: 500;
     }
+
+    .panel {
+        background-color: white;
+        border-radius: 8px;
+        padding: 20px;
+        height: 100%;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .panel-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .panel-header i {
+        font-size: 24px;
+        color: var(--primary-color);
+    }
+
+    .panel-header h2 {
+        font-size: 24px;
+        font-weight: 500;
+        color: var(--text-color);
+        margin: 0;
+    }
+
+    .panel-description {
+        color: var(--dark-gray);
+        margin-bottom: 20px;
+        font-size: 0.95rem;
+    }
+
+    .panel-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .action-button {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 16px;
+        background-color: var(--light-gray);
+        border: none;
+        border-radius: 6px;
+        color: var(--text-color);
+        text-decoration: none;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+
+    .action-button:hover {
+        background-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+        text-decoration: none;
+    }
+
+    .action-button i {
+        width: 20px;
+        text-align: center;
+    }
+
+    /* Update container padding */
+    .container.mt-4 {
+        padding-top: 20px;
+        padding-bottom: 40px;
+    }
+
+    .flex-1 {
+        flex: 1;
+    }
+
+    /* Update action button styles for horizontal layout */
+    .d-flex .action-button {
+        text-align: center;
+        justify-content: center;
+        padding: 12px 20px;
+        background-color: var(--light-gray);
+        border: none;
+        border-radius: 6px;
+        color: var(--text-color);
+        text-decoration: none;
+        font-size: 0.9rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+
+    .d-flex .action-button:hover {
+        background-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+        text-decoration: none;
+    }
+
+    .d-flex .action-button i {
+        margin-right: 8px;
+    }
+
+    /* Add to existing styles */
+    .badge {
+        padding: 6px 12px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        font-weight: 500;
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .badge i {
+        margin-right: 6px;
+        font-size: 0.8rem;
+    }
+
+    .badge.success {
+        background-color: #d4edda;
+        color: #155724;
+    }
+
+    .badge.warning {
+        background-color: #fff3cd;
+        color: #856404;
+    }
+
+    .badge.danger {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<!--<header class="site-header">
-    <h1>N0RN AI</h1>
-</header>-->
-
-<div class="world-clock-section h-100">
-    <div class="section-header">
-        <i class="fas fa-clock"></i>
-        <h2>Global News Cycle</h2>
-        <div class="current-date" id="currentDate"></div>
-    </div>
-    <div class="world-clock">
-        <div class="clock-item">
-            <div class="clock-city">London</div>
-            <div class="clock-time" data-timezone="Europe/London"></div>
-        </div>
-        <div class="clock-item">
-            <div class="clock-city">Berlin</div>
-            <div class="clock-time" data-timezone="Europe/Berlin"></div>
-        </div>
-        <div class="clock-item">
-            <div class="clock-city">Moscow</div>
-            <div class="clock-time" data-timezone="Europe/Moscow"></div>
-        </div>
-        <div class="clock-item">
-            <div class="clock-city">New York</div>
-            <div class="clock-time" data-timezone="America/New_York"></div>
-        </div>
-        <div class="clock-item">
-            <div class="clock-city">San Francisco</div>
-            <div class="clock-time" data-timezone="America/Los_Angeles"></div>
-        </div>
-        <div class="clock-item">
-            <div class="clock-city">Beijing</div>
-            <div class="clock-time" data-timezone="Asia/Shanghai"></div>
-        </div>
-        <div class="clock-item">
-            <div class="clock-city">Delhi</div>
-            <div class="clock-time" data-timezone="Asia/Kolkata"></div>
-        </div>
-    </div>
-</div>
-
-<div class="container mt-2">
-    <div class="col-md-12 mb-4">
-        <div class="topic-overview-card h-100">
-            <div class="section-header" onclick="toggleTopicOverview()" style="cursor: pointer;">
-                <i class="fas fa-list"></i>
-                <h2>Active Topic Overview</h2>
-                <i class="fas fa-chevron-up" id="topicOverviewIcon"></i>
+<div class="container mt-4">
+    <!-- World Clock Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-clock"></i> World Clock
+                </h5>
+                <span id="currentDate" class="text-muted"></span>
             </div>
-            <div id="topicOverviewContent" style="display: none;">
-                <div class="table-responsive">
-                    <table class="table" id="topicTable">
-                        <thead>
-                            <tr>
-                                <th>Topic Name</th>
-                                <th>Article Count</th>
-                                <th>Last Article Added</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for topic in topics %}
-                            <tr data-topic-id="{{ topic.id }}">
-                                <td>{{ topic.name }}</td>
-                                <td class="article-count">Loading...</td>
-                                <td class="latest-article">Loading...</td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+        </div>
+        <div class="card-body">
+            <div class="world-clock">
+                <!-- West to East order: San Francisco → New York → London → Berlin → Moscow → Delhi → Beijing -->
+                <div class="clock-item">
+                    <div class="clock-city">San Francisco</div>
+                    <div class="clock-time" data-timezone="America/Los_Angeles"></div>
+                </div>
+                <div class="clock-item">
+                    <div class="clock-city">New York</div>
+                    <div class="clock-time" data-timezone="America/New_York"></div>
+                </div>
+                <div class="clock-item">
+                    <div class="clock-city">London</div>
+                    <div class="clock-time" data-timezone="Europe/London"></div>
+                </div>
+                <div class="clock-item">
+                    <div class="clock-city">Berlin</div>
+                    <div class="clock-time" data-timezone="Europe/Berlin"></div>
+                </div>
+                <div class="clock-item">
+                    <div class="clock-city">Moscow</div>
+                    <div class="clock-time" data-timezone="Europe/Moscow"></div>
+                </div>
+                <div class="clock-item">
+                    <div class="clock-city">Delhi</div>
+                    <div class="clock-time" data-timezone="Asia/Kolkata"></div>
+                </div>
+                <div class="clock-item">
+                    <div class="clock-city">Beijing</div>
+                    <div class="clock-time" data-timezone="Asia/Shanghai"></div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="section-header">
-        <i class="fas fa-question-circle"></i>
-        <h2>What do you want to do today?</h2>
+    <!-- After World Clock and before Topic Overview -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">
+                    <i class="fas fa-bell"></i> Alerts & Monitoring
+                </h5>
+                <div class="d-flex align-items-center gap-3">
+                    <span class="badge" id="pollingStatus">
+                        <i class="fas fa-circle"></i> Auto-polling: Loading...
+                    </span>
+                    <span class="badge" id="requestStatus">
+                        <i class="fas fa-chart-line"></i> API Requests: <span id="requestCount">...</span>/<span id="requestLimit">...</span>
+                    </span>
+                    <small id="resetTimer" class="text-muted" style="font-size: 0.8rem; white-space: nowrap;"></small>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="d-flex gap-3">
+                <a href="/dashboard" class="action-button flex-1">
+                    <i class="fas fa-newspaper"></i> ACADEMIC MONITOR
+                </a>
+                <a href="/keyword-alerts" class="action-button flex-1">
+                    <i class="fas fa-bell"></i> KEYWORD ALERTS
+                </a>
+                <a href="/keyword-monitor" class="action-button flex-1">
+                    <i class="fas fa-cogs"></i> KEYWORD CONFIG
+                </a>
+            </div>
+        </div>
     </div>
-    
-    <div class="row">
-        <div class="col-md-6 mb-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="section-header">
-                        <i class="fas fa-search"></i>
-                        <h2>Research and Collect</h2>
-                    </div>
-                    <p class="card-text">Collect and analyze articles from Arxiv, Newsapi, or manually and use AI to extract insights about future trends</p>
-                    <div class="button-group">
-                        <a href="/dashboard" class="btn btn-primary">Monitor news</a>
-                        <a href="/collect" class="btn btn-primary">Search news</a>
-                        <a href="/research" class="btn btn-primary">Add an article</a>
-                        <a href="/bulk-research" class="btn btn-primary">Add multiple articles</a>
-                    </div>
+
+    <!-- Topic Overview Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center" 
+                 style="cursor: pointer;" 
+                 onclick="toggleTopicOverview()">
+                <h5 class="mb-0">
+                    <i class="fas fa-list"></i> Active Topic Overview
+                </h5>
+                <i id="topicOverviewIcon" class="fas fa-chevron-up"></i>
+            </div>
+        </div>
+        <div id="topicOverviewContent" class="card-body" style="display: none;">
+            <div class="table-responsive">
+                <table class="table" id="topicTable">
+                    <thead>
+                        <tr>
+                            <th>Topic Name</th>
+                            <th>Article Count</th>
+                            <th>Last Article Added</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for topic in topics %}
+                        <tr data-topic-id="{{ topic.id }}">
+                            <td>{{ topic.name }}</td>
+                            <td class="article-count">Loading...</td>
+                            <td class="latest-article">Loading...</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Actions Grid -->
+    <div class="row g-4">
+        <!-- Research Panel -->
+        <div class="col-md-4">
+            <div class="panel">
+                <div class="panel-header">
+                    <i class="fas fa-search"></i>
+                    <h2>Research</h2>
+                </div>
+                <p class="panel-description">Research news and academic papers, search articles, and enrich research content</p>
+                <div class="panel-actions">
+                    <a href="/collect" class="action-button">
+                        <i class="fas fa-search"></i> NEWS SEARCH
+                    </a>
+                    <a href="/research" class="action-button">
+                        <i class="fas fa-plus-circle"></i> ARTICLE ANALYZER
+                    </a>
+                    <a href="/bulk-research" class="action-button">
+                        <i class="fas fa-file-upload"></i> ARTICLE BULK ANALYZER
+                    </a>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-6 mb-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="section-header">
-                        <i class="fas fa-chart-bar"></i>
-                        <h2>Report and Visualize</h2>
-                    </div>
-                    <p class="card-text">Visualize trends, write reports and annotate articles</p>
-                    <div class="button-group">
-                        <a href="/report" class="btn btn-primary">Write a report</a>
-                        <a href="/analytics" class="btn btn-primary">Visualize trends</a>
-                        <a href="/database-editor" class="btn btn-primary">Annotate Articles</a>
-                    </div>
+        <!-- Analysis Panel -->
+        <div class="col-md-4">
+            <div class="panel">
+                <div class="panel-header">
+                    <i class="fas fa-chart-bar"></i>
+                    <h2>Analysis</h2>
+                </div>
+                <p class="panel-description">Generate reports, visualize trends, and manage content</p>
+                <div class="panel-actions">
+                    <a href="/report" class="action-button">
+                        <i class="fas fa-file-alt"></i> REPORT WRITER
+                    </a>
+                    <a href="/analytics" class="action-button">
+                        <i class="fas fa-chart-line"></i> TRENDS VISUALIZER
+                    </a>
+                    <a href="/database-editor" class="action-button">
+                        <i class="fas fa-edit"></i> ARTICLES DATABASE EDITOR
+                    </a>
                 </div>
             </div>
         </div>
 
-        <div class="col-md-6 mb-4">
-            <div class="card h-100">
-                <div class="card-body">
-                    <div class="section-header">
-                        <i class="fas fa-cog"></i>
-                        <h2>Configure</h2>
-                    </div>
-                    <p class="card-text">Configure AI models and other application settings.</p>
-                    <div class="button-group">
-                        <a href="/config" class="btn btn-primary">Go to Configuration</a>
-                        <a href="/promptmanager" class="btn btn-primary">Prompt Manager</a>
-                        <a href="/create_topic" class="btn btn-primary">Create or Update a Scenario Topic</a>
-                    </div>
+        <!-- Configure Panel -->
+        <div class="col-md-4">
+            <div class="panel">
+                <div class="panel-header">
+                    <i class="fas fa-cog"></i>
+                    <h2>Settings</h2>
+                </div>
+                <p class="panel-description">System settings and topic creation</p>
+                <div class="panel-actions">
+                    <a href="/config" class="action-button">
+                        <i class="fas fa-sliders-h"></i> APP CONFIGURATION
+                    </a>
+                    <a href="/promptmanager" class="action-button">
+                        <i class="fas fa-brain"></i> PROMPT MANAGEMENT
+                    </a>
+                    <a href="/create_topic" class="action-button">
+                        <i class="fas fa-folder-plus"></i> SCENARIO TOPIC MANAGEMENT
+                    </a>
                 </div>
             </div>
         </div>
@@ -562,6 +768,110 @@ function updateCurrentDate() {
 
 // Update date when page loads
 updateCurrentDate();
+
+// Update the reset timer function
+function updateResetTimer() {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    
+    const timeUntilReset = tomorrow - now;
+    const hours = Math.floor(timeUntilReset / (1000 * 60 * 60));
+    const minutes = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const resetTimer = document.getElementById('resetTimer');
+    if (resetTimer) {
+        resetTimer.textContent = `Resets in ${hours}h ${minutes}m`;
+        
+        // Update color based on request status
+        const requestBadge = document.getElementById('requestStatus');
+        if (requestBadge.classList.contains('danger')) {
+            resetTimer.classList.add('text-danger');
+        } else if (requestBadge.classList.contains('warning')) {
+            resetTimer.classList.add('text-warning');
+        } else {
+            resetTimer.classList.remove('text-danger', 'text-warning');
+        }
+    }
+}
+
+// Update the monitoring status function to better handle polling status
+async function updateMonitoringStatus() {
+    try {
+        const response = await fetch('/api/keyword-monitor/settings');
+        if (response.ok) {
+            const settings = await response.json();
+            const requestCount = document.getElementById('requestCount');
+            const requestLimit = document.getElementById('requestLimit');
+            const requestBadge = document.getElementById('requestStatus');
+            const pollingBadge = document.getElementById('pollingStatus');
+
+            // Update polling status based on settings
+            if (settings.is_enabled !== undefined) {  // Changed from polling_enabled to is_enabled
+                if (settings.is_enabled) {
+                    pollingBadge.className = 'badge success';
+                    pollingBadge.innerHTML = '<i class="fas fa-circle"></i> Auto-polling: Enabled';
+                } else {
+                    pollingBadge.className = 'badge warning';
+                    pollingBadge.innerHTML = '<i class="fas fa-circle"></i> Auto-polling: Disabled';
+                }
+            } else {
+                pollingBadge.className = 'badge warning';
+                pollingBadge.innerHTML = '<i class="fas fa-circle"></i> Auto-polling: Disabled';  // Default to Disabled instead of Unknown
+            }
+
+            // Check for rate limit error
+            if (settings.last_error && (
+                settings.last_error.includes("Rate limit exceeded") || 
+                settings.last_error.includes("limit reached")
+            )) {
+                requestCount.textContent = settings.daily_request_limit;
+                requestLimit.textContent = settings.daily_request_limit;
+                requestBadge.className = 'badge danger';
+            } else {
+                requestCount.textContent = settings.requests_today;
+                requestLimit.textContent = settings.daily_request_limit;
+                
+                const percentage = (settings.requests_today / settings.daily_request_limit) * 100;
+                if (percentage >= 100) {
+                    requestBadge.className = 'badge danger';
+                } else if (percentage >= 80) {
+                    requestBadge.className = 'badge warning';
+                } else {
+                    requestBadge.className = 'badge success';
+                }
+            }
+            
+            // Update reset timer
+            updateResetTimer();
+        }
+    } catch (error) {
+        console.error('Error updating monitoring status:', error);
+        // Set default state for badges when there's an error
+        const pollingBadge = document.getElementById('pollingStatus');
+        const requestBadge = document.getElementById('requestStatus');
+        if (pollingBadge) {
+            pollingBadge.className = 'badge warning';
+            pollingBadge.innerHTML = '<i class="fas fa-circle"></i> Auto-polling: Unknown';
+        }
+        if (requestBadge) {
+            requestBadge.className = 'badge warning';
+            requestBadge.innerHTML = '<i class="fas fa-chart-line"></i> API Requests: Unknown';
+        }
+    }
+}
+
+// Add to the DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', function() {
+    updateClocks();
+    setInterval(updateClocks, 1000);
+    updateCurrentDate();
+    updateMonitoringStatus();
+    updateResetTimer();
+    setInterval(updateMonitoringStatus, 60000); // Update monitoring status every minute
+    setInterval(updateResetTimer, 60000); // Update reset timer every minute
+});
 </script>
 
 <!-- Add Font Awesome for the clock icon -->

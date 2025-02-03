@@ -7,6 +7,7 @@
   "paper_filters": {
     "AI and Machine Learning": "GenAI",
     "Cloud Computing": "Distributed Systems",
-    "Test": "Quantum Advantage"
+    "Test": "Quantum Advantage",
+    "Security Data Fabric": "\"Security Data\""
   }
 }

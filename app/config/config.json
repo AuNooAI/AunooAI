@@ -107,22 +107,16 @@
       ]
     },
     {
-      "name": "Security Data Pipeline Market",
+      "name": "Security Data Fabric",
       "categories": [
-        "Observability",
-        "ETL",
-        "Security Data Fabric",
-        "Security Data Lake",
-        "Announcements",
-        "Funding",
-        "Partnerships",
-        "Hiring"
+        "Abstract Security",
+        "Auguria",
+        "Tarsal",
+        "Cribl",
+        "RunReveal"
       ],
       "future_signals": [
-        "Positive Growth",
-        "Stalling",
-        "Negative Growth",
-        "Convergence",
+        "Strong Growth",
         "M&A"
       ],
       "sentiment": [
@@ -131,19 +125,16 @@
         "Negative"
       ],
       "time_to_impact": [
-        "Immediate",
         "Mid-term",
+        "Immediate",
         "Long-term",
         "Short-term"
       ],
       "driver_types": [
-        "Accelerator",
-        "Delayer",
-        "Catalyst",
-        "Terminator",
-        "Blocker",
-        "Initiator",
-        "Informational"
+        "New Feature",
+        "Funding",
+        "New Product",
+        "New Hire"
       ]
     }
   ],

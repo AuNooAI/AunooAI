@@ -8,3 +8,4 @@ reports/
 *.code-workspace
 LA_notes
 app/data/fnaapp.db
+app/config/config.json

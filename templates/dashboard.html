@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}N0RN AI - News Monitoring Dashboard{% endblock %}
+{% block title %}Aunoo AI - News Monitoring Dashboard{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -24,6 +24,9 @@
         margin-bottom: 24px;
         border: none;
         overflow: hidden;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
     }
 
     .card-header {
@@ -41,33 +44,58 @@
 
     .content-section {
         padding: 20px;
-        height: 100%;
+        height: 500px;
+        flex: 1;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
     }
 
     .section-title {
-        font-size: 1.1rem;
-        color: var(--dark-gray);
-        margin-bottom: 15px;
         display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-bottom: 15px;
+    }
+
+    .section-title-row {
+        display: flex;
+        flex-wrap: wrap;
         align-items: center;
-        justify-content: space-between;
+        gap: 8px;
+        width: 100%;
+    }
+
+    .section-controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-left: auto;
     }
 
     .keyword-badge {
-        background-color: var(--light-gray);
-        border-radius: 20px;
-        padding: 6px 12px;
-        font-size: 0.9rem;
-        color: var(--text-color);
         display: inline-flex;
         align-items: center;
-        margin-right: 10px;
+        gap: 4px;
+        padding: 4px 8px;
+        background-color: var(--light-gray);
+        border-radius: 4px;
+        flex: 1;
+        min-width: 0;
+    }
+
+    .keyword-badge span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
     }
 
     .article-item {
         background-color: white;
         border-radius: 8px;
-        padding: 16px;
+        padding: 12px;
         margin-bottom: 16px;
         border: 1px solid var(--medium-gray);
         transition: transform 0.2s, box-shadow 0.2s;
@@ -97,6 +125,7 @@
 
     .article-meta {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 16px;
         margin-bottom: 12px;
@@ -122,17 +151,24 @@
     }
 
     .controls {
-        background-color: var(--light-gray);
-        padding: 8px 16px;
-        border-radius: var(--border-radius);
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
-        gap: 12px;
+        gap: 8px;
+        padding: 8px 12px;
     }
 
     .form-control-sm {
-        border-radius: 6px;
-        border: 1px solid var(--medium-gray);
+        min-width: 80px;
+        width: auto;
+    }
+
+    .btn-refresh,
+    .btn-edit,
+    .btn-delete {
+        padding: 4px 8px;
+        font-size: 0.9rem;
+        white-space: nowrap;
     }
 
     .btn-refresh {
@@ -151,31 +187,9 @@
         background-color: var(--primary-dark);
     }
 
-    .btn-edit {
-        padding: 4px 12px;
-        border-radius: 6px;
-        background-color: var(--medium-gray);
-        border: none;
-        color: var(--dark-gray);
-        font-size: 0.9rem;
-        transition: background-color 0.2s;
-    }
-
     .btn-edit:hover {
         background-color: var(--dark-gray);
         color: white;
-    }
-
-    .btn-delete {
-        padding: 6px 12px;
-        border-radius: 6px;
-        background-color: #dc3545;
-        border: none;
-        color: white;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        transition: background-color 0.2s;
     }
 
     .btn-delete:hover {
@@ -190,7 +204,7 @@
     }
 
     .articles-container {
-        max-height: 800px;
+        flex: 1;
         overflow-y: auto;
         padding-right: 10px;
     }
@@ -212,101 +226,181 @@
     .articles-container::-webkit-scrollbar-thumb:hover {
         background: var(--primary-dark);
     }
+
+    /* Update the grid layout to use single column */
+    .dashboard-container {
+        max-width: 1200px;  /* More reasonable max-width for single column */
+        margin: 0 auto;
+        padding: 0 15px;
+    }
+
+    /* Update the columns layout */
+    .news-papers-container {
+        display: flex;
+        gap: 20px;
+    }
+
+    .news-column, .papers-column {
+        flex: 1;
+        min-width: 0; /* Allows content to shrink below min-content width */
+    }
+
+    .border-divider {
+        width: 1px;
+        background-color: var(--medium-gray);
+        margin: 0;
+    }
+
+    /* Improve section title layout */
+    .section-title {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 15px;
+    }
+
+    /* Adjust button group layout */
+    .mt-2 {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    /* Make sort selector more compact */
+    .sort-select {
+        width: 120px;
+        min-width: 120px;
+        flex-shrink: 0;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h1 class="mb-4">News Monitoring Dashboard</h1>
-
-    {% for topic in topics %}
-    <div class="dashboard-card" id="topic-card-{{ topic.topic }}">
-        <div class="card-header">
-            <div class="d-flex justify-content-between align-items-center">
-                <h2 class="card-title">{{ topic.name }}</h2>
-                <div class="controls">
-                    <label class="mb-0">Show:</label>
-                    <select class="form-control form-control-sm" 
-                            id="articleCount-{{ topic.topic }}" 
-                            style="width: 70px"
-                            onchange="loadArticles('{{ topic.topic }}')">
-                        {% for n in [3, 5, 10, 15, 20] %}
-                        <option value="{{ n }}" {% if n == 5 %}selected{% endif %}>{{ n }}</option>
-                        {% endfor %}
-                    </select>
-                    <button class="btn-refresh" onclick="loadArticles('{{ topic.topic }}')">
-                        <i class="fas fa-sync-alt"></i>
-                        Refresh
-                    </button>
-                    <button class="btn-delete" onclick="deleteTopic('{{ topic.topic }}')">
-                        <i class="fas fa-trash"></i>
-                        Delete
-                    </button>
-                </div>
-            </div>
-        </div>
-
-        <div class="row g-0">
-            <!-- News Column -->
-            <div class="col-md-6 border-end">
-                <div class="content-section">
-                    <div class="section-title">
-                        <div class="d-flex align-items-center justify-content-between">
-                            <div class="d-flex align-items-center">
-                                <span class="me-2">News</span>
-                                <div class="keyword-badge me-2">
-                                    <span id="newsKeyword-{{ topic.topic }}">{{ topic.news_query }}</span>
-                                    <button class="btn-edit ms-2" onclick="editKeyword('news', '{{ topic.topic }}')">
-                                        <i class="fas fa-pencil-alt"></i>
-                                    </button>
-                                </div>
-                                <select class="form-control form-control-sm" 
-                                        id="newsSort-{{ topic.topic }}" 
-                                        style="width: 130px"
-                                        onchange="loadArticles('{{ topic.topic }}')">
-                                    <option value="publishedAt">Newest First</option>
-                                    <option value="relevancy">Most Relevant</option>
-                                    <option value="popularity">Most Popular</option>
-                                </select>
-                            </div>
-                        </div>
+<div class="dashboard-container mt-4">
+    <!-- Add status messages section -->
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h1>News Monitoring Dashboard</h1>
+            <div class="d-flex flex-column gap-2">
+                {% if last_error %}
+                    <div class="alert alert-warning d-flex align-items-center">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        {{ last_error }}
                     </div>
-                    <div id="latestNews-{{ topic.topic }}" class="articles-container">
-                        <div class="loading-spinner">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
+                {% endif %}
+                <div class="d-flex align-items-center gap-3">
+                    <div class="text-muted">
+                        <i class="fas fa-chart-line"></i> API Requests Today: 
+                        <span id="requestCount">0</span>/<span id="requestLimit">100</span>
                     </div>
-                </div>
-            </div>
-
-            <!-- Papers Column -->
-            <div class="col-md-6">
-                <div class="content-section">
-                    <div class="section-title">
-                        <div class="d-flex align-items-center">
-                            <span class="me-2">Papers</span>
-                            <div class="keyword-badge">
-                                <span id="paperKeyword-{{ topic.topic }}">{{ topic.paper_query }}</span>
-                                <button class="btn-edit ms-2" onclick="editKeyword('paper', '{{ topic.topic }}')">
-                                    <i class="fas fa-pencil-alt"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="latestPapers-{{ topic.topic }}" class="articles-container">
-                        <div class="loading-spinner">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                        </div>
-                    </div>
+                    {% if is_rate_limited %}
+                        <span class="text-warning">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Daily request limit reached. Some content may be unavailable.
+                        </span>
+                    {% endif %}
                 </div>
             </div>
         </div>
     </div>
-    {% endfor %}
+
+    <!-- Existing dashboard content -->
+    <div class="dashboard-content">
+        {% for topic in topics %}
+        <div id="topic-card-{{ topic.id }}">
+            <div class="dashboard-card">
+                <div class="card-header">
+                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <h2 class="card-title mb-0">{{ topic.name }}</h2>
+                        <div class="controls">
+                            <div class="d-flex align-items-center gap-2">
+                                <label class="mb-0">Show:</label>
+                                <select class="form-control form-control-sm" 
+                                        id="articleCount-{{ topic.topic }}"
+                                        onchange="loadArticles('{{ topic.topic }}')">
+                                    {% for n in [3, 5, 10, 15, 20] %}
+                                    <option value="{{ n }}" {% if n == 5 %}selected{% endif %}>{{ n }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <button class="btn-refresh" onclick="loadArticles('{{ topic.topic }}')">
+                                <i class="fas fa-sync-alt"></i>
+                                <span class="d-none d-sm-inline">Refresh</span>
+                            </button>
+                            <button class="btn-delete" onclick="deleteTopic('{{ topic.topic }}')">
+                                <i class="fas fa-trash"></i>
+                                <span class="d-none d-sm-inline">Delete</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Replace row g-0 with new structure -->
+                <div class="news-papers-container">
+                    <!-- News Column -->
+                    <div class="news-column">
+                        <div class="content-section">
+                            <div class="section-title">
+                                <div class="section-title-row">
+                                    <span>News</span>
+                                    <div class="keyword-badge">
+                                        <span id="newsKeyword-{{ topic.topic }}">{{ topic.news_query }}</span>
+                                        <button class="btn-edit" onclick="editKeyword('news', '{{ topic.topic }}')">
+                                            <i class="fas fa-pencil-alt"></i>
+                                        </button>
+                                    </div>
+                                    <div class="section-controls">
+                                        <select class="form-control form-control-sm sort-select" 
+                                                id="newsSort-{{ topic.topic }}"
+                                                onchange="loadArticles('{{ topic.topic }}')">
+                                            <option value="publishedAt">Newest First</option>
+                                            <option value="relevancy">Most Relevant</option>
+                                            <option value="popularity">Most Popular</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="latestNews-{{ topic.topic }}" class="articles-container">
+                                <div class="loading-spinner">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="border-divider"></div>
+                    
+                    <!-- Papers Column -->
+                    <div class="papers-column">
+                        <div class="content-section">
+                            <div class="section-title">
+                                <div class="d-flex align-items-center">
+                                    <span class="me-2">Papers</span>
+                                    <div class="keyword-badge">
+                                        <span id="paperKeyword-{{ topic.topic }}">{{ topic.paper_query }}</span>
+                                        <button class="btn-edit ms-2" onclick="editKeyword('paper', '{{ topic.topic }}')">
+                                            <i class="fas fa-pencil-alt"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="latestPapers-{{ topic.topic }}" class="articles-container">
+                                <div class="loading-spinner">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
 </div>
 
 <script>
@@ -589,10 +683,90 @@ async function deleteTopic(topicId) {
         alert('Failed to delete topic: ' + error.message);
     }
 }
+
+// Add function to update request count and status message
+async function updateRequestStatus() {
+    try {
+        const response = await fetch('/api/keyword-monitor/settings');
+        if (response.ok) {
+            const settings = await response.json();
+            const requestCount = document.getElementById('requestCount');
+            const requestLimit = document.getElementById('requestLimit');
+            
+            if (settings.last_error && (
+                settings.last_error.includes("Rate limit exceeded") || 
+                settings.last_error.includes("limit reached")
+            )) {
+                requestCount.textContent = settings.daily_request_limit;
+                requestCount.parentElement.classList.add('text-warning');
+                
+                // Show rate limit message if not already shown
+                if (!document.querySelector('.alert-warning')) {
+                    const statusDiv = document.querySelector('.d-flex.flex-column.gap-2');
+                    const alert = document.createElement('div');
+                    alert.className = 'alert alert-warning d-flex align-items-center';
+                    alert.innerHTML = `
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        API daily request limit reached. Some content may be unavailable.
+                    `;
+                    statusDiv.prepend(alert);
+                }
+            } else {
+                requestCount.textContent = settings.requests_today;
+                requestLimit.textContent = settings.daily_request_limit;
+                requestCount.parentElement.classList.remove('text-warning');
+            }
+        }
+    } catch (error) {
+        console.error('Error updating request status:', error);
+    }
+}
+
+// Update status every minute
+setInterval(updateRequestStatus, 60000);
+
+// Initial load
+document.addEventListener('DOMContentLoaded', updateRequestStatus);
 </script>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+// Existing world clock functionality
+function updateClocks() {
+    const clockElements = document.querySelectorAll('.clock-time');
+    clockElements.forEach(clock => {
+        const timezone = clock.dataset.timezone;
+        const time = new Date().toLocaleTimeString('en-US', {
+            timeZone: timezone,
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        clock.textContent = time;
+    });
+}
+
+// Keep existing topic overview functionality
+function toggleTopicOverview() {
+    const content = document.getElementById('topicOverviewContent');
+    const icon = document.getElementById('topicOverviewIcon');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    } else {
+        content.style.display = 'none';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    }
+}
+
+// Keep existing initialization
+document.addEventListener('DOMContentLoaded', function() {
+    updateClocks();
+    setInterval(updateClocks, 1000);
+});
 </script>
 {% endblock %} 
