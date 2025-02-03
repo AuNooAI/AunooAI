@@ -105,6 +105,46 @@
         "Terminator",
         "Unknown"
       ]
+    },
+    {
+      "name": "Security Data Pipeline Market",
+      "categories": [
+        "Observability",
+        "ETL",
+        "Security Data Fabric",
+        "Security Data Lake",
+        "Announcements",
+        "Funding",
+        "Partnerships",
+        "Hiring"
+      ],
+      "future_signals": [
+        "Positive Growth",
+        "Stalling",
+        "Negative Growth",
+        "Convergence",
+        "M&A"
+      ],
+      "sentiment": [
+        "Positive",
+        "Neutral",
+        "Negative"
+      ],
+      "time_to_impact": [
+        "Immediate",
+        "Mid-term",
+        "Long-term",
+        "Short-term"
+      ],
+      "driver_types": [
+        "Accelerator",
+        "Delayer",
+        "Catalyst",
+        "Terminator",
+        "Blocker",
+        "Initiator",
+        "Informational"
+      ]
     }
   ],
   "ai_models": [
