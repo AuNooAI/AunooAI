@@ -41,6 +41,7 @@ from app.security.session import verify_session
 from app.routes.keyword_monitor import router as keyword_monitor_router, get_alerts
 from app.tasks.keyword_monitor import run_keyword_monitor
 import sqlite3
+from app.routes import database  # Make sure this import exists
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -126,6 +127,9 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("FLASK_SECRET_KEY", "your-fallback-secret-key"),  # Using existing secret key from .env
 )
+
+# Add this line to include the database routes
+app.include_router(database.router)
 
 class ArticleData(BaseModel):
     title: str

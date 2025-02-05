@@ -6,8 +6,8 @@
 <!-- Add tab navigation -->
 <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
     <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="database-tab" data-bs-toggle="tab" data-bs-target="#database" type="button" role="tab">
-            <i class="fas fa-database"></i> Database
+        <button class="nav-link" id="providers-tab" data-bs-toggle="tab" data-bs-target="#providers" type="button" role="tab">
+            <i class="fas fa-plug"></i> Providers
         </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -16,8 +16,8 @@
         </button>
     </li>
     <li class="nav-item" role="presentation">
-        <button class="nav-link" id="providers-tab" data-bs-toggle="tab" data-bs-target="#providers" type="button" role="tab">
-            <i class="fas fa-plug"></i> Providers
+        <button class="nav-link active" id="database-tab" data-bs-toggle="tab" data-bs-target="#database" type="button" role="tab">
+            <i class="fas fa-database"></i> Database
         </button>
     </li>
     <li class="nav-item" role="presentation">
@@ -58,14 +58,57 @@
                     <h3>Database Operations</h3>
                     <div class="database-operations">
                         <button id="backup-database" onclick="backupDatabase()">Backup Database</button>
+                        <button id="download-database" onclick="showDownloadDialog()">Download Database</button>
                         <button id="reset-database" class="danger" onclick="resetDatabase()">Reset Database</button>
                     </div>
                 </div>
             </div>
             <div class="right-panel">
                 <h2>Database Information</h2>
-                <div id="database-info">
-                    <!-- This will be populated dynamically -->
+                <div id="database-info" class="info-panel">
+                    <div class="info-group">
+                        <div class="info-item">
+                            <span class="info-label">Database Name:</span>
+                            <span class="info-value" id="db-name">Loading...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Size:</span>
+                            <span class="info-value" id="db-size">Loading...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Total Articles:</span>
+                            <span class="info-value" id="total-articles">Loading...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Last Entry:</span>
+                            <span class="info-value" id="last-entry">Loading...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">First Entry:</span>
+                            <span class="info-value" id="first-entry">Loading...</span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Total Topics:</span>
+                            <span class="info-value" id="total-topics">Loading...</span>
+                        </div>
+                    </div>
+                    
+                    <h3 class="mt-4">Database Tables</h3>
+                    <div class="table-info">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>Table Name</th>
+                                    <th>Row Count</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-info">
+                                <tr>
+                                    <td colspan="2">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -140,6 +183,20 @@
                     <li>Must contain at least one special character</li>
                 </ul>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add the download dialog -->
+<div id="downloadDialog" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Select Database to Download</h3>
+        <select id="download-database-select">
+            <!-- Will be populated dynamically -->
+        </select>
+        <div class="modal-buttons">
+            <button onclick="downloadSelectedDatabase()">Download</button>
+            <button onclick="closeDownloadDialog()">Cancel</button>
         </div>
     </div>
 </div>
@@ -273,6 +330,14 @@
         background-color: #da190b;
     }
 
+    .database-operations button#download-database {
+        background-color: #4a90e2;  /* Blue */
+    }
+
+    .database-operations button#download-database:hover {
+        background-color: #357abd;
+    }
+
     .danger {
         background-color: #f44336 !important;
     }
@@ -333,6 +398,96 @@
         .nav-tabs .nav-link {
             padding: 12px 15px;
         }
+    }
+
+    .modal {
+        display: none;
+        position: fixed;
+        z-index: 1000;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+    }
+
+    .modal-content {
+        background-color: white;
+        margin: 15% auto;
+        padding: 20px;
+        border-radius: 5px;
+        width: 300px;
+    }
+
+    .modal-buttons {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 20px;
+    }
+
+    .modal-buttons button {
+        padding: 8px 16px;
+    }
+
+    #download-database-select {
+        width: 100%;
+        margin-top: 10px;
+        padding: 8px;
+    }
+
+    .info-panel {
+        background: var(--light-bg);
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .info-group {
+        display: grid;
+        gap: 15px;
+    }
+
+    .info-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px;
+        background: white;
+        border-radius: 6px;
+        border-left: 4px solid var(--primary-color);
+    }
+
+    .info-label {
+        font-weight: 600;
+        color: var(--dark-gray);
+    }
+
+    .info-value {
+        color: var(--primary-color);
+        font-family: monospace;
+    }
+
+    .table-info {
+        margin-top: 15px;
+        background: white;
+        border-radius: 6px;
+        padding: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .table-info table {
+        margin-bottom: 0;
+    }
+
+    .table-info th {
+        font-weight: 600;
+        color: var(--dark-gray);
+    }
+
+    .info-panel h3 {
+        color: var(--dark-gray);
+        font-size: 1.1rem;
+        margin-top: 20px;
     }
 </style>
 
@@ -408,16 +563,58 @@
     });
 
     // Function to load database information
+    function formatDate(dateString) {
+        if (!dateString) return 'N/A';
+        const date = new Date(dateString);
+        return date.toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+    }
+
+    function formatFileSize(bytes) {
+        if (!bytes) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
     function loadDatabaseInfo() {
         fetch('/api/database-info')
             .then(response => response.json())
             .then(data => {
-                const databaseInfo = document.getElementById('database-info');
-                databaseInfo.innerHTML = `
-                    <p><strong>Tables:</strong> ${data.tables.join(', ')}</p>
-                    <p><strong>Article Count:</strong> ${data.article_count}</p>
-                    <p><strong>Last Entry:</strong> ${data.last_entry}</p>
-                `;
+                // Update basic info
+                document.getElementById('db-name').textContent = data.name || 'N/A';
+                document.getElementById('db-size').textContent = formatFileSize(data.size);
+                document.getElementById('total-articles').textContent = (data.total_articles || 0).toLocaleString();
+                document.getElementById('last-entry').textContent = formatDate(data.last_entry);
+                document.getElementById('first-entry').textContent = formatDate(data.first_entry);
+                document.getElementById('total-topics').textContent = (data.total_topics || 0).toLocaleString();
+                
+                // Update table information
+                const tableBody = document.getElementById('table-info');
+                if (data.tables && data.tables.length > 0) {
+                    tableBody.innerHTML = data.tables
+                        .map(table => `
+                            <tr>
+                                <td>${table.name}</td>
+                                <td>${table.rows.toLocaleString()}</td>
+                            </tr>
+                        `)
+                        .join('');
+                } else {
+                    tableBody.innerHTML = '<tr><td colspan="2">No tables found</td></tr>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading database info:', error);
+                document.getElementById('database-info').innerHTML = 
+                    '<div class="alert alert-danger">Error loading database information</div>';
             });
     }
 
@@ -801,5 +998,83 @@
             });
         });
     });
+
+    // Add this function with the other database functions
+    function showDownloadDialog() {
+        const dialog = document.getElementById('downloadDialog');
+        const select = document.getElementById('download-database-select');
+        
+        // Clear and populate the select
+        select.innerHTML = '';
+        fetch('/api/databases')
+            .then(response => response.json())
+            .then(databases => {
+                databases.forEach(db => {
+                    const option = document.createElement('option');
+                    option.value = db.name;
+                    option.textContent = db.name;
+                    select.appendChild(option);
+                });
+                dialog.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error loading databases:', error);
+                alert('Error loading databases. Please try again.');
+            });
+    }
+
+    function closeDownloadDialog() {
+        document.getElementById('downloadDialog').style.display = 'none';
+    }
+
+    function downloadSelectedDatabase() {
+        const select = document.getElementById('download-database-select');
+        const dbName = select.value;
+        
+        if (!dbName) {
+            alert('Please select a database');
+            return;
+        }
+
+        // Show loading state
+        const downloadButton = document.querySelector('#downloadDialog button');
+        downloadButton.disabled = true;
+        downloadButton.textContent = 'Downloading...';
+
+        fetch(`/api/databases/download/${encodeURIComponent(dbName)}`)
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.detail || 'Failed to download database');
+                    });
+                }
+                return response.blob();
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = dbName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                closeDownloadDialog();
+            })
+            .catch(error => {
+                console.error('Error downloading database:', error);
+                alert(`Error downloading database: ${error.message}`);
+            })
+            .finally(() => {
+                // Reset button state
+                downloadButton.disabled = false;
+                downloadButton.textContent = 'Download';
+            });
+    }
+
+    // Update the existing downloadDatabase function to use the dialog
+    function downloadDatabase() {
+        showDownloadDialog();
+    }
 </script>
 {% endblock %}
