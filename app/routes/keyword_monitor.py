@@ -1,9 +1,10 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 from app.database import get_database_instance
 from app.tasks.keyword_monitor import KeywordMonitor
+from app.security.session import verify_session
 import logging
 import json
 import traceback
@@ -11,11 +12,16 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 import io
 import csv
+from pathlib import Path
 
 # Set up logger
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/keyword-monitor")
+
+# Set up templates
+TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 class KeywordGroup(BaseModel):
     name: str
@@ -121,7 +127,11 @@ async def check_now(db=Depends(get_database_instance)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/alerts")
-async def get_alerts(db=Depends(get_database_instance)):
+async def get_alerts(
+    request: Request,
+    session=Depends(verify_session),
+    db=Depends(get_database_instance)
+):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
