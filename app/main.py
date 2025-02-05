@@ -440,8 +440,13 @@ async def add_model(model_data: AddModelRequest):
         if not model_data.model_name or not model_data.provider or not model_data.api_key:
             raise HTTPException(status_code=400, detail="All fields are required")
 
+        # For HUGGINGFACE provider, only use the part after the last slash
+        model_name = model_data.model_name
+        if model_data.provider.upper() == 'HUGGINGFACE' and '/' in model_name:
+            model_name = model_name.split('/')[-1]
+
         # Create environment variable name
-        env_var_name = f"{model_data.provider.upper()}_API_KEY_{model_data.model_name.replace('-', '_').upper()}"
+        env_var_name = f"{model_data.provider.upper()}_API_KEY_{model_name.replace('-', '_').upper()}"
         
         # Update .env file
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')

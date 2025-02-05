@@ -1,0 +1,60 @@
+model_list:
+  - model_name: gpt-3.5-turbo
+    litellm_params:
+      model: openai/gpt-3.5-turbo
+      timeout: 30
+      max_retries: 3
+      api_key: "os.environ/OPENAI_API_KEY_GPT_3.5_TURBO"
+
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      timeout: 45
+      max_retries: 3
+      api_key: "os.environ/OPENAI_API_KEY_GPT_4O"
+
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      timeout: 30
+      max_retries: 3
+      api_key: "os.environ/OPENAI_API_KEY_GPT_4O_MINI"
+
+  - model_name: claude-3-5-sonnet-20240620
+    litellm_params:
+      model: anthropic/claude-3-5-sonnet-20240620
+      timeout: 30
+      max_retries: 3
+      api_key: "os.environ/ANTHROPIC_API_KEY_CLAUDE_3_5_SONNET_20240620"
+
+  - model_name: gemini-pro
+    litellm_params:
+      model: google/gemini-pro
+      timeout: 30
+      max_retries: 3
+      api_key: "os.environ/GEMINI_API_KEY_GEMINI_PRO"
+
+fallbacks: [
+  {
+    "gpt-3.5-turbo": [
+      {"model": "gpt-4o"},
+      {"model": "claude-3-5-sonnet-20240620"}
+    ]
+  },
+  {
+    "gpt-4o": [
+      {"model": "claude-3-5-sonnet-20240620"},
+      {"model": "gpt-3.5-turbo"}
+    ]
+  },
+  {
+    "claude-3-5-sonnet-20240620": [
+      {"model": "gpt-4o"},
+      {"model": "gpt-3.5-turbo"}
+    ]
+  }
+]
+
+routing_strategy: least-busy
+timeout: 30
+max_retries: 3 

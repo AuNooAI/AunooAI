@@ -1,5 +1,6 @@
 import json
 import os
+import yaml
 from typing import Dict, List
 
 def load_config() -> Dict:
@@ -8,12 +9,20 @@ def load_config() -> Dict:
     with open(config_path, 'r') as config_file:
         config = json.load(config_file)
 
-    # Load AI models config
-    ai_config_path = os.path.join(os.path.dirname(__file__), 'ai_config.json')
+    # Load AI models from litellm config instead of ai_config.json
+    litellm_config_path = os.path.join(os.path.dirname(__file__), 'litellm_config.yaml')
     try:
-        with open(ai_config_path, 'r') as f:
-            ai_config = json.load(f)
-            config['ai_models'] = ai_config.get('ai_models', [])
+        with open(litellm_config_path, 'r') as f:
+            litellm_config = yaml.safe_load(f)
+            # Convert litellm config format to existing ai_models format
+            ai_models = []
+            for model in litellm_config.get('model_list', []):
+                provider = model['litellm_params']['model'].split('/')[0]
+                ai_models.append({
+                    "name": model['model_name'],
+                    "provider": provider
+                })
+            config['ai_models'] = ai_models
     except FileNotFoundError:
         config['ai_models'] = []
 

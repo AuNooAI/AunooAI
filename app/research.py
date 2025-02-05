@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.database import Database, SessionLocal
 from dotenv import load_dotenv
-from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
+from app.ai_models import get_ai_model, get_available_models
 from app.database import Database 
 import re
 from app.analyzers.article_analyzer import ArticleAnalyzer
@@ -54,7 +54,7 @@ class Research:
         if not os.path.exists('.env'):
             raise FileNotFoundError("The .env file does not exist. Please create it and add the necessary environment variables.")
         load_dotenv()
-        self.available_models = ai_get_available_models()
+        self.available_models = get_available_models()
         self.ai_model = None
         self.article_analyzer = None
         self.firecrawl_app = self.initialize_firecrawl()
@@ -465,11 +465,15 @@ class Research:
             return []
 
     def set_ai_model(self, model_name):
+        logger.debug(f"Setting AI model to: {model_name}")
         if not self.available_models:
             raise ValueError("No AI models are configured. Please add a model in the configuration section.")
-        if model_name not in [model['name'] for model in self.available_models]:
+        available_names = [model['name'] for model in self.available_models]
+        logger.debug(f"Available models: {available_names}")
+        if model_name not in available_names:
             raise ValueError(f"Model {model_name} is not configured. Please select a configured model.")
         self.ai_model = get_ai_model(model_name)
+        logger.debug(f"Successfully set AI model to: {model_name}")
         # Initialize ArticleAnalyzer if not already initialized
         if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
             self.article_analyzer = ArticleAnalyzer(self.ai_model)

@@ -53,6 +53,8 @@ Article text:
         if not ai_model:
             raise ArticleAnalyzerError("AI model is required")
         self.ai_model = ai_model
+        # Store model name for cache key
+        self.model_name = getattr(ai_model, 'model_name', 'default')
         try:
             self.prompt_templates = PromptTemplates(custom_templates_path)
             self.cache = AnalysisCache(cache_dir, cache_ttl_hours)
@@ -86,7 +88,8 @@ Article text:
                        summary_length: int, summary_voice: str, summary_type: str,
                        categories: List[str], future_signals: List[str], 
                        sentiment_options: List[str], time_to_impact_options: List[str],
-                       driver_types: List[str], use_cache: bool = True) -> Dict:
+                       driver_types: List[str], use_cache: bool = False) -> Dict: #Reenable and fix cache issue!!
+
         # Validate inputs
         if not article_text:
             raise ArticleAnalyzerError("Article text cannot be empty")
@@ -114,10 +117,11 @@ Article text:
             # Check cache first
             if use_cache:
                 content_hash = self._compute_content_hash(article_text)
-                cached_result = self.cache.get(uri, content_hash, template_hash)
+                # Include model name in cache key
+                cache_key = f"{uri}_{self.model_name}"
+                cached_result = self.cache.get(cache_key, content_hash, template_hash)
                 if cached_result:
-                    logger.info(f"Using cached analysis for {uri}")
-                    # Ensure uri is included in cached result
+                    logger.info(f"Using cached analysis for {uri} with model {self.model_name}")
                     cached_result["uri"] = uri
                     return cached_result
 
@@ -156,7 +160,9 @@ Article text:
             if use_cache:
                 try:
                     content_hash = self._compute_content_hash(article_text)
-                    self.cache.set(uri, content_hash, result, template_hash)
+                    # Include model name in cache key when storing
+                    cache_key = f"{uri}_{self.model_name}"
+                    self.cache.set(cache_key, content_hash, result, template_hash)
                 except CacheError as e:
                     logger.warning(f"Failed to cache analysis: {str(e)}")
 
