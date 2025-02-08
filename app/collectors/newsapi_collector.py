@@ -123,9 +123,31 @@ class NewsAPICollector(ArticleCollector):
                 'page': page
             }
 
+            # Map abbreviated search fields to full names
+            search_field_mapping = {
+                't': 'title',
+                'title': 'title',
+                'd': 'description',
+                'desc': 'description',
+                'description': 'description',
+                'c': 'content',
+                'content': 'content'
+            }
+
             # Add optional parameters if provided
             if search_fields:
-                params['searchIn'] = ','.join(search_fields)
+                # Map any abbreviated fields to their full names
+                mapped_fields = [
+                    search_field_mapping.get(field.lower(), field)
+                    for field in search_fields
+                ]
+                # Filter out any invalid fields
+                valid_fields = [
+                    field for field in mapped_fields
+                    if field in ['title', 'description', 'content']
+                ]
+                if valid_fields:
+                    params['searchIn'] = ','.join(valid_fields)
 
             if domains:
                 params['domains'] = ','.join(domains)
