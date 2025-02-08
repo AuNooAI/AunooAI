@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
-from app.database import get_database_instance
+from app.database import Database, get_database_instance
 from app.tasks.keyword_monitor import KeywordMonitor
 from app.security.session import verify_session
 import logging
@@ -130,28 +130,18 @@ async def check_now(db=Depends(get_database_instance)):
 async def get_alerts(
     request: Request,
     session=Depends(verify_session),
-    db=Depends(get_database_instance)
+    db: Database = Depends(get_database_instance)
 ):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-            
-            # Get the last check time and error
-            cursor.execute("""
-                SELECT last_check_time, last_error
-                FROM keyword_monitor_status
-                WHERE id = 1
-            """)
-            status = cursor.fetchone()
-            last_check_time = status[0] if status else None
-            last_error = status[1] if status and len(status) > 1 else None
             
             # Get all unread alerts with article and keyword info
             cursor.execute("""
                 SELECT 
                     ka.id as alert_id,
                     ka.detected_at,
-                    mk.keyword,
+                    mk.keyword as matched_keyword,
                     kg.id as group_id,
                     kg.name as group_name,
                     kg.topic,
@@ -170,24 +160,15 @@ async def get_alerts(
             
             alerts = cursor.fetchall()
             
-            # Group alerts by keyword group
-            groups = {}
+            # Format alerts with matched keywords
+            formatted_alerts = []
             for alert in alerts:
-                group_id = alert[3]  # group_id from the query
-                if group_id not in groups:
-                    groups[group_id] = {
-                        'id': group_id,
-                        'name': alert[4],  # group_name
-                        'topic': alert[5],  # topic
-                        'alerts': []
-                    }
-                
-                groups[group_id]['alerts'].append({
-                    'id': alert[0],  # alert_id
+                formatted_alerts.append({
+                    'id': alert[0],
                     'detected_at': alert[1],
-                    'keyword': alert[2],
+                    'matched_keywords': [alert[2]],  # Add matched keyword
                     'article': {
-                        'url': alert[6],  # uri
+                        'url': alert[6],
                         'title': alert[7],
                         'source': alert[8],
                         'publication_date': alert[9],
@@ -199,9 +180,7 @@ async def get_alerts(
                 "keyword_alerts.html",
                 {
                     "request": request,
-                    "groups": groups,
-                    "last_check_time": last_check_time,
-                    "last_error": last_error,
+                    "alerts": formatted_alerts,
                     "session": session
                 }
             )
@@ -209,6 +188,19 @@ async def get_alerts(
     except Exception as e:
         logger.error(f"Error fetching keyword alerts: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/keyword-alerts", response_class=HTMLResponse)
+async def show_alerts(
+    request: Request,
+    db: Database = Depends(get_database_instance)
+):
+    alerts = await get_alerts(db)
+    # Let's add logging to check the alert data
+    logger.debug(f"Alert data: {json.dumps(alerts, indent=2)}")
+    return templates.TemplateResponse(
+        "keyword_alerts.html",
+        {"request": request, "alerts": alerts}
+    )
 
 @router.get("/settings")
 async def get_settings(db=Depends(get_database_instance)):
