@@ -87,13 +87,13 @@
                 <table class="table table-hover align-middle">
                     <thead>
                         <tr>
-                            <th>STATUS</th>
-                            <th>EMERGING TREND</th>
-                            <th>REFERENCES</th>
-                            <th style="width: 200px;">GROWTH</th>
-                            <th>SIZE</th>
-                            <th>TAGS</th>
-                            <th>ACTIONS</th>
+                            <th>Status</th>
+                            <th>Emerging Trend</th>
+                            <th>References</th>
+                            <th style="width: 200px;">Growth</th>
+                            <th>Size</th>
+                            <th>Tags</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -149,14 +149,14 @@
                             </td>
                             <td>
                                 {% for keyword in group.keywords[:3] %}
-                                <span class="badge bg-light text-dark border">
+                                <span class="badge bg-info">
                                     <i class="fas fa-tag me-1"></i>{{ keyword }}
                                 </span>
                                 {% endfor %}
                             </td>
                             <td>
-                                <button class="btn btn-sm btn-outline-secondary">
-                                    <i class="fas fa-eye-slash"></i> Hide
+                                <button class="btn btn-sm btn-outline-secondary" title="Hide trend">
+                                    <i class="fas fa-eye-slash"></i>
                                 </button>
                             </td>
                         </tr>
@@ -210,6 +210,7 @@
                                     <th>Article</th>
                                     <th style="width: 150px">Source</th>
                                     <th style="width: 150px">Detected</th>
+                                    <th style="width: 150px">Tags</th>
                                     <th style="width: 250px">Actions</th>
                                 </tr>
                             </thead>
@@ -219,11 +220,6 @@
                                     <td>
                                         <div class="d-flex align-items-center">
                                             <span class="badge bg-primary">New</span>
-                                            {% if alert.matched_keyword %}
-                                                <span class="badge bg-info ms-1">
-                                                    <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
-                                                </span>
-                                            {% endif %}
                                         </div>
                                     </td>
                                     <td>
@@ -262,20 +258,47 @@
                                         </div>
                                     </td>
                                     <td>
-                                        <div class="d-flex gap-2">
-                                            <button class="btn btn-sm btn-outline-success" onclick="markAsRead('{{ alert.id }}')">
-                                                <i class="fas fa-check"></i> Mark Read
-                                            </button>
-                                            <a href="https://archive.is/{{ alert.article.url }}" 
-                                               class="btn btn-sm btn-outline-secondary"
-                                               title="Bypass Paywall" 
-                                               target="_blank">
-                                                <i class="fas fa-unlock"></i> Bypass
-                                            </a>
-                                            <a href="/research?url={{ alert.article.url|urlencode }}&topic={{ group.topic|urlencode }}" 
-                                               class="btn btn-sm btn-outline-primary">
-                                                <i class="fas fa-microscope"></i> Analyze
-                                            </a>
+                                        {% if alert.matched_keyword %}
+                                            <span class="badge bg-info">
+                                                <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
+                                            </span>
+                                        {% endif %}
+                                        {% for keyword in alert.keywords %}
+                                            {% if keyword != alert.matched_keyword %}
+                                            <span class="badge bg-info ms-1">
+                                                <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                            </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-column gap-2">
+                                            <div class="d-flex gap-2">
+                                                <button class="btn btn-sm btn-outline-success" 
+                                                        onclick="markAsRead('{{ alert.id }}')"
+                                                        title="Mark as read">
+                                                    <i class="fas fa-check"></i>
+                                                </button>
+                                                <a href="/research?url={{ alert.article.url|urlencode }}&topic={{ group.topic|urlencode }}" 
+                                                   class="btn btn-sm btn-outline-primary"
+                                                   title="Analyze article">
+                                                    <i class="fas fa-microscope"></i>
+                                                </a>
+                                            </div>
+                                            <div class="d-flex gap-2">
+                                                <a href="https://12ft.io/{{ alert.article.url }}" 
+                                                   class="btn btn-sm btn-outline-secondary"
+                                                   title="Bypass Paywall with 12ft.io" 
+                                                   target="_blank">
+                                                    <i class="fas fa-unlock"></i>
+                                                </a>
+                                                <a href="https://archive.is/{{ alert.article.url }}" 
+                                                   class="btn btn-sm btn-outline-secondary"
+                                                   title="View archived version" 
+                                                   target="_blank">
+                                                    <i class="fas fa-archive"></i>
+                                                </a>
+                                            </div>
                                         </div>
                                     </td>
                                 </tr>
