@@ -1818,6 +1818,17 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
+            # Define status colors mapping
+            status_colors = {
+                'NEW': 'primary',
+                'Exploding': 'danger',
+                'Surging': 'warning',
+                'Growing': 'success',
+                'Stable': 'secondary',
+                'Declining': 'info',
+                'No Data': 'secondary'
+            }
+            
             # Get the last check time
             cursor.execute("""
                 SELECT 
@@ -1953,7 +1964,8 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                     "last_error": last_error,
                     "session": session,
                     "now": now.isoformat(),
-                    "is_enabled": is_enabled
+                    "is_enabled": is_enabled,
+                    "status_colors": status_colors  # Add this line
                 }
             )
             

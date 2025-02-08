@@ -79,7 +79,7 @@
                 </div>
             </div>
             <div class="mt-2">
-                <span class="badge bg-success me-2">Real time monitoring</span>
+                <span class="badge {% if is_enabled %}bg-success{% else %}bg-danger{% endif %} me-2">Real time monitoring</span>
             </div>
         </div>
         <div class="card-body">
@@ -87,6 +87,7 @@
                 <table class="table table-hover align-middle">
                     <thead>
                         <tr>
+                            <th>STATUS</th>
                             <th>EMERGING TREND</th>
                             <th>REFERENCES</th>
                             <th style="width: 200px;">GROWTH</th>
@@ -98,6 +99,11 @@
                     <tbody>
                         {% for group in groups %}
                         <tr>
+                            <td>
+                                <span class="badge bg-{{ status_colors[group.growth_status] }}">
+                                    {{ group.growth_status }}
+                                </span>
+                            </td>
                             <td>
                                 <div>
                                     <strong>{{ group.name }}</strong>
@@ -119,7 +125,7 @@
                                         </span>
                                         {% for keyword in alert.keywords %}
                                             <span class="badge bg-info ms-1">
-                                                <i class="fas fa-hashtag me-1"></i>{{ keyword }}
+                                                <i class="fas fa-tag me-1"></i>{{ keyword }}
                                             </span>
                                         {% endfor %}
                                         {% endfor %}
@@ -136,18 +142,6 @@
                                                 height="40" 
                                                 style="width: 120px; height: 40px;"></canvas>
                                     </div>
-                                    {% set status_colors = {
-                                        'NEW': 'primary',
-                                        'Exploding': 'danger',
-                                        'Surging': 'warning',
-                                        'Growing': 'success',
-                                        'Stable': 'secondary',
-                                        'Declining': 'info',
-                                        'No Data': 'secondary'
-                                    } %}
-                                    <span class="badge bg-{{ status_colors[group.growth_status] }} ms-2">
-                                        {{ group.growth_status }}
-                                    </span>
                                 </div>
                             </td>
                             <td>
@@ -156,7 +150,7 @@
                             <td>
                                 {% for keyword in group.keywords[:3] %}
                                 <span class="badge bg-light text-dark border">
-                                    <i class="fas fa-hashtag me-1"></i>{{ keyword }}
+                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
                                 </span>
                                 {% endfor %}
                             </td>
@@ -188,7 +182,7 @@
                                         <span class="ms-2">Monitoring: 
                                             {% for keyword in group.keywords %}
                                             <span class="badge bg-info">
-                                                <i class="fas fa-hashtag me-1"></i>{{ keyword }}
+                                                <i class="fas fa-tag me-1"></i>{{ keyword }}
                                             </span>
                                             {% endfor %}
                                         </span>
@@ -227,7 +221,7 @@
                                             <span class="badge bg-primary">New</span>
                                             {% if alert.matched_keyword %}
                                                 <span class="badge bg-info ms-1">
-                                                    <i class="fas fa-hashtag me-1"></i>{{ alert.matched_keyword }}
+                                                    <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
                                                 </span>
                                             {% endif %}
                                         </div>
@@ -322,25 +316,75 @@
     display: inline-flex !important;
     align-items: center !important;
     justify-content: center !important;
-    padding: 0.35em 0.65em !important;
+    padding: 0.35em 0.8em !important;
     font-size: 0.75em !important;
     font-weight: 500 !important;
-    line-height: 1 !important;
+    line-height: 1.4 !important;
     text-align: center !important;
     white-space: nowrap !important;
     vertical-align: baseline !important;
-    border-radius: 0.25rem !important;
-    margin-right: 0.25rem !important;
+    border-radius: 12px !important;  /* More curved edges */
+    margin-right: 0.4rem !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;  /* Subtle shadow */
+    letter-spacing: 0.02em !important;
 }
 
+/* Softer colors for badges */
 .badge.bg-primary {
-    background-color: #0d6efd !important;
-    color: #fff !important;
+    background-color: rgba(13, 110, 253, 0.1) !important;
+    color: #0d6efd !important;
+    border: 1px solid rgba(13, 110, 253, 0.2) !important;
 }
 
 .badge.bg-info {
-    background-color: #17a2b8 !important;
-    color: #fff !important;
+    background-color: rgba(23, 162, 184, 0.1) !important;
+    color: #17a2b8 !important;
+    border: 1px solid rgba(23, 162, 184, 0.2) !important;
+}
+
+.badge.bg-secondary {
+    background-color: rgba(108, 117, 125, 0.1) !important;
+    color: #6c757d !important;
+    border: 1px solid rgba(108, 117, 125, 0.2) !important;
+}
+
+/* Hover effect for interactive badges */
+.badge[onclick],
+.badge[role="button"] {
+    transition: all 0.2s ease !important;
+    cursor: pointer !important;
+}
+
+.badge[onclick]:hover,
+.badge[role="button"]:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+}
+
+/* Icon styling within badges */
+.badge i {
+    font-size: 0.85em !important;
+    margin-right: 0.3em !important;
+    opacity: 0.8 !important;
+}
+
+/* Status-specific colors */
+.badge.bg-success {
+    background-color: rgba(40, 167, 69, 0.1) !important;
+    color: #28a745 !important;
+    border: 1px solid rgba(40, 167, 69, 0.2) !important;
+}
+
+.badge.bg-warning {
+    background-color: rgba(255, 193, 7, 0.1) !important;
+    color: #d39e00 !important;
+    border: 1px solid rgba(255, 193, 7, 0.2) !important;
+}
+
+.badge.bg-danger {
+    background-color: rgba(220, 53, 69, 0.1) !important;
+    color: #dc3545 !important;
+    border: 1px solid rgba(220, 53, 69, 0.2) !important;
 }
 
 /* Ensure the badge container is visible */
@@ -857,6 +901,12 @@ async function togglePolling(enabled) {
         const label = document.querySelector('label[for="pollingToggle"]');
         if (label) {
             label.textContent = `Auto-polling ${enabled ? 'enabled' : 'disabled'}`;
+        }
+        
+        // Update the monitoring badge color
+        const monitoringBadge = document.querySelector('.badge');
+        if (monitoringBadge && monitoringBadge.textContent.trim() === 'Real time monitoring') {
+            monitoringBadge.className = `badge ${enabled ? 'bg-success' : 'bg-danger'} me-2`;
         }
         
         // Update the next check time display

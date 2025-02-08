@@ -256,8 +256,7 @@
 
 
 <script>
-console.log('Prefilled URLs:', {{ prefilled_urls|tojson|safe if prefilled_urls else 'null' }});
-console.log('Selected Topic:', {{ selected_topic|tojson|safe if selected_topic else 'null' }});
+
 
 document.addEventListener('DOMContentLoaded', function() {
     const urlList = document.getElementById('urlList');
