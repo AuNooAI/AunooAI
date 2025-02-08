@@ -891,10 +891,11 @@ async def collect_articles(
     categories: Optional[str] = None,
     exclude_categories: Optional[str] = None,
     search_fields: Optional[str] = None,
-    page: int = Query(1, ge=1)
+    page: int = Query(1, ge=1),
+    db: Database = Depends(get_database_instance)  # Add database dependency
 ):
     try:
-        collector = CollectorFactory.get_collector(source)
+        collector = CollectorFactory.get_collector(source, db)  # Pass db instance
         
         # Convert date strings to datetime objects if provided
         start_date_obj = datetime.fromisoformat(start_date) if start_date else None

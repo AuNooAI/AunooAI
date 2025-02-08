@@ -81,11 +81,19 @@ class NewsAPICollector(ArticleCollector):
         query: str,
         topic: Optional[str] = None,
         max_results: int = 10,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        search_fields: Optional[str] = None,
-        language: Optional[str] = None,
-        sort_by: Optional[str] = None
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        language: str = "en",
+        locale: Optional[str] = None,
+        domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        sort_by: Optional[str] = None,
+        source_ids: Optional[List[str]] = None,
+        exclude_source_ids: Optional[List[str]] = None,
+        categories: Optional[List[str]] = None,
+        exclude_categories: Optional[List[str]] = None,
+        search_fields: Optional[List[str]] = None,
+        page: int = 1
     ) -> List[Dict]:
         try:
             # Check if we're already at the limit before making request
@@ -110,36 +118,28 @@ class NewsAPICollector(ArticleCollector):
                 'q': query,
                 'apiKey': self.api_key,
                 'pageSize': max_results,
-                'language': language or 'en',
-                'sortBy': sort_by or 'publishedAt'
+                'language': language,
+                'sortBy': sort_by or 'publishedAt',
+                'page': page
             }
 
+            # Add optional parameters if provided
             if search_fields:
-                params['searchIn'] = search_fields
+                params['searchIn'] = ','.join(search_fields)
+
+            if domains:
+                params['domains'] = ','.join(domains)
+
+            if exclude_domains:
+                params['excludeDomains'] = ','.join(exclude_domains)
 
             # Handle start_date
             if start_date:
-                if isinstance(start_date, str):
-                    try:
-                        start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-                    except ValueError:
-                        logger.warning(f"Invalid start_date format: {start_date}")
-                        start_date = None
-                
-                if start_date:
-                    params['from'] = start_date.strftime('%Y-%m-%d')
+                params['from'] = start_date.strftime('%Y-%m-%d')
 
             # Handle end_date
             if end_date:
-                if isinstance(end_date, str):
-                    try:
-                        end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-                    except ValueError:
-                        logger.warning(f"Invalid end_date format: {end_date}")
-                        end_date = None
-                
-                if end_date:
-                    params['to'] = end_date.strftime('%Y-%m-%d')
+                params['to'] = end_date.strftime('%Y-%m-%d')
 
             # Handle topic/category mapping
             valid_categories = ['business', 'entertainment', 'general', 'health', 
