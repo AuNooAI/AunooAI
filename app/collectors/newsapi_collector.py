@@ -55,7 +55,7 @@ class NewsAPICollector(ArticleCollector):
                         self.requests_today = requests_today
                 else:
                     self.requests_today = 0
-                    
+                
         except Exception as e:
             logger.error(f"Error initializing request counter: {str(e)}")
             self.requests_today = 0
