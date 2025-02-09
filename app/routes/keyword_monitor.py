@@ -208,6 +208,33 @@ async def get_settings(db=Depends(get_database_instance)):
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
+            # Create keyword_monitor_status table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS keyword_monitor_status (
+                    id INTEGER PRIMARY KEY,
+                    requests_today INTEGER DEFAULT 0,
+                    last_reset_date TEXT,
+                    last_check_time TEXT,
+                    last_error TEXT
+                )
+            """)
+            
+            # Insert default row if it doesn't exist
+            cursor.execute("""
+                INSERT OR IGNORE INTO keyword_monitor_status (id, requests_today)
+                VALUES (1, 0)
+            """)
+            conn.commit()
+            
+            # Debug: Check both tables
+            cursor.execute("SELECT * FROM keyword_monitor_status WHERE id = 1")
+            status_data = cursor.fetchone()
+            logger.debug(f"Status data: {status_data}")
+            
+            cursor.execute("SELECT * FROM keyword_monitor_settings WHERE id = 1")
+            settings_data = cursor.fetchone()
+            logger.debug(f"Settings data: {settings_data}")
+            
             # Get accurate keyword count
             cursor.execute("""
                 SELECT COUNT(*) 
@@ -234,17 +261,22 @@ async def get_settings(db=Depends(get_database_instance)):
                     s.page_size,
                     s.daily_request_limit,
                     s.is_enabled,
-                    st.requests_today,
-                    st.last_error
+                    COALESCE(kms.requests_today, 0) as requests_today,
+                    kms.last_error
                 FROM keyword_monitor_settings s
-                LEFT JOIN keyword_monitor_status st ON st.id = 1
+                LEFT JOIN (
+                    SELECT id, requests_today, last_error 
+                    FROM keyword_monitor_status 
+                    WHERE id = 1 AND last_reset_date = date('now')
+                ) kms ON kms.id = 1
                 WHERE s.id = 1
             """)
             
             settings = cursor.fetchone()
+            logger.debug(f"Settings query result: {settings}")
             
             if settings:
-                return {
+                response_data = {
                     "check_interval": settings[0],
                     "interval_unit": settings[1],
                     "search_fields": settings[2],
@@ -257,6 +289,8 @@ async def get_settings(db=Depends(get_database_instance)):
                     "last_error": settings[9],
                     "total_keywords": total_keywords
                 }
+                logger.debug(f"Returning response data: {response_data}")
+                return response_data
             else:
                 return {
                     "check_interval": 15,

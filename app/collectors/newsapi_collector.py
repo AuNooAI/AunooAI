@@ -29,6 +29,7 @@ class NewsAPICollector(ArticleCollector):
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
                 
+                logger.debug("Initializing request counter")
                 # Get today's request count and last reset date
                 cursor.execute("""
                     SELECT requests_today, last_reset_date 
@@ -37,6 +38,8 @@ class NewsAPICollector(ArticleCollector):
                 """)
                 row = cursor.fetchone()
                 today = datetime.now().date().isoformat()
+                
+                logger.debug(f"Current status row: {row}, today: {today}")
                 
                 if row:
                     requests_today, last_reset = row
@@ -51,10 +54,13 @@ class NewsAPICollector(ArticleCollector):
                             WHERE id = 1
                         """, (today,))
                         conn.commit()
+                        logger.debug("Reset counter for new day")
                     else:
                         self.requests_today = requests_today
+                        logger.debug(f"Using existing count: {requests_today}")
                 else:
                     self.requests_today = 0
+                    logger.debug("No existing count found, starting at 0")
                 
         except Exception as e:
             logger.error(f"Error initializing request counter: {str(e)}")
@@ -157,11 +163,18 @@ class NewsAPICollector(ArticleCollector):
 
             # Handle start_date
             if start_date:
+                if isinstance(start_date, str):
+                    start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
                 params['from'] = start_date.strftime('%Y-%m-%d')
 
             # Handle end_date
             if end_date:
+                if isinstance(end_date, str):
+                    end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
                 params['to'] = end_date.strftime('%Y-%m-%d')
+
+            # Add more debug logging
+            logger.debug(f"Making NewsAPI request with params: {params}")
 
             # Handle topic/category mapping
             valid_categories = ['business', 'entertainment', 'general', 'health', 
@@ -193,13 +206,14 @@ class NewsAPICollector(ArticleCollector):
                         # Update request count in database
                         with self.db.get_connection() as conn:
                             cursor = conn.cursor()
+                            # Make sure we have a row in the status table
                             cursor.execute("""
-                                UPDATE keyword_monitor_status 
-                                SET requests_today = ?,
-                                    last_check_time = ?
-                                WHERE id = 1
+                                INSERT OR REPLACE INTO keyword_monitor_status 
+                                (id, requests_today, last_check_time, last_reset_date)
+                                VALUES (1, ?, ?, date('now'))
                             """, (self.requests_today, datetime.now().isoformat()))
                             conn.commit()
+                            logger.info(f"Updated request count to {self.requests_today}")
                         
                         articles = data.get("articles", [])
                         logger.info(
