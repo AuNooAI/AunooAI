@@ -10,22 +10,31 @@
         max-width: 1200px;
         margin: 0 auto;
         padding: 20px;
+        background-color: var(--light-gray);
+        border-radius: 12px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
     }
 
     .chat-header {
         display: flex;
         gap: 20px;
         align-items: center;
+        padding: 15px;
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
     }
 
     .chat-messages {
         flex-grow: 1;
         overflow-y: auto;
-        border: 1px solid var(--medium-gray);
+        border: none;
         border-radius: 8px;
         padding: 20px;
-        background-color: var(--light-gray);
+        background-color: white;
         min-height: 400px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        scroll-behavior: smooth;
     }
 
     .message {
@@ -37,17 +46,33 @@
         display: flex;
         gap: 10px;
         align-items: flex-start;
+        transition: transform 0.2s ease;
+        animation: messageAppear 0.3s ease;
+    }
+
+    @keyframes messageAppear {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
     }
 
     .user-message {
         background-color: white;
-        border: 1px solid var(--medium-gray);
+        border: none;
         margin-left: auto;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        background-color: var(--light-gray);
     }
 
     .assistant-message {
         background-color: white;
-        border: 1px solid var(--medium-gray);
+        border: none;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
     }
 
     .assistant-message h1,
@@ -103,12 +128,27 @@
     .chat-input {
         display: flex;
         gap: 10px;
+        background-color: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
     }
 
     .chat-input textarea {
         flex-grow: 1;
         resize: none;
         height: 60px;
+        border: 1px solid var(--light-gray);
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 14px;
+        transition: border-color 0.2s ease;
+    }
+
+    .chat-input textarea:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 2px rgba(255, 105, 180, 0.1);
     }
 
     .loading {
@@ -208,6 +248,17 @@
         width: 24px;
         height: 24px;
         color: var(--dark-gray);
+        background-color: var(--light-gray);
+        border-radius: 50%;
+        padding: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .user-message .message-icon {
+        background-color: var(--primary-color);
+        color: white;
     }
 
     .message-content {
@@ -225,6 +276,13 @@
         opacity: 0;
         transition: opacity 0.2s ease;
         color: var(--dark-gray);
+        background-color: var(--light-gray);
+        border-radius: 4px;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .message:hover .copy-button {
@@ -232,7 +290,41 @@
     }
 
     .copy-button:hover {
-        color: var(--primary-color);
+        background-color: var(--primary-color);
+        color: white;
+    }
+
+    /* Custom scrollbar */
+    .chat-messages::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .chat-messages::-webkit-scrollbar-track {
+        background: var(--light-gray);
+        border-radius: 4px;
+    }
+
+    .chat-messages::-webkit-scrollbar-thumb {
+        background: var(--medium-gray);
+        border-radius: 4px;
+    }
+
+    .chat-messages::-webkit-scrollbar-thumb:hover {
+        background: var(--dark-gray);
+    }
+
+    /* Code block styling */
+    .assistant-message pre {
+        background-color: var(--light-gray);
+        border-radius: 6px;
+        padding: 12px;
+        margin: 8px 0;
+        overflow-x: auto;
+    }
+
+    .assistant-message code {
+        font-family: 'Fira Code', monospace;
+        font-size: 0.9em;
     }
 </style>
 {% endblock %}
