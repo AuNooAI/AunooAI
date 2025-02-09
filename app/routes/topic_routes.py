@@ -1,14 +1,20 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
 from app.database import Database
 from app.security.session import verify_session
+from app.config.config import load_config, get_news_query, get_paper_query
 import json
 import os
 import logging
+from typing import Optional
+
+# Setup templates
+templates = Jinja2Templates(directory="templates")
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api")
+router = APIRouter()
 
 @router.delete("/topic/{topic_name}")
 async def delete_topic(topic_name: str, request: Request, session=Depends(verify_session)):
@@ -69,4 +75,62 @@ async def delete_topic(topic_name: str, request: Request, session=Depends(verify
         logger.error(f"Error deleting topic: {str(e)}")
         logger.error(f"Error type: {type(e)}")
         logger.error(f"Error details: {str(e.__dict__)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/create-topic", response_class=HTMLResponse)
+async def create_topic_page(
+    request: Request,
+    topic: Optional[str] = None,
+    session=Depends(verify_session)
+):
+    try:
+        # Get example topics from config
+        config = load_config()
+        example_topics = [topic["name"] for topic in config.get("topics", [])]
+        
+        return templates.TemplateResponse("create_topic.html", {
+            "request": request,
+            "example_topics": example_topics,
+            "session": session
+        })
+    except Exception as e:
+        logger.error(f"Error loading create topic page: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/topic/{topic_name}")
+async def get_topic(topic_name: str, request: Request, session=Depends(verify_session)):
+    try:
+        # Load the config
+        config = load_config()
+        
+        # Find the topic in the config
+        topic_data = None
+        for topic in config.get('topics', []):
+            if topic['name'] == topic_name:
+                topic_data = topic
+                break
+        
+        if not topic_data:
+            raise HTTPException(status_code=404, detail=f"Topic {topic_name} not found")
+            
+        # Get the queries
+        news_query = get_news_query(topic_name)
+        paper_query = get_paper_query(topic_name)
+        
+        # Make sure all fields are present
+        response_data = {
+            "name": topic_data.get("name", ""),
+            "categories": topic_data.get("categories", []),
+            "future_signals": topic_data.get("future_signals", []),
+            "sentiment": topic_data.get("sentiment", []),
+            "time_to_impact": topic_data.get("time_to_impact", []),
+            "driver_types": topic_data.get("driver_types", []),
+            "news_query": news_query,
+            "paper_query": paper_query
+        }
+        
+        return JSONResponse(content=response_data)
+        
+    except Exception as e:
+        logger.error(f"Error getting topic data: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

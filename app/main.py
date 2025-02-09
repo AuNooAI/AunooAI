@@ -42,6 +42,7 @@ from app.routes.keyword_monitor import router as keyword_monitor_router, get_ale
 from app.tasks.keyword_monitor import run_keyword_monitor
 import sqlite3
 from app.routes import database  # Make sure this import exists
+from app.routes.stats_routes import router as stats_router
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -130,6 +131,9 @@ app.add_middleware(
 
 # Add this line to include the database routes
 app.include_router(database.router)
+
+# Add this with your other router includes
+app.include_router(stats_router)
 
 class ArticleData(BaseModel):
     title: str
@@ -1399,16 +1403,20 @@ async def delete_topic(topic_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/database-editor", response_class=HTMLResponse)
-async def database_editor_page(request: Request, session=Depends(verify_session)):
+async def database_editor_page(
+    request: Request, 
+    topic: Optional[str] = None,
+    session=Depends(verify_session)
+):
     try:
-        # Get topics for the dropdown - using existing function referenced in:
-        # main.py lines 805-825
+        # Get topics for the dropdown
         config = load_config()
         topics = [{"id": topic["name"], "name": topic["name"]} for topic in config["topics"]]
         
         return templates.TemplateResponse("database_editor.html", {
             "request": request,
             "topics": topics,
+            "selected_topic": topic,  # Pass the selected topic to the template
             "session": session
         })
     except Exception as e:

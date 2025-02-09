@@ -365,14 +365,20 @@ document.getElementById('createTopicForm').addEventListener('submit', async func
 
 function addExampleValue(inputId, value) {
     const input = document.getElementById(inputId);
+    if (!input) {
+        console.warn(`Input element not found: ${inputId}`);
+        return;
+    }
+    
     input.value = value;
     // Trigger the enter key event to add the tag
-    input.dispatchEvent(new KeyboardEvent('keydown', {
+    const event = new KeyboardEvent('keydown', {
         key: 'Enter',
         code: 'Enter',
         keyCode: 13,
         bubbles: true
-    }));
+    });
+    input.dispatchEvent(event);
 }
 
 document.getElementById('existingTopic').addEventListener('change', async function() {
@@ -456,6 +462,117 @@ document.getElementById('deleteTopicBtn').addEventListener('click', async functi
         window.location.href = '/';
     } catch (error) {
         alert('Error deleting topic: ' + error.message);
+    }
+});
+
+// Update the loadTopicData function
+async function loadTopicData(topicName) {
+    try {
+        const response = await fetch(`/api/topic/${encodeURIComponent(topicName)}`);
+        if (!response.ok) {
+            throw new Error('Failed to load topic data');
+        }
+        const topicData = await response.json();
+        
+        // Set topic name
+        const topicNameInput = document.getElementById('topicName');
+        if (topicNameInput) {
+            topicNameInput.value = topicName;
+        }
+
+        // Set news query
+        const newsQueryInput = document.getElementById('newsQuery');
+        if (newsQueryInput && topicData.news_query) {
+            newsQueryInput.value = topicData.news_query;
+        }
+
+        // Set paper query
+        const paperQueryInput = document.getElementById('paperQuery');
+        if (paperQueryInput && topicData.paper_query) {
+            paperQueryInput.value = topicData.paper_query;
+        }
+
+        // Show delete button
+        const deleteContainer = document.getElementById('deleteTopicContainer');
+        if (deleteContainer) {
+            deleteContainer.style.display = 'block';
+        }
+
+        // Handle categories
+        if (topicData.categories) {
+            topicData.categories.forEach(cat => {
+                addExampleValue('categoriesInput', cat);
+            });
+        }
+
+        // Handle future signals
+        if (topicData.future_signals) {
+            topicData.future_signals.forEach(signal => {
+                addExampleValue('futureSignalsInput', signal);
+            });
+        }
+
+        // Handle sentiments
+        if (topicData.sentiment) {
+            topicData.sentiment.forEach(sent => {
+                addExampleValue('sentimentsInput', sent);
+            });
+        }
+
+        // Handle time to impact
+        if (topicData.time_to_impact) {
+            topicData.time_to_impact.forEach(time => {
+                addExampleValue('timeToImpactInput', time);
+            });
+        }
+
+        // Handle driver types
+        if (topicData.driver_types) {
+            topicData.driver_types.forEach(driver => {
+                addExampleValue('driverTypesInput', driver);
+            });
+        }
+
+    } catch (error) {
+        console.error('Error loading topic data:', error);
+        alert('Error loading topic data: ' + error.message);
+    }
+}
+
+// Update the DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', function() {
+    // Get topic from URL if it exists
+    const urlParams = new URLSearchParams(window.location.search);
+    const topicName = urlParams.get('topic');
+    
+    if (topicName) {
+        // Clear all existing tags first
+        const tagInputs = ['categoriesInput', 'futureSignalsInput', 'sentimentsInput', 
+                          'timeToImpactInput', 'driverTypesInput'];
+        
+        tagInputs.forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                const container = input.closest('.tags-input');
+                if (container) {
+                    const existingTags = container.querySelectorAll('.tag');
+                    existingTags.forEach(tag => tag.remove());
+                }
+            }
+        });
+
+        // Set the selected topic in the dropdown
+        const topicSelect = document.getElementById('existingTopic');
+        if (topicSelect) {
+            topicSelect.value = topicName;
+            // Show delete button
+            const deleteContainer = document.getElementById('deleteTopicContainer');
+            if (deleteContainer) {
+                deleteContainer.style.display = 'block';
+            }
+            // Load the topic data
+            loadTopicData(topicName);
+        }
     }
 });
 </script>

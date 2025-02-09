@@ -416,127 +416,111 @@ function updateSentimentDistribution(data) {
 }
 
 function updateTimeToImpactDistribution(data) {
-    console.log("Time to Impact Distribution data:", data);
+    console.log('Time Impact Data:', data);  // Debug log
+    
+    // Check if we have the expected data structure
+    if (!data || (!data.timeToImpactDistribution && !data.labels)) {
+        console.warn('No time to impact distribution data available');
+        return;
+    }
 
-    const colors = {
-        'Immediate': '#FF1493',  // Deep Pink
-        'Short-term': '#f05b06',  // Red Orange
-        'Mid-term': '#32CD32',   // Lime Green
-        'Long-term': '#9782ad'   // Lilac
-    };
+    // Handle both possible data formats
+    let processedData;
+    if (data.timeToImpactDistribution) {
+        processedData = Object.entries(data.timeToImpactDistribution)
+            .map(([key, value]) => ({ name: key, value: value }));
+    } else if (data.labels && data.values) {
+        processedData = data.labels.map((label, index) => ({
+            name: label,
+            value: data.values[index]
+        }));
+    } else {
+        console.warn('Unexpected data format:', data);
+        return;
+    }
 
-    // Create ordered arrays for labels, values, and colors
-    const orderedLabels = [];
-    const orderedValues = [];
-    const orderedColors = [];
+    // Sort according to predefined order
+    const timeToImpactOrder = ['Immediate', 'Short-term', 'Mid-term', 'Long-term'];
+    processedData.sort((a, b) => 
+        timeToImpactOrder.indexOf(a.name) - timeToImpactOrder.indexOf(b.name)
+    );
 
-    // Use dynamic time to impacts from topicOptions
-    topicOptions.timeToImpacts.forEach(tti => {
-        const index = data.labels.findIndex(label => label.toLowerCase() === tti.toLowerCase());
-        if (index !== -1) {
-            orderedLabels.push(data.labels[index]);
-            orderedValues.push(data.values[index]);
-            orderedColors.push(colors[tti] || 'gray');
-        }
-    });
+    // Update charts with processed data
+    const values = processedData.map(item => item.value);
+    const labels = processedData.map(item => item.name);
 
-    // Add any remaining categories that weren't in our predefined order
-    data.labels.forEach((label, index) => {
-        if (!orderedLabels.includes(label)) {
-            orderedLabels.push(label);
-            orderedValues.push(data.values[index]);
-            orderedColors.push('gray');
-        }
-    });
-
-    console.log("Ordered data:", { labels: orderedLabels, values: orderedValues, colors: orderedColors });
-
-    // Pie Chart
+    // Update pie chart
     Plotly.newPlot('timeToImpactPie', [{
-        values: orderedValues,
-        labels: orderedLabels,
-        type: 'pie',
-        marker: {
-            colors: orderedColors
-        }
+        values: values,
+        labels: labels,
+        type: 'pie'
     }], {
-        title: 'Time to Impact Distribution (Pie Chart)'
+        title: 'Time to Impact Distribution'
     });
 
-    // Bar Chart
+    // Update bar chart
     Plotly.newPlot('timeToImpactBar', [{
-        x: orderedLabels,
-        y: orderedValues,
-        type: 'bar',
-        marker: {
-            color: orderedColors
-        }
+        x: labels,
+        y: values,
+        type: 'bar'
     }], {
-        title: 'Time to Impact Distribution (Bar Chart)',
+        title: 'Time to Impact Distribution',
         xaxis: { title: 'Time to Impact' },
         yaxis: { title: 'Count' }
     });
 }
 
 function updateFutureSignalDistribution(data) {
-    console.log("Future Signal Distribution data:", data);
+    console.log('Future Signal Data:', data);  // Debug log
+    
+    // Check if we have the expected data structure
+    if (!data || (!data.futureSignalDistribution && !data.labels)) {
+        console.warn('No future signal distribution data available');
+        return;
+    }
 
-    const colors = {
-        'AI will accelerate': '#FF1493',      // Deep Pink
-        'AI will evolve gradually': '#32CD32',  // Lime Green
-        'AI is hype': '#f05b06',  // Red Orange
-        'AI has plateaued': '#9782ad',   // Lilac
-        'AI is a bubble': '#432f70'      // Indigo
-    };
+    // Handle both possible data formats
+    let processedData;
+    if (data.futureSignalDistribution) {
+        processedData = Object.entries(data.futureSignalDistribution)
+            .map(([key, value]) => ({ name: key, value: value }));
+    } else if (data.labels && data.values) {
+        processedData = data.labels.map((label, index) => ({
+            name: label,
+            value: data.values[index]
+        }));
+    } else {
+        console.warn('Unexpected data format:', data);
+        return;
+    }
 
-    // Create ordered arrays for labels, values, and colors
-    const orderedLabels = [];
-    const orderedValues = [];
-    const orderedColors = [];
+    // Sort according to the order in topicOptions
+    if (topicOptions && topicOptions.futureSignals) {
+        processedData.sort((a, b) => 
+            topicOptions.futureSignals.indexOf(a.name) - 
+            topicOptions.futureSignals.indexOf(b.name)
+        );
+    }
 
-    // Use dynamic future signals from topicOptions
-    topicOptions.futureSignals.forEach(signal => {
-        const index = data.labels.findIndex(label => label.toLowerCase() === signal.toLowerCase());
-        if (index !== -1) {
-            orderedLabels.push(data.labels[index]);
-            orderedValues.push(data.values[index]);
-            orderedColors.push(colors[signal] || 'lightgray');
-        }
-    });
+    const values = processedData.map(item => item.value);
+    const labels = processedData.map(item => item.name);
 
-    // Add any remaining categories that weren't in our predefined order
-    data.labels.forEach((label, index) => {
-        if (!orderedLabels.includes(label)) {
-            orderedLabels.push(label);
-            orderedValues.push(data.values[index]);
-            orderedColors.push('lightgray');
-        }
-    });
-
-    console.log("Ordered Future Signal data:", { labels: orderedLabels, values: orderedValues, colors: orderedColors });
-
-    // Pie Chart
+    // Update pie chart
     Plotly.newPlot('futureSignalPie', [{
-        values: orderedValues,
-        labels: orderedLabels,
-        type: 'pie',
-        marker: {
-            colors: orderedColors
-        }
+        values: values,
+        labels: labels,
+        type: 'pie'
     }], {
-        title: 'Future Signal Distribution (Pie Chart)'
+        title: 'Future Signal Distribution'
     });
 
-    // Bar Chart
+    // Update bar chart
     Plotly.newPlot('futureSignalBar', [{
-        x: orderedLabels,
-        y: orderedValues,
-        type: 'bar',
-        marker: {
-            color: orderedColors
-        }
+        x: labels,
+        y: values,
+        type: 'bar'
     }], {
-        title: 'Future Signal Distribution (Bar Chart)',
+        title: 'Future Signal Distribution',
         xaxis: { title: 'Future Signal' },
         yaxis: { title: 'Count' }
     });

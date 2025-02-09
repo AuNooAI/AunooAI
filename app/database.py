@@ -925,6 +925,34 @@ class Database:
             logger.error(f"Error preparing database for download: {str(e)}")
             raise
 
+    async def get_total_articles(self) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM articles")
+            return cursor.fetchone()[0]
+
+    async def get_articles_today(self) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            today = datetime.now().strftime('%Y-%m-%d')
+            cursor.execute("""
+                SELECT COUNT(*) FROM articles 
+                WHERE DATE(submission_date) = ?
+            """, (today,))
+            return cursor.fetchone()[0]
+
+    async def get_keyword_group_count(self) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM keyword_groups")
+            return cursor.fetchone()[0]
+
+    async def get_topic_count(self) -> int:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(DISTINCT topic) FROM articles")
+            return cursor.fetchone()[0]
+
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
 
