@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import logging
-from fastapi import HTTPException
+from fastapi import HTTPException, Query
 from app.security.auth import get_password_hash
 import shutil
 from fastapi.responses import FileResponse
@@ -470,9 +470,9 @@ class Database:
         keyword: Optional[str] = None,
         pub_date_start: Optional[str] = None,
         pub_date_end: Optional[str] = None,
-        page: int = 1,
-        per_page: int = 10,
-        date_field: str = 'publication_date'
+        page: int = Query(1),
+        per_page: int = Query(10),
+        date_type: str = Query('publication')
     ) -> Tuple[List[Dict], int]:
         """Search articles with filters including topic."""
         query_conditions = []

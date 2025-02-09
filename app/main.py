@@ -43,6 +43,7 @@ from app.tasks.keyword_monitor import run_keyword_monitor
 import sqlite3
 from app.routes import database  # Make sure this import exists
 from app.routes.stats_routes import router as stats_router
+from app.routes.chat_routes import router as chat_router
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -134,6 +135,9 @@ app.include_router(database.router)
 
 # Add this with your other router includes
 app.include_router(stats_router)
+
+# Add this with the other router includes
+app.include_router(chat_router)
 
 class ArticleData(BaseModel):
     title: str
@@ -2073,6 +2077,17 @@ async def remove_thenewsapi_config():
 
     except Exception as e:
         logger.error(f"Error removing TheNewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add this with the other endpoints
+@app.get("/api/models")
+async def get_available_models(session=Depends(verify_session)):
+    """Get list of available AI models."""
+    try:
+        models = ai_get_available_models()
+        return JSONResponse(content=models)
+    except Exception as e:
+        logger.error(f"Error getting available models: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
