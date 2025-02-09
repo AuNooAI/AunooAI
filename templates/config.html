@@ -202,6 +202,159 @@
 </div>
 
 <style>
+    :root {
+        --primary-color: #0d6efd;  /* Bootstrap primary blue */
+        --primary-dark: #0a58ca;   /* Darker blue */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+        --light-bg: #ffffff;
+    }
+
+    h1 {
+        color: var(--dark-gray);
+        margin-bottom: 20px;
+    }
+
+    h2 {
+        color: var(--dark-gray);
+        border-bottom: 1px solid rgba(13, 110, 253, 0.2);
+        padding-bottom: 10px;
+    }
+
+    h3 {
+        color: var(--dark-gray);
+    }
+
+    .left-panel, .right-panel {
+        background-color: var(--light-bg);
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border: 1px solid var(--medium-gray);
+    }
+
+    button {
+        background-color: rgba(13, 110, 253, 0.1);
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        color: var(--primary-color);
+        transition: all 0.2s ease;
+        padding: 8px 16px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+
+    button:hover {
+        background-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+    }
+
+    .database-operations button#backup-database {
+        background-color: rgba(40, 167, 69, 0.1);
+        border: 1px solid rgba(40, 167, 69, 0.2);
+        color: #28a745;
+    }
+
+    .database-operations button#backup-database:hover {
+        background-color: #28a745;
+        color: white;
+    }
+
+    .database-operations button#download-database {
+        background-color: rgba(13, 110, 253, 0.1);
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        color: var(--primary-color);
+    }
+
+    .database-operations button#download-database:hover {
+        background-color: var(--primary-color);
+        color: white;
+    }
+
+    .database-operations button#reset-database,
+    .danger {
+        background-color: rgba(220, 53, 69, 0.1) !important;
+        border: 1px solid rgba(220, 53, 69, 0.2) !important;
+        color: #dc3545 !important;
+    }
+
+    .database-operations button#reset-database:hover,
+    .danger:hover {
+        background-color: #dc3545 !important;
+        color: white !important;
+    }
+
+    input, select {
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        border-radius: 20px;
+        padding: 0.5rem 1rem;
+        transition: all 0.2s ease;
+        font-size: 0.9rem;
+    }
+
+    input:focus, select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+        outline: none;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.35em 0.8em;
+        font-size: 0.75em;
+        font-weight: 500;
+        line-height: 1.4;
+        border-radius: 20px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .status-badge.configured {
+        background-color: rgba(40, 167, 69, 0.1);
+        color: #28a745;
+        border: 1px solid rgba(40, 167, 69, 0.2);
+    }
+
+    .status-badge.not-configured {
+        background-color: rgba(220, 53, 69, 0.1);
+        color: #dc3545;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+    }
+
+    #database-list li, #model-list li, #provider-list li {
+        background-color: var(--light-gray);
+        border: 1px solid var(--medium-gray);
+        border-radius: 20px;
+        transition: transform 0.2s ease;
+        padding: 12px 20px;
+    }
+
+    #database-list li:hover, #model-list li:hover, #provider-list li:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .modal-content {
+        border-radius: 20px;
+        border: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    .info-item {
+        border-left: 4px solid rgba(13, 110, 253, 0.2);
+        border-radius: 15px;
+    }
+
+    .info-value {
+        color: var(--primary-color);
+    }
+
+    /* Add these layout styles back while keeping the new visual styling */
     .config-layout {
         display: flex;
         flex-wrap: wrap;
@@ -212,10 +365,7 @@
     .left-panel, .right-panel {
         flex: 1;
         min-width: 300px;
-        background-color: white;
         padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
 
     .config-item {
@@ -232,71 +382,13 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 8px;
-        background-color: #f8f9fa;
-        border-radius: 4px;
+        padding: 12px;
     }
 
     #create-database-form, #add-model-form, #provider-config-form {
         display: flex;
         flex-direction: column;
         gap: 10px;
-    }
-
-    input, select, button {
-        padding: 10px;
-        border-radius: 5px;
-        border: 1px solid #e9ecef;
-    }
-
-    button {
-        background-color: #FF1493;
-        color: white;
-        cursor: pointer;
-    }
-
-    button:hover {
-        background-color: #FF69B4;
-    }
-
-    h2 {
-        color: #333;
-        border-bottom: 2px solid #FF1493;
-        padding-bottom: 10px;
-    }
-
-    h3 {
-        color: #FF1493;
-    }
-
-    .status-badge {
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 0.8em;
-    }
-
-    .status-badge.configured {
-        background-color: #32CD32;
-        color: white;
-    }
-
-    .status-badge.not-configured {
-        background-color: #ff6b6b;
-        color: white;
-    }
-
-    /* Add password section specific styles */
-    #change-password-form input {
-        margin-bottom: 10px;
-    }
-
-    .right-panel ul {
-        padding-left: 20px;
-    }
-
-    .right-panel ul li {
-        margin-bottom: 8px;
-        color: #666;
     }
 
     .database-operations {
@@ -307,99 +399,9 @@
 
     .database-operations button {
         flex: 1;
-        padding: 10px;
-        border-radius: 5px;
-        cursor: pointer;
-        border: none;
-        color: white;
     }
 
-    .database-operations button#backup-database {
-        background-color: #4CAF50;  /* Green */
-    }
-
-    .database-operations button#backup-database:hover {
-        background-color: #45a049;
-    }
-
-    .database-operations button#reset-database {
-        background-color: #f44336;  /* Red */
-    }
-
-    .database-operations button#reset-database:hover {
-        background-color: #da190b;
-    }
-
-    .database-operations button#download-database {
-        background-color: #4a90e2;  /* Blue */
-    }
-
-    .database-operations button#download-database:hover {
-        background-color: #357abd;
-    }
-
-    .danger {
-        background-color: #f44336 !important;
-    }
-
-    .danger:hover {
-        background-color: #da190b !important;
-    }
-
-    /* Add new styles for tabs */
-    .nav-tabs {
-        border-bottom: 2px solid var(--medium-gray);
-    }
-
-    .nav-tabs .nav-link {
-        border: none;
-        color: var(--dark-gray);
-        padding: 12px 20px;
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        transition: all 0.2s ease;
-    }
-
-    .nav-tabs .nav-link i {
-        font-size: 1.1em;
-    }
-
-    .nav-tabs .nav-link:hover {
-        border: none;
-        color: var(--primary-color);
-    }
-
-    .nav-tabs .nav-link.active {
-        border: none;
-        color: var(--primary-color);
-        border-bottom: 2px solid var(--primary-color);
-        margin-bottom: -2px;
-    }
-
-    .tab-content {
-        padding-top: 20px;
-    }
-
-    .config-layout {
-        margin-top: 0;
-    }
-
-    /* Make tabs responsive */
-    @media (max-width: 768px) {
-        .nav-tabs {
-            flex-wrap: nowrap;
-            overflow-x: auto;
-            white-space: nowrap;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        .nav-tabs .nav-link {
-            padding: 12px 15px;
-        }
-    }
-
+    /* Modal styles */
     .modal {
         display: none;
         position: fixed;
@@ -415,7 +417,6 @@
         background-color: white;
         margin: 15% auto;
         padding: 20px;
-        border-radius: 5px;
         width: 300px;
     }
 
@@ -425,21 +426,11 @@
         margin-top: 20px;
     }
 
-    .modal-buttons button {
-        padding: 8px 16px;
-    }
-
-    #download-database-select {
-        width: 100%;
-        margin-top: 10px;
-        padding: 8px;
-    }
-
+    /* Info panel styles */
     .info-panel {
         background: var(--light-bg);
-        border-radius: 8px;
         padding: 20px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-radius: 8px;
     }
 
     .info-group {
@@ -451,10 +442,9 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 10px;
+        padding: 12px;
         background: white;
         border-radius: 6px;
-        border-left: 4px solid var(--primary-color);
     }
 
     .info-label {
@@ -463,7 +453,6 @@
     }
 
     .info-value {
-        color: var(--primary-color);
         font-family: monospace;
     }
 
@@ -472,22 +461,39 @@
         background: white;
         border-radius: 6px;
         padding: 10px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 
     .table-info table {
         margin-bottom: 0;
     }
 
-    .table-info th {
-        font-weight: 600;
-        color: var(--dark-gray);
+    /* Tab styles */
+    .nav-tabs {
+        border-bottom: 2px solid var(--medium-gray);
     }
 
-    .info-panel h3 {
+    .nav-tabs .nav-link {
+        border: none;
         color: var(--dark-gray);
-        font-size: 1.1rem;
-        margin-top: 20px;
+        padding: 12px 20px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .nav-tabs .nav-link.active {
+        color: var(--primary-color);
+        border-bottom: 2px solid var(--primary-color);
+        margin-bottom: -2px;
+    }
+
+    @media (max-width: 768px) {
+        .nav-tabs {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
     }
 </style>
 

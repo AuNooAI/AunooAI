@@ -464,34 +464,85 @@
         margin-right: 8px;
     }
 
-    /* Add to existing styles */
+    /* Update the badge styles to match keyword_alerts.html */
     .badge {
-        padding: 6px 12px;
-        border-radius: 6px;
-        font-size: 0.85rem;
-        font-weight: 500;
-        background-color: var(--light-gray);
-        color: var(--text-color);
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        padding: 0.35em 0.8em !important;
+        font-size: 0.75em !important;
+        font-weight: 500 !important;
+        line-height: 1.4 !important;
+        text-align: center !important;
+        white-space: nowrap !important;
+        vertical-align: baseline !important;
+        border-radius: 12px !important;
+        margin-right: 0.4rem !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;
+        letter-spacing: 0.02em !important;
     }
 
-    .badge i {
-        margin-right: 6px;
-        font-size: 0.8rem;
+    /* Softer colors for badges */
+    .badge.bg-primary {
+        background-color: rgba(13, 110, 253, 0.1) !important;
+        color: #0d6efd !important;
+        border: 1px solid rgba(13, 110, 253, 0.2) !important;
     }
 
+    .badge.bg-info {
+        background-color: rgba(23, 162, 184, 0.1) !important;
+        color: #17a2b8 !important;
+        border: 1px solid rgba(23, 162, 184, 0.2) !important;
+    }
+
+    .badge.bg-secondary {
+        background-color: rgba(108, 117, 125, 0.1) !important;
+        color: #6c757d !important;
+        border: 1px solid rgba(108, 117, 125, 0.2) !important;
+    }
+
+    .badge.bg-success {
+        background-color: rgba(40, 167, 69, 0.1) !important;
+        color: #28a745 !important;
+        border: 1px solid rgba(40, 167, 69, 0.2) !important;
+    }
+
+    .badge.bg-warning {
+        background-color: rgba(255, 193, 7, 0.1) !important;
+        color: #d39e00 !important;
+        border: 1px solid rgba(255, 193, 7, 0.2) !important;
+    }
+
+    .badge.bg-danger {
+        background-color: rgba(220, 53, 69, 0.1) !important;
+        color: #dc3545 !important;
+        border: 1px solid rgba(220, 53, 69, 0.2) !important;
+    }
+
+    /* Update the success/warning/danger classes to match */
     .badge.success {
-        background-color: #d4edda;
-        color: #155724;
+        background-color: rgba(40, 167, 69, 0.1) !important;
+        color: #28a745 !important;
+        border: 1px solid rgba(40, 167, 69, 0.2) !important;
     }
 
     .badge.warning {
-        background-color: #fff3cd;
-        color: #856404;
+        background-color: rgba(255, 193, 7, 0.1) !important;
+        color: #d39e00 !important;
+        border: 1px solid rgba(255, 193, 7, 0.2) !important;
     }
 
     .badge.danger {
-        background-color: #f8d7da;
-        color: #721c24;
+        background-color: rgba(220, 53, 69, 0.1) !important;
+        color: #dc3545 !important;
+        border: 1px solid rgba(220, 53, 69, 0.2) !important;
+    }
+
+    /* Icon styling within badges */
+    .badge i {
+        font-size: 0.85em !important;
+        margin-right: 0.3em !important;
+        opacity: 0.8 !important;
     }
 </style>
 {% endblock %}
