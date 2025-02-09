@@ -792,8 +792,8 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1>Dashboard</h1>
-            <p class="text-muted">Monitor your news sources and track emerging trends</p>
+            <h1>Situational Awareness</h1>
+            <p class="text-muted">What is going on in the world?</p>
         </div>
     </div>
 
@@ -839,8 +839,8 @@
                     <div class="clock-time"></div>
                     <div class="clock-date"></div>
                 </div>
-                <div class="clock-item" data-timezone="Asia/Singapore">
-                    <div class="clock-city">Singapore</div>
+                <div class="clock-item" data-timezone="Asia/Beijing">
+                    <div class="clock-city">Beijing</div>
                     <div class="clock-time"></div>
                     <div class="clock-date"></div>
                 </div>
@@ -913,13 +913,17 @@
                 </div>
                 <div class="card-body">
                     <div class="list-group">
+                        <a href="/collect" class="list-group-item list-group-item-action"
+                            data-tooltip="Search for news articles">
+                             <i class="fas fa-newspaper me-2"></i> News Monitor
+                        </a>
                         <a href="/dashboard" class="list-group-item list-group-item-action"
-                           data-tooltip="Monitor academic papers and research">
-                            <i class="fas fa-newspaper me-2"></i> Academic Monitor
+                            data-tooltip="Monitor academic papers and research">
+                             <i class="fas  fa-graduation-cap me-2"></i> Journal Monitor
                         </a>
                         <a href="/keyword-alerts" class="list-group-item list-group-item-action"
                            data-tooltip="View keyword alerts and notifications">
-                            <i class="fas fa-bell me-2"></i> Keyword Alerts
+                            <i class="fas fa-bell me-2"></i> Keyword Monitor
                         </a>
                         <a href="/keyword-monitor" class="list-group-item list-group-item-action"
                            data-tooltip="Configure keyword monitoring settings">
@@ -927,11 +931,11 @@
                         </a>
                         <a href="/research" class="list-group-item list-group-item-action"
                            data-tooltip="Analyze individual articles in detail">
-                            <i class="fas fa-microscope me-2"></i> Research Tool
+                            <i class="fas fa-microscope me-2"></i> Analyze Article
                         </a>
                         <a href="/analytics" class="list-group-item list-group-item-action"
                            data-tooltip="View trends and insights from collected data">
-                            <i class="fas fa-chart-line me-2"></i> Analytics
+                            <i class="fas fa-chart-line me-2"></i> Visualize Trends
                         </a>
                     </div>
                 </div>
@@ -1070,75 +1074,6 @@
                 </p>
             </div>
             {% endif %}
-        </div>
-    </div>
-
-    <!-- Main Actions Grid -->
-    <div class="row g-4">
-        <!-- Research Panel -->
-        <div class="col-md-4">
-            <div class="panel">
-                <div class="panel-header">
-                    <i class="fas fa-search"></i>
-                    <h2>Research</h2>
-                </div>
-                <p class="panel-description">Research news and academic papers, search articles, and enrich research content</p>
-                <div class="panel-actions">
-                    <a href="/collect" class="action-button">
-                        <i class="fas fa-search"></i> NEWS SEARCH
-                    </a>
-                    <a href="/research" class="action-button">
-                        <i class="fas fa-plus-circle"></i> ARTICLE ANALYZER
-                    </a>
-                    <a href="/bulk-research" class="action-button">
-                        <i class="fas fa-file-upload"></i> ARTICLE BULK ANALYZER
-                    </a>
-                </div>
-            </div>
-        </div>
-
-        <!-- Analysis Panel -->
-        <div class="col-md-4">
-            <div class="panel">
-                <div class="panel-header">
-                    <i class="fas fa-chart-bar"></i>
-                    <h2>Analysis</h2>
-                </div>
-                <p class="panel-description">Generate reports, visualize trends, and manage content</p>
-                <div class="panel-actions">
-                    <a href="/report" class="action-button">
-                        <i class="fas fa-file-alt"></i> REPORT WRITER
-                    </a>
-                    <a href="/analytics" class="action-button">
-                        <i class="fas fa-chart-line"></i> TRENDS VISUALIZER
-                    </a>
-                    <a href="/database-editor" class="action-button">
-                        <i class="fas fa-edit"></i> ARTICLES DATABASE EDITOR
-                    </a>
-                </div>
-            </div>
-        </div>
-
-        <!-- Configure Panel -->
-        <div class="col-md-4">
-            <div class="panel">
-                <div class="panel-header">
-                    <i class="fas fa-cog"></i>
-                    <h2>Settings</h2>
-                </div>
-                <p class="panel-description">System settings and topic creation</p>
-                <div class="panel-actions">
-                    <a href="/config" class="action-button">
-                        <i class="fas fa-sliders-h"></i> APP CONFIGURATION
-                    </a>
-                    <a href="/promptmanager" class="action-button">
-                        <i class="fas fa-brain"></i> PROMPT MANAGEMENT
-                    </a>
-                    <a href="/create_topic" class="action-button">
-                        <i class="fas fa-folder-plus"></i> SCENARIO TOPIC MANAGEMENT
-                    </a>
-                </div>
-            </div>
         </div>
     </div>
 </div>
