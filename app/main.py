@@ -1413,6 +1413,9 @@ async def database_editor_page(
         config = load_config()
         topics = [{"id": topic["name"], "name": topic["name"]} for topic in config["topics"]]
         
+        # Log the topic parameter for debugging
+        logger.debug(f"Database editor accessed with topic: {topic}")
+        
         return templates.TemplateResponse("database_editor.html", {
             "request": request,
             "topics": topics,
