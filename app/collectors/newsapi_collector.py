@@ -29,6 +29,7 @@ class NewsAPICollector(ArticleCollector):
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
                 
+                logger.debug("Initializing request counter")
                 # Get today's request count and last reset date
                 cursor.execute("""
                     SELECT requests_today, last_reset_date 
@@ -37,6 +38,8 @@ class NewsAPICollector(ArticleCollector):
                 """)
                 row = cursor.fetchone()
                 today = datetime.now().date().isoformat()
+                
+                logger.debug(f"Current status row: {row}, today: {today}")
                 
                 if row:
                     requests_today, last_reset = row
@@ -51,11 +54,14 @@ class NewsAPICollector(ArticleCollector):
                             WHERE id = 1
                         """, (today,))
                         conn.commit()
+                        logger.debug("Reset counter for new day")
                     else:
                         self.requests_today = requests_today
+                        logger.debug(f"Using existing count: {requests_today}")
                 else:
                     self.requests_today = 0
-                    
+                    logger.debug("No existing count found, starting at 0")
+                
         except Exception as e:
             logger.error(f"Error initializing request counter: {str(e)}")
             self.requests_today = 0
@@ -81,11 +87,19 @@ class NewsAPICollector(ArticleCollector):
         query: str,
         topic: Optional[str] = None,
         max_results: int = 10,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        search_fields: Optional[str] = None,
-        language: Optional[str] = None,
-        sort_by: Optional[str] = None
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        language: str = "en",
+        locale: Optional[str] = None,
+        domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        sort_by: Optional[str] = None,
+        source_ids: Optional[List[str]] = None,
+        exclude_source_ids: Optional[List[str]] = None,
+        categories: Optional[List[str]] = None,
+        exclude_categories: Optional[List[str]] = None,
+        search_fields: Optional[List[str]] = None,
+        page: int = 1
     ) -> List[Dict]:
         try:
             # Check if we're already at the limit before making request
@@ -110,36 +124,57 @@ class NewsAPICollector(ArticleCollector):
                 'q': query,
                 'apiKey': self.api_key,
                 'pageSize': max_results,
-                'language': language or 'en',
-                'sortBy': sort_by or 'publishedAt'
+                'language': language,
+                'sortBy': sort_by or 'publishedAt',
+                'page': page
             }
 
+            # Map abbreviated search fields to full names
+            search_field_mapping = {
+                't': 'title',
+                'title': 'title',
+                'd': 'description',
+                'desc': 'description',
+                'description': 'description',
+                'c': 'content',
+                'content': 'content'
+            }
+
+            # Add optional parameters if provided
             if search_fields:
-                params['searchIn'] = search_fields
+                # Map any abbreviated fields to their full names
+                mapped_fields = [
+                    search_field_mapping.get(field.lower(), field)
+                    for field in search_fields
+                ]
+                # Filter out any invalid fields
+                valid_fields = [
+                    field for field in mapped_fields
+                    if field in ['title', 'description', 'content']
+                ]
+                if valid_fields:
+                    params['searchIn'] = ','.join(valid_fields)
+
+            if domains:
+                params['domains'] = ','.join(domains)
+
+            if exclude_domains:
+                params['excludeDomains'] = ','.join(exclude_domains)
 
             # Handle start_date
             if start_date:
                 if isinstance(start_date, str):
-                    try:
-                        start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-                    except ValueError:
-                        logger.warning(f"Invalid start_date format: {start_date}")
-                        start_date = None
-                
-                if start_date:
-                    params['from'] = start_date.strftime('%Y-%m-%d')
+                    start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                params['from'] = start_date.strftime('%Y-%m-%d')
 
             # Handle end_date
             if end_date:
                 if isinstance(end_date, str):
-                    try:
-                        end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
-                    except ValueError:
-                        logger.warning(f"Invalid end_date format: {end_date}")
-                        end_date = None
-                
-                if end_date:
-                    params['to'] = end_date.strftime('%Y-%m-%d')
+                    end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
+                params['to'] = end_date.strftime('%Y-%m-%d')
+
+            # Add more debug logging
+            logger.debug(f"Making NewsAPI request with params: {params}")
 
             # Handle topic/category mapping
             valid_categories = ['business', 'entertainment', 'general', 'health', 
@@ -171,13 +206,14 @@ class NewsAPICollector(ArticleCollector):
                         # Update request count in database
                         with self.db.get_connection() as conn:
                             cursor = conn.cursor()
+                            # Make sure we have a row in the status table
                             cursor.execute("""
-                                UPDATE keyword_monitor_status 
-                                SET requests_today = ?,
-                                    last_check_time = ?
-                                WHERE id = 1
+                                INSERT OR REPLACE INTO keyword_monitor_status 
+                                (id, requests_today, last_check_time, last_reset_date)
+                                VALUES (1, ?, ?, date('now'))
                             """, (self.requests_today, datetime.now().isoformat()))
                             conn.commit()
+                            logger.info(f"Updated request count to {self.requests_today}")
                         
                         articles = data.get("articles", [])
                         logger.info(

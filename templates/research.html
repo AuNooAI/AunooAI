@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Aunoo AI - Research{% endblock %}
+{% block title %}AuNoo AI - Research{% endblock %}
 {% block extra_css %}
 <style>
     :root {
@@ -29,8 +29,8 @@
         background-color: #fff;
         padding: 20px;
         border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        border: 1px solid var(--primary-color);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        border: none;
     }
 
     h2 {
@@ -47,14 +47,14 @@
     .form-control, .form-select {
         width: 100%;
         padding: 8px;
-        border: 1px solid var(--primary-color);
+        border: 1px solid var(--medium-gray);
         border-radius: 4px;
         margin-bottom: 10px;
     }
 
     .form-control:focus, .form-select:focus {
-        border-color: var(--primary-dark);
-        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+        border-color: var(--dark-gray);
+        box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.1);
     }
 
     .btn {
@@ -117,8 +117,8 @@
 
     .card {
         margin-bottom: 20px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        border: 1px solid var(--primary-color);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        border: none;
     }
 
     .card-title {
@@ -144,11 +144,12 @@
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        border: 1px solid var(--primary-color);
+        border: 1px solid var(--medium-gray);
         padding: 15px;
         margin-bottom: 15px;
         border-radius: 5px;
         background-color: #fff;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
 
     .article-content {
@@ -178,9 +179,10 @@
         display: none;
         margin-top: 20px;
         padding: 15px;
-        border: 1px solid var(--primary-color);
+        border: 1px solid var(--medium-gray);
         border-radius: 5px;
         background-color: #fff;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     }
 
     .modal {
@@ -191,8 +193,9 @@
         background-color: #fff;
         padding: 20px;
         border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         z-index: 1000;
+        border: none;
     }
 
     .modal p {

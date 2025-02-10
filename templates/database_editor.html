@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Aunoo AI - Database Editor{% endblock %}
+{% block title %}AuNoo AI - Database Editor{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -152,7 +152,10 @@
             <select class="form-select" id="topicSelect">
                 <option value="">Select a topic</option>
                 {% for topic in topics %}
-                <option value="{{ topic.name }}">{{ topic.name }}</option>
+                <option value="{{ topic.name }}" 
+                        {% if selected_topic and selected_topic == topic.name %}selected{% endif %}>
+                    {{ topic.name }}
+                </option>
                 {% endfor %}
             </select>
         </div>
@@ -829,6 +832,33 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initial load of articles
     applyFilters();
+
+    // Get topic from URL if it exists
+    const urlParams = new URLSearchParams(window.location.search);
+    const topicName = urlParams.get('topic');
+    
+    if (topicName) {
+        // Set the selected topic in the dropdown
+        const topicSelect = document.getElementById('topicSelect');
+        if (topicSelect) {
+            topicSelect.value = topicName;
+            // Trigger the change event to load the topic data
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+    }
+
+    // Add topic change handler if not already present
+    const topicSelect = document.getElementById('topicSelect');
+    if (topicSelect) {
+        topicSelect.addEventListener('change', async function() {
+            const selectedTopic = this.value;
+            if (selectedTopic) {
+                await fetchArticles(selectedTopic);
+                // Also refresh the dropdowns
+                refreshDropdownsForTopic(selectedTopic);
+            }
+        });
+    }
 });
 
 // Add some styling for multiple select
@@ -1142,8 +1172,21 @@ async function fetchArticles(topicName) {
     }
 
     try {
-        const dateFrom = document.getElementById('dateFrom').value;
-        const dateTo = document.getElementById('dateTo').value;
+        // Show loading state
+        const tableBody = document.querySelector('#articlesTable tbody');
+        if (tableBody) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="100%" class="text-center">
+                        <i class="fas fa-spinner fa-spin me-2"></i>
+                        Loading articles...
+                    </td>
+                </tr>
+            `;
+        }
+
+        const dateFrom = document.getElementById('dateFrom')?.value || '';
+        const dateTo = document.getElementById('dateTo')?.value || '';
         
         const params = new URLSearchParams({
             start_date: dateFrom,
@@ -1171,24 +1214,19 @@ async function fetchArticles(topicName) {
         console.log(`Loaded ${allArticles.length} articles for topic ${topicName}`);
     } catch (error) {
         console.error('Error fetching articles:', error);
-        alert('Error loading articles. Please try again.');
+        // Show error state in table
+        const tableBody = document.querySelector('#articlesTable tbody');
+        if (tableBody) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="100%" class="text-center text-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Error loading articles: ${error.message}
+                    </td>
+                </tr>
+            `;
+        }
     }
 }
-
-// Add this to your existing event listeners
-document.addEventListener('DOMContentLoaded', function() {
-    // ... existing DOMContentLoaded code ...
-    
-    // Add topic change handler if not already present
-    const topicSelect = document.getElementById('topicSelect');
-    if (topicSelect) {
-        topicSelect.addEventListener('change', async function() {
-            const selectedTopic = this.value;
-            if (selectedTopic) {
-                await fetchArticles(selectedTopic);
-            }
-        });
-    }
-});
 </script>
 {% endblock %} 

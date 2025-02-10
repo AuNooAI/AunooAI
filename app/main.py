@@ -41,6 +41,9 @@ from app.security.session import verify_session
 from app.routes.keyword_monitor import router as keyword_monitor_router, get_alerts
 from app.tasks.keyword_monitor import run_keyword_monitor
 import sqlite3
+from app.routes import database  # Make sure this import exists
+from app.routes.stats_routes import router as stats_router
+from app.routes.chat_routes import router as chat_router
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -126,6 +129,15 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("FLASK_SECRET_KEY", "your-fallback-secret-key"),  # Using existing secret key from .env
 )
+
+# Add this line to include the database routes
+app.include_router(database.router)
+
+# Add this with your other router includes
+app.include_router(stats_router)
+
+# Add this with the other router includes
+app.include_router(chat_router)
 
 class ArticleData(BaseModel):
     title: str
@@ -892,10 +904,11 @@ async def collect_articles(
     categories: Optional[str] = None,
     exclude_categories: Optional[str] = None,
     search_fields: Optional[str] = None,
-    page: int = Query(1, ge=1)
+    page: int = Query(1, ge=1),
+    db: Database = Depends(get_database_instance)  # Add database dependency
 ):
     try:
-        collector = CollectorFactory.get_collector(source)
+        collector = CollectorFactory.get_collector(source, db)  # Pass db instance
         
         # Convert date strings to datetime objects if provided
         start_date_obj = datetime.fromisoformat(start_date) if start_date else None
@@ -1399,16 +1412,23 @@ async def delete_topic(topic_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/database-editor", response_class=HTMLResponse)
-async def database_editor_page(request: Request, session=Depends(verify_session)):
+async def database_editor_page(
+    request: Request, 
+    topic: Optional[str] = None,
+    session=Depends(verify_session)
+):
     try:
-        # Get topics for the dropdown - using existing function referenced in:
-        # main.py lines 805-825
+        # Get topics for the dropdown
         config = load_config()
         topics = [{"id": topic["name"], "name": topic["name"]} for topic in config["topics"]]
+        
+        # Log the topic parameter for debugging
+        logger.debug(f"Database editor accessed with topic: {topic}")
         
         return templates.TemplateResponse("database_editor.html", {
             "request": request,
             "topics": topics,
+            "selected_topic": topic,  # Pass the selected topic to the template
             "session": session
         })
     except Exception as e:
@@ -1818,6 +1838,17 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
+            # Define status colors mapping
+            status_colors = {
+                'NEW': 'primary',
+                'Exploding': 'danger',
+                'Surging': 'warning',
+                'Growing': 'success',
+                'Stable': 'secondary',
+                'Declining': 'info',
+                'No Data': 'secondary'
+            }
+            
             # Get the last check time
             cursor.execute("""
                 SELECT 
@@ -1953,7 +1984,8 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                     "last_error": last_error,
                     "session": session,
                     "now": now.isoformat(),
-                    "is_enabled": is_enabled
+                    "is_enabled": is_enabled,
+                    "status_colors": status_colors  # Add this line
                 }
             )
             
@@ -2050,6 +2082,17 @@ async def remove_thenewsapi_config():
 
     except Exception as e:
         logger.error(f"Error removing TheNewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add this with the other endpoints
+@app.get("/api/models")
+async def get_available_models(session=Depends(verify_session)):
+    """Get list of available AI models."""
+    try:
+        models = ai_get_available_models()
+        return JSONResponse(content=models)
+    except Exception as e:
+        logger.error(f"Error getting available models: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

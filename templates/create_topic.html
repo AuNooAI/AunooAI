@@ -3,65 +3,116 @@
 {% block extra_css %}
 <style>
     :root {
-        --primary-color: #FF69B4;  /* Hot Pink */
-        --primary-dark: #FF1493;   /* Deep Pink */
+        --primary-color: #0d6efd;  /* Bootstrap primary blue */
+        --primary-dark: #0a58ca;   /* Darker blue */
         --text-color: #333;
         --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container {
+        max-width: 1400px;
+        padding: 40px 20px;
+    }
+
+    h1 {
+        color: var(--dark-gray);
+        margin-bottom: 20px;
     }
 
     .form-control, .form-select {
-        border-color: var(--primary-color);
-        transition: border-color 0.3s ease-in-out;
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        transition: all 0.2s ease;
     }
 
     .form-control:focus, .form-select:focus {
-        border-color: var(--primary-dark);
-        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
     }
 
     .example-list {
         font-size: 0.875rem;
-        color: #6c757d;
-        margin-top: 0.25rem;
-        font-style: italic;
+        color: var(--dark-gray);
+        margin-top: 0.5rem;
     }
 
     .btn-primary {
-        background-color: var(--primary-color);
-        border-color: var(--primary-color);
-        transition: background-color 0.3s ease-in-out;
+        background-color: rgba(13, 110, 253, 0.1);
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        color: var(--primary-color);
+        transition: all 0.2s ease;
+        padding: 8px 16px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
     }
 
     .btn-primary:hover {
-        background-color: var(--primary-dark);
-        border-color: var(--primary-dark);
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+    }
+
+    .btn-danger {
+        background-color: rgba(220, 53, 69, 0.1);
+        border: 1px solid rgba(220, 53, 69, 0.2);
+        color: #dc3545;
+        transition: all 0.2s ease;
+        padding: 8px 16px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .btn-danger:hover {
+        background-color: #dc3545;
+        border-color: #dc3545;
+        color: white;
+        transform: translateY(-1px);
     }
 
     .tags-input {
-        border: 1px solid var(--primary-color);
-        padding: 0.5rem;
-        border-radius: 0.25rem;
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        border-radius: 8px;
+        padding: 0.75rem;
         min-height: 100px;
         display: flex;
         flex-wrap: wrap;
         gap: 0.5rem;
         align-items: flex-start;
+        background-color: white;
     }
 
     .tag {
         display: inline-flex;
         align-items: center;
-        background-color: var(--primary-color);
-        color: white;
-        padding: 0.2rem 0.5rem;
-        border-radius: 0.25rem;
-        font-size: 0.9rem;
+        background-color: rgba(13, 110, 253, 0.1);
+        color: var(--primary-color);
+        padding: 0.35em 0.8em;
+        border-radius: 12px;
+        font-size: 0.75em;
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
     }
 
     .tag .remove {
         margin-left: 0.5rem;
         cursor: pointer;
-        font-weight: bold;
+        opacity: 0.6;
+        transition: opacity 0.2s;
+    }
+
+    .tag .remove:hover {
+        opacity: 1;
     }
 
     .tags-input input {
@@ -74,24 +125,57 @@
 
     .example-value {
         display: inline-block;
-        padding: 0.2rem 0.5rem;
+        padding: 0.35em 0.8em;
         margin: 0.2rem;
-        background-color: var(--light-gray);
-        border: 1px solid var(--primary-color);
-        border-radius: 0.25rem;
+        background-color: rgba(13, 110, 253, 0.1);
+        color: var(--primary-color);
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        border-radius: 12px;
         cursor: pointer;
         font-size: 0.875rem;
-        transition: background-color 0.2s;
+        transition: all 0.2s;
     }
 
     .example-value:hover {
         background-color: var(--primary-color);
         color: white;
+        transform: translateY(-1px);
     }
 
-    .example-list {
-        margin-top: 0.5rem;
-        line-height: 2;
+    .card {
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--medium-gray);
+        transition: transform 0.2s ease;
+    }
+
+    .card:hover {
+        transform: translateY(-2px);
+    }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.35em 0.8em;
+        font-size: 0.75em;
+        font-weight: 500;
+        line-height: 1.4;
+        border-radius: 12px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        letter-spacing: 0.02em;
+    }
+
+    .badge.bg-info {
+        background-color: rgba(23, 162, 184, 0.1) !important;
+        color: #17a2b8 !important;
+        border: 1px solid rgba(23, 162, 184, 0.2) !important;
+    }
+
+    .badge.bg-secondary {
+        background-color: rgba(108, 117, 125, 0.1) !important;
+        color: #6c757d !important;
+        border: 1px solid rgba(108, 117, 125, 0.2) !important;
     }
 </style>
 {% endblock %}
@@ -281,14 +365,20 @@ document.getElementById('createTopicForm').addEventListener('submit', async func
 
 function addExampleValue(inputId, value) {
     const input = document.getElementById(inputId);
+    if (!input) {
+        console.warn(`Input element not found: ${inputId}`);
+        return;
+    }
+    
     input.value = value;
     // Trigger the enter key event to add the tag
-    input.dispatchEvent(new KeyboardEvent('keydown', {
+    const event = new KeyboardEvent('keydown', {
         key: 'Enter',
         code: 'Enter',
         keyCode: 13,
         bubbles: true
-    }));
+    });
+    input.dispatchEvent(event);
 }
 
 document.getElementById('existingTopic').addEventListener('change', async function() {
@@ -372,6 +462,117 @@ document.getElementById('deleteTopicBtn').addEventListener('click', async functi
         window.location.href = '/';
     } catch (error) {
         alert('Error deleting topic: ' + error.message);
+    }
+});
+
+// Update the loadTopicData function
+async function loadTopicData(topicName) {
+    try {
+        const response = await fetch(`/api/topic/${encodeURIComponent(topicName)}`);
+        if (!response.ok) {
+            throw new Error('Failed to load topic data');
+        }
+        const topicData = await response.json();
+        
+        // Set topic name
+        const topicNameInput = document.getElementById('topicName');
+        if (topicNameInput) {
+            topicNameInput.value = topicName;
+        }
+
+        // Set news query
+        const newsQueryInput = document.getElementById('newsQuery');
+        if (newsQueryInput && topicData.news_query) {
+            newsQueryInput.value = topicData.news_query;
+        }
+
+        // Set paper query
+        const paperQueryInput = document.getElementById('paperQuery');
+        if (paperQueryInput && topicData.paper_query) {
+            paperQueryInput.value = topicData.paper_query;
+        }
+
+        // Show delete button
+        const deleteContainer = document.getElementById('deleteTopicContainer');
+        if (deleteContainer) {
+            deleteContainer.style.display = 'block';
+        }
+
+        // Handle categories
+        if (topicData.categories) {
+            topicData.categories.forEach(cat => {
+                addExampleValue('categoriesInput', cat);
+            });
+        }
+
+        // Handle future signals
+        if (topicData.future_signals) {
+            topicData.future_signals.forEach(signal => {
+                addExampleValue('futureSignalsInput', signal);
+            });
+        }
+
+        // Handle sentiments
+        if (topicData.sentiment) {
+            topicData.sentiment.forEach(sent => {
+                addExampleValue('sentimentsInput', sent);
+            });
+        }
+
+        // Handle time to impact
+        if (topicData.time_to_impact) {
+            topicData.time_to_impact.forEach(time => {
+                addExampleValue('timeToImpactInput', time);
+            });
+        }
+
+        // Handle driver types
+        if (topicData.driver_types) {
+            topicData.driver_types.forEach(driver => {
+                addExampleValue('driverTypesInput', driver);
+            });
+        }
+
+    } catch (error) {
+        console.error('Error loading topic data:', error);
+        alert('Error loading topic data: ' + error.message);
+    }
+}
+
+// Update the DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', function() {
+    // Get topic from URL if it exists
+    const urlParams = new URLSearchParams(window.location.search);
+    const topicName = urlParams.get('topic');
+    
+    if (topicName) {
+        // Clear all existing tags first
+        const tagInputs = ['categoriesInput', 'futureSignalsInput', 'sentimentsInput', 
+                          'timeToImpactInput', 'driverTypesInput'];
+        
+        tagInputs.forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                const container = input.closest('.tags-input');
+                if (container) {
+                    const existingTags = container.querySelectorAll('.tag');
+                    existingTags.forEach(tag => tag.remove());
+                }
+            }
+        });
+
+        // Set the selected topic in the dropdown
+        const topicSelect = document.getElementById('existingTopic');
+        if (topicSelect) {
+            topicSelect.value = topicName;
+            // Show delete button
+            const deleteContainer = document.getElementById('deleteTopicContainer');
+            if (deleteContainer) {
+                deleteContainer.style.display = 'block';
+            }
+            // Load the topic data
+            loadTopicData(topicName);
+        }
     }
 });
 </script>
