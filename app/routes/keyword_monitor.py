@@ -529,4 +529,20 @@ async def export_alerts(db=Depends(get_database_instance)):
         )
     except Exception as e:
         logger.error(f"Error exporting alerts: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def save_keyword_alert(db: Database, article_data: dict):
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR IGNORE INTO keyword_alert_articles 
+            (url, title, summary, source, topic, keywords)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            article_data['url'],
+            article_data['title'],
+            article_data['summary'],
+            article_data['source'],
+            article_data['topic'],
+            ','.join(article_data['matched_keywords'])
+        )) 

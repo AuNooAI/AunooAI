@@ -92,7 +92,8 @@ class Database:
                     tags TEXT,
                     driver_type TEXT,
                     driver_type_explanation TEXT,
-                    topic TEXT
+                    topic TEXT,
+                    analyzed BOOLEAN DEFAULT FALSE
                 )
             """)
             cursor.execute("""
@@ -145,7 +146,8 @@ class Database:
                 migrations = [
                     ("add_topic_column", self._migrate_topic),
                     ("add_driver_type", self._migrate_driver_type),
-                    ("add_keyword_monitor_tables", self._migrate_keyword_monitor)
+                    ("add_keyword_monitor_tables", self._migrate_keyword_monitor),
+                    ("add_analyzed_column", self._migrate_analyzed_column)
                 ]
                 
                 # Apply missing migrations
@@ -228,6 +230,26 @@ class Database:
                 FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE
             )
         """)
+
+    def _migrate_analyzed_column(self, cursor):
+        """Add analyzed column to articles table"""
+        cursor.execute("""
+            SELECT COUNT(*) FROM pragma_table_info('articles') 
+            WHERE name='analyzed'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                ALTER TABLE articles ADD COLUMN analyzed BOOLEAN DEFAULT FALSE
+            """)
+            # Set analyzed=TRUE for existing articles that have been processed
+            cursor.execute("""
+                UPDATE articles 
+                SET analyzed = TRUE 
+                WHERE category IS NOT NULL 
+                AND future_signal IS NOT NULL 
+                AND sentiment IS NOT NULL
+            """)
+            logger.info("Added analyzed column to articles table")
 
     def create_database(self, name):
         if not name.endswith('.db'):
@@ -323,62 +345,67 @@ class Database:
             
             return articles
 
-    def update_or_create_article(self, article_data):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            if 'submission_date' not in article_data:
-                article_data['submission_date'] = datetime.now().isoformat()
-
-            cursor.execute("SELECT * FROM articles WHERE uri = ?", (article_data['uri'],))
-            existing_article = cursor.fetchone()
-            
-            if existing_article:
-                update_query = """
-                UPDATE articles SET
-                    title = ?, news_source = ?, publication_date = ?, summary = ?,
-                    category = ?, future_signal = ?, future_signal_explanation = ?,
-                    sentiment = ?, sentiment_explanation = ?, time_to_impact = ?,
-                    time_to_impact_explanation = ?, tags = ?, driver_type = ?,
-                    driver_type_explanation = ?, submission_date = ?, topic = ?
-                WHERE uri = ?
-                """
-                cursor.execute(update_query, (
-                    article_data['title'], article_data['news_source'],
-                    article_data['publication_date'], article_data['summary'],
-                    article_data['category'], article_data['future_signal'],
-                    article_data['future_signal_explanation'], article_data['sentiment'],
-                    article_data['sentiment_explanation'], article_data['time_to_impact'],
-                    article_data['time_to_impact_explanation'], 
-                    ','.join(article_data['tags']) if isinstance(article_data['tags'], list) else article_data['tags'],
-                    article_data['driver_type'], article_data['driver_type_explanation'],
-                    article_data['submission_date'], article_data['topic'], article_data['uri']
-                ))
-            else:
-                insert_query = """
-                INSERT INTO articles (
-                    uri, title, news_source, publication_date, summary,
-                    category, future_signal, future_signal_explanation,
-                    sentiment, sentiment_explanation, time_to_impact,
-                    time_to_impact_explanation, tags, driver_type,
-                    driver_type_explanation, submission_date, topic
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
-                cursor.execute(insert_query, (
-                    article_data['uri'], article_data['title'], article_data['news_source'],
-                    article_data['publication_date'], article_data['summary'],
-                    article_data['category'], article_data['future_signal'],
-                    article_data['future_signal_explanation'], article_data['sentiment'],
-                    article_data['sentiment_explanation'], article_data['time_to_impact'],
-                    article_data['time_to_impact_explanation'], 
-                    ','.join(article_data['tags']) if isinstance(article_data['tags'], list) else article_data['tags'],
-                    article_data['driver_type'], article_data['driver_type_explanation'],
-                    article_data['submission_date'], article_data['topic']
-                ))
-            
-            conn.commit()
-        
-        return {"message": "Article updated or created successfully"}
+    def update_or_create_article(self, article_data: dict) -> bool:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if article exists
+                cursor.execute("""
+                    SELECT 1 FROM articles WHERE uri = ?
+                """, (article_data['uri'],))
+                
+                exists = cursor.fetchone() is not None
+                
+                if exists:
+                    # Update existing article
+                    cursor.execute("""
+                        UPDATE articles 
+                        SET title = ?, news_source = ?, summary = ?, 
+                            sentiment = ?, time_to_impact = ?, category = ?,
+                            future_signal = ?, future_signal_explanation = ?,
+                            publication_date = ?, topic = ?, analyzed = TRUE,
+                            sentiment_explanation = ?, time_to_impact_explanation = ?,
+                            tags = ?, driver_type = ?, driver_type_explanation = ?
+                        WHERE uri = ?
+                    """, (
+                        article_data['title'], article_data['news_source'],
+                        article_data['summary'], article_data['sentiment'],
+                        article_data['time_to_impact'], article_data['category'],
+                        article_data['future_signal'], article_data['future_signal_explanation'],
+                        article_data['publication_date'], article_data['topic'],
+                        article_data['sentiment_explanation'], article_data['time_to_impact_explanation'],
+                        article_data['tags'], article_data['driver_type'],
+                        article_data['driver_type_explanation'], article_data['uri']
+                    ))
+                else:
+                    # Insert new article
+                    cursor.execute("""
+                        INSERT INTO articles (
+                            uri, title, news_source, summary, sentiment,
+                            time_to_impact, category, future_signal,
+                            future_signal_explanation, publication_date, topic,
+                            sentiment_explanation, time_to_impact_explanation,
+                            tags, driver_type, driver_type_explanation, analyzed
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+                    """, (
+                        article_data['uri'], article_data['title'],
+                        article_data['news_source'], article_data['summary'],
+                        article_data['sentiment'], article_data['time_to_impact'],
+                        article_data['category'], article_data['future_signal'],
+                        article_data['future_signal_explanation'],
+                        article_data['publication_date'], article_data['topic'],
+                        article_data['sentiment_explanation'],
+                        article_data['time_to_impact_explanation'],
+                        article_data['tags'], article_data['driver_type'],
+                        article_data['driver_type_explanation']
+                    ))
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error saving article: {str(e)}")
+            return False
 
     def get_article(self, uri):
         logger.debug(f"Fetching article with URI: {uri}")
@@ -472,11 +499,15 @@ class Database:
         pub_date_end: Optional[str] = None,
         page: int = Query(1),
         per_page: int = Query(10),
-        date_type: str = Query('publication')
+        date_type: str = 'publication',  # Add date_type parameter with default
+        date_field: str = None  # Add date_field parameter
     ) -> Tuple[List[Dict], int]:
         """Search articles with filters including topic."""
         query_conditions = []
         params = []
+
+        # Use the appropriate date field based on date_type
+        date_field = 'publication_date' if date_type == 'publication' else 'submission_date'
 
         # Add topic filter
         if topic:
@@ -519,11 +550,11 @@ class Database:
             params.extend([f"%{keyword}%"] * 6)
 
         if pub_date_start:
-            query_conditions.append("publication_date >= ?")
+            query_conditions.append(f"{date_field} >= ?")  # Use the selected date field
             params.append(pub_date_start)
 
         if pub_date_end:
-            query_conditions.append("publication_date <= ?")
+            query_conditions.append(f"{date_field} <= ?")  # Use the selected date field
             params.append(pub_date_end)
 
         where_clause = " AND ".join(query_conditions) if query_conditions else "1=1"

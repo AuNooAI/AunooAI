@@ -2,10 +2,16 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from app.database import get_database_instance, Database
+from typing import List
+from pydantic import BaseModel
 import os
 import sqlite3
 
 router = APIRouter()
+
+# Add this model for the bulk delete request
+class BulkDeleteRequest(BaseModel):
+    uris: List[str]
 
 @router.get("/api/databases/download/{db_name}")
 async def download_database(db_name: str, db: Database = Depends(get_database_instance)):
@@ -88,4 +94,35 @@ async def get_database_info(db: Database = Depends(get_database_instance)):
         
     except Exception as e:
         print(f"Error getting database info: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add the bulk delete endpoint
+@router.delete("/api/bulk_delete_articles")
+async def bulk_delete_articles(request: BulkDeleteRequest, db: Database = Depends(get_database_instance)):
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Start a transaction
+        cursor.execute("BEGIN TRANSACTION")
+        
+        try:
+            # Delete all articles with the given URIs
+            placeholders = ','.join('?' * len(request.uris))
+            query = f"DELETE FROM articles WHERE uri IN ({placeholders})"
+            cursor.execute(query, request.uris)
+            
+            deleted_count = cursor.rowcount
+            conn.commit()
+            
+            return {"deleted_count": deleted_count}
+            
+        except Exception as e:
+            conn.rollback()
+            raise e
+            
+        finally:
+            conn.close()
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting articles: {str(e)}") 

@@ -145,11 +145,16 @@ async def index(
                 SELECT 
                     topic,
                     COUNT(*) as article_count,
-                    MAX(submission_date) as last_article_date
+                    MAX(COALESCE(submission_date, publication_date)) as last_article_date
                 FROM articles 
-                WHERE topic IS NOT NULL AND topic != ''
+                WHERE topic IS NOT NULL 
+                AND topic != ''
                 GROUP BY topic 
-                ORDER BY last_article_date DESC
+                ORDER BY CASE 
+                    WHEN MAX(COALESCE(submission_date, publication_date)) IS NULL THEN 1 
+                    ELSE 0 
+                END,
+                last_article_date DESC
             """)
             active_topics = [
                 {

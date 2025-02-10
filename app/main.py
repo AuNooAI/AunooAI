@@ -44,6 +44,7 @@ import sqlite3
 from app.routes import database  # Make sure this import exists
 from app.routes.stats_routes import router as stats_router
 from app.routes.chat_routes import router as chat_router
+from app.routes.database import router as database_router
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -138,6 +139,9 @@ app.include_router(stats_router)
 
 # Add this with the other router includes
 app.include_router(chat_router)
+
+# Add this near the other router includes
+app.include_router(database_router)
 
 class ArticleData(BaseModel):
     title: str
