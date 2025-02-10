@@ -147,7 +147,7 @@ async def index(
                     COUNT(*) as article_count,
                     MAX(submission_date) as last_article_date
                 FROM articles 
-                WHERE topic IS NOT NULL 
+                WHERE topic IS NOT NULL AND topic != ''
                 GROUP BY topic 
                 ORDER BY last_article_date DESC
             """)
