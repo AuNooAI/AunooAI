@@ -443,6 +443,28 @@
                 <label class="form-label">Tags</label>
                 <input type="text" id="analysisTags" class="form-control" placeholder="Enter tags separated by commas">
             </div>
+            <div class="mb-3 border-top pt-3">
+                <h6>Annotations</h6>
+                <div id="annotationsList" class="mb-3">
+                    <!-- Annotations will be loaded here -->
+                </div>
+                
+                <div class="card">
+                    <div class="card-body">
+                        <textarea id="newAnnotation" class="form-control mb-2" rows="3" 
+                                  placeholder="Add your analysis or comments..."></textarea>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="annotationPrivate">
+                            <label class="form-check-label" for="annotationPrivate">
+                                Private note (not included in analysis)
+                            </label>
+                        </div>
+                        <button class="btn btn-primary" onclick="saveAnnotation()">
+                            Add Annotation
+                        </button>
+                    </div>
+                </div>
+            </div>
             <div class="button-group">
                 <button onclick="saveArticle()" class="btn btn-primary">Save Changes</button>
                 <button onclick="clearForm()" class="btn btn-secondary">Cancel</button>
@@ -507,6 +529,7 @@
 {% block extra_js %}
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
 let currentTopic = '';
 let currentPage = 1;
@@ -1253,6 +1276,9 @@ async function editArticle(uri) {
         const analysisResultDiv = document.getElementById('analysisResult');
         analysisResultDiv.style.display = 'block';
         analysisResultDiv.scrollIntoView({ behavior: 'smooth' });
+
+        // Load annotations for this article
+        await loadAnnotations(uri);
     } catch (error) {
         console.error('Error editing article:', error);
         alert(`Error editing article: ${error.message}`);
@@ -1286,6 +1312,7 @@ async function deleteArticle(uri) {
         }
     }
 }
+
 function displayAnalysisResult(result) {
     const analysisResultDiv = document.getElementById('analysisResult');
     if (analysisResultDiv) {
@@ -1518,6 +1545,236 @@ function updateBulkDeleteButton() {
         bulkDeleteBtn.textContent = `Delete Selected (${selectedArticlesForDeletion.size})`;
         bulkDeleteBtn.disabled = selectedArticlesForDeletion.size === 0;
     }
+}
+
+// Add these functions to handle annotations
+async function loadAnnotations(articleUri) {
+    console.log('Loading annotations for article:', articleUri); // Debug log
+    
+    try {
+        // Double encode the URI to match FastAPI's handling
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        console.log('Encoded URI for loading:', doubleEncodedUri); // Debug log
+        
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`);
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Load response error:', response.status, errorData); // Debug log
+            throw new Error(errorData.detail || 'Failed to load annotations');
+        }
+        
+        const annotations = await response.json();
+        console.log('Loaded annotations:', annotations); // Debug log
+        
+        const container = document.getElementById('annotationsList');
+        if (!container) {
+            console.error('Annotations container not found');
+            return;
+        }
+        
+        if (!Array.isArray(annotations)) {
+            console.error('Annotations is not an array:', annotations);
+            throw new Error('Invalid annotations data received');
+        }
+        
+        container.innerHTML = annotations.map(annotation => `
+            <div class="card mb-2" data-annotation-id="${annotation.id}">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <small class="text-muted">
+                                ${annotation.author} · ${new Date(annotation.created_at).toLocaleString()}
+                                ${annotation.is_private ? ' · <span class="badge bg-secondary">Private</span>' : ''}
+                            </small>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-outline-primary" 
+                                    onclick="editAnnotation(${annotation.id})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" 
+                                    onclick="deleteAnnotation(${annotation.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="annotation-content" data-raw-content="${encodeURIComponent(annotation.content)}">
+                        ${marked.parse(annotation.content)}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+        
+        console.log('Annotations rendered successfully'); // Debug log
+    } catch (error) {
+        console.error('Error loading annotations:', error);
+        showAlert('Failed to load annotations: ' + error.message, 'danger');
+    }
+}
+
+async function saveAnnotation() {
+    const content = document.getElementById('newAnnotation').value.trim();
+    const isPrivate = document.getElementById('annotationPrivate').checked;
+    const articleUri = document.getElementById('analysisUrl').value;
+    
+    console.log('Saving annotation:', { content, isPrivate, articleUri }); // Debug log
+    
+    if (!content) {
+        showAlert('Please enter annotation content', 'warning');
+        return;
+    }
+    
+    try {
+        // Double encode the URI to match FastAPI's handling
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        console.log('Encoded URI:', doubleEncodedUri); // Debug log
+        
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Save response error:', response.status, errorData); // Debug log
+            throw new Error(errorData.detail || 'Failed to save annotation');
+        }
+        
+        const result = await response.json();
+        console.log('Save result:', result); // Debug log
+        
+        // Clear the form
+        document.getElementById('newAnnotation').value = '';
+        document.getElementById('annotationPrivate').checked = false;
+        
+        // Reload annotations using the original articleUri
+        await loadAnnotations(articleUri);
+        showAlert('Annotation saved successfully', 'success');
+    } catch (error) {
+        console.error('Error saving annotation:', error);
+        showAlert('Failed to save annotation: ' + error.message, 'danger');
+    }
+}
+
+// Add these functions after the existing annotation functions
+async function editAnnotation(annotationId) {
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        const contentDiv = annotationCard.querySelector('.annotation-content');
+        const currentContent = contentDiv.getAttribute('data-raw-content');
+        const isPrivate = annotationCard.querySelector('.badge.bg-secondary') !== null;
+        
+        // Create edit form
+        const originalHtml = annotationCard.innerHTML;
+        annotationCard.innerHTML = `
+            <div class="card-body">
+                <textarea class="form-control mb-2" rows="3">${currentContent}</textarea>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="editPrivate_${annotationId}" ${isPrivate ? 'checked' : ''}>
+                    <label class="form-check-label" for="editPrivate_${annotationId}">
+                        Private note
+                    </label>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-primary" onclick="saveEditedAnnotation(${annotationId}, '${originalHtml}')">
+                        Save
+                    </button>
+                    <button class="btn btn-sm btn-secondary" onclick="cancelEdit(${annotationId}, '${originalHtml}')">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error setting up annotation edit:', error);
+        showAlert('Failed to set up annotation edit', 'danger');
+    }
+}
+
+async function saveEditedAnnotation(annotationId, originalHtml) {
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        const content = annotationCard.querySelector('textarea').value;
+        const isPrivate = annotationCard.querySelector('input[type="checkbox"]').checked;
+
+        const response = await fetch(`/api/articles/${encodeURIComponent(articleUri)}/annotations/${annotationId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to update annotation');
+
+        // Reload all annotations to show the update
+        await loadAnnotations(articleUri);
+        showAlert('Annotation updated successfully', 'success');
+    } catch (error) {
+        console.error('Error saving annotation edit:', error);
+        showAlert('Failed to save annotation edit', 'danger');
+        // Restore original content on error
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        annotationCard.innerHTML = originalHtml;
+    }
+}
+
+function cancelEdit(annotationId, originalHtml) {
+    const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+    annotationCard.innerHTML = originalHtml;
+}
+
+async function deleteAnnotation(annotationId) {
+    if (!confirm('Are you sure you want to delete this annotation?')) {
+        return;
+    }
+
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const response = await fetch(
+            `/api/articles/${encodeURIComponent(articleUri)}/annotations/${annotationId}`, 
+            { method: 'DELETE' }
+        );
+
+        if (!response.ok) throw new Error('Failed to delete annotation');
+
+        // Reload annotations to reflect the deletion
+        await loadAnnotations(articleUri);
+        showAlert('Annotation deleted successfully', 'success');
+    } catch (error) {
+        console.error('Error deleting annotation:', error);
+        showAlert('Failed to delete annotation', 'danger');
+    }
+}
+
+// Add this function near the top of your script section
+function showAlert(message, type = 'info') {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    alertDiv.style.top = '20px';
+    alertDiv.style.right = '20px';
+    alertDiv.style.zIndex = '9999';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    document.body.appendChild(alertDiv);
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        alertDiv.remove();
+    }, 5000);
 }
 </script>
 {% endblock %} 

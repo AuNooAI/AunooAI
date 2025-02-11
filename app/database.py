@@ -147,7 +147,8 @@ class Database:
                     ("add_topic_column", self._migrate_topic),
                     ("add_driver_type", self._migrate_driver_type),
                     ("add_keyword_monitor_tables", self._migrate_keyword_monitor),
-                    ("add_analyzed_column", self._migrate_analyzed_column)
+                    ("add_analyzed_column", self._migrate_analyzed_column),
+                    ("fix_article_annotations", self._migrate_article_annotations),
                 ]
                 
                 # Apply missing migrations
@@ -250,6 +251,42 @@ class Database:
                 AND sentiment IS NOT NULL
             """)
             logger.info("Added analyzed column to articles table")
+
+    def _migrate_article_annotations(self, cursor):
+        """Remove unique constraint from article_annotations table"""
+        try:
+            # Drop the existing table if it exists
+            cursor.execute("DROP TABLE IF EXISTS article_annotations")
+            
+            # Create the table with the new schema
+            cursor.execute("""
+                CREATE TABLE article_annotations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    article_uri TEXT NOT NULL,
+                    author TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    is_private BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE
+                )
+            """)
+            
+            # Create the update trigger
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS update_article_annotations_timestamp 
+                AFTER UPDATE ON article_annotations
+                BEGIN
+                    UPDATE article_annotations 
+                    SET updated_at = CURRENT_TIMESTAMP 
+                    WHERE id = NEW.id;
+                END
+            """)
+            
+            logger.info("Successfully migrated article_annotations table")
+        except Exception as e:
+            logger.error(f"Error migrating article_annotations table: {str(e)}")
+            raise
 
     def create_database(self, name):
         if not name.endswith('.db'):
@@ -983,6 +1020,69 @@ class Database:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(DISTINCT topic) FROM articles")
             return cursor.fetchone()[0]
+
+    def add_article_annotation(self, article_uri: str, author: str, content: str, is_private: bool = False) -> int:
+        logger.debug(f"Adding annotation for article URI: {article_uri}")
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO article_annotations 
+                    (article_uri, author, content, is_private)
+                    VALUES (?, ?, ?, ?)
+                """, (article_uri, author, content, is_private))
+                annotation_id = cursor.lastrowid
+                logger.debug(f"Successfully added annotation with ID: {annotation_id}")
+                return annotation_id
+        except sqlite3.Error as e:
+            logger.error(f"Database error adding annotation: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Error adding annotation: {str(e)}")
+            raise
+
+    def get_article_annotations(self, article_uri: str, include_private: bool = False) -> list:
+        logger.debug(f"Getting annotations for article URI: {article_uri}")
+        try:
+            with self.get_connection() as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                query = """
+                    SELECT * FROM article_annotations 
+                    WHERE article_uri = ?
+                """
+                if not include_private:
+                    query += " AND is_private = 0"
+                query += " ORDER BY created_at DESC"
+                
+                logger.debug(f"Executing query: {query} with URI: {article_uri}")  # Fixed debug logging
+                cursor.execute(query, (article_uri,))
+                annotations = [dict(row) for row in cursor.fetchall()]
+                logger.debug(f"Found {len(annotations)} annotations")
+                return annotations
+        except sqlite3.Error as e:
+            logger.error(f"Database error getting annotations: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Error getting annotations: {str(e)}")
+            raise
+
+    def update_article_annotation(self, annotation_id: int, content: str, is_private: bool) -> bool:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE article_annotations 
+                SET content = ?, is_private = ?
+                WHERE id = ?
+            """, (content, is_private, annotation_id))
+            return cursor.rowcount > 0
+
+    def delete_article_annotation(self, annotation_id: int) -> bool:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM article_annotations WHERE id = ?", (annotation_id,))
+            return cursor.rowcount > 0
 
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
