@@ -49,12 +49,14 @@ Article text:
 {content}
 """
 
-    def __init__(self, ai_model, custom_templates_path: str = None, cache_dir: str = "cache", cache_ttl_hours: int = 24):
+    def __init__(self, ai_model, custom_templates_path: str = None, cache_dir: str = "cache", cache_ttl_hours: int = 24, use_cache: bool = True):
         if not ai_model:
             raise ArticleAnalyzerError("AI model is required")
         self.ai_model = ai_model
         # Store model name for cache key
         self.model_name = getattr(ai_model, 'model_name', 'default')
+        self.use_cache = use_cache
+        logger.debug(f"Initialized ArticleAnalyzer with model={self.model_name}, use_cache={self.use_cache}")
         try:
             self.prompt_templates = PromptTemplates(custom_templates_path)
             self.cache = AnalysisCache(cache_dir, cache_ttl_hours)
@@ -66,17 +68,15 @@ Article text:
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
     def extract_title(self, article_text: str) -> str:
+        """Extract or generate a title from the article text."""
         if not article_text:
             raise ArticleAnalyzerError("Article text cannot be empty")
 
         try:
             prompts = self.prompt_templates.format_title_prompt(article_text)
             title_response = self.ai_model.generate_response(prompts)
-            
-            if not title_response:
-                raise ArticleAnalyzerError("Failed to generate title")
-                
-            return title_response.strip()
+            self._extracted_title = title_response.strip()  # Store for potential fallback
+            return self._extracted_title
         except PromptTemplateError as e:
             logger.error(f"Error with prompt template: {str(e)}")
             raise ArticleAnalyzerError(f"Failed to extract title: {str(e)}")
@@ -88,7 +88,7 @@ Article text:
                        summary_length: int, summary_voice: str, summary_type: str,
                        categories: List[str], future_signals: List[str], 
                        sentiment_options: List[str], time_to_impact_options: List[str],
-                       driver_types: List[str], use_cache: bool = False) -> Dict: #Reenable and fix cache issue!!
+                       driver_types: List[str]) -> Dict:
 
         # Validate inputs
         if not article_text:
@@ -115,15 +115,24 @@ Article text:
             template_hash = self.prompt_templates.get_template_hash()
 
             # Check cache first
-            if use_cache:
+            if self.use_cache:
+                logger.debug(f"Cache check enabled for model {self.model_name}")
                 content_hash = self._compute_content_hash(article_text)
-                # Include model name in cache key
                 cache_key = f"{uri}_{self.model_name}"
+                logger.debug(f"Checking cache with key: {cache_key}, content_hash: {content_hash}")
                 cached_result = self.cache.get(cache_key, content_hash, template_hash)
+                
                 if cached_result:
-                    logger.info(f"Using cached analysis for {uri} with model {self.model_name}")
-                    cached_result["uri"] = uri
-                    return cached_result
+                    cached_model = cached_result.get('model_name')
+                    logger.debug(f"Found cached result for model {cached_model}, current model is {self.model_name}")
+                    if cached_model == self.model_name:
+                        logger.info(f"Using cached analysis for {uri} with model {self.model_name}")
+                        cached_result["uri"] = uri
+                        return cached_result
+                    else:
+                        logger.debug(f"Cache hit but model mismatch. Cached: {cached_model}, Current: {self.model_name}")
+            else:
+                logger.debug(f"Cache check disabled for model {self.model_name}")
 
             prompts = self.prompt_templates.format_analysis_prompt(
                 article_text=article_text,
@@ -156,12 +165,12 @@ Article text:
             
             logger.debug(f"Parsed analysis result: {json.dumps(result, indent=2)}")
 
-            # Cache the result with template hash
-            if use_cache:
+            # When storing the result, include the model name
+            result['model_name'] = self.ai_model.model_name
+            if self.use_cache:
                 try:
                     content_hash = self._compute_content_hash(article_text)
-                    # Include model name in cache key when storing
-                    cache_key = f"{uri}_{self.model_name}"
+                    cache_key = f"{uri}_{self.ai_model.model_name}"
                     self.cache.set(cache_key, content_hash, result, template_hash)
                 except CacheError as e:
                     logger.warning(f"Failed to cache analysis: {str(e)}")
@@ -208,6 +217,11 @@ Article text:
                 parsed_analysis[current_key] = '\n'.join(current_value).strip()
 
             logger.debug(f"Initial parsed analysis: {json.dumps(parsed_analysis, indent=2)}")
+
+            # If Title is missing and we have an extracted title, use it as fallback
+            if "Title" not in parsed_analysis and hasattr(self, '_extracted_title') and self._extracted_title:
+                logger.debug(f"Using extracted title as fallback: {self._extracted_title}")
+                parsed_analysis["Title"] = self._extracted_title
 
             # Validate required fields
             required_fields = ["Title", "Summary", "Category", "Future Signal", 

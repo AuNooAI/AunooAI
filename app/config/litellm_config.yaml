@@ -6,6 +6,22 @@ model_list:
       max_retries: 3
       api_key: "os.environ/OPENAI_API_KEY_GPT_3.5_TURBO"
 
+  - model_name: mistral-7b-instruct
+    litellm_params:
+      model: ollama/mistral
+      timeout: 120
+      max_retries: 3
+      api_base: "http://localhost:11434"
+
+  - model_name: mixtral-8x7b
+    litellm_params:
+      model: huggingface/mistralai/Mixtral-8x7B-Instruct-v0.1
+      timeout: 120
+      max_retries: 3
+      api_base: "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1"
+      api_key: "os.environ/HUGGINGFACE_API_KEY_MIXTRAL_8X7B"
+      custom_llm_provider: "huggingface"
+
   - model_name: gpt-4o
     litellm_params:
       model: openai/gpt-4o
@@ -42,6 +58,18 @@ fallbacks: [
     ]
   },
   {
+    "mistral-7b-instruct": [
+      {"model": "gpt-3.5-turbo"},
+      {"model": "claude-3-5-sonnet-20240620"}
+    ]
+  },
+  {
+    "phi-2": [
+      {"model": "gpt-3.5-turbo"},
+      {"model": "claude-3-5-sonnet-20240620"}
+    ]
+  },
+  {
     "gpt-4o": [
       {"model": "claude-3-5-sonnet-20240620"},
       {"model": "gpt-3.5-turbo"}
@@ -56,5 +84,5 @@ fallbacks: [
 ]
 
 routing_strategy: least-busy
-timeout: 30
+timeout: 120
 max_retries: 3 

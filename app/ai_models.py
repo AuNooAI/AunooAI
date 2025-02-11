@@ -1,9 +1,7 @@
 from dotenv import load_dotenv
 import os
-import json
 import yaml
-from litellm import completion, Router
-import litellm
+from litellm import Router
 import logging
 
 load_dotenv()
@@ -74,20 +72,20 @@ class LiteLLMModel(AIModel):
         filtered_model_list = []
         for model in config["model_list"]:
             if model['model_name'] == self.model_name:  # Strict equality check
-                env_key = model['litellm_params']['api_key'].split('/')[-1]
-                if env_key in os.environ:
-                    model_copy = {
-                        'model_name': self.model_name,  # Use self.model_name consistently
-                        'litellm_params': {
-                            'model': self.model_name,   # Use self.model_name consistently
-                            'api_key': os.environ[env_key],
-                            'timeout': 30,
-                            'max_retries': 3
-                        }
-                    }
-                    filtered_model_list.append(model_copy)
-                    print(f"[DEBUG] Added model to router: {self.model_name}")
-                    break
+                # Check if model requires an API key
+                if 'api_key' in model['litellm_params']:
+                    env_key = model['litellm_params']['api_key'].split('/')[-1]
+                    if env_key not in os.environ:
+                        continue
+                    model_copy = model.copy()
+                    model_copy['litellm_params']['api_key'] = os.environ[env_key]
+                else:
+                    # For models without API key (like Ollama)
+                    model_copy = model.copy()
+                
+                filtered_model_list.append(model_copy)
+                print(f"[DEBUG] Added model to router: {self.model_name}")
+                break
         
         if not filtered_model_list:
             raise ValueError(f"Model {self.model_name} not found in config or not properly configured")
@@ -100,7 +98,8 @@ class LiteLLMModel(AIModel):
             cache_responses=False,
             routing_strategy="simple-shuffle",
             set_verbose=False,
-            num_retries=0
+            num_retries=0,
+            default_litellm_params={"timeout": 120}
         )
 
     def generate_response(self, messages):
@@ -176,7 +175,7 @@ def get_available_models():
                             "name": model_name,
                             "provider": provider
                         })
-                        print(f"  Added model: {model_name} ({provider})")
+                        print(f"Added model: {model_name} ({provider}, {key})")
     
     if not models:
         print("No configured models found. Please check your environment variables.")

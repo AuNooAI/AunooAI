@@ -1,4 +1,3 @@
-import requests
 from openai import OpenAI
 from typing import Optional
 from urllib.parse import urlparse
@@ -13,7 +12,6 @@ from app.database import Database, SessionLocal
 from dotenv import load_dotenv
 from app.ai_models import get_ai_model, get_available_models
 from app.database import Database 
-import re
 from app.analyzers.article_analyzer import ArticleAnalyzer
 
 # Set up logging
@@ -472,11 +470,21 @@ class Research:
         logger.debug(f"Available models: {available_names}")
         if model_name not in available_names:
             raise ValueError(f"Model {model_name} is not configured. Please select a configured model.")
+        
+        # If we're changing models, disable cache for the next analysis
+        use_cache = True
+        if hasattr(self, 'ai_model') and self.ai_model and getattr(self.ai_model, 'model_name', None) != model_name:
+            logger.debug(f"Switching models from {getattr(self.ai_model, 'model_name', 'None')} to {model_name}")
+            use_cache = False
+
+        logger.debug(f"CACHE STATUS AFTER SETTING AI MODEL: use_cache={use_cache}")
+
         self.ai_model = get_ai_model(model_name)
         logger.debug(f"Successfully set AI model to: {model_name}")
         # Initialize ArticleAnalyzer if not already initialized
-        if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
-            self.article_analyzer = ArticleAnalyzer(self.ai_model)
+        if not hasattr(self, 'article_analyzer') or not self.article_analyzer or not use_cache:
+            logger.debug(f"Creating new ArticleAnalyzer with use_cache={use_cache}")
+            self.article_analyzer = ArticleAnalyzer(self.ai_model, use_cache=use_cache)
 
     def get_available_models(self):
         return self.available_models

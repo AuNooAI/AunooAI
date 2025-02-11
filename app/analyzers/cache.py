@@ -23,11 +23,20 @@ class AnalysisCache:
             raise CacheError(f"Failed to create cache directory: {str(e)}")
 
     def _get_cache_key(self, uri: str, content_hash: str) -> str:
-        return f"{uri}_{content_hash}"
+        # Include model name in the cache key if provided
+        model_name = uri.split('_')[-1] if '_' in uri else ''
+        return f"{uri}_{content_hash}_{model_name}"
 
     def _get_cache_path(self, uri: str, content_hash: str) -> str:
         # Create a safe filename from the URI
-        safe_uri = uri.replace('://', '_').replace('/', '_')
+        # Keep the model name part of the URI intact
+        parts = uri.split('_')
+        base_uri = '_'.join(parts[:-1]) if len(parts) > 1 else uri
+        model_name = parts[-1] if len(parts) > 1 else ''
+        safe_uri = base_uri.replace('://', '_').replace('/', '_')
+        if model_name:
+            safe_uri = f"{safe_uri}_{model_name}"
+        
         filename = f"{safe_uri}_{content_hash}.json"
         
         # Create subdirectories based on the first few characters of the hash
@@ -42,7 +51,9 @@ class AnalysisCache:
             cache_key = self._get_cache_key(uri, content_hash)
             cache_path = self._get_cache_path(uri, content_hash)
 
+            logger.debug(f"Checking cache with key: {cache_key}")
             if not os.path.exists(cache_path):
+                logger.debug(f"No cache file found at: {cache_path}")
                 return None
 
             with open(cache_path, 'r') as f:
@@ -51,17 +62,17 @@ class AnalysisCache:
             # Check if cache has expired
             cached_time = datetime.fromisoformat(cached_data['cached_at'])
             if datetime.now() - cached_time > self.ttl:
-                logger.debug(f"Cache expired for {uri}")
+                logger.debug(f"Cache expired for {cache_key}")
                 self.delete(uri, content_hash)
                 return None
 
             # Check template version if provided
             if template_hash and cached_data.get('template_hash') != template_hash:
-                logger.debug(f"Template version mismatch for {uri}")
+                logger.debug(f"Template version mismatch for {cache_key}")
                 self.delete(uri, content_hash)
                 return None
 
-            logger.debug(f"Cache hit for {uri}")
+            logger.debug(f"Cache hit for {cache_key} at {cache_path}")
             return cached_data['analysis']
         except Exception as e:
             logger.error(f"Error reading from cache: {str(e)}")
