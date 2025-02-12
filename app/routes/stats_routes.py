@@ -3,7 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.database import Database, get_database_instance
 from app.security.session import verify_session
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import os
 
@@ -18,17 +18,24 @@ def timeago_filter(value):
     if not value:
         return ""
     try:
+        now = datetime.now(timezone.utc)  # Get current time in UTC
+        
+        # Convert input value to timezone-aware datetime
         if isinstance(value, str):
-            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            try:
+                dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            except ValueError:
+                # Handle other date string formats if needed
+                dt = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+                dt = dt.replace(tzinfo=timezone.utc)
         else:
-            dt = value
+            dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
             
-        now = datetime.now()
-        diff = dt - now
+        diff = now - dt
         
         # Handle future dates
-        if diff.total_seconds() > 0:
-            seconds = int(diff.total_seconds())
+        if diff.total_seconds() < 0:
+            seconds = abs(int(diff.total_seconds()))
             if seconds < 60:
                 return f"in {seconds} seconds"
             minutes = seconds // 60
@@ -41,7 +48,7 @@ def timeago_filter(value):
             return f"in {days} day{'s' if days != 1 else ''}"
         
         # Handle past dates
-        seconds = int(abs(diff.total_seconds()))
+        seconds = int(diff.total_seconds())
         if seconds < 60:
             return f"{seconds} seconds ago"
         minutes = seconds // 60
@@ -119,17 +126,6 @@ async def index(
             logger.error(f"API status check error: {str(e)}")
             api_status = {"status": "error", "message": str(e)}
 
-        # Get last check time
-        try:
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT last_check_time FROM keyword_monitor_status WHERE id = 1")
-                result = cursor.fetchone()
-                last_check_time = result[0] if result else None
-        except Exception as e:
-            logger.error(f"Error getting last check time: {str(e)}")
-            last_check_time = None
-
         # Collect statistics
         stats = {
             'total_articles': await db.get_total_articles(),
@@ -145,11 +141,18 @@ async def index(
                 SELECT 
                     topic,
                     COUNT(*) as article_count,
-                    MAX(submission_date) as last_article_date
+                    strftime('%Y-%m-%dT%H:%M:%S.000Z', 
+                        MAX(COALESCE(submission_date, publication_date))
+                    ) as last_article_date
                 FROM articles 
                 WHERE topic IS NOT NULL 
+                AND topic != ''
                 GROUP BY topic 
-                ORDER BY last_article_date DESC
+                ORDER BY CASE 
+                    WHEN MAX(COALESCE(submission_date, publication_date)) IS NULL THEN 1 
+                    ELSE 0 
+                END,
+                last_article_date DESC
             """)
             active_topics = [
                 {
@@ -159,6 +162,21 @@ async def index(
                 }
                 for row in cursor.fetchall()
             ]
+
+        # Get last check time with proper timezone format
+        try:
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT strftime('%Y-%m-%dT%H:%M:%S.000Z', last_check_time) 
+                    FROM keyword_monitor_status 
+                    WHERE id = 1
+                """)
+                result = cursor.fetchone()
+                last_check_time = result[0] if result else None
+        except Exception as e:
+            logger.error(f"Error getting last check time: {str(e)}")
+            last_check_time = None
 
         return templates.TemplateResponse("index.html", {
             "request": request,

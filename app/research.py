@@ -278,7 +278,7 @@ class Research:
         # Format tags
         tags = self.article_analyzer.format_tags(parsed_analysis.get("tags", ""))
 
-        return {
+        analysis_result = {
             "title": title,
             "news_source": source,
             "uri": uri,
@@ -294,8 +294,11 @@ class Research:
             "tags": tags,
             "driver_type": parsed_analysis.get("driver_type", ""),
             "driver_type_explanation": parsed_analysis.get("driver_type_explanation", ""),
-            "topic": topic  
+            "topic": topic,
+            "analyzed": True  # Add analyzed flag
         }
+
+        return analysis_result
 
     def extract_source(self, uri):
         domain = urlparse(uri).netloc
@@ -497,6 +500,31 @@ class Research:
         except Exception as e:
             logger.error(f"Error loading categories: {str(e)}", exc_info=True)
             return []
+
+    async def move_alert_to_articles(self, url: str) -> None:
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            # First get the alert article
+            cursor.execute("""
+                SELECT * FROM keyword_alert_articles 
+                WHERE url = ? AND moved_to_articles = FALSE
+            """, (url,))
+            alert = cursor.fetchone()
+            
+            if alert:
+                # Insert into articles table with analyzed flag
+                cursor.execute("""
+                    INSERT INTO articles (url, title, summary, source, topic, analyzed)
+                    VALUES (?, ?, ?, ?, ?, FALSE)
+                """, (alert['url'], alert['title'], alert['summary'], 
+                     alert['source'], alert['topic']))
+                
+                # Mark as moved
+                cursor.execute("""
+                    UPDATE keyword_alert_articles 
+                    SET moved_to_articles = TRUE
+                    WHERE url = ?
+                """, (url,))
 
 
 

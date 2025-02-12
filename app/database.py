@@ -12,6 +12,7 @@ from fastapi import HTTPException, Query
 from app.security.auth import get_password_hash
 import shutil
 from fastapi.responses import FileResponse
+from pathlib import Path
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -92,7 +93,8 @@ class Database:
                     tags TEXT,
                     driver_type TEXT,
                     driver_type_explanation TEXT,
-                    topic TEXT
+                    topic TEXT,
+                    analyzed BOOLEAN DEFAULT FALSE
                 )
             """)
             cursor.execute("""
@@ -145,7 +147,9 @@ class Database:
                 migrations = [
                     ("add_topic_column", self._migrate_topic),
                     ("add_driver_type", self._migrate_driver_type),
-                    ("add_keyword_monitor_tables", self._migrate_keyword_monitor)
+                    ("add_keyword_monitor_tables", self._migrate_keyword_monitor),
+                    ("add_analyzed_column", self._migrate_analyzed_column),
+                    ("fix_article_annotations", self._migrate_article_annotations),
                 ]
                 
                 # Apply missing migrations
@@ -228,6 +232,62 @@ class Database:
                 FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE
             )
         """)
+
+    def _migrate_analyzed_column(self, cursor):
+        """Add analyzed column to articles table"""
+        cursor.execute("""
+            SELECT COUNT(*) FROM pragma_table_info('articles') 
+            WHERE name='analyzed'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                ALTER TABLE articles ADD COLUMN analyzed BOOLEAN DEFAULT FALSE
+            """)
+            # Set analyzed=TRUE for existing articles that have been processed
+            cursor.execute("""
+                UPDATE articles 
+                SET analyzed = TRUE 
+                WHERE category IS NOT NULL 
+                AND future_signal IS NOT NULL 
+                AND sentiment IS NOT NULL
+            """)
+            logger.info("Added analyzed column to articles table")
+
+    def _migrate_article_annotations(self, cursor):
+        """Remove unique constraint from article_annotations table"""
+        try:
+            # Drop the existing table if it exists
+            cursor.execute("DROP TABLE IF EXISTS article_annotations")
+            
+            # Create the table with the new schema
+            cursor.execute("""
+                CREATE TABLE article_annotations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    article_uri TEXT NOT NULL,
+                    author TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    is_private BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE
+                )
+            """)
+            
+            # Create the update trigger
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS update_article_annotations_timestamp 
+                AFTER UPDATE ON article_annotations
+                BEGIN
+                    UPDATE article_annotations 
+                    SET updated_at = CURRENT_TIMESTAMP 
+                    WHERE id = NEW.id;
+                END
+            """)
+            
+            logger.info("Successfully migrated article_annotations table")
+        except Exception as e:
+            logger.error(f"Error migrating article_annotations table: {str(e)}")
+            raise
 
     def create_database(self, name):
         if not name.endswith('.db'):
@@ -323,62 +383,67 @@ class Database:
             
             return articles
 
-    def update_or_create_article(self, article_data):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            if 'submission_date' not in article_data:
-                article_data['submission_date'] = datetime.now().isoformat()
-
-            cursor.execute("SELECT * FROM articles WHERE uri = ?", (article_data['uri'],))
-            existing_article = cursor.fetchone()
-            
-            if existing_article:
-                update_query = """
-                UPDATE articles SET
-                    title = ?, news_source = ?, publication_date = ?, summary = ?,
-                    category = ?, future_signal = ?, future_signal_explanation = ?,
-                    sentiment = ?, sentiment_explanation = ?, time_to_impact = ?,
-                    time_to_impact_explanation = ?, tags = ?, driver_type = ?,
-                    driver_type_explanation = ?, submission_date = ?, topic = ?
-                WHERE uri = ?
-                """
-                cursor.execute(update_query, (
-                    article_data['title'], article_data['news_source'],
-                    article_data['publication_date'], article_data['summary'],
-                    article_data['category'], article_data['future_signal'],
-                    article_data['future_signal_explanation'], article_data['sentiment'],
-                    article_data['sentiment_explanation'], article_data['time_to_impact'],
-                    article_data['time_to_impact_explanation'], 
-                    ','.join(article_data['tags']) if isinstance(article_data['tags'], list) else article_data['tags'],
-                    article_data['driver_type'], article_data['driver_type_explanation'],
-                    article_data['submission_date'], article_data['topic'], article_data['uri']
-                ))
-            else:
-                insert_query = """
-                INSERT INTO articles (
-                    uri, title, news_source, publication_date, summary,
-                    category, future_signal, future_signal_explanation,
-                    sentiment, sentiment_explanation, time_to_impact,
-                    time_to_impact_explanation, tags, driver_type,
-                    driver_type_explanation, submission_date, topic
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
-                cursor.execute(insert_query, (
-                    article_data['uri'], article_data['title'], article_data['news_source'],
-                    article_data['publication_date'], article_data['summary'],
-                    article_data['category'], article_data['future_signal'],
-                    article_data['future_signal_explanation'], article_data['sentiment'],
-                    article_data['sentiment_explanation'], article_data['time_to_impact'],
-                    article_data['time_to_impact_explanation'], 
-                    ','.join(article_data['tags']) if isinstance(article_data['tags'], list) else article_data['tags'],
-                    article_data['driver_type'], article_data['driver_type_explanation'],
-                    article_data['submission_date'], article_data['topic']
-                ))
-            
-            conn.commit()
-        
-        return {"message": "Article updated or created successfully"}
+    def update_or_create_article(self, article_data: dict) -> bool:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                
+                # Check if article exists
+                cursor.execute("""
+                    SELECT 1 FROM articles WHERE uri = ?
+                """, (article_data['uri'],))
+                
+                exists = cursor.fetchone() is not None
+                
+                if exists:
+                    # Update existing article
+                    cursor.execute("""
+                        UPDATE articles 
+                        SET title = ?, news_source = ?, summary = ?, 
+                            sentiment = ?, time_to_impact = ?, category = ?,
+                            future_signal = ?, future_signal_explanation = ?,
+                            publication_date = ?, topic = ?, analyzed = TRUE,
+                            sentiment_explanation = ?, time_to_impact_explanation = ?,
+                            tags = ?, driver_type = ?, driver_type_explanation = ?
+                        WHERE uri = ?
+                    """, (
+                        article_data['title'], article_data['news_source'],
+                        article_data['summary'], article_data['sentiment'],
+                        article_data['time_to_impact'], article_data['category'],
+                        article_data['future_signal'], article_data['future_signal_explanation'],
+                        article_data['publication_date'], article_data['topic'],
+                        article_data['sentiment_explanation'], article_data['time_to_impact_explanation'],
+                        article_data['tags'], article_data['driver_type'],
+                        article_data['driver_type_explanation'], article_data['uri']
+                    ))
+                else:
+                    # Insert new article
+                    cursor.execute("""
+                        INSERT INTO articles (
+                            uri, title, news_source, summary, sentiment,
+                            time_to_impact, category, future_signal,
+                            future_signal_explanation, publication_date, topic,
+                            sentiment_explanation, time_to_impact_explanation,
+                            tags, driver_type, driver_type_explanation, analyzed
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+                    """, (
+                        article_data['uri'], article_data['title'],
+                        article_data['news_source'], article_data['summary'],
+                        article_data['sentiment'], article_data['time_to_impact'],
+                        article_data['category'], article_data['future_signal'],
+                        article_data['future_signal_explanation'],
+                        article_data['publication_date'], article_data['topic'],
+                        article_data['sentiment_explanation'],
+                        article_data['time_to_impact_explanation'],
+                        article_data['tags'], article_data['driver_type'],
+                        article_data['driver_type_explanation']
+                    ))
+                
+                return True
+                
+        except Exception as e:
+            logger.error(f"Error saving article: {str(e)}")
+            return False
 
     def get_article(self, uri):
         logger.debug(f"Fetching article with URI: {uri}")
@@ -405,46 +470,84 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Standardize submission_date format
-            if 'submission_date' not in article_data:
-                article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
-            else:
-                try:
-                    # Try to parse and standardize the submission_date
-                    date_obj = datetime.fromisoformat(article_data['submission_date'].replace('Z', '+00:00'))
-                    article_data['submission_date'] = date_obj.strftime('%Y-%m-%dT%H:%M:%S.%f')
-                except (ValueError, AttributeError):
-                    logger.warning(f"Invalid submission_date format: {article_data['submission_date']}")
-                    article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
-            
-            query = """
-            INSERT INTO articles (
-            title, uri, news_source, summary, sentiment, time_to_impact, category, 
-            future_signal, future_signal_explanation, publication_date, sentiment_explanation, 
-            time_to_impact_explanation, tags, driver_type, driver_type_explanation, submission_date, topic
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-            params = (
-                article_data['title'], article_data['uri'], article_data['news_source'],
-                article_data['summary'], article_data['sentiment'], article_data['time_to_impact'],
-                article_data['category'], article_data['future_signal'], article_data['future_signal_explanation'],
-                article_data['publication_date'], article_data['sentiment_explanation'],
-                article_data['time_to_impact_explanation'], 
-                ','.join(article_data['tags']) if isinstance(article_data['tags'], list) else article_data['tags'],
-                article_data['driver_type'], article_data['driver_type_explanation'], 
-                article_data['submission_date'], article_data['topic']
-            )
-            
             try:
+                # Standardize submission_date format
+                if 'submission_date' not in article_data:
+                    article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
+                else:
+                    try:
+                        date_obj = datetime.fromisoformat(article_data['submission_date'].replace('Z', '+00:00'))
+                        article_data['submission_date'] = date_obj.strftime('%Y-%m-%dT%H:%M:%S.%f')
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Invalid submission_date format: {article_data['submission_date']}")
+                        article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
+                
+                # Convert tags list to string if necessary
+                tags = article_data.get('tags', [])
+                if isinstance(tags, list):
+                    tags = ','.join(str(tag) for tag in tags)
+                elif tags is None:
+                    tags = ''
+                
+                # Check if article already exists
+                cursor.execute("SELECT 1 FROM articles WHERE uri = ?", (article_data['uri'],))
+                exists = cursor.fetchone() is not None
+                
+                if exists:
+                    # Update existing article
+                    query = """
+                    UPDATE articles SET 
+                        title = ?, news_source = ?, summary = ?, sentiment = ?,
+                        time_to_impact = ?, category = ?, future_signal = ?,
+                        future_signal_explanation = ?, publication_date = ?,
+                        sentiment_explanation = ?, time_to_impact_explanation = ?,
+                        tags = ?, driver_type = ?, driver_type_explanation = ?,
+                        submission_date = ?, topic = ?
+                    WHERE uri = ?
+                    """
+                    params = (
+                        article_data['title'], article_data['news_source'],
+                        article_data['summary'], article_data['sentiment'],
+                        article_data['time_to_impact'], article_data['category'],
+                        article_data['future_signal'], article_data['future_signal_explanation'],
+                        article_data['publication_date'], article_data['sentiment_explanation'],
+                        article_data['time_to_impact_explanation'], tags,
+                        article_data['driver_type'], article_data['driver_type_explanation'],
+                        article_data['submission_date'], article_data['topic'],
+                        article_data['uri']
+                    )
+                else:
+                    # Insert new article
+                    query = """
+                    INSERT INTO articles (
+                        title, uri, news_source, summary, sentiment, time_to_impact,
+                        category, future_signal, future_signal_explanation,
+                        publication_date, sentiment_explanation, time_to_impact_explanation,
+                        tags, driver_type, driver_type_explanation, submission_date, topic
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """
+                    params = (
+                        article_data['title'], article_data['uri'], article_data['news_source'],
+                        article_data['summary'], article_data['sentiment'], article_data['time_to_impact'],
+                        article_data['category'], article_data['future_signal'], article_data['future_signal_explanation'],
+                        article_data['publication_date'], article_data['sentiment_explanation'],
+                        article_data['time_to_impact_explanation'], tags,
+                        article_data['driver_type'], article_data['driver_type_explanation'],
+                        article_data['submission_date'], article_data['topic']
+                    )
+                
                 cursor.execute(query, params)
                 conn.commit()
                 return {"message": "Article saved successfully"}
+                
             except Exception as e:
                 logger.error(f"Error saving article: {str(e)}")
                 logger.error(f"Article data: {article_data}")
-                logger.error(f"Query: {query}")
-                logger.error(f"Params: {params}")
-                raise HTTPException(status_code=500, detail=f"Error saving article: {str(e)}")
+                conn.rollback()  # Rollback any changes on error
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error saving article: {str(e)}"
+                ) from e
 
     def delete_article(self, uri):
         logger.info(f"Attempting to delete article with URI: {uri}")
@@ -472,11 +575,15 @@ class Database:
         pub_date_end: Optional[str] = None,
         page: int = Query(1),
         per_page: int = Query(10),
-        date_type: str = Query('publication')
+        date_type: str = 'publication',  # Add date_type parameter with default
+        date_field: str = None  # Add date_field parameter
     ) -> Tuple[List[Dict], int]:
         """Search articles with filters including topic."""
         query_conditions = []
         params = []
+
+        # Use the appropriate date field based on date_type
+        date_field = 'publication_date' if date_type == 'publication' else 'submission_date'
 
         # Add topic filter
         if topic:
@@ -519,11 +626,11 @@ class Database:
             params.extend([f"%{keyword}%"] * 6)
 
         if pub_date_start:
-            query_conditions.append("publication_date >= ?")
+            query_conditions.append(f"{date_field} >= ?")  # Use the selected date field
             params.append(pub_date_start)
 
         if pub_date_end:
-            query_conditions.append("publication_date <= ?")
+            query_conditions.append(f"{date_field} <= ?")  # Use the selected date field
             params.append(pub_date_end)
 
         where_clause = " AND ".join(query_conditions) if query_conditions else "1=1"
@@ -834,15 +941,29 @@ class Database:
             return False
 
     def backup_database(self, backup_name: str = None) -> str:
-        if not backup_name:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            backup_name = f"backup_{timestamp}.db"
-        elif not backup_name.endswith('.db'):
-            backup_name += '.db'
+        """Create a backup of the current database"""
+        try:
+            if not backup_name:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                backup_name = f"backup_{timestamp}.db"
+            elif not backup_name.endswith('.db'):
+                backup_name += '.db'
 
-        backup_path = os.path.join(DATABASE_DIR, backup_name)
-        shutil.copy2(self.db_path, backup_path)
-        return {"message": f"Database backed up to {backup_name}"}
+            # Use the correct backup directory
+            backup_dir = Path("app/data/backups")
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup_path = backup_dir / backup_name
+            
+            logger.info(f"Creating backup at: {backup_path}")
+            
+            # Create backup
+            shutil.copy2(self.db_path, backup_path)
+            logger.info(f"Created backup at {backup_path}")
+            
+            return {"message": f"Database backed up to {backup_name}"}
+        except Exception as e:
+            logger.error(f"Error creating backup: {str(e)}")
+            raise
 
     def reset_database(self) -> dict:
         with self.get_connection() as conn:
@@ -952,6 +1073,69 @@ class Database:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(DISTINCT topic) FROM articles")
             return cursor.fetchone()[0]
+
+    def add_article_annotation(self, article_uri: str, author: str, content: str, is_private: bool = False) -> int:
+        logger.debug(f"Adding annotation for article URI: {article_uri}")
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO article_annotations 
+                    (article_uri, author, content, is_private)
+                    VALUES (?, ?, ?, ?)
+                """, (article_uri, author, content, is_private))
+                annotation_id = cursor.lastrowid
+                logger.debug(f"Successfully added annotation with ID: {annotation_id}")
+                return annotation_id
+        except sqlite3.Error as e:
+            logger.error(f"Database error adding annotation: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Error adding annotation: {str(e)}")
+            raise
+
+    def get_article_annotations(self, article_uri: str, include_private: bool = False) -> list:
+        logger.debug(f"Getting annotations for article URI: {article_uri}")
+        try:
+            with self.get_connection() as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                query = """
+                    SELECT * FROM article_annotations 
+                    WHERE article_uri = ?
+                """
+                if not include_private:
+                    query += " AND is_private = 0"
+                query += " ORDER BY created_at DESC"
+                
+                logger.debug(f"Executing query: {query} with URI: {article_uri}")  # Fixed debug logging
+                cursor.execute(query, (article_uri,))
+                annotations = [dict(row) for row in cursor.fetchall()]
+                logger.debug(f"Found {len(annotations)} annotations")
+                return annotations
+        except sqlite3.Error as e:
+            logger.error(f"Database error getting annotations: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Error getting annotations: {str(e)}")
+            raise
+
+    def update_article_annotation(self, annotation_id: int, content: str, is_private: bool) -> bool:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE article_annotations 
+                SET content = ?, is_private = ?
+                WHERE id = ?
+            """, (content, is_private, annotation_id))
+            return cursor.rowcount > 0
+
+    def delete_article_annotation(self, annotation_id: int) -> bool:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM article_annotations WHERE id = ?", (annotation_id,))
+            return cursor.rowcount > 0
 
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"

@@ -1,11 +1,35 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from app.database import get_database_instance, Database
+from typing import List, Optional
+from pydantic import BaseModel
 import os
 import sqlite3
+from urllib.parse import unquote_plus
+import logging
+from scripts.db_merge import DatabaseMerger
+from pathlib import Path
+from datetime import datetime
+import shutil
+from config.settings import DATABASE_DIR
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Add this model for the bulk delete request
+class BulkDeleteRequest(BaseModel):
+    uris: List[str]
+
+class AnnotationCreate(BaseModel):
+    content: str
+    is_private: bool = False
+
+class AnnotationUpdate(BaseModel):
+    content: str
+    is_private: bool
 
 @router.get("/api/databases/download/{db_name}")
 async def download_database(db_name: str, db: Database = Depends(get_database_instance)):
@@ -88,4 +112,203 @@ async def get_database_info(db: Database = Depends(get_database_instance)):
         
     except Exception as e:
         print(f"Error getting database info: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add the bulk delete endpoint
+@router.delete("/api/bulk_delete_articles")
+async def bulk_delete_articles(request: BulkDeleteRequest, db: Database = Depends(get_database_instance)):
+    try:
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        # Start a transaction
+        cursor.execute("BEGIN TRANSACTION")
+        
+        try:
+            # Delete all articles with the given URIs
+            placeholders = ','.join('?' * len(request.uris))
+            query = f"DELETE FROM articles WHERE uri IN ({placeholders})"
+            cursor.execute(query, request.uris)
+            
+            deleted_count = cursor.rowcount
+            conn.commit()
+            
+            return {"deleted_count": deleted_count}
+            
+        except Exception as e:
+            conn.rollback()
+            raise e
+            
+        finally:
+            conn.close()
+            
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting articles: {str(e)}")
+
+@router.get("/api/articles/{article_uri}/annotations")
+async def get_article_annotations(
+    article_uri: str,
+    include_private: bool = False,
+    db: Database = Depends(get_database_instance)
+):
+    try:
+        # Use unquote_plus twice to handle double encoding
+        decoded_uri = unquote_plus(unquote_plus(article_uri))
+        logger.debug(f"Getting annotations for decoded URI: {decoded_uri}")
+        return db.get_article_annotations(decoded_uri, include_private)
+    except Exception as e:
+        logger.error(f"Error getting annotations: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/articles/{article_uri}/annotations")
+async def create_article_annotation(
+    article_uri: str,
+    annotation: AnnotationCreate,
+    db: Database = Depends(get_database_instance)
+):
+    try:
+        # Use unquote_plus twice to handle double encoding
+        decoded_uri = unquote_plus(unquote_plus(article_uri))
+        logger.debug(f"Creating annotation for decoded URI: {decoded_uri}")
+        logger.debug(f"Annotation content: {annotation.content[:100]}...")
+        logger.debug(f"Is private: {annotation.is_private}")
+        
+        author = "admin"  # For now, hardcode the author
+        annotation_id = db.add_article_annotation(
+            decoded_uri, 
+            author, 
+            annotation.content, 
+            annotation.is_private
+        )
+        logger.debug(f"Created annotation with ID: {annotation_id}")
+        return {"id": annotation_id}
+    except sqlite3.IntegrityError as e:
+        logger.error(f"Database integrity error: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail="Could not create annotation due to database constraints"
+        )
+    except Exception as e:
+        logger.error(f"Error creating annotation: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/api/articles/{article_uri}/annotations/{annotation_id}")
+async def update_article_annotation(
+    article_uri: str,
+    annotation_id: int,
+    annotation: AnnotationUpdate,
+    db: Database = Depends(get_database_instance)
+):
+    success = db.update_article_annotation(
+        annotation_id,
+        annotation.content,
+        annotation.is_private
+    )
+    if not success:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    return {"success": True}
+
+@router.delete("/api/articles/{article_uri}/annotations/{annotation_id}")
+async def delete_article_annotation(
+    article_uri: str,
+    annotation_id: int,
+    db: Database = Depends(get_database_instance)
+):
+    success = db.delete_article_annotation(annotation_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    return {"success": True}
+
+@router.post("/api/merge_backup")
+async def merge_backup_database(backup_name: str = None, uploaded_file: UploadFile = None):
+    """Merge articles and settings from a backup database or uploaded file"""
+    try:
+        db = get_database_instance()
+        merger = DatabaseMerger()
+        
+        if uploaded_file:
+            # Save uploaded file to temp location
+            temp_path = Path("app/data/temp") / uploaded_file.filename
+            temp_path.parent.mkdir(exist_ok=True)
+            
+            with temp_path.open("wb") as buffer:
+                shutil.copyfileobj(uploaded_file.file, buffer)
+            
+            try:
+                merger.merge_databases(temp_path)
+                return {"message": f"Successfully merged uploaded database"}
+            finally:
+                # Cleanup temp file
+                temp_path.unlink(missing_ok=True)
+                
+        elif backup_name:
+            backup_path = Path("app/data/backups") / backup_name
+            if not backup_path.exists():
+                raise HTTPException(status_code=404, detail="Backup database not found")
+                
+            merger.merge_databases(backup_path)
+            return {"message": f"Successfully merged data from {backup_name}"}
+            
+        else:
+            raise HTTPException(status_code=400, detail="No backup specified")
+            
+    except Exception as e:
+        logger.error(f"Error merging backup database: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/backups")
+async def get_backups():
+    """Get list of database backups with sizes"""
+    try:
+        # Use the correct backup directory path
+        backup_dir = Path("app/data/backups")
+        logger.info(f"Looking for backups in: {backup_dir}")
+        
+        backups = []
+        
+        if backup_dir.exists():
+            logger.info(f"Backup directory exists")
+            for backup in backup_dir.glob("*.db"):
+                try:
+                    size = backup.stat().st_size
+                    size_mb = round(size / (1024 * 1024), 2)
+                    backup_info = {
+                        "name": backup.name,
+                        "size": f"{size_mb} MB",
+                        "date": datetime.fromtimestamp(backup.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    backups.append(backup_info)
+                    logger.info(f"Found backup: {backup_info}")
+                except Exception as e:
+                    logger.warning(f"Error processing backup {backup}: {e}")
+                    continue
+                
+        sorted_backups = sorted(backups, key=lambda x: x["date"], reverse=True)
+        logger.info(f"Returning {len(sorted_backups)} backups")
+        return sorted_backups
+        
+    except Exception as e:
+        logger.error(f"Error getting backups: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/backups")
+async def list_backups():
+    """Get list of available database backups"""
+    try:
+        backup_dir = Path("app/data/backups")
+        backups = []
+        
+        if backup_dir.exists():
+            for file in backup_dir.glob("*.db"):
+                stats = file.stat()
+                backups.append({
+                    "name": file.name,
+                    "size": f"{stats.st_size / (1024*1024):.1f}MB",
+                    "date": datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                })
+        
+        return backups
+        
+    except Exception as e:
+        logger.error(f"Error listing backups: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

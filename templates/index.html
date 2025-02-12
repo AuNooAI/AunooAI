@@ -792,7 +792,7 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1>Situational Awareness</h1>
+            <h1>Control Room</h1>
             <p class="text-muted">What is going on in the world?</p>
         </div>
     </div>
@@ -894,7 +894,7 @@
                     <i class="fas fa-folder"></i>
                 </div>
                 <div class="stat-content">
-                    <div class="stat-value">{{ stats.topics|default(0) }}</div>
+                    <div class="stat-value">{{ active_topics|length }}</div>
                     <div class="stat-label">Topics</div>
                 </div>
             </div>
@@ -908,7 +908,7 @@
             <div class="card h-100" data-tooltip="Quick access to key features">
                 <div class="card-header">
                     <h5 class="mb-0">
-                        <i class="fas fa-link"></i> Quick Links
+                        <i class="fas fa-link"></i> What do you want to do today?
                     </h5>
                 </div>
                 <div class="card-body">
@@ -1002,13 +1002,13 @@
     <!-- Update the styling of the remaining topics panel -->
     <div class="card mb-4">
         <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">
+            <h5 class="mb-0">
                 <i class="fas fa-layer-group"></i> Active Topics
-                </h5>
+            </h5>
             <button class="btn btn-soft-primary" onclick="window.location.href='/create-topic'">
                 <i class="fas fa-plus"></i> New Topic
             </button>
-            </div>
+        </div>
         <div class="card-body p-0">
             {% if active_topics %}
             <div class="table-responsive">
@@ -1039,7 +1039,7 @@
                             </td>
                             <td>
                                 <span class="text-muted small">
-                                    {{ topic.last_article_date|timeago }}
+                                    {{ topic.last_article_date|timeago if topic.last_article_date else 'Never' }}
                                 </span>
                             </td>
                             <td class="text-end">

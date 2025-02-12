@@ -12,7 +12,7 @@ from app.analyze_db import AnalyzeDB
 from config.settings import config
 from typing import Optional, List
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.dependencies import get_research
 import logging
 import traceback
@@ -44,6 +44,7 @@ import sqlite3
 from app.routes import database  # Make sure this import exists
 from app.routes.stats_routes import router as stats_router
 from app.routes.chat_routes import router as chat_router
+from app.routes.database import router as database_router
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -75,17 +76,35 @@ def timeago_filter(value):
     if not value:
         return ""
     try:
+        now = datetime.now(timezone.utc)
+        
+        # Convert input value to timezone-aware datetime
         if isinstance(value, str):
-            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            try:
+                # Try parsing as ISO format with timezone
+                dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            except ValueError:
+                try:
+                    # Try parsing as simple datetime
+                    dt = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+                    dt = dt.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    # Try parsing as date only
+                    dt = datetime.strptime(value, '%Y-%m-%d')
+                    dt = dt.replace(tzinfo=timezone.utc)
         else:
-            dt = value
-            
-        now = datetime.now()
-        diff = dt - now
+            # If it's already a datetime object
+            dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        
+        # Ensure both datetimes are timezone-aware
+        if not dt.tzinfo:
+            dt = dt.replace(tzinfo=timezone.utc)
+        
+        diff = now - dt
         
         # Handle future dates
-        if diff.total_seconds() > 0:
-            seconds = int(diff.total_seconds())
+        if diff.total_seconds() < 0:
+            seconds = abs(int(diff.total_seconds()))
             if seconds < 60:
                 return f"in {seconds} seconds"
             minutes = seconds // 60
@@ -97,8 +116,8 @@ def timeago_filter(value):
             days = hours // 24
             return f"in {days} day{'s' if days != 1 else ''}"
         
-        # Handle past dates (existing logic)
-        seconds = int(abs(diff.total_seconds()))
+        # Handle past dates
+        seconds = int(diff.total_seconds())
         if seconds < 60:
             return f"{seconds} seconds ago"
         minutes = seconds // 60
@@ -139,6 +158,9 @@ app.include_router(stats_router)
 # Add this with the other router includes
 app.include_router(chat_router)
 
+# Add this near the other router includes
+app.include_router(database_router)
+
 class ArticleData(BaseModel):
     title: str
     news_source: str
@@ -152,11 +174,11 @@ class ArticleData(BaseModel):
     sentiment_explanation: str
     time_to_impact: str
     time_to_impact_explanation: str
-    tags: List[str]
+    tags: List[str]  # This ensures tags is always a list
     driver_type: str
     driver_type_explanation: str
     submission_date: str = Field(default_factory=lambda: datetime.now().isoformat())
-    topic: str  # Add this line
+    topic: str
 
 class AddModelRequest(BaseModel):
     model_name: str = Field(..., min_length=1)
@@ -607,12 +629,14 @@ async def markdown_to_html(request: Request):
 @app.post("/api/save_article")
 async def save_article(article: ArticleData):
     try:
-        print(f"Received article data: {article.dict()}")
-        result = db.update_or_create_article(article.dict())
-        print("Article saved successfully")
-        return JSONResponse(content={"message": "Article saved successfully"})
+        logger.info(f"Received article data: {article.dict()}")
+        result = await db.save_article(article.dict())  # Use the async save_article method
+        return JSONResponse(content=result)
+    except HTTPException as he:
+        logger.error(f"HTTP error saving article: {str(he)}")
+        raise he
     except Exception as e:
-        print(f"Error saving article: {str(e)}")
+        logger.error(f"Error saving article: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/categories")
