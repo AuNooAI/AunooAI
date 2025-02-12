@@ -156,11 +156,11 @@ class ArticleData(BaseModel):
     sentiment_explanation: str
     time_to_impact: str
     time_to_impact_explanation: str
-    tags: List[str]
+    tags: List[str]  # This ensures tags is always a list
     driver_type: str
     driver_type_explanation: str
     submission_date: str = Field(default_factory=lambda: datetime.now().isoformat())
-    topic: str  # Add this line
+    topic: str
 
 class AddModelRequest(BaseModel):
     model_name: str = Field(..., min_length=1)
@@ -606,12 +606,14 @@ async def markdown_to_html(request: Request):
 @app.post("/api/save_article")
 async def save_article(article: ArticleData):
     try:
-        print(f"Received article data: {article.dict()}")
-        result = db.update_or_create_article(article.dict())
-        print("Article saved successfully")
-        return JSONResponse(content={"message": "Article saved successfully"})
+        logger.info(f"Received article data: {article.dict()}")
+        result = await db.save_article(article.dict())  # Use the async save_article method
+        return JSONResponse(content=result)
+    except HTTPException as he:
+        logger.error(f"HTTP error saving article: {str(he)}")
+        raise he
     except Exception as e:
-        print(f"Error saving article: {str(e)}")
+        logger.error(f"Error saving article: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/categories")

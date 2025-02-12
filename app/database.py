@@ -469,46 +469,84 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Standardize submission_date format
-            if 'submission_date' not in article_data:
-                article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
-            else:
-                try:
-                    # Try to parse and standardize the submission_date
-                    date_obj = datetime.fromisoformat(article_data['submission_date'].replace('Z', '+00:00'))
-                    article_data['submission_date'] = date_obj.strftime('%Y-%m-%dT%H:%M:%S.%f')
-                except (ValueError, AttributeError):
-                    logger.warning(f"Invalid submission_date format: {article_data['submission_date']}")
-                    article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
-            
-            query = """
-            INSERT INTO articles (
-            title, uri, news_source, summary, sentiment, time_to_impact, category, 
-            future_signal, future_signal_explanation, publication_date, sentiment_explanation, 
-            time_to_impact_explanation, tags, driver_type, driver_type_explanation, submission_date, topic
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-            params = (
-                article_data['title'], article_data['uri'], article_data['news_source'],
-                article_data['summary'], article_data['sentiment'], article_data['time_to_impact'],
-                article_data['category'], article_data['future_signal'], article_data['future_signal_explanation'],
-                article_data['publication_date'], article_data['sentiment_explanation'],
-                article_data['time_to_impact_explanation'], 
-                ','.join(article_data['tags']) if isinstance(article_data['tags'], list) else article_data['tags'],
-                article_data['driver_type'], article_data['driver_type_explanation'], 
-                article_data['submission_date'], article_data['topic']
-            )
-            
             try:
+                # Standardize submission_date format
+                if 'submission_date' not in article_data:
+                    article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
+                else:
+                    try:
+                        date_obj = datetime.fromisoformat(article_data['submission_date'].replace('Z', '+00:00'))
+                        article_data['submission_date'] = date_obj.strftime('%Y-%m-%dT%H:%M:%S.%f')
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Invalid submission_date format: {article_data['submission_date']}")
+                        article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
+                
+                # Convert tags list to string if necessary
+                tags = article_data.get('tags', [])
+                if isinstance(tags, list):
+                    tags = ','.join(str(tag) for tag in tags)
+                elif tags is None:
+                    tags = ''
+                
+                # Check if article already exists
+                cursor.execute("SELECT 1 FROM articles WHERE uri = ?", (article_data['uri'],))
+                exists = cursor.fetchone() is not None
+                
+                if exists:
+                    # Update existing article
+                    query = """
+                    UPDATE articles SET 
+                        title = ?, news_source = ?, summary = ?, sentiment = ?,
+                        time_to_impact = ?, category = ?, future_signal = ?,
+                        future_signal_explanation = ?, publication_date = ?,
+                        sentiment_explanation = ?, time_to_impact_explanation = ?,
+                        tags = ?, driver_type = ?, driver_type_explanation = ?,
+                        submission_date = ?, topic = ?
+                    WHERE uri = ?
+                    """
+                    params = (
+                        article_data['title'], article_data['news_source'],
+                        article_data['summary'], article_data['sentiment'],
+                        article_data['time_to_impact'], article_data['category'],
+                        article_data['future_signal'], article_data['future_signal_explanation'],
+                        article_data['publication_date'], article_data['sentiment_explanation'],
+                        article_data['time_to_impact_explanation'], tags,
+                        article_data['driver_type'], article_data['driver_type_explanation'],
+                        article_data['submission_date'], article_data['topic'],
+                        article_data['uri']
+                    )
+                else:
+                    # Insert new article
+                    query = """
+                    INSERT INTO articles (
+                        title, uri, news_source, summary, sentiment, time_to_impact,
+                        category, future_signal, future_signal_explanation,
+                        publication_date, sentiment_explanation, time_to_impact_explanation,
+                        tags, driver_type, driver_type_explanation, submission_date, topic
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """
+                    params = (
+                        article_data['title'], article_data['uri'], article_data['news_source'],
+                        article_data['summary'], article_data['sentiment'], article_data['time_to_impact'],
+                        article_data['category'], article_data['future_signal'], article_data['future_signal_explanation'],
+                        article_data['publication_date'], article_data['sentiment_explanation'],
+                        article_data['time_to_impact_explanation'], tags,
+                        article_data['driver_type'], article_data['driver_type_explanation'],
+                        article_data['submission_date'], article_data['topic']
+                    )
+                
                 cursor.execute(query, params)
                 conn.commit()
                 return {"message": "Article saved successfully"}
+                
             except Exception as e:
                 logger.error(f"Error saving article: {str(e)}")
                 logger.error(f"Article data: {article_data}")
-                logger.error(f"Query: {query}")
-                logger.error(f"Params: {params}")
-                raise HTTPException(status_code=500, detail=f"Error saving article: {str(e)}")
+                conn.rollback()  # Rollback any changes on error
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error saving article: {str(e)}"
+                ) from e
 
     def delete_article(self, uri):
         logger.info(f"Attempting to delete article with URI: {uri}")
