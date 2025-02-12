@@ -13,10 +13,10 @@ logging.basicConfig(
 
 class DatabaseMerger:
     def __init__(self):
-        # Use the correct database directory structure
-        self.db_dir = Path("app/data")
-        self.backup_dir = self.db_dir / "backups"
-        self.backup_dir.mkdir(exist_ok=True)
+        # Use the app's database directory structure
+        self.db_dir = Path("app/data")  # Base directory
+        self.backup_dir = Path("app/data/backups")  # Direct path to backups
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
         
         # Get active database from config
         self.db_path = self._get_active_database()
@@ -25,7 +25,7 @@ class DatabaseMerger:
         # Get the database path from the Database class
         from app.database import Database
         db_name = Database.get_active_database()
-        return self.db_dir / db_name
+        return self.db_dir / db_name  # Store database in app/data directory
 
     def create_backup(self) -> Path:
         """Create a backup of the current database"""

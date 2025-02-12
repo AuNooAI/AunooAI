@@ -12,6 +12,7 @@ from fastapi import HTTPException, Query
 from app.security.auth import get_password_hash
 import shutil
 from fastapi.responses import FileResponse
+from pathlib import Path
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -940,15 +941,29 @@ class Database:
             return False
 
     def backup_database(self, backup_name: str = None) -> str:
-        if not backup_name:
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            backup_name = f"backup_{timestamp}.db"
-        elif not backup_name.endswith('.db'):
-            backup_name += '.db'
+        """Create a backup of the current database"""
+        try:
+            if not backup_name:
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                backup_name = f"backup_{timestamp}.db"
+            elif not backup_name.endswith('.db'):
+                backup_name += '.db'
 
-        backup_path = os.path.join(DATABASE_DIR, backup_name)
-        shutil.copy2(self.db_path, backup_path)
-        return {"message": f"Database backed up to {backup_name}"}
+            # Use the correct backup directory
+            backup_dir = Path("app/data/backups")
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup_path = backup_dir / backup_name
+            
+            logger.info(f"Creating backup at: {backup_path}")
+            
+            # Create backup
+            shutil.copy2(self.db_path, backup_path)
+            logger.info(f"Created backup at {backup_path}")
+            
+            return {"message": f"Database backed up to {backup_name}"}
+        except Exception as e:
+            logger.error(f"Error creating backup: {str(e)}")
+            raise
 
     def reset_database(self) -> dict:
         with self.get_connection() as conn:
