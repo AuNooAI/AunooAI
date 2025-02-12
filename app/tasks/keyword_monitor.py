@@ -1,3 +1,5 @@
+"""Monitor keywords and collect matching news articles."""
+
 import logging
 import asyncio
 from datetime import datetime

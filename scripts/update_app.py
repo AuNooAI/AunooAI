@@ -30,7 +30,7 @@ class AppUpdater:
             shutil.copy2(env_file, backup_path / ".env")
             logging.info(f"Backed up .env file to {backup_path}")
 
-        # Backup database
+        # Backup database using DatabaseMerger
         db_backup = self.db_merger.create_backup()
         if db_backup.exists():
             shutil.copy2(db_backup, backup_path / db_backup.name)
@@ -60,29 +60,26 @@ class AppUpdater:
                 text=True, 
                 check=True
             )
-            logging.info(f"Git pull output: {result.stdout}")
-
-            # Pop stashed changes
-            subprocess.run(["git", "stash", "pop"], check=False)
+            logging.info("Pulled latest changes")
             return True
 
         except subprocess.CalledProcessError as e:
-            logging.error(f"Git operation failed: {e.stderr}")
+            logging.error(f"Git operation failed: {e.output}")
             return False
 
     def restore_backup(self, backup_path: Path) -> None:
         """Restore files from backup"""
         try:
-            # Restore .env
+            # Restore .env if it exists
             env_backup = backup_path / ".env"
             if env_backup.exists():
                 shutil.copy2(env_backup, self.root_dir / ".env")
                 logging.info("Restored .env file")
 
-            # Restore keyword monitor config
+            # Restore keyword monitor config if it exists
+            config_dir = self.root_dir / "app/config"
             keyword_config_backup = backup_path / "app/config/keyword_monitor.json"
             if keyword_config_backup.exists():
-                config_dir = self.root_dir / "app/config"
                 config_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(
                     keyword_config_backup, 
@@ -90,14 +87,17 @@ class AppUpdater:
                 )
                 logging.info("Restored keyword monitor config")
 
-            # Restore database
-            db_backup = next(backup_path.glob("backup_*.db"))
-            if db_backup.exists():
-                shutil.copy2(
-                    db_backup, 
-                    self.db_merger.db_path
-                )
-                logging.info("Restored database from backup")
+            # Restore database using DatabaseMerger
+            db_backup = next(backup_path.glob("backup_*.db"), None)
+            if db_backup and db_backup.exists():
+                try:
+                    self.db_merger.merge_databases(db_backup)
+                    logging.info("Restored and merged database from backup")
+                except Exception as e:
+                    logging.error(f"Error merging database during restore: {e}")
+                    # Fallback to simple copy if merge fails
+                    shutil.copy2(db_backup, self.db_merger.db_path)
+                    logging.info("Restored database by direct copy after merge failure")
 
         except Exception as e:
             logging.error(f"Error restoring backup: {e}")
@@ -106,23 +106,24 @@ class AppUpdater:
     def update(self) -> bool:
         """Run the complete update process"""
         try:
-            # Create backup
             logging.info("Starting update process...")
             backup_path = self.create_backup()
             logging.info("Backup created successfully")
 
-            # Pull latest changes
             if not self.git_pull():
                 logging.error("Failed to pull latest changes")
                 self.restore_backup(backup_path)
                 return False
 
-            # Check if there's a new database to merge
+            # Check for new database to merge
             new_db = self.root_dir / "new_research.db"
             if new_db.exists():
                 try:
                     self.db_merger.merge_databases(new_db)
                     logging.info("Database merged successfully")
+                    # Clean up the new database file after successful merge
+                    new_db.unlink()
+                    logging.info("Cleaned up new database file")
                 except Exception as e:
                     logging.error(f"Database merge failed: {e}")
                     self.restore_backup(backup_path)
@@ -133,6 +134,11 @@ class AppUpdater:
 
         except Exception as e:
             logging.error(f"Update failed: {e}")
+            try:
+                self.restore_backup(backup_path)
+                logging.info("Restored from backup after failure")
+            except Exception as restore_error:
+                logging.error(f"Failed to restore from backup: {restore_error}")
             return False
 
 def main():

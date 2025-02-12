@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, Form, Request, Body, Query, Depends, status
+"""Main FastAPI application file."""
+
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from app.collectors.newsapi_collector import NewsAPICollector

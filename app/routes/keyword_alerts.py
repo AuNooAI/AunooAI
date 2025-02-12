@@ -91,3 +91,33 @@ def get_unread_alerts(cursor) -> List[Dict]:
         }
         for row in alerts_data
     ] 
+
+@router.delete("/bulk_delete_articles")
+async def bulk_delete_articles(
+    request: DeleteArticlesRequest,
+    db: Database = Depends(get_database_instance)
+):
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            deleted_count = 0
+            
+            for uri in request.uris:
+                # First delete related keyword alerts
+                cursor.execute("DELETE FROM keyword_alerts WHERE article_uri = ?", (uri,))
+                
+                # Then delete the article
+                cursor.execute("DELETE FROM articles WHERE uri = ?", (uri,))
+                if cursor.rowcount > 0:
+                    deleted_count += 1
+            
+            conn.commit()
+            
+            # Return both the deleted articles count and affected alerts count
+            return {
+                "status": "success", 
+                "deleted_count": deleted_count,
+            }
+    except Exception as e:
+        logger.error(f"Error in bulk_delete_articles: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) 
