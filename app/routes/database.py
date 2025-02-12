@@ -219,7 +219,7 @@ async def delete_article_annotation(
         raise HTTPException(status_code=404, detail="Annotation not found")
     return {"success": True}
 
-@router.post("/merge_backup")
+@router.post("/api/merge_backup")
 async def merge_backup_database(backup_name: str = None, uploaded_file: UploadFile = None):
     """Merge articles and settings from a backup database or uploaded file"""
     try:
@@ -289,4 +289,26 @@ async def get_backups():
         
     except Exception as e:
         logger.error(f"Error getting backups: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/backups")
+async def list_backups():
+    """Get list of available database backups"""
+    try:
+        backup_dir = Path("app/data/backups")
+        backups = []
+        
+        if backup_dir.exists():
+            for file in backup_dir.glob("*.db"):
+                stats = file.stat()
+                backups.append({
+                    "name": file.name,
+                    "size": f"{stats.st_size / (1024*1024):.1f}MB",
+                    "date": datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                })
+        
+        return backups
+        
+    except Exception as e:
+        logger.error(f"Error listing backups: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

@@ -60,8 +60,9 @@ class DatabaseMerger:
             # Reconnect to the updated database
             old_conn = sqlite3.connect(self.db_path)
             
-            # Now merge articles from backup into the new schema
+            # Now merge all data
             self._merge_articles_from_backup(backup_path, old_conn)
+            self._merge_keyword_settings(old_conn, new_conn)
             
             old_conn.commit()
             logging.info("Database merge completed successfully")
@@ -145,6 +146,107 @@ class DatabaseMerger:
             raise
         finally:
             backup_conn.close()
+
+    def _merge_keyword_settings(self, existing_conn: sqlite3.Connection, new_conn: sqlite3.Connection) -> None:
+        """Merge keyword monitoring settings and alerts from backup"""
+        try:
+            cursor = new_conn.cursor()
+            existing_cursor = existing_conn.cursor()
+            
+            # Merge keyword_groups
+            logging.info("Merging keyword groups...")
+            cursor.execute("SELECT * FROM keyword_groups")
+            groups = cursor.fetchall()
+            columns = [description[0] for description in cursor.description]
+            columns_str = ", ".join(columns)
+            placeholders = ",".join(["?" for _ in columns])
+            
+            # Get existing groups to avoid duplicates
+            existing_cursor.execute("SELECT name FROM keyword_groups")
+            existing_groups = {row[0] for row in existing_cursor.fetchall()}
+            
+            for group in groups:
+                name_index = columns.index('name')
+                group_name = group[name_index]
+                if group_name not in existing_groups:
+                    existing_cursor.execute(
+                        f"INSERT INTO keyword_groups ({columns_str}) VALUES ({placeholders})",
+                        group
+                    )
+                    logging.info(f"Added keyword group: {group_name}")
+            
+            # Merge monitored_keywords
+            logging.info("Merging monitored keywords...")
+            cursor.execute("SELECT * FROM monitored_keywords")
+            keywords = cursor.fetchall()
+            columns = [description[0] for description in cursor.description]
+            columns_str = ", ".join(columns)
+            placeholders = ",".join(["?" for _ in columns])
+            
+            # Get existing keywords to avoid duplicates
+            existing_cursor.execute("SELECT keyword FROM monitored_keywords")
+            existing_keywords = {row[0] for row in existing_cursor.fetchall()}
+            
+            for keyword in keywords:
+                keyword_index = columns.index('keyword')
+                keyword_text = keyword[keyword_index]
+                if keyword_text not in existing_keywords:
+                    existing_cursor.execute(
+                        f"INSERT INTO monitored_keywords ({columns_str}) VALUES ({placeholders})",
+                        keyword
+                    )
+                    logging.info(f"Added monitored keyword: {keyword_text}")
+            
+            # Merge keyword_monitor_settings
+            logging.info("Merging keyword monitor settings...")
+            cursor.execute("SELECT * FROM keyword_monitor_settings")
+            settings = cursor.fetchall()
+            if settings:
+                columns = [description[0] for description in cursor.description]
+                columns_str = ", ".join(columns)
+                placeholders = ",".join(["?" for _ in columns])
+                
+                # Clear existing settings first
+                existing_cursor.execute("DELETE FROM keyword_monitor_settings")
+                
+                # Insert new settings
+                for setting in settings:
+                    existing_cursor.execute(
+                        f"INSERT INTO keyword_monitor_settings ({columns_str}) VALUES ({placeholders})",
+                        setting
+                    )
+                logging.info("Updated keyword monitor settings")
+            
+            # Merge keyword_alerts
+            logging.info("Merging keyword alerts...")
+            cursor.execute("SELECT * FROM keyword_alerts")
+            alerts = cursor.fetchall()
+            columns = [description[0] for description in cursor.description]
+            columns_str = ", ".join(columns)
+            placeholders = ",".join(["?" for _ in columns])
+            
+            # Get existing alerts to avoid duplicates
+            existing_cursor.execute("SELECT keyword_id, article_uri FROM keyword_alerts")
+            existing_alerts = {(row[0], row[1]) for row in existing_cursor.fetchall()}
+            
+            for alert in alerts:
+                keyword_id_index = columns.index('keyword_id')
+                uri_index = columns.index('article_uri')
+                alert_key = (alert[keyword_id_index], alert[uri_index])
+                
+                if alert_key not in existing_alerts:
+                    existing_cursor.execute(
+                        f"INSERT INTO keyword_alerts ({columns_str}) VALUES ({placeholders})",
+                        alert
+                    )
+                    logging.info(f"Added keyword alert for keyword_id: {alert_key[0]}")
+            
+            existing_conn.commit()
+            logging.info("Successfully merged all keyword monitoring data")
+            
+        except Exception as e:
+            logging.error(f"Error merging keyword settings: {e}")
+            raise
 
     def _copy_articles(self, old_conn: sqlite3.Connection, new_conn: sqlite3.Connection) -> None:
         try:
