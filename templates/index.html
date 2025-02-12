@@ -792,7 +792,7 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1>Situational Awareness</h1>
+            <h1>Control Room</h1>
             <p class="text-muted">What is going on in the world?</p>
         </div>
     </div>
@@ -894,7 +894,7 @@
                     <i class="fas fa-folder"></i>
                 </div>
                 <div class="stat-content">
-                    <div class="stat-value">{{ stats.topics|default(0) }}</div>
+                    <div class="stat-value">{{ active_topics|length }}</div>
                     <div class="stat-label">Topics</div>
                 </div>
             </div>
@@ -908,7 +908,7 @@
             <div class="card h-100" data-tooltip="Quick access to key features">
                 <div class="card-header">
                     <h5 class="mb-0">
-                        <i class="fas fa-link"></i> Quick Links
+                        <i class="fas fa-link"></i> What do you want to do today?
                     </h5>
                 </div>
                 <div class="card-body">
