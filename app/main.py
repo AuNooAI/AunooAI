@@ -12,7 +12,7 @@ from app.analyze_db import AnalyzeDB
 from config.settings import config
 from typing import Optional, List
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.dependencies import get_research
 import logging
 import traceback
@@ -76,17 +76,35 @@ def timeago_filter(value):
     if not value:
         return ""
     try:
+        now = datetime.now(timezone.utc)
+        
+        # Convert input value to timezone-aware datetime
         if isinstance(value, str):
-            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            try:
+                # Try parsing as ISO format with timezone
+                dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            except ValueError:
+                try:
+                    # Try parsing as simple datetime
+                    dt = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+                    dt = dt.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    # Try parsing as date only
+                    dt = datetime.strptime(value, '%Y-%m-%d')
+                    dt = dt.replace(tzinfo=timezone.utc)
         else:
-            dt = value
-            
-        now = datetime.now()
-        diff = dt - now
+            # If it's already a datetime object
+            dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        
+        # Ensure both datetimes are timezone-aware
+        if not dt.tzinfo:
+            dt = dt.replace(tzinfo=timezone.utc)
+        
+        diff = now - dt
         
         # Handle future dates
-        if diff.total_seconds() > 0:
-            seconds = int(diff.total_seconds())
+        if diff.total_seconds() < 0:
+            seconds = abs(int(diff.total_seconds()))
             if seconds < 60:
                 return f"in {seconds} seconds"
             minutes = seconds // 60
@@ -98,8 +116,8 @@ def timeago_filter(value):
             days = hours // 24
             return f"in {days} day{'s' if days != 1 else ''}"
         
-        # Handle past dates (existing logic)
-        seconds = int(abs(diff.total_seconds()))
+        # Handle past dates
+        seconds = int(diff.total_seconds())
         if seconds < 60:
             return f"{seconds} seconds ago"
         minutes = seconds // 60
