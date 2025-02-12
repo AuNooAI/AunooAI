@@ -88,6 +88,15 @@
                         </button>
                     </div>
                 </div>
+
+                <div class="config-item">
+                    <h3>Merge from Backup</h3>
+                    <p class="text-muted small mb-3">Import articles and settings from a backup database.</p>
+                    <button id="merge-database" onclick="showMergeDialog()"
+                            data-tooltip="Merge articles and settings from a backup">
+                        <i class="fas fa-code-merge"></i> Merge Backup
+                    </button>
+                </div>
             </div>
             <div class="right-panel">
                 <h2>Database Information</h2>
@@ -307,6 +316,55 @@
     </div>
 </div>
 
+<!-- Update the merge dialog template -->
+<template id="merge-dialog-template">
+    <div class="modal fade" tabindex="-1" role="dialog" aria-labelledby="mergeModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Merge Database</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <ul class="nav nav-tabs" role="tablist">
+                        <li class="nav-item">
+                            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#backup-tab">
+                                From Backup
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#upload-tab">
+                                Upload File
+                            </button>
+                        </li>
+                    </ul>
+                    
+                    <div class="tab-content mt-3">
+                        <div class="tab-pane fade show active" id="backup-tab">
+                            <select id="backup-select" class="form-select mb-3">
+                                <option value="">Select a backup...</option>
+                            </select>
+                        </div>
+                        <div class="tab-pane fade" id="upload-tab">
+                            <input type="file" id="database-upload" class="form-control" 
+                                   accept=".db,.sqlite,.sqlite3">
+                            <small class="text-muted">Select a SQLite database file</small>
+                        </div>
+                    </div>
+                    
+                    <p class="text-muted small mt-3">
+                        This will merge articles and settings while preserving your existing data.
+                    </p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="mergeFromBackup()">Merge</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
 <style>
     :root {
         --primary-color: #0d6efd;  /* Bootstrap primary blue */
@@ -508,31 +566,90 @@
     }
 
     /* Modal styles */
-    .modal {
-        display: none;
+    .modal-backdrop {
         position: fixed;
-        z-index: 1000;
-        left: 0;
         top: 0;
+        left: 0;
+        z-index: 1040;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 0, 0, 0.5);
+    }
+
+    .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1045;
         width: 100%;
         height: 100%;
-        background-color: rgba(0,0,0,0.5);
+        overflow-x: hidden;
+        overflow-y: auto;
+        outline: 0;
+    }
+
+    .modal-dialog {
+        position: relative;
+        width: auto;
+        margin: 1.75rem auto;
+        pointer-events: auto;
+        max-width: 600px;
+    }
+
+    .modal.fade .modal-dialog {
+        transition: transform 0.3s ease-out;
+        transform: translate(0, -50px);
+    }
+
+    .modal.show .modal-dialog {
+        transform: translate(0, 0);
     }
 
     .modal-content {
-        background-color: white;
-        margin: 15% auto;
-        padding: 20px;
-        width: 300px;
-    }
-
-    .modal-buttons {
+        position: relative;
         display: flex;
-        justify-content: space-between;
-        margin-top: 20px;
+        flex-direction: column;
+        width: 100%;
+        background-color: #fff;
+        border-radius: 0.3rem;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        outline: 0;
     }
 
-    /* Info panel styles */
+    .modal-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        padding: 1rem;
+        border-bottom: 1px solid #dee2e6;
+        border-top-left-radius: calc(0.3rem - 1px);
+        border-top-right-radius: calc(0.3rem - 1px);
+    }
+
+    .modal-body {
+        position: relative;
+        flex: 1 1 auto;
+        padding: 1rem;
+    }
+
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        padding: 0.75rem;
+        border-top: 1px solid #dee2e6;
+        gap: 0.5rem;
+    }
+
+    /* Ensure the modal and its contents are clickable */
+    .modal, 
+    .modal-dialog,
+    .modal-content,
+    .modal-header,
+    .modal-body,
+    .modal-footer {
+        pointer-events: auto;
+    }
+
     .info-panel {
         background: var(--light-bg);
         padding: 20px;
@@ -1320,5 +1437,182 @@
             }
         });
     });
+
+    // Update showMergeDialog function
+    async function showMergeDialog() {
+        try {
+            // Create modal container
+            const modalContainer = document.createElement('div');
+            
+            // Get template content
+            const template = document.getElementById('merge-dialog-template');
+            const modalContent = template.content.cloneNode(true);
+            modalContainer.appendChild(modalContent);
+            
+            // Add to document
+            document.body.appendChild(modalContainer);
+            
+            // Get the modal element
+            const modalElement = modalContainer.querySelector('.modal');
+            
+            // Create backdrop
+            const backdrop = document.createElement('div');
+            backdrop.className = 'modal-backdrop fade show';
+            document.body.appendChild(backdrop);
+            
+            // Initialize Bootstrap modal
+            const modal = new bootstrap.Modal(modalElement, {
+                backdrop: true,
+                keyboard: true,
+                focus: true
+            });
+
+            // Load backups
+            const select = modalElement.querySelector('#backup-select');
+            select.innerHTML = '<option value="">Loading backups...</option>';
+            select.disabled = true;
+
+            try {
+                console.log('Fetching backups...');
+                const response = await fetch('/api/backups');
+                console.log('Backup response:', response);
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    console.error('Backup response error:', error);
+                    throw new Error(error.detail || 'Failed to fetch backups');
+                }
+                
+                const backups = await response.json();
+                console.log('Received backups:', backups);
+                
+                // Reset select
+                select.innerHTML = '<option value="">Select a backup...</option>';
+                select.disabled = false;
+                
+                if (backups && backups.length > 0) {
+                    backups.forEach(backup => {
+                        const option = document.createElement('option');
+                        option.value = backup.name;
+                        option.textContent = `${backup.name} (${backup.size}) - ${backup.date}`;
+                        select.appendChild(option);
+                        console.log('Added backup option:', backup.name);
+                    });
+                } else {
+                    console.log('No backups found');
+                    select.innerHTML = '<option value="">No backups available</option>';
+                    select.disabled = true;
+                }
+            } catch (error) {
+                console.error('Error loading backups:', error);
+                select.innerHTML = '<option value="">Error loading backups</option>';
+                select.disabled = true;
+                showAlert('Failed to load backup list: ' + error.message, 'danger');
+            }
+            
+            // Add cleanup handler
+            modalElement.addEventListener('hidden.bs.modal', () => {
+                modal.dispose();
+                modalContainer.remove();
+                backdrop.remove();
+            });
+            
+            // Show modal
+            modal.show();
+            modalElement.classList.add('show');
+            
+        } catch (error) {
+            console.error('Error showing modal:', error);
+            showAlert('Failed to show merge dialog: ' + error.message, 'danger');
+        }
+    }
+
+    // Update mergeFromBackup function
+    async function mergeFromBackup() {
+        const modalElement = document.querySelector('.modal');
+        if (!modalElement) return;
+        
+        const formData = new FormData();
+        const uploadFile = modalElement.querySelector('#database-upload').files[0];
+        const backupSelect = modalElement.querySelector('#backup-select');
+        const mergeButton = modalElement.querySelector('.modal-footer .btn-primary');
+        
+        if (!uploadFile && !backupSelect.value) {
+            showAlert('Please select a backup or upload a file', 'warning');
+            return;
+        }
+        
+        try {
+            // Disable merge button and show loading state
+            mergeButton.disabled = true;
+            mergeButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Merging...';
+            
+            if (uploadFile) {
+                formData.append('uploaded_file', uploadFile);
+            } else {
+                formData.append('backup_name', backupSelect.value);
+            }
+            
+            const response = await fetch('/api/merge_backup', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                const error = await response.text();
+                throw new Error(error || 'Failed to merge backup');
+            }
+            
+            const result = await response.json();
+            showAlert(result.message || 'Successfully merged database', 'success');
+            updateDatabaseInfo();  // Refresh database info
+            
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(modalElement);
+            if (modal) modal.hide();
+            
+        } catch (error) {
+            console.error('Error merging backup:', error);
+            showAlert('Failed to merge backup: ' + error.message, 'danger');
+        } finally {
+            // Reset button state if modal still exists
+            if (modalElement) {
+                const mergeButton = modalElement.querySelector('.modal-footer .btn-primary');
+                if (mergeButton) {
+                    mergeButton.disabled = false;
+                    mergeButton.innerHTML = 'Merge';
+                }
+            }
+        }
+    }
+
+    // Add showAlert function if not already defined
+    if (typeof showAlert === 'undefined') {
+        function showAlert(message, type = 'info') {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-floating alert-dismissible fade show`;
+            alertDiv.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 9999;
+                min-width: 300px;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            `;
+            
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            
+            document.body.appendChild(alertDiv);
+
+            setTimeout(() => {
+                if (alertDiv && alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 5000);
+        }
+    }
 </script>
 {% endblock %}

@@ -13,8 +13,8 @@ logging.basicConfig(
 
 class DatabaseMerger:
     def __init__(self):
-        # Use the app's database directory structure
-        self.db_dir = Path("app/database")
+        # Use the correct database directory structure
+        self.db_dir = Path("app/data")
         self.backup_dir = self.db_dir / "backups"
         self.backup_dir.mkdir(exist_ok=True)
         
@@ -22,14 +22,9 @@ class DatabaseMerger:
         self.db_path = self._get_active_database()
 
     def _get_active_database(self) -> Path:
-        config_path = self.db_dir / 'config.json'
-        if config_path.exists():
-            import json
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-            db_name = config.get('active_database', 'research.db')
-        else:
-            db_name = 'research.db'
+        # Get the database path from the Database class
+        from app.database import Database
+        db_name = Database.get_active_database()
         return self.db_dir / db_name
 
     def create_backup(self) -> Path:

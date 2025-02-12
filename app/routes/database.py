@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from app.database import get_database_instance, Database
@@ -8,6 +8,11 @@ import os
 import sqlite3
 from urllib.parse import unquote_plus
 import logging
+from scripts.db_merge import DatabaseMerger
+from pathlib import Path
+from datetime import datetime
+import shutil
+from config.settings import DATABASE_DIR
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -212,4 +217,76 @@ async def delete_article_annotation(
     success = db.delete_article_annotation(annotation_id)
     if not success:
         raise HTTPException(status_code=404, detail="Annotation not found")
-    return {"success": True} 
+    return {"success": True}
+
+@router.post("/merge_backup")
+async def merge_backup_database(backup_name: str = None, uploaded_file: UploadFile = None):
+    """Merge articles and settings from a backup database or uploaded file"""
+    try:
+        db = get_database_instance()
+        merger = DatabaseMerger()
+        
+        if uploaded_file:
+            # Save uploaded file to temp location
+            temp_path = Path("app/data/temp") / uploaded_file.filename
+            temp_path.parent.mkdir(exist_ok=True)
+            
+            with temp_path.open("wb") as buffer:
+                shutil.copyfileobj(uploaded_file.file, buffer)
+            
+            try:
+                merger.merge_databases(temp_path)
+                return {"message": f"Successfully merged uploaded database"}
+            finally:
+                # Cleanup temp file
+                temp_path.unlink(missing_ok=True)
+                
+        elif backup_name:
+            backup_path = Path("app/data/backups") / backup_name
+            if not backup_path.exists():
+                raise HTTPException(status_code=404, detail="Backup database not found")
+                
+            merger.merge_databases(backup_path)
+            return {"message": f"Successfully merged data from {backup_name}"}
+            
+        else:
+            raise HTTPException(status_code=400, detail="No backup specified")
+            
+    except Exception as e:
+        logger.error(f"Error merging backup database: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/backups")
+async def get_backups():
+    """Get list of database backups with sizes"""
+    try:
+        # Use the correct backup directory path
+        backup_dir = Path("app/data/backups")
+        logger.info(f"Looking for backups in: {backup_dir}")
+        
+        backups = []
+        
+        if backup_dir.exists():
+            logger.info(f"Backup directory exists")
+            for backup in backup_dir.glob("*.db"):
+                try:
+                    size = backup.stat().st_size
+                    size_mb = round(size / (1024 * 1024), 2)
+                    backup_info = {
+                        "name": backup.name,
+                        "size": f"{size_mb} MB",
+                        "date": datetime.fromtimestamp(backup.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    backups.append(backup_info)
+                    logger.info(f"Found backup: {backup_info}")
+                except Exception as e:
+                    logger.warning(f"Error processing backup {backup}: {e}")
+                    continue
+                
+        sorted_backups = sorted(backups, key=lambda x: x["date"], reverse=True)
+        logger.info(f"Returning {len(sorted_backups)} backups")
+        return sorted_backups
+        
+    except Exception as e:
+        logger.error(f"Error getting backups: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) 
