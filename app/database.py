@@ -1298,6 +1298,35 @@ class Database:
             logger.error(f"Error in bulk_delete_articles: {e}")
             raise
 
+    def create_topic(self, topic_name: str) -> bool:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                # Create an initial empty entry for the topic
+                cursor.execute("""
+                    INSERT OR IGNORE INTO articles 
+                    (topic, title, uri, submission_date) 
+                    VALUES (?, 'Topic Created', 'initial', datetime('now'))
+                """, (topic_name,))
+                return True
+        except Exception as e:
+            logger.error(f"Error creating topic in database: {str(e)}")
+            return False
+
+    def update_topic(self, topic_name: str) -> bool:
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                # Check if topic exists
+                cursor.execute("SELECT 1 FROM articles WHERE topic = ? LIMIT 1", (topic_name,))
+                if not cursor.fetchone():
+                    # If topic doesn't exist, create it
+                    return self.create_topic(topic_name)
+                return True
+        except Exception as e:
+            logger.error(f"Error updating topic in database: {str(e)}")
+            return False
+
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
 

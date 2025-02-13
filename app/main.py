@@ -1121,8 +1121,7 @@ async def create_topic_page(request: Request, session=Depends(verify_session)):
 @app.post("/api/create_topic")
 async def create_topic(topic_data: dict):
     try:
-        from app.config.config import load_config
-        config = load_config()  # Load using the same method
+        config = load_config()
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'config.json')
         
         # Load existing config
@@ -1131,10 +1130,17 @@ async def create_topic(topic_data: dict):
         
         # Check if updating existing topic
         existing_topic_index = next((i for i, topic in enumerate(config['topics']) 
-                                   if topic['name'] == topic_data['name']), None)
+                               if topic['name'] == topic_data['name']), None)
+        
+        # Save to database first
+        db = Database()
         if existing_topic_index is not None:
+            # Update in database
+            db.update_topic(topic_data['name'])
             config['topics'][existing_topic_index] = topic_data
         else:
+            # Create in database
+            db.create_topic(topic_data['name'])
             config['topics'].append(topic_data)
         
         # Save updated config

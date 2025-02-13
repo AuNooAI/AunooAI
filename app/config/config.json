@@ -56,6 +56,68 @@
         "Unknown",
         "Catalyst"
       ]
+    },
+    {
+      "name": "Data Pipelines",
+      "categories": [
+        "Auguria",
+        "Tarsal",
+        "Abstract Security",
+        "Cribl",
+        "Observo Ai"
+      ],
+      "future_signals": [
+        "Company is Growing",
+        "Company is Stalling",
+        "Company is Declining"
+      ],
+      "sentiment": [
+        "Neutral",
+        "Positive",
+        "Negative"
+      ],
+      "time_to_impact": [
+        "Long-term",
+        "Mid-term",
+        "Immediate",
+        "Short-term"
+      ],
+      "driver_types": [
+        "M&A",
+        "New Feature",
+        "New Product",
+        "New Hire",
+        "Thought Leadership",
+        "3rd Party Coverage"
+      ]
+    },
+    {
+      "name": "Competitors",
+      "categories": [
+        "Auguria"
+      ],
+      "future_signals": [
+        "Growth",
+        "Stalled",
+        "Decline"
+      ],
+      "sentiment": [
+        "Negative",
+        "Neutral",
+        "Positive"
+      ],
+      "time_to_impact": [
+        "Long-term",
+        "Mid-term",
+        "Immediate",
+        "Short-term"
+      ],
+      "driver_types": [
+        "General",
+        "New Product",
+        "New Hire",
+        "New Feature"
+      ]
     }
   ],
   "ai_models": [
