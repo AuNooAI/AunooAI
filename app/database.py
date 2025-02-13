@@ -14,6 +14,7 @@ import shutil
 from fastapi.responses import FileResponse
 from pathlib import Path
 from urllib.parse import unquote_plus
+import threading
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ def get_database_instance():
     return _db_instance
 
 class Database:
+    _connections = {}
+    
     @staticmethod
     def get_active_database():
         config_path = os.path.join(DATABASE_DIR, 'config.json')
@@ -46,18 +49,34 @@ class Database:
         self.init_db()
 
     def get_connection(self):
-        try:
-            conn = sqlite3.connect(self.db_path)
-            return conn
-        except Exception as e:
-            logger.error(f"Database connection failed: {str(e)}")
-            raise
+        """Get a thread-local database connection"""
+        thread_id = threading.get_ident()
+        
+        if thread_id not in self._connections:
+            self._connections[thread_id] = sqlite3.connect(self.db_path)
+            # Enable foreign key support
+            self._connections[thread_id].execute("PRAGMA foreign_keys = ON")
+            
+        return self._connections[thread_id]
+
+    def close_connections(self):
+        """Close all database connections"""
+        for conn in self._connections.values():
+            try:
+                conn.close()
+            except Exception:
+                pass
+        self._connections.clear()
+
+    def __del__(self):
+        """Cleanup connections when the object is destroyed"""
+        self.close_connections()
 
     def init_db(self):
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Add migrations table first
+            # Add migrations table first, before any other operations
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS migrations (
                     id INTEGER PRIMARY KEY,
@@ -65,6 +84,7 @@ class Database:
                     applied_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            conn.commit()  # Commit immediately to ensure table exists
             
             # Add users table
             cursor.execute("""
@@ -98,6 +118,8 @@ class Database:
                     analyzed BOOLEAN DEFAULT FALSE
                 )
             """)
+            
+            # Create remaining tables
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS reports (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,18 +127,21 @@ class Database:
                     created_at TEXT
                 )
             """)
+            
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS config (
                     name TEXT PRIMARY KEY,
                     content TEXT
                 )
             """)
+            
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS tags (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE
                 )
             """)
+            
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS raw_articles (
                     uri TEXT PRIMARY KEY,
@@ -126,19 +151,35 @@ class Database:
                     topic TEXT
                 )
             """)
+            
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_publication_date 
                 ON articles(publication_date)
             """)
+            
             conn.commit()
             
-            # Run migrations
-            self.migrate_db()
+            # Run migrations after all tables are created
+            try:
+                self.migrate_db()
+            except Exception as e:
+                logger.error(f"Error during initial migration: {str(e)}")
+                # Continue even if migrations fail - tables are created
 
     def migrate_db(self):
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                
+                # First ensure migrations table exists
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS migrations (
+                        id INTEGER PRIMARY KEY,
+                        name TEXT UNIQUE,
+                        applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.commit()
                 
                 # Get applied migrations
                 cursor.execute("SELECT name FROM migrations")
@@ -291,35 +332,49 @@ class Database:
             raise
 
     def create_database(self, name):
-        if not name.endswith('.db'):
-            name += '.db'
-        new_db_path = os.path.join(DATABASE_DIR, name)
-        new_db = Database(name)  # This will create tables and run migrations
+        # Sanitize the database name
+        name = name.strip()
+        if not name:
+            raise ValueError("Database name cannot be empty")
         
-        # Copy users from current database to new database if users table exists
+        # Remove .db if it exists, then add it back
+        if name.endswith('.db'):
+            name = name[:-3]
+        
+        # Ensure name is not just '.db'
+        if not name:
+            raise ValueError("Invalid database name")
+        
+        db_name = f"{name}.db"
+        new_db_path = os.path.join(DATABASE_DIR, db_name)
+        
+        # Check if database already exists
+        if os.path.exists(new_db_path):
+            raise ValueError(f"Database {name} already exists")
+        
+        # Create new database instance and initialize it
+        new_db = Database(db_name)
+        new_db.init_db()
+        
+        # Copy users from current database to new database
         try:
             with self.get_connection() as old_conn:
                 old_cursor = old_conn.cursor()
-                # Check if users table exists in old database
-                old_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-                if old_cursor.fetchone():
+                old_cursor.execute("SELECT username, password, force_password_change FROM users")
+                users = old_cursor.fetchall()
+                
+                if users:
                     with new_db.get_connection() as new_conn:
                         new_cursor = new_conn.cursor()
-                        old_cursor.execute("SELECT * FROM users")
-                        users = old_cursor.fetchall()
-                        
-                        for user in users:
-                            new_cursor.execute("""
-                                INSERT INTO users (username, password, force_password_change)
-                                VALUES (?, ?, ?)
-                            """, user)
-                        
+                        new_cursor.executemany(
+                            "INSERT INTO users (username, password, force_password_change) VALUES (?, ?, ?)",
+                            users
+                        )
                         new_conn.commit()
         except Exception as e:
             logger.error(f"Error copying users to new database: {str(e)}")
-            # Continue even if user copy fails - new database is still valid
         
-        return {"id": name, "name": name}
+        return {"id": db_name, "name": name}  # Return both full name and display name
 
     def delete_database(self, name):
         if not name.endswith('.db'):
@@ -332,23 +387,50 @@ class Database:
             return {"message": f"Database {name} not found"}
 
     def set_active_database(self, name):
-        if not name.endswith('.db'):
-            name += '.db'
-        self.db_path = os.path.join(DATABASE_DIR, name)
-        self.init_db()
-        self.save_active_database(name)
-        return {"message": f"Active database set to {name}"}
-
-    def save_active_database(self, name):
-        config_path = os.path.join(DATABASE_DIR, 'config.json')
-        with open(config_path, 'w') as f:
-            json.dump({"active_database": name}, f)
+        """Set the active database and ensure it's properly initialized"""
+        try:
+            if not name.endswith('.db'):
+                name = f"{name}.db"
+            
+            db_path = os.path.join(DATABASE_DIR, name)
+            if not os.path.exists(db_path):
+                raise ValueError(f"Database {name} does not exist")
+            
+            # Update config
+            config_path = os.path.join(DATABASE_DIR, 'config.json')
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            
+            config['active_database'] = name
+            
+            with open(config_path, 'w') as f:
+                json.dump(config, f, indent=4)
+            
+            # Force connection refresh
+            if hasattr(self, '_connection') and self._connection:
+                self._connection.close()
+                self._connection = None
+            
+            # Initialize the new database
+            self.db_path = db_path
+            self.init_db()
+            
+            return {"message": f"Active database set to {name}"}
+            
+        except Exception as e:
+            logger.error(f"Error setting active database: {str(e)}")
+            raise
 
     def get_databases(self):
         databases = []
         for file in os.listdir(DATABASE_DIR):
             if file.endswith('.db'):
-                databases.append({"id": file, "name": file})
+                # Remove .db extension for display
+                display_name = file[:-3] if file.endswith('.db') else file
+                databases.append({
+                    "id": file,  # Keep full name with .db for operations
+                    "name": display_name  # Display name without .db
+                })
         return databases
 
     def get_config_item(self, item_name):

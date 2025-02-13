@@ -75,12 +75,22 @@ async def download_database(db_name: str, db: Database = Depends(get_database_in
 @router.get("/api/database-info")
 async def get_database_info(db: Database = Depends(get_database_instance)):
     try:
+        # Force a fresh database instance
+        db = Database()
+        
+        # Get fresh connection
         conn = db.get_connection()
         cursor = conn.cursor()
         
-        # Get database name and size
+        # Get current database path
         db_name = os.path.basename(db.db_path)
-        db_size = os.path.getsize(db.db_path)
+        print(f"Getting info for database: {db_name}")  # Debug log
+        
+        try:
+            db_size = os.path.getsize(db.db_path)
+        except OSError:
+            print(f"Error getting size for {db.db_path}")
+            db_size = 0
         
         # Get table information
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
@@ -110,7 +120,7 @@ async def get_database_info(db: Database = Depends(get_database_instance)):
         cursor.execute("SELECT COUNT(DISTINCT topic) FROM articles")
         topic_count = cursor.fetchone()[0]
         
-        return {
+        info = {
             "name": db_name,
             "size": db_size,
             "total_articles": article_stats[0] if article_stats else 0,
@@ -119,6 +129,9 @@ async def get_database_info(db: Database = Depends(get_database_instance)):
             "total_topics": topic_count,
             "tables": table_info
         }
+        
+        print(f"Database info: {info}")  # Debug log
+        return info
         
     except Exception as e:
         print(f"Error getting database info: {str(e)}")
