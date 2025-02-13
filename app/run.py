@@ -24,10 +24,10 @@ def configure_app():
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            "https://yourdomain.com",
-            "https://www.yourdomain.com",
             "http://localhost:8010",
             "https://localhost:8010",
+            "https://localhost:10000",
+            "http://localhost:10000"
         ] if ENVIRONMENT == 'production' else ["*"],
         allow_credentials=True,
         allow_methods=["*"],

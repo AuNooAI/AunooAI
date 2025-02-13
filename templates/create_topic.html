@@ -440,7 +440,7 @@ document.getElementById('existingTopic').addEventListener('change', async functi
     });
 });
 
-// Add delete button handler
+// Update the delete button handler to use the correct endpoint
 document.getElementById('deleteTopicBtn').addEventListener('click', async function() {
     const topicName = document.getElementById('existingTopic').value;
     if (!topicName) return;
@@ -450,12 +450,13 @@ document.getElementById('deleteTopicBtn').addEventListener('click', async functi
     }
     
     try {
-        const response = await fetch(`/api/topic/${topicName}`, {
+        const response = await fetch(`/api/topic/${encodeURIComponent(topicName)}`, {
             method: 'DELETE',
         });
 
         if (!response.ok) {
-            throw new Error('Failed to delete topic');
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to delete topic');
         }
 
         alert('Topic deleted successfully!');

@@ -1,6 +1,6 @@
 """Main FastAPI application file."""
 
-from fastapi import FastAPI, Request, Form, Query, Body, Depends, HTTPException
+from fastapi import FastAPI, Request, Form, Query, Body, Depends, HTTPException, status  # Add this import at the top with other FastAPI imports
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from app.collectors.newsapi_collector import NewsAPICollector
@@ -162,6 +162,9 @@ app.include_router(chat_router)
 
 # Add this near the other router includes
 app.include_router(database_router)
+
+# Make sure this line exists in the router includes section
+app.include_router(topic_router)  # Add this if it's missing
 
 class ArticleData(BaseModel):
     title: str

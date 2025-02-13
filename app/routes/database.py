@@ -22,6 +22,16 @@ router = APIRouter()
 # Add this model for the bulk delete request
 class BulkDeleteRequest(BaseModel):
     uris: List[str]
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "uris": [
+                    "https://example.com/article1",
+                    "https://example.com/article2"
+                ]
+            }
+        }
 
 class AnnotationCreate(BaseModel):
     content: str
@@ -116,34 +126,41 @@ async def get_database_info(db: Database = Depends(get_database_instance)):
 
 # Add the bulk delete endpoint
 @router.delete("/api/bulk_delete_articles")
-async def bulk_delete_articles(request: BulkDeleteRequest, db: Database = Depends(get_database_instance)):
+async def bulk_delete_articles(
+    request: BulkDeleteRequest,
+    db: Database = Depends(get_database_instance)
+) -> dict:
+    """Delete multiple articles and their related data in a single transaction."""
     try:
-        conn = db.get_connection()
-        cursor = conn.cursor()
+        if not request.uris:
+            raise HTTPException(status_code=400, detail="No URIs provided")
+            
+        # Log the request for debugging
+        logger.debug(f"Bulk delete request received for {len(request.uris)} articles")
+        logger.debug(f"First few URIs: {request.uris[:3]}")
         
-        # Start a transaction
-        cursor.execute("BEGIN TRANSACTION")
+        deleted_count = db.bulk_delete_articles(request.uris)
         
-        try:
-            # Delete all articles with the given URIs
-            placeholders = ','.join('?' * len(request.uris))
-            query = f"DELETE FROM articles WHERE uri IN ({placeholders})"
-            cursor.execute(query, request.uris)
+        if deleted_count == 0:
+            logger.warning("No articles were deleted")
+            return {
+                "status": "warning",
+                "message": "No matching articles found",
+                "deleted_count": 0
+            }
             
-            deleted_count = cursor.rowcount
-            conn.commit()
-            
-            return {"deleted_count": deleted_count}
-            
-        except Exception as e:
-            conn.rollback()
-            raise e
-            
-        finally:
-            conn.close()
-            
+        return {
+            "status": "success",
+            "message": f"Successfully deleted {deleted_count} articles",
+            "deleted_count": deleted_count
+        }
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting articles: {str(e)}")
+        logger.error(f"Error in bulk_delete_articles: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to delete articles: {str(e)}"
+        )
 
 @router.get("/api/articles/{article_uri}/annotations")
 async def get_article_annotations(

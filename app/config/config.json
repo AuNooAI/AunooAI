@@ -56,86 +56,6 @@
         "Unknown",
         "Catalyst"
       ]
-    },
-    {
-      "name": "Cloud Computing",
-      "categories": [
-        "Quantum Cloud Computing",
-        "Cloud Sovereignty & Geo-Political Cloud Computing",
-        "Decentralized Cloud & Web3 Integration",
-        "Cloud-Native 5G and Edge Revolution",
-        "Zero-Trust Cloud Security & Confidential Computing",
-        "Sustainable Cloud & Carbon-Aware Cloud Computing",
-        "Serverless AI & Autonomous Cloud Services",
-        "Composable Infrastructure & Cloud Hyper-Scale Innovation",
-        "Cross-Cloud Networking & Cloud Federation",
-        "AI-Cloud Convergence & Cloud for AGI Development",
-        "Regenerative AI in Cloud Optimization",
-        "Cloud Democratisation & Accessibility Innovations",
-        "Future of Cloud-Enabled XR (Extended Reality)",
-        "Cloud's Role in Autonomous Vehicle Ecosystems",
-        "Cloud-Based Digital Twins & Simulation Platforms"
-      ],
-      "future_signals": [
-        "Cloud adoption will continue to grow rapidly",
-        "Edge computing will become more mainstream",
-        "Cloud will become the default platform for AI",
-        "Decentralized cloud will emerge as a strong alternative",
-        "Cloud costs will become unsustainable for some businesses"
-      ],
-      "sentiment": [
-        "Optimistic",
-        "Cautious",
-        "Neutral",
-        "Concerned",
-        "Pessimistic"
-      ],
-      "time_to_impact": [
-        "Immediate",
-        "Short-term",
-        "Mid-term",
-        "Long-term"
-      ],
-      "driver_types": [
-        "Catalyst",
-        "Accelerator",
-        "Delayer",
-        "Blocker",
-        "Initiator",
-        "Terminator",
-        "Unknown"
-      ]
-    },
-    {
-      "name": "Security Data Fabric",
-      "categories": [
-        "Abstract Security",
-        "Auguria",
-        "Tarsal",
-        "Cribl",
-        "RunReveal"
-      ],
-      "future_signals": [
-        "Strong Growth",
-        "M&A"
-      ],
-      "sentiment": [
-        "Positive",
-        "Neutral",
-        "Negative"
-      ],
-      "time_to_impact": [
-        "Mid-term",
-        "Immediate",
-        "Long-term",
-        "Short-term"
-      ],
-      "driver_types": [
-        "New Feature",
-        "Funding",
-        "New Product",
-        "New Hire"
-      ]
     }
   ],
   "ai_models": [
@@ -162,6 +82,13 @@
       "display_name": "NewsAPI",
       "config_type": "api_key",
       "description": "Access news articles from various sources worldwide",
+      "enabled": true
+    },
+    {
+      "name": "thenewsapi",
+      "display_name": "TheNewsAPI",
+      "config_type": "api_key",
+      "description": "Access news articles from TheNewsAPI service",
       "enabled": true
     },
     {
