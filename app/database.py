@@ -1233,6 +1233,9 @@ class Database:
                 
                 logger.debug(f"First few URIs to delete: {decoded_uris[:3]}")
                 
+                # Temporarily disable foreign key constraints
+                cursor.execute("PRAGMA foreign_keys = OFF")
+                
                 cursor.execute("BEGIN TRANSACTION")
                 try:
                     placeholders = ','.join(['?' for _ in decoded_uris])
@@ -1265,11 +1268,17 @@ class Database:
                     logger.debug(f"Deleted {deleted_count} articles")
                     
                     cursor.execute("COMMIT")
+                    
+                    # Re-enable foreign key constraints
+                    cursor.execute("PRAGMA foreign_keys = ON")
+                    
                     logger.info(f"Successfully deleted {deleted_count} articles")
                     return deleted_count
                     
                 except Exception as e:
                     cursor.execute("ROLLBACK")
+                    # Re-enable foreign key constraints even on error
+                    cursor.execute("PRAGMA foreign_keys = ON")
                     logger.error(f"Error during bulk delete transaction: {e}")
                     raise
                 
