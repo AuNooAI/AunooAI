@@ -807,13 +807,23 @@ async function markAsRead(alertId) {
         if (!response.ok) throw new Error('Failed to mark alert as read');
         
         const alertElement = document.querySelector(`[onclick*="${alertId}"]`);
-        const groupElement = alertElement.closest('.card');
-        const buttonContainer = groupElement.querySelector('.d-flex[data-group-id]');
-        const topic = alertElement.dataset.topic;
-        const groupId = buttonContainer.dataset.groupId;
-        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (!alertElement) throw new Error('Alert element not found');
         
+        const topic = alertElement.dataset.topic;
+        const groupId = alertElement.dataset.groupId;
+        
+        if (!topic || !groupId) {
+            console.error('Missing topic or groupId:', { topic, groupId });
+            throw new Error('Missing required data attributes');
+        }
+        
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (!toggle) throw new Error('Toggle element not found');
+        
+        // Refresh with current toggle state
         await refreshGroupArticles(topic, groupId, toggle.checked);
+        
+        showAlert('Alert marked as read', 'success');
     } catch (error) {
         console.error('Error:', error);
         showAlert('Failed to mark alert as read', 'danger');
@@ -1236,53 +1246,45 @@ async function bulkDeleteArticles(topic, groupId) {
         selectedArticles.byGroup[groupId] = [];
         selectedArticles.byTopic[topic] = [];
         
-        // Debug logging
-        console.log(`Updating counts for topic: ${topic}, groupId: ${groupId}`);
-        
-        // Update the main alert count in the header
+        // Update UI elements safely with null checks
         const headerBadge = document.querySelector(`a[href="#${groupId}"] .badge, [data-topic="${topic}"] .badge.bg-primary`);
         if (headerBadge) {
-            console.log('Found header badge:', headerBadge.textContent);
             headerBadge.textContent = '0 alerts';
-        } else {
-            console.log('Header badge not found');
         }
         
-        // Update the trend dashboard count
         const trendBadge = document.querySelector(`tr[data-topic="${topic}"] td:nth-child(5) .badge.bg-primary`);
         if (trendBadge) {
-            console.log('Found trend badge:', trendBadge.textContent);
             trendBadge.textContent = '0 alerts';
-        } else {
-            console.log('Trend badge not found');
         }
         
-        // Update the total count in the toggle
-        const totalSpan = document.querySelector(`#showReadToggle_${groupId}`).closest('label').querySelector('.total-count');
-        if (totalSpan) {
-            console.log('Found total count:', totalSpan.textContent);
-            totalSpan.textContent = '0';
-        } else {
-            console.log('Total count span not found');
-        }
-        
-        // Refresh the group's content
+        // Safely get the toggle element
         const toggle = document.querySelector(`#showReadToggle_${groupId}`);
-        await refreshGroupArticles(topic, groupId, toggle?.checked || false);
+        if (toggle) {
+            const totalSpan = toggle.closest('label')?.querySelector('.total-count');
+            if (totalSpan) {
+                totalSpan.textContent = '0';
+            }
+            
+            // Refresh the group's content
+            await refreshGroupArticles(topic, groupId, toggle.checked || false);
+        }
         
-        // If there are no articles, show the "No new alerts" message
-        const tableBody = document.querySelector(`[data-group-id="${groupId}"]`).closest('.card').querySelector('tbody');
-        if (tableBody) {
-            if (tableBody.children.length === 0) {
-                const alertDiv = document.createElement('tr');
-                alertDiv.innerHTML = `
-                    <td colspan="6">
-                        <div class="alert alert-info mb-0">
-                            <i class="fas fa-info-circle"></i> No new alerts for this group
-                        </div>
-                    </td>
-                `;
-                tableBody.appendChild(alertDiv);
+        // Update the group content area
+        const groupContainer = document.querySelector(`[data-group-id="${groupId}"]`);
+        if (groupContainer) {
+            const tableBody = groupContainer.closest('.card')?.querySelector('tbody');
+            if (tableBody) {
+                if (tableBody.children.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="6">
+                                <div class="alert alert-info mb-0">
+                                    <i class="fas fa-info-circle"></i> No new alerts for this group
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }
             }
         }
 

@@ -1055,11 +1055,10 @@ class Database:
                 # Delete all data from the tables
                 cursor.execute("DELETE FROM articles")
                 cursor.execute("DELETE FROM raw_articles")
-                cursor.execute("DELETE FROM tags")
                 cursor.execute("DELETE FROM reports")
                 
                 # Reset autoincrement counters
-                cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('reports', 'tags')")
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name='reports'")
                 
                 conn.commit()
                 return {"message": "Database reset successful"}
@@ -1221,44 +1220,24 @@ class Database:
             return cursor.rowcount > 0
 
     def bulk_delete_articles(self, uris: List[str]) -> int:
-        """
-        Delete multiple articles and their related data in a single transaction.
-        Returns the number of articles deleted.
-        """
         if not uris:
             logger.warning("No URIs provided for bulk delete")
             return 0
         
         logger.info(f"Attempting to bulk delete {len(uris)} articles")
-        
-        # Decode URIs if they're URL encoded
         decoded_uris = [unquote_plus(unquote_plus(uri)) for uri in uris]
         
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Log the first few URIs for debugging
-                logger.debug(f"First few URIs to delete: {decoded_uris[:3]}")
-                
-                # Verify articles exist before deleting
-                placeholders = ','.join(['?' for _ in decoded_uris])
-                cursor.execute(f"""
-                    SELECT COUNT(*), GROUP_CONCAT(uri) 
-                    FROM articles 
-                    WHERE uri IN ({placeholders})
-                """, decoded_uris)
-                count_result = cursor.fetchone()
-                found_count = count_result[0] if count_result else 0
-                found_uris = count_result[1].split(',') if count_result and count_result[1] else []
-                
-                logger.debug(f"Found {found_count} articles to delete")
-                if found_count == 0:
-                    logger.warning("No matching articles found for deletion")
-                    return 0
+                # Temporarily disable foreign key constraints
+                cursor.execute("PRAGMA foreign_keys = OFF")
                 
                 cursor.execute("BEGIN TRANSACTION")
                 try:
+                    placeholders = ','.join(['?' for _ in decoded_uris])
+                    
                     # Delete from related tables first
                     cursor.execute(f"""
                         DELETE FROM keyword_alerts 
@@ -1278,6 +1257,16 @@ class Database:
                     """, decoded_uris)
                     logger.debug(f"Deleted {cursor.rowcount} raw articles")
                     
+                    # Delete from tags table
+                    cursor.execute(f"""
+                        DELETE FROM tags 
+                        WHERE article_id IN (
+                            SELECT id FROM articles WHERE uri IN ({placeholders})
+                        )
+                    """, decoded_uris)
+                    logger.debug(f"Deleted {cursor.rowcount} tags")
+                    
+                    # Finally delete the articles
                     cursor.execute(f"""
                         DELETE FROM articles 
                         WHERE uri IN ({placeholders})
@@ -1286,11 +1275,16 @@ class Database:
                     logger.debug(f"Deleted {deleted_count} articles")
                     
                     cursor.execute("COMMIT")
+                    # Re-enable foreign key constraints
+                    cursor.execute("PRAGMA foreign_keys = ON")
+                    
                     logger.info(f"Successfully deleted {deleted_count} articles")
                     return deleted_count
                     
                 except Exception as e:
                     cursor.execute("ROLLBACK")
+                    # Re-enable foreign key constraints
+                    cursor.execute("PRAGMA foreign_keys = ON")
                     logger.error(f"Error during bulk delete transaction: {e}")
                     raise
                 
@@ -1326,6 +1320,26 @@ class Database:
         except Exception as e:
             logger.error(f"Error updating topic in database: {str(e)}")
             return False
+
+    def _debug_schema(self):
+        """Print the schema and foreign keys of relevant tables"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            tables = ['articles', 'keyword_alerts', 'article_annotations', 
+                     'raw_articles', 'tags', 'article_tags']
+            
+            for table in tables:
+                logger.debug(f"\nSchema for {table}:")
+                cursor.execute(f"PRAGMA table_info({table})")
+                columns = cursor.fetchall()
+                for col in columns:
+                    logger.debug(f"  {col}")
+                    
+                logger.debug(f"\nForeign keys for {table}:")
+                cursor.execute(f"PRAGMA foreign_key_list({table})")
+                foreign_keys = cursor.fetchall()
+                for fk in foreign_keys:
+                    logger.debug(f"  {fk}")
 
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
