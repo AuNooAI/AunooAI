@@ -817,6 +817,15 @@ async function markAsRead(alertId) {
             throw new Error('Missing required data attributes');
         }
         
+        // Update the status badge count
+        const groupCard = alertElement.closest('.card');
+        const statusBadge = groupCard.querySelector('.badge.bg-primary');
+        const currentCount = parseInt(statusBadge.textContent);
+        if (!isNaN(currentCount)) {
+            const newCount = Math.max(0, currentCount - 1);
+            statusBadge.textContent = `${newCount} alerts`;
+        }
+        
         const toggle = document.querySelector(`#showReadToggle_${groupId}`);
         if (!toggle) throw new Error('Toggle element not found');
         
