@@ -114,23 +114,24 @@ Article text:
             # Get template hash for cache validation
             template_hash = self.prompt_templates.get_template_hash()
 
+            # Prepare model info for cache
+            model_info = {
+                'name': self.model_name,
+                'provider': getattr(self.ai_model, 'provider', None)
+            }
+
             # Check cache first
             if self.use_cache:
                 logger.debug(f"Cache check enabled for model {self.model_name}")
                 content_hash = self._compute_content_hash(article_text)
                 cache_key = f"{uri}_{self.model_name}"
                 logger.debug(f"Checking cache with key: {cache_key}, content_hash: {content_hash}")
-                cached_result = self.cache.get(cache_key, content_hash, template_hash)
+                cached_result = self.cache.get(cache_key, content_hash, model_info, template_hash)
                 
                 if cached_result:
-                    cached_model = cached_result.get('model_name')
-                    logger.debug(f"Found cached result for model {cached_model}, current model is {self.model_name}")
-                    if cached_model == self.model_name:
-                        logger.info(f"Using cached analysis for {uri} with model {self.model_name}")
-                        cached_result["uri"] = uri
-                        return cached_result
-                    else:
-                        logger.debug(f"Cache hit but model mismatch. Cached: {cached_model}, Current: {self.model_name}")
+                    logger.info(f"Using cached analysis for {uri} with model {self.model_name}")
+                    cached_result["uri"] = uri
+                    return cached_result
             else:
                 logger.debug(f"Cache check disabled for model {self.model_name}")
 
@@ -165,13 +166,12 @@ Article text:
             
             logger.debug(f"Parsed analysis result: {json.dumps(result, indent=2)}")
 
-            # When storing the result, include the model name
-            result['model_name'] = self.ai_model.model_name
+            # When storing the result, include the model info
             if self.use_cache:
                 try:
                     content_hash = self._compute_content_hash(article_text)
                     cache_key = f"{uri}_{self.ai_model.model_name}"
-                    self.cache.set(cache_key, content_hash, result, template_hash)
+                    self.cache.set(cache_key, content_hash, result, model_info, template_hash)
                 except CacheError as e:
                     logger.warning(f"Failed to cache analysis: {str(e)}")
 

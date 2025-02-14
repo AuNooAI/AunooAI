@@ -23,20 +23,14 @@ class AnalysisCache:
             raise CacheError(f"Failed to create cache directory: {str(e)}")
 
     def _get_cache_key(self, uri: str, content_hash: str) -> str:
-        # Include model name in the cache key if provided
-        model_name = uri.split('_')[-1] if '_' in uri else ''
-        return f"{uri}_{content_hash}_{model_name}"
+        """Generate a cache key that includes model information."""
+        # Remove the old model name extraction since we'll handle it differently
+        return f"{uri}_{content_hash}"
 
     def _get_cache_path(self, uri: str, content_hash: str) -> str:
+        """Create a cache path that includes model information."""
         # Create a safe filename from the URI
-        # Keep the model name part of the URI intact
-        parts = uri.split('_')
-        base_uri = '_'.join(parts[:-1]) if len(parts) > 1 else uri
-        model_name = parts[-1] if len(parts) > 1 else ''
-        safe_uri = base_uri.replace('://', '_').replace('/', '_')
-        if model_name:
-            safe_uri = f"{safe_uri}_{model_name}"
-        
+        safe_uri = uri.replace('://', '_').replace('/', '_')
         filename = f"{safe_uri}_{content_hash}.json"
         
         # Create subdirectories based on the first few characters of the hash
@@ -46,7 +40,8 @@ class AnalysisCache:
         
         return os.path.join(subdir_path, filename)
 
-    def get(self, uri: str, content_hash: str, template_hash: str = None) -> Optional[Dict[str, Any]]:
+    def get(self, uri: str, content_hash: str, model_info: Dict[str, str] = None, template_hash: str = None) -> Optional[Dict[str, Any]]:
+        """Get cached analysis with model version checking."""
         try:
             cache_key = self._get_cache_key(uri, content_hash)
             cache_path = self._get_cache_path(uri, content_hash)
@@ -66,19 +61,29 @@ class AnalysisCache:
                 self.delete(uri, content_hash)
                 return None
 
+            # Check model version if provided
+            if model_info:
+                cached_model = cached_data.get('model_info', {})
+                if cached_model.get('name') != model_info.get('name') or \
+                   cached_model.get('provider') != model_info.get('provider'):
+                    logger.debug(f"Model mismatch for {cache_key}")
+                    self.delete(uri, content_hash)
+                    return None
+
             # Check template version if provided
             if template_hash and cached_data.get('template_hash') != template_hash:
                 logger.debug(f"Template version mismatch for {cache_key}")
                 self.delete(uri, content_hash)
                 return None
 
-            logger.debug(f"Cache hit for {cache_key} at {cache_path}")
+            logger.debug(f"Cache hit for {cache_key}")
             return cached_data['analysis']
         except Exception as e:
             logger.error(f"Error reading from cache: {str(e)}")
             return None
 
-    def set(self, uri: str, content_hash: str, analysis: Dict[str, Any], template_hash: str = None) -> None:
+    def set(self, uri: str, content_hash: str, analysis: Dict[str, Any], model_info: Dict[str, str] = None, template_hash: str = None) -> None:
+        """Store analysis with model version information."""
         try:
             cache_key = self._get_cache_key(uri, content_hash)
             cache_path = self._get_cache_path(uri, content_hash)
@@ -88,13 +93,14 @@ class AnalysisCache:
                 'content_hash': content_hash,
                 'analysis': analysis,
                 'cached_at': datetime.now().isoformat(),
-                'template_hash': template_hash
+                'template_hash': template_hash,
+                'model_info': model_info
             }
 
             with open(cache_path, 'w') as f:
                 json.dump(cache_data, f, indent=2)
 
-            logger.debug(f"Cached analysis for {uri}")
+            logger.debug(f"Cached analysis for {uri} with model info: {model_info}")
         except Exception as e:
             logger.error(f"Error writing to cache: {str(e)}")
             raise CacheError(f"Failed to cache analysis: {str(e)}")

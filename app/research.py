@@ -474,20 +474,19 @@ class Research:
         if model_name not in available_names:
             raise ValueError(f"Model {model_name} is not configured. Please select a configured model.")
         
-        # If we're changing models, disable cache for the next analysis
-        use_cache = True
-        if hasattr(self, 'ai_model') and self.ai_model and getattr(self.ai_model, 'model_name', None) != model_name:
-            logger.debug(f"Switching models from {getattr(self.ai_model, 'model_name', 'None')} to {model_name}")
-            use_cache = False
-
-        logger.debug(f"CACHE STATUS AFTER SETTING AI MODEL: use_cache={use_cache}")
-
+        # Set the new AI model
         self.ai_model = get_ai_model(model_name)
         logger.debug(f"Successfully set AI model to: {model_name}")
-        # Initialize ArticleAnalyzer if not already initialized
-        if not hasattr(self, 'article_analyzer') or not self.article_analyzer or not use_cache:
-            logger.debug(f"Creating new ArticleAnalyzer with use_cache={use_cache}")
-            self.article_analyzer = ArticleAnalyzer(self.ai_model, use_cache=use_cache)
+        
+        # Only create new ArticleAnalyzer if it doesn't exist
+        if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
+            self.article_analyzer = ArticleAnalyzer(self.ai_model, use_cache=True)
+            logger.debug(f"Created new ArticleAnalyzer for model: {model_name}")
+        else:
+            # Update existing analyzer with new model while preserving cache
+            self.article_analyzer.ai_model = self.ai_model
+            self.article_analyzer.model_name = model_name
+            logger.debug(f"Updated existing ArticleAnalyzer with model: {model_name}")
 
     def get_available_models(self):
         return self.available_models
