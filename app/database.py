@@ -1231,8 +1231,7 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 
-                # Temporarily disable foreign key constraints
-                cursor.execute("PRAGMA foreign_keys = OFF")
+                logger.debug(f"First few URIs to delete: {decoded_uris[:3]}")
                 
                 cursor.execute("BEGIN TRANSACTION")
                 try:
@@ -1257,15 +1256,6 @@ class Database:
                     """, decoded_uris)
                     logger.debug(f"Deleted {cursor.rowcount} raw articles")
                     
-                    # Delete from tags table
-                    cursor.execute(f"""
-                        DELETE FROM tags 
-                        WHERE article_id IN (
-                            SELECT id FROM articles WHERE uri IN ({placeholders})
-                        )
-                    """, decoded_uris)
-                    logger.debug(f"Deleted {cursor.rowcount} tags")
-                    
                     # Finally delete the articles
                     cursor.execute(f"""
                         DELETE FROM articles 
@@ -1275,16 +1265,11 @@ class Database:
                     logger.debug(f"Deleted {deleted_count} articles")
                     
                     cursor.execute("COMMIT")
-                    # Re-enable foreign key constraints
-                    cursor.execute("PRAGMA foreign_keys = ON")
-                    
                     logger.info(f"Successfully deleted {deleted_count} articles")
                     return deleted_count
                     
                 except Exception as e:
                     cursor.execute("ROLLBACK")
-                    # Re-enable foreign key constraints
-                    cursor.execute("PRAGMA foreign_keys = ON")
                     logger.error(f"Error during bulk delete transaction: {e}")
                     raise
                 
