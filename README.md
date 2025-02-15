@@ -1,8 +1,8 @@
-﻿# newsaddict
+﻿# AuNoo AI
 
 ## Overview
 
-An app that allows you to research and analyze news articles. It uses LLMs to extract insights from articles.
+An app that allows you to research and analyze news articles and trends. It uses LLMs and ML to extract insights from articles.
 
 ## Getting Started
 
