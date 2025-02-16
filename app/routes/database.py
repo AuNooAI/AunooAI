@@ -341,4 +341,48 @@ async def list_backups():
         
     except Exception as e:
         logger.error(f"Error listing backups: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/databases/reset")
+async def reset_database(db: Database = Depends(get_database_instance)):
+    """Reset the database to its initial state"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Begin transaction
+            cursor.execute("BEGIN IMMEDIATE")
+            
+            try:
+                # Disable foreign key checks temporarily
+                cursor.execute("PRAGMA foreign_keys = OFF")
+                
+                # Drop existing tables
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name NOT IN ('sqlite_sequence')
+                """)
+                tables = cursor.fetchall()
+                
+                for table in tables:
+                    cursor.execute(f"DROP TABLE IF EXISTS {table[0]}")
+                
+                # Re-enable foreign key checks
+                cursor.execute("PRAGMA foreign_keys = ON")
+                
+                # Reinitialize database with new schema
+                db.init_db()
+                
+                cursor.execute("COMMIT")
+                return {"message": "Database reset successfully"}
+                
+            except Exception as e:
+                cursor.execute("ROLLBACK")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to reset database: {str(e)}"
+                )
+                
+    except Exception as e:
+        logger.error(f"Error resetting database: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

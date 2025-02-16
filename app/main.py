@@ -47,6 +47,7 @@ from app.routes import database  # Make sure this import exists
 from app.routes.stats_routes import router as stats_router
 from app.routes.chat_routes import router as chat_router
 from app.routes.database import router as database_router
+import shutil
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -823,6 +824,21 @@ async def get_active_database():
 @app.on_event("startup")
 def startup_event():
     global db
+    
+    # Check and copy config.json if needed
+    config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json')
+    config_sample_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json.sample')
+    
+    if not os.path.exists(config_path) and os.path.exists(config_sample_path):
+        logger.info("config.json not found, copying from config.json.sample")
+        try:
+            shutil.copy2(config_sample_path, config_path)
+            logger.info("Successfully created config.json from sample")
+        except Exception as e:
+            logger.error(f"Failed to copy config file: {str(e)}")
+            raise
+    
+    # Initialize database and continue with existing startup tasks
     db = Database()
     db.migrate_db()
     logger.info(f"Active database set to: {db.db_path}")
