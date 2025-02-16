@@ -3,7 +3,7 @@ import os
 import json
 import logging
 from datetime import datetime
-from config.settings import DATABASE_DIR
+from pathlib import Path
 
 # Set up logging
 logging.basicConfig(
@@ -12,15 +12,39 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def get_active_database():
-    config_path = os.path.join('data', 'config.json')
-    with open(config_path, 'r') as f:
-        config = json.load(f)
-    return config.get('active_database', 'fnaapp.db')
+
+def get_database_path():
+    """Get the path to the active database file"""
+    # Get the app root directory (where this script is located)
+    app_root = Path(__file__).parent.parent
+    data_dir = app_root / 'data'
+    
+    # First try to read from config.json
+    config_path = data_dir / 'config.json'
+    if config_path.exists():
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                db_name = config.get('active_database', 'fnaapp.db')
+        except json.JSONDecodeError:
+            logger.warning("Could not parse config.json, using default database name")
+            db_name = 'fnaapp.db'
+    else:
+        db_name = 'fnaapp.db'
+    
+    db_path = data_dir / db_name
+    if not db_path.exists():
+        raise FileNotFoundError(
+            f"Database file not found: {db_path}. "
+            f"Expected location: {data_dir}"
+        )
+    
+    return str(db_path)
+
 
 def update_articles_uri_key():
     """Update articles table to have URI as primary key and remove duplicates"""
-    db_path = os.path.join(DATABASE_DIR, get_active_database())
+    db_path = get_database_path()
     logger.info(f"Updating database: {db_path}")
 
     conn = sqlite3.connect(db_path)
@@ -102,11 +126,6 @@ def update_articles_uri_key():
         # Create index on uri
         cursor.execute("CREATE UNIQUE INDEX idx_articles_uri ON articles(uri)")
         
-        # Update any related foreign keys
-        cursor.execute("PRAGMA foreign_key_list('keyword_alerts')")
-        fk_info = cursor.fetchall()
-        logger.info("Checking foreign key constraints...")
-        
         # Check for any orphaned keyword alerts
         cursor.execute("""
             DELETE FROM keyword_alerts 
@@ -118,7 +137,7 @@ def update_articles_uri_key():
         # Commit changes
         conn.commit()
         logger.info("Database update completed successfully")
-        logger.info(f"Summary:")
+        logger.info("Summary:")
         logger.info(f"- Original articles: {old_count}")
         logger.info(f"- Articles after deduplication: {new_count}")
         logger.info(f"- Duplicate entries removed: {duplicates_removed}")
@@ -131,6 +150,7 @@ def update_articles_uri_key():
         
     finally:
         conn.close()
+
 
 if __name__ == "__main__":
     try:
