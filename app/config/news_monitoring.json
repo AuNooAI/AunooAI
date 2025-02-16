@@ -2,7 +2,8 @@
   "news_filters": {
     "AI and Machine Learning": "\"Artificial Intelligence\"",
     "Cloud Computing": "Cloud Services",
-    "Test": "Quantum Advantage"
+    "Test": "Quantum Advantage",
+    "Security Data Fabric": "\"Security Data Fabric\""
   },
   "paper_filters": {
     "AI and Machine Learning": "GenAI",

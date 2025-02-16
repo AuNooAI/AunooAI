@@ -1,6 +1,8 @@
+"""Monitor keywords and collect matching news articles."""
+
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict
 from app.collectors.newsapi_collector import NewsAPICollector
 from app.database import Database
@@ -12,6 +14,10 @@ class KeywordMonitor:
         self.db = db
         self.collector = None
         self.last_collector_init_attempt = None
+        # Enable foreign keys at connection level
+        with self.db.get_connection() as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.commit()
         self._load_settings()
         self._init_tables()
     
@@ -37,7 +43,8 @@ class KeywordMonitor:
                             sort_by TEXT NOT NULL DEFAULT 'publishedAt',
                             page_size INTEGER NOT NULL DEFAULT 10,
                             is_enabled BOOLEAN NOT NULL DEFAULT 1,
-                            daily_request_limit INTEGER NOT NULL DEFAULT 100
+                            daily_request_limit INTEGER NOT NULL DEFAULT 100,
+                            search_date_range INTEGER NOT NULL DEFAULT 7
                         )
                     """)
                     # Insert default settings
@@ -57,6 +64,11 @@ class KeywordMonitor:
                             ALTER TABLE keyword_monitor_settings 
                             ADD COLUMN daily_request_limit INTEGER NOT NULL DEFAULT 100
                         """)
+                    if 'search_date_range' not in columns:
+                        cursor.execute("""
+                            ALTER TABLE keyword_monitor_settings 
+                            ADD COLUMN search_date_range INTEGER NOT NULL DEFAULT 7
+                        """)
                     conn.commit()
                 
                 # Load settings
@@ -69,7 +81,8 @@ class KeywordMonitor:
                         sort_by,
                         page_size,
                         is_enabled,
-                        daily_request_limit
+                        daily_request_limit,
+                        search_date_range
                     FROM keyword_monitor_settings 
                     WHERE id = 1
                 """)
@@ -83,6 +96,7 @@ class KeywordMonitor:
                     self.page_size = settings[5]
                     self.is_enabled = settings[6]
                     self.daily_request_limit = settings[7]
+                    self.search_date_range = settings[8] or 7  # Default to 7 days if not set
                 else:
                     # Use defaults
                     self.check_interval = 900  # 15 minutes
@@ -92,6 +106,7 @@ class KeywordMonitor:
                     self.page_size = 10
                     self.is_enabled = True
                     self.daily_request_limit = 100
+                    self.search_date_range = 7  # Default to 7 days
                     
         except Exception as e:
             logger.error(f"Error loading settings: {str(e)}")
@@ -103,6 +118,7 @@ class KeywordMonitor:
             self.page_size = 10
             self.is_enabled = True
             self.daily_request_limit = 100
+            self.search_date_range = 7  # Default to 7 days
     
     def _init_tables(self):
         """Initialize required database tables"""
@@ -182,13 +198,16 @@ class KeywordMonitor:
     async def check_keywords(self):
         """Check all keywords for new matches"""
         logger.info("Starting keyword check...")
-        if not self._init_collector():  # Check return value
+        if not self._init_collector():
             logger.error("Failed to initialize collector, skipping check")
             return
         
         try:
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
+                
+                # Ensure foreign keys are enabled
+                cursor.execute("PRAGMA foreign_keys = ON")
                 
                 # Store check start time and reset error
                 check_start_time = datetime.now().isoformat()
@@ -215,11 +234,14 @@ class KeywordMonitor:
                     )
                     
                     try:
+                        # Calculate start_date based on search_date_range instead of last_checked
+                        start_date = datetime.now() - timedelta(days=self.search_date_range)
+                        
                         articles = await self.collector.search_articles(
                             query=keyword_text,
                             topic=topic,
                             max_results=self.page_size,
-                            start_date=last_checked if last_checked else None,
+                            start_date=start_date,  # Use calculated start_date
                             search_fields=self.search_fields,
                             language=self.language,
                             sort_by=self.sort_by
@@ -234,37 +256,52 @@ class KeywordMonitor:
                         # Process each article
                         for article in articles:
                             try:
-                                # Check if article exists
-                                cursor.execute(
-                                    "SELECT 1 FROM articles WHERE uri = ?",
-                                    (article['url'],)
-                                )
-                                if not cursor.fetchone():
-                                    # Save new article
-                                    cursor.execute("""
-                                        INSERT INTO articles (
-                                            uri, title, news_source, publication_date,
-                                            summary, topic
-                                        ) VALUES (?, ?, ?, ?, ?, ?)
-                                    """, (
-                                        article['url'],
-                                        article['title'],
-                                        article['source'],
-                                        article['published_date'],
-                                        article['summary'],
-                                        topic
-                                    ))
+                                article_url = article['url'].strip()
                                 
-                                # Create alert
-                                cursor.execute("""
-                                    INSERT INTO keyword_alerts (
-                                        keyword_id, article_uri
-                                    ) VALUES (?, ?)
-                                    ON CONFLICT DO NOTHING
-                                """, (keyword_id, article['url']))
+                                # First check if article exists outside transaction
+                                cursor.execute(
+                                    "SELECT uri FROM articles WHERE uri = ?",
+                                    (article_url,)
+                                )
+                                article_exists = cursor.fetchone()
+                                
+                                # Start transaction
+                                conn.execute("BEGIN IMMEDIATE")
+                                
+                                try:
+                                    if not article_exists:
+                                        # Save new article
+                                        cursor.execute("""
+                                            INSERT INTO articles (
+                                                uri, title, news_source, publication_date,
+                                                summary, topic
+                                            ) VALUES (?, ?, ?, ?, ?, ?)
+                                        """, (
+                                            article_url,
+                                            article['title'],
+                                            article['source'],
+                                            article['published_date'],
+                                            article['summary'],
+                                            topic
+                                        ))
+                                    
+                                    # Create alert
+                                    cursor.execute("""
+                                        INSERT INTO keyword_alerts (
+                                            keyword_id, article_uri
+                                        ) VALUES (?, ?)
+                                        ON CONFLICT DO NOTHING
+                                    """, (keyword_id, article_url))
+                                    
+                                    # Commit transaction
+                                    conn.commit()
+                                    
+                                except Exception as e:
+                                    conn.rollback()
+                                    raise e
                                 
                             except Exception as e:
-                                logger.error(f"Error processing article {article.get('url', 'unknown')}: {str(e)}")
+                                logger.error(f"Error processing article {article_url}: {str(e)}")
                                 continue
                         
                         # Update last checked timestamp

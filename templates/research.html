@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Aunoo AI - Research{% endblock %}
+{% block title %}AuNoo AI - Research{% endblock %}
 {% block extra_css %}
 <style>
     :root {
@@ -214,6 +214,7 @@
         display: none;
     }
 </style>
+<link href="https://cdn.jsdelivr.net/npm/marked/lib/marked.min.css" rel="stylesheet">
 {% endblock %}
 {% block content %}
 <div class="container">
@@ -319,7 +320,32 @@
                             </div>
                         </div>
                     </div>
-                    <p><strong>Tags:</strong> <input type="text" id="analysisTags" class="form-control"></p>
+                    <div class="mb-3">
+                        <label class="form-label">Tags</label>
+                        <input type="text" id="analysisTags" class="form-control" placeholder="Enter tags separated by commas">
+                    </div>
+                    <div class="mb-3 border-top pt-3">
+                        <h6>Annotations</h6>
+                        <div id="annotationsList" class="mb-3">
+                            <!-- Annotations will be loaded here -->
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-body">
+                                <textarea id="newAnnotation" class="form-control mb-2" rows="3" 
+                                          placeholder="Add your analysis or comments..."></textarea>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="annotationPrivate">
+                                    <label class="form-check-label" for="annotationPrivate">
+                                        Private note (not included in analysis)
+                                    </label>
+                                </div>
+                                <button class="btn btn-primary" onclick="saveAnnotation()">
+                                    Add Annotation
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     <button onclick="saveArticle()" class="btn btn-primary">Save</button>
                     <button onclick="clearForm()" class="btn btn-secondary">Clear</button>
                 </div>
@@ -346,6 +372,7 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
 async function handleFormSubmit(event) {
     event.preventDefault();
@@ -513,26 +540,24 @@ document.addEventListener('DOMContentLoaded', function() {
     // Get URL parameters
     const urlParams = new URLSearchParams(window.location.search);
     const articleUrl = urlParams.get('url');
-    const topic = urlParams.get('topic');
+    const urlTopic = urlParams.get('topic');
 
     // Initialize the page
     initializeResearchPage();
+    
+    // Load topics and set the selected topic from URL
     loadTopics().then(() => {
-        // If coming from article collection
-        if (articleUrl && topic) {
-            // Set the topic and hide topic selection
-            const topicSelect = document.getElementById('topicSelect');
-            if (topicSelect) {
-                topicSelect.value = topic;
-                document.getElementById('topicSelector').style.display = 'none';
-            }
-            
-            // Show research content and set URL
+        const topicSelect = document.getElementById('topicSelect');
+        if (urlTopic && topicSelect) {
+            topicSelect.value = urlTopic;
+            // Show research content and trigger topic change handlers
             document.getElementById('researchContent').style.display = 'block';
+            // Manually trigger change event to update dependent fields
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+        
+        if (articleUrl) {
             document.getElementById('articleUrl').value = articleUrl;
-
-            // Fetch latest articles for the selected topic
-            fetchLatestArticles(topic);
         }
     });
 });
@@ -721,27 +746,57 @@ function handleNewOption(selectId, newInputId) {
 }
 
 function saveArticle() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlTopic = urlParams.get('topic');
+    const selectedTopic = document.getElementById('topicSelect').value;
+    const topic = urlTopic || selectedTopic;
+
+    if (!topic) {
+        alert('Please select a topic before saving the article');
+        document.getElementById('topicSelect').focus();
+        return;
+    }
+
+    // Get and validate submission date
+    const submissionDate = document.getElementById('analysisSubmissionDate').value;
+    if (!submissionDate) {
+        setDefaultSubmissionDate();
+    }
+
+    // Handle tags - convert to array of strings
+    const tagsString = document.getElementById('analysisTags').value;
+    const tags = tagsString ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag) : [];
+    
     const articleData = {
-        title: document.getElementById('analysisTitle').value,
-        news_source: document.getElementById('analysisSource').value,
-        uri: document.getElementById('analysisUrl').value,
+        title: document.getElementById('analysisTitle').value.trim(),
+        news_source: document.getElementById('analysisSource').value.trim(),
+        uri: document.getElementById('analysisUrl').value.trim(),
         publication_date: document.getElementById('analysisPublicationDate').value,
-        summary: document.getElementById('analysisSummary').value,
+        summary: document.getElementById('analysisSummary').value.trim(),
         category: document.getElementById('analysisCategory').value,
         future_signal: document.getElementById('analysisFutureSignal').value,
-        future_signal_explanation: document.getElementById('analysisFutureSignalExplanation').value,
+        future_signal_explanation: document.getElementById('analysisFutureSignalExplanation').value.trim(),
         sentiment: document.getElementById('analysisSentiment').value,
-        sentiment_explanation: document.getElementById('analysisSentimentExplanation').value,
+        sentiment_explanation: document.getElementById('analysisSentimentExplanation').value.trim(),
         time_to_impact: document.getElementById('analysisTimeToImpact').value,
-        time_to_impact_explanation: document.getElementById('analysisTimeToImpactExplanation').value,
-        tags: document.getElementById('analysisTags').value.split(',').map(tag => tag.trim()),
+        time_to_impact_explanation: document.getElementById('analysisTimeToImpactExplanation').value.trim(),
+        tags: tags, // Send as array
         driver_type: document.getElementById('analysisDriverType').value,
-        driver_type_explanation: document.getElementById('analysisDriverTypeExplanation').value,
+        driver_type_explanation: document.getElementById('analysisDriverTypeExplanation').value.trim(),
         submission_date: document.getElementById('analysisSubmissionDate').value,
-        topic: document.getElementById('topicSelect').value
+        topic: topic
     };
 
-    console.log('Article data to be saved:', articleData);
+    // Validate required fields
+    const requiredFields = ['title', 'uri', 'summary', 'topic'];
+    const missingFields = requiredFields.filter(field => !articleData[field]);
+    
+    if (missingFields.length > 0) {
+        alert(`Please fill in required fields: ${missingFields.join(', ')}`);
+        return;
+    }
+
+    console.log('Sending article data:', articleData);
 
     fetch('/api/save_article', {
         method: 'POST',
@@ -750,20 +805,29 @@ function saveArticle() {
         },
         body: JSON.stringify(articleData),
     })
-    .then(response => {
+    .then(async response => {
+        const responseData = await response.json();
+        
         if (!response.ok) {
-            throw new Error('Network response was not ok');
+            console.error('Server error:', responseData);
+            if (responseData.detail && Array.isArray(responseData.detail)) {
+                throw new Error(responseData.detail[0]); // Get first error message
+            } else if (responseData.detail) {
+                throw new Error(responseData.detail);
+            } else {
+                throw new Error('Failed to save article');
+            }
         }
-        return response.json();
+        return responseData;
     })
     .then(data => {
         console.log('Success:', data);
         alert('Article saved successfully!');
-        fetchLatestArticles(articleData.topic); // Pass the topic when fetching latest articles
+        fetchLatestArticles(topic);
     })
     .catch((error) => {
         console.error('Error:', error);
-        alert('Error saving article. Please try again.');
+        alert(`Error saving article: ${error.message}`);
     });
 }
 
@@ -808,6 +872,10 @@ function displayAnalysisResult(result) {
         }
         
         document.getElementById('analysisTags').value = result.tags ? result.tags.join(', ') : '';
+        
+        if (result.uri) {
+            loadAnnotations(result.uri);
+        }
         
         analysisResultsDiv.style.display = 'block';
     } else {
@@ -1033,6 +1101,197 @@ document.addEventListener('DOMContentLoaded', function() {
     loadTopics();
     // ... rest of your initialization code ...
 });
+
+async function loadAnnotations(articleUri) {
+    try {
+        // Double encode the URI to match FastAPI's handling
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`);
+        
+        if (!response.ok) {
+            throw new Error('Failed to load annotations');
+        }
+        
+        const annotations = await response.json();
+        const annotationsList = document.getElementById('annotationsList');
+        
+        annotationsList.innerHTML = annotations.map(annotation => `
+            <div class="card mb-2" data-annotation-id="${annotation.id}">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <small class="text-muted">
+                                ${annotation.author} - ${new Date(annotation.created_at).toLocaleString()}
+                            </small>
+                            ${annotation.is_private ? '<span class="badge bg-secondary ms-2">Private</span>' : ''}
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-outline-primary" onclick="editAnnotation(${annotation.id})">
+                                Edit
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteAnnotation(${annotation.id})">
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                    <div class="annotation-content" data-raw-content="${encodeURIComponent(annotation.content)}">
+                        ${marked.parse(annotation.content)}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading annotations:', error);
+        showAlert('Failed to load annotations: ' + error.message, 'danger');
+    }
+}
+
+async function saveAnnotation() {
+    const content = document.getElementById('newAnnotation').value.trim();
+    const isPrivate = document.getElementById('annotationPrivate').checked;
+    const articleUri = document.getElementById('analysisUrl').value;
+    
+    if (!content) {
+        showAlert('Please enter annotation content', 'warning');
+        return;
+    }
+    
+    try {
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to save annotation');
+        }
+        
+        // Clear the form
+        document.getElementById('newAnnotation').value = '';
+        document.getElementById('annotationPrivate').checked = false;
+        
+        // Reload annotations
+        await loadAnnotations(articleUri);
+        showAlert('Annotation saved successfully', 'success');
+    } catch (error) {
+        console.error('Error saving annotation:', error);
+        showAlert('Failed to save annotation: ' + error.message, 'danger');
+    }
+}
+
+async function editAnnotation(annotationId) {
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        const contentDiv = annotationCard.querySelector('.annotation-content');
+        const currentContent = contentDiv.getAttribute('data-raw-content');
+        const isPrivate = annotationCard.querySelector('.badge.bg-secondary') !== null;
+        
+        const originalHtml = annotationCard.innerHTML;
+        annotationCard.innerHTML = `
+            <div class="card-body">
+                <textarea class="form-control mb-2" rows="3">${decodeURIComponent(currentContent)}</textarea>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="editPrivate_${annotationId}" ${isPrivate ? 'checked' : ''}>
+                    <label class="form-check-label" for="editPrivate_${annotationId}">
+                        Private note
+                    </label>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-primary" onclick="saveEditedAnnotation(${annotationId}, '${originalHtml}')">
+                        Save
+                    </button>
+                    <button class="btn btn-sm btn-secondary" onclick="cancelEdit(${annotationId}, '${originalHtml}')">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error setting up annotation edit:', error);
+        showAlert('Failed to set up annotation edit', 'danger');
+    }
+}
+
+async function saveEditedAnnotation(annotationId, originalHtml) {
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        const content = annotationCard.querySelector('textarea').value;
+        const isPrivate = annotationCard.querySelector('input[type="checkbox"]').checked;
+
+        const response = await fetch(`/api/articles/${encodeURIComponent(articleUri)}/annotations/${annotationId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to update annotation');
+
+        await loadAnnotations(articleUri);
+        showAlert('Annotation updated successfully', 'success');
+    } catch (error) {
+        console.error('Error saving annotation edit:', error);
+        showAlert('Failed to save annotation edit', 'danger');
+        annotationCard.innerHTML = originalHtml;
+    }
+}
+
+function cancelEdit(annotationId, originalHtml) {
+    const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+    annotationCard.innerHTML = originalHtml;
+}
+
+async function deleteAnnotation(annotationId) {
+    if (!confirm('Are you sure you want to delete this annotation?')) {
+        return;
+    }
+
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const response = await fetch(
+            `/api/articles/${encodeURIComponent(articleUri)}/annotations/${annotationId}`, 
+            { method: 'DELETE' }
+        );
+
+        if (!response.ok) throw new Error('Failed to delete annotation');
+
+        await loadAnnotations(articleUri);
+        showAlert('Annotation deleted successfully', 'success');
+    } catch (error) {
+        console.error('Error deleting annotation:', error);
+        showAlert('Failed to delete annotation', 'danger');
+    }
+}
+
+function showAlert(message, type = 'info') {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    alertDiv.style.top = '20px';
+    alertDiv.style.right = '20px';
+    alertDiv.style.zIndex = '9999';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    document.body.appendChild(alertDiv);
+
+    setTimeout(() => {
+        alertDiv.remove();
+    }, 5000);
+}
 </script>
 {% endblock %}
 

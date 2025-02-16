@@ -34,37 +34,73 @@
         <div class="config-layout">
             <div class="left-panel">
                 <h2>Database Management</h2>
+                <p class="text-muted mb-4">Manage your databases and configure active database settings.</p>
+                
                 <div class="config-item">
                     <h3>Active Database</h3>
-                    <select id="active-database">
-                        <option value="">Select active database</option>
-                        <!-- Options will be populated dynamically -->
-                    </select>
+                    <div class="form-group">
+                        <select id="active-database" class="form-select"
+                                data-tooltip="Select the database you want to use">
+                            <option value="">Select active database</option>
+                        </select>
+                        <small class="form-text text-muted">The currently active database for storing articles and analysis</small>
+                    </div>
                 </div>
+
                 <div class="config-item">
                     <h3>Available Databases</h3>
                     <ul id="database-list">
                         <!-- Database list will be populated dynamically -->
                     </ul>
                 </div>
+
                 <div class="config-item">
                     <h3>New Database</h3>
                     <form id="create-database-form">
-                        <input type="text" id="database-name" placeholder="Enter database name" required>
-                        <button type="submit">Create Database</button>
+                        <div class="form-group">
+                            <input type="text" id="database-name" 
+                                   placeholder="Enter database name" required
+                                   class="form-control"
+                                   data-tooltip="Enter a name for the new database">
+                            <small class="form-text text-muted">Create a new database for a different set of articles</small>
+                        </div>
+                        <button type="submit" class="mt-2">
+                            <i class="fas fa-plus"></i> Create Database
+                        </button>
                     </form>
                 </div>
+
                 <div class="config-item">
                     <h3>Database Operations</h3>
+                    <p class="text-muted small mb-3">Manage your database backups and maintenance.</p>
                     <div class="database-operations">
-                        <button id="backup-database" onclick="backupDatabase()">Backup Database</button>
-                        <button id="download-database" onclick="showDownloadDialog()">Download Database</button>
-                        <button id="reset-database" class="danger" onclick="resetDatabase()">Reset Database</button>
+                        <button id="backup-database" onclick="backupDatabase()"
+                                data-tooltip="Create a backup of the current database">
+                            <i class="fas fa-save"></i> Backup
+                        </button>
+                        <button id="download-database" onclick="showDownloadDialog()"
+                                data-tooltip="Download a database file">
+                            <i class="fas fa-download"></i> Download
+                        </button>
+                        <button id="reset-database" class="danger" onclick="resetDatabase()"
+                                data-tooltip="WARNING: This will delete all data">
+                            <i class="fas fa-trash"></i> Reset
+                        </button>
                     </div>
+                </div>
+
+                <div class="config-item">
+                    <h3>Merge from Backup</h3>
+                    <p class="text-muted small mb-3">Import articles and settings from a backup database.</p>
+                    <button id="merge-database" onclick="showMergeDialog()"
+                            data-tooltip="Merge articles and settings from a backup">
+                        <i class="fas fa-code-merge"></i> Merge Backup
+                    </button>
                 </div>
             </div>
             <div class="right-panel">
                 <h2>Database Information</h2>
+                <p class="text-muted mb-4">Current database statistics and details.</p>
                 <div id="database-info" class="info-panel">
                     <div class="info-group">
                         <div class="info-item">
@@ -119,21 +155,41 @@
         <div class="config-layout">
             <div class="left-panel">
                 <h2>AI Model Configuration</h2>
+                <p class="text-muted mb-4">Configure API keys for different AI models used for analysis.</p>
+                
                 <form id="add-model-form">
-                    <select id="model-name" required>
-                        <option value="">Select a model</option>
-                        {% for model in models %}
-                            <option value="{{ model.name }}" data-provider="{{ model.provider }}">{{ model.name }} ({{ model.provider }})</option>
-                        {% endfor %}
-                    </select>
-                    <input type="text" id="api-key" placeholder="API Key" required>
-                    <button type="submit">Add Model</button>
+                    <div class="form-group">
+                        <label for="model-name" class="form-label">AI Model</label>
+                        <select id="model-name" required class="form-select"
+                                data-tooltip="Select the AI model you want to configure">
+                            <option value="">Select a model</option>
+                            {% for model in models %}
+                                <option value="{{ model.name }}" data-provider="{{ model.provider }}">
+                                    {{ model.name }} ({{ model.provider }})
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <small class="form-text text-muted">Choose an AI model to add or update its API key</small>
+                    </div>
+
+                    <div class="form-group mt-3">
+                        <label for="api-key" class="form-label">API Key</label>
+                        <input type="text" id="api-key" placeholder="Enter API key" required 
+                               class="form-control"
+                               data-tooltip="Enter your API key from the model provider">
+                        <small class="form-text text-muted">Find your API key in your model provider's dashboard</small>
+                    </div>
+
+                    <button type="submit" class="mt-3">
+                        <i class="fas fa-plus"></i> Add Model
+                    </button>
                 </form>
             </div>
             <div class="right-panel">
                 <h2>Available Models</h2>
-                <ul id="model-list">
-                    <!-- This will be populated dynamically -->
+                <p class="text-muted mb-4">Currently configured AI models and their status.</p>
+                <ul id="model-list" class="model-list">
+                    <!-- Will be populated dynamically -->
                 </ul>
             </div>
         </div>
@@ -144,18 +200,35 @@
         <div class="config-layout">
             <div class="left-panel">
                 <h2>Article Provider Configuration</h2>
+                <p class="text-muted mb-4">Configure API keys for different news and article providers.</p>
+                
                 <form id="provider-config-form">
-                    <select id="provider-name" required>
-                        <option value="">Select a provider</option>
-                        <!-- Will be populated dynamically -->
-                    </select>
-                    <input type="text" id="provider-key" placeholder="API Key" required>
-                    <button type="submit">Add Provider</button>
+                    <div class="form-group">
+                        <label for="provider-name" class="form-label">Provider</label>
+                        <select id="provider-name" required class="form-select" 
+                                data-tooltip="Select the news provider you want to configure">
+                            <option value="">Select a provider</option>
+                        </select>
+                        <small class="form-text text-muted">Choose a provider to add or update its API key</small>
+                    </div>
+
+                    <div class="form-group mt-3">
+                        <label for="provider-key" class="form-label">API Key</label>
+                        <input type="text" id="provider-key" placeholder="Enter API key" required 
+                               class="form-control"
+                               data-tooltip="Enter the API key from your provider account">
+                        <small class="form-text text-muted">You can find your API key in your provider's dashboard</small>
+                    </div>
+
+                    <button type="submit" class="mt-3">
+                        <i class="fas fa-plus"></i> Add Provider
+                    </button>
                 </form>
             </div>
             <div class="right-panel">
                 <h2>Available Providers</h2>
-                <ul id="provider-list">
+                <p class="text-muted mb-4">Currently configured news and article providers.</p>
+                <ul id="provider-list" class="provider-list">
                     <!-- Will be populated dynamically -->
                 </ul>
             </div>
@@ -167,21 +240,63 @@
         <div class="config-layout">
             <div class="left-panel">
                 <h2>Change Password</h2>
+                <p class="text-muted mb-4">Update your account password. Make sure to use a strong password.</p>
+                
                 <form id="change-password-form">
-                    <input type="password" id="current-password" placeholder="Current Password" required>
-                    <input type="password" id="new-password" placeholder="New Password" required>
-                    <input type="password" id="confirm-password" placeholder="Confirm New Password" required>
-                    <button type="submit">Change Password</button>
+                    <div class="form-group">
+                        <label for="current-password" class="form-label">Current Password</label>
+                        <input type="password" id="current-password" 
+                               placeholder="Enter current password" required
+                               class="form-control"
+                               data-tooltip="Enter your current password">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="new-password" class="form-label">New Password</label>
+                        <input type="password" id="new-password" 
+                               placeholder="Enter new password" required
+                               class="form-control"
+                               data-tooltip="Enter a strong password that meets the requirements">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="confirm-password" class="form-label">Confirm Password</label>
+                        <input type="password" id="confirm-password" 
+                               placeholder="Confirm new password" required
+                               class="form-control"
+                               data-tooltip="Re-enter your new password">
+                    </div>
+
+                    <button type="submit" class="mt-3">
+                        <i class="fas fa-key"></i> Update Password
+                    </button>
                 </form>
             </div>
             <div class="right-panel">
                 <h2>Password Requirements</h2>
-                <ul>
-                    <li>At least 8 characters long</li>
-                    <li>Must contain at least one uppercase letter</li>
-                    <li>Must contain at least one number</li>
-                    <li>Must contain at least one special character</li>
+                <p class="text-muted mb-4">Your password must meet the following requirements:</p>
+                <ul class="requirements-list">
+                    <li class="requirement-item">
+                        <i class="fas fa-check-circle text-success"></i>
+                        At least 8 characters long
+                    </li>
+                    <li class="requirement-item">
+                        <i class="fas fa-check-circle text-success"></i>
+                        Must contain at least one uppercase letter
+                    </li>
+                    <li class="requirement-item">
+                        <i class="fas fa-check-circle text-success"></i>
+                        Must contain at least one number
+                    </li>
+                    <li class="requirement-item">
+                        <i class="fas fa-check-circle text-success"></i>
+                        Must contain at least one special character
+                    </li>
                 </ul>
+                <div class="alert alert-info mt-4">
+                    <i class="fas fa-info-circle"></i>
+                    For maximum security, use a unique password that you don't use elsewhere.
+                </div>
             </div>
         </div>
     </div>
@@ -201,7 +316,199 @@
     </div>
 </div>
 
+<!-- Update the merge dialog template -->
+<template id="merge-dialog-template">
+    <div class="modal fade" tabindex="-1" role="dialog">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Merge Database</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-4">
+                        <h6>From Backup</h6>
+                        <select id="backup-select" class="form-select">
+                            <option value="">Select a backup...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <h6>Or Upload File</h6>
+                        <input type="file" 
+                               id="database-upload" 
+                               class="form-control" 
+                               accept=".db,.sqlite,.sqlite3"
+                               aria-label="Upload database file">
+                        <small class="form-text text-muted mt-2">Select a SQLite database file to merge</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="mergeFromBackup()">Merge</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Add an alert container -->
+<div class="alert-container position-fixed top-0 end-0 p-3" style="z-index: 1100;"></div>
+
 <style>
+    :root {
+        --primary-color: #0d6efd;  /* Bootstrap primary blue */
+        --primary-dark: #0a58ca;   /* Darker blue */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+        --light-bg: #ffffff;
+    }
+
+    h1 {
+        color: var(--dark-gray);
+        margin-bottom: 20px;
+    }
+
+    h2 {
+        color: var(--dark-gray);
+        border-bottom: 1px solid rgba(13, 110, 253, 0.2);
+        padding-bottom: 10px;
+    }
+
+    h3 {
+        color: var(--dark-gray);
+    }
+
+    .left-panel, .right-panel {
+        background-color: var(--light-bg);
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border: 1px solid var(--medium-gray);
+    }
+
+    button {
+        background-color: rgba(13, 110, 253, 0.1);
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        color: var(--primary-color);
+        transition: all 0.2s ease;
+        padding: 8px 16px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+
+    button:hover {
+        background-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+    }
+
+    .database-operations button#backup-database {
+        background-color: rgba(40, 167, 69, 0.1);
+        border: 1px solid rgba(40, 167, 69, 0.2);
+        color: #28a745;
+    }
+
+    .database-operations button#backup-database:hover {
+        background-color: #28a745;
+        color: white;
+    }
+
+    .database-operations button#download-database {
+        background-color: rgba(13, 110, 253, 0.1);
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        color: var(--primary-color);
+    }
+
+    .database-operations button#download-database:hover {
+        background-color: var(--primary-color);
+        color: white;
+    }
+
+    .database-operations button#reset-database,
+    .danger {
+        background-color: rgba(220, 53, 69, 0.1) !important;
+        border: 1px solid rgba(220, 53, 69, 0.2) !important;
+        color: #dc3545 !important;
+    }
+
+    .database-operations button#reset-database:hover,
+    .danger:hover {
+        background-color: #dc3545 !important;
+        color: white !important;
+    }
+
+    input, select {
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        border-radius: 20px;
+        padding: 0.5rem 1rem;
+        transition: all 0.2s ease;
+        font-size: 0.9rem;
+    }
+
+    input:focus, select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+        outline: none;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.35em 0.8em;
+        font-size: 0.75em;
+        font-weight: 500;
+        line-height: 1.4;
+        border-radius: 20px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .status-badge.configured {
+        background-color: rgba(40, 167, 69, 0.1);
+        color: #28a745;
+        border: 1px solid rgba(40, 167, 69, 0.2);
+    }
+
+    .status-badge.not-configured {
+        background-color: rgba(220, 53, 69, 0.1);
+        color: #dc3545;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+    }
+
+    #database-list li, #model-list li, #provider-list li {
+        background-color: var(--light-gray);
+        border: 1px solid var(--medium-gray);
+        border-radius: 20px;
+        transition: transform 0.2s ease;
+        padding: 12px 20px;
+    }
+
+    #database-list li:hover, #model-list li:hover, #provider-list li:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .modal-content {
+        border-radius: 20px;
+        border: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    .info-item {
+        border-left: 4px solid rgba(13, 110, 253, 0.2);
+        border-radius: 15px;
+    }
+
+    .info-value {
+        color: var(--primary-color);
+    }
+
+    /* Add these layout styles back while keeping the new visual styling */
     .config-layout {
         display: flex;
         flex-wrap: wrap;
@@ -212,10 +519,7 @@
     .left-panel, .right-panel {
         flex: 1;
         min-width: 300px;
-        background-color: white;
         padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
 
     .config-item {
@@ -232,71 +536,13 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 8px;
-        background-color: #f8f9fa;
-        border-radius: 4px;
+        padding: 12px;
     }
 
     #create-database-form, #add-model-form, #provider-config-form {
         display: flex;
         flex-direction: column;
         gap: 10px;
-    }
-
-    input, select, button {
-        padding: 10px;
-        border-radius: 5px;
-        border: 1px solid #e9ecef;
-    }
-
-    button {
-        background-color: #FF1493;
-        color: white;
-        cursor: pointer;
-    }
-
-    button:hover {
-        background-color: #FF69B4;
-    }
-
-    h2 {
-        color: #333;
-        border-bottom: 2px solid #FF1493;
-        padding-bottom: 10px;
-    }
-
-    h3 {
-        color: #FF1493;
-    }
-
-    .status-badge {
-        padding: 2px 8px;
-        border-radius: 12px;
-        font-size: 0.8em;
-    }
-
-    .status-badge.configured {
-        background-color: #32CD32;
-        color: white;
-    }
-
-    .status-badge.not-configured {
-        background-color: #ff6b6b;
-        color: white;
-    }
-
-    /* Add password section specific styles */
-    #change-password-form input {
-        margin-bottom: 10px;
-    }
-
-    .right-panel ul {
-        padding-left: 20px;
-    }
-
-    .right-panel ul li {
-        margin-bottom: 8px;
-        color: #666;
     }
 
     .database-operations {
@@ -307,139 +553,97 @@
 
     .database-operations button {
         flex: 1;
-        padding: 10px;
-        border-radius: 5px;
-        cursor: pointer;
-        border: none;
-        color: white;
     }
 
-    .database-operations button#backup-database {
-        background-color: #4CAF50;  /* Green */
-    }
-
-    .database-operations button#backup-database:hover {
-        background-color: #45a049;
-    }
-
-    .database-operations button#reset-database {
-        background-color: #f44336;  /* Red */
-    }
-
-    .database-operations button#reset-database:hover {
-        background-color: #da190b;
-    }
-
-    .database-operations button#download-database {
-        background-color: #4a90e2;  /* Blue */
-    }
-
-    .database-operations button#download-database:hover {
-        background-color: #357abd;
-    }
-
-    .danger {
-        background-color: #f44336 !important;
-    }
-
-    .danger:hover {
-        background-color: #da190b !important;
-    }
-
-    /* Add new styles for tabs */
-    .nav-tabs {
-        border-bottom: 2px solid var(--medium-gray);
-    }
-
-    .nav-tabs .nav-link {
-        border: none;
-        color: var(--dark-gray);
-        padding: 12px 20px;
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        transition: all 0.2s ease;
-    }
-
-    .nav-tabs .nav-link i {
-        font-size: 1.1em;
-    }
-
-    .nav-tabs .nav-link:hover {
-        border: none;
-        color: var(--primary-color);
-    }
-
-    .nav-tabs .nav-link.active {
-        border: none;
-        color: var(--primary-color);
-        border-bottom: 2px solid var(--primary-color);
-        margin-bottom: -2px;
-    }
-
-    .tab-content {
-        padding-top: 20px;
-    }
-
-    .config-layout {
-        margin-top: 0;
-    }
-
-    /* Make tabs responsive */
-    @media (max-width: 768px) {
-        .nav-tabs {
-            flex-wrap: nowrap;
-            overflow-x: auto;
-            white-space: nowrap;
-            -webkit-overflow-scrolling: touch;
-        }
-
-        .nav-tabs .nav-link {
-            padding: 12px 15px;
-        }
+    /* Modal styles */
+    .modal-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1040;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 0, 0, 0.5);
     }
 
     .modal {
-        display: none;
         position: fixed;
-        z-index: 1000;
-        left: 0;
         top: 0;
+        left: 0;
+        z-index: 1045;
         width: 100%;
         height: 100%;
-        background-color: rgba(0,0,0,0.5);
+        overflow-x: hidden;
+        overflow-y: auto;
+        outline: 0;
+    }
+
+    .modal-dialog {
+        position: relative;
+        width: auto;
+        margin: 1.75rem auto;
+        pointer-events: auto;
+        max-width: 600px;
+    }
+
+    .modal.fade .modal-dialog {
+        transition: transform 0.3s ease-out;
+        transform: translate(0, -50px);
+    }
+
+    .modal.show .modal-dialog {
+        transform: translate(0, 0);
     }
 
     .modal-content {
-        background-color: white;
-        margin: 15% auto;
-        padding: 20px;
-        border-radius: 5px;
-        width: 300px;
-    }
-
-    .modal-buttons {
+        position: relative;
         display: flex;
-        justify-content: space-between;
-        margin-top: 20px;
-    }
-
-    .modal-buttons button {
-        padding: 8px 16px;
-    }
-
-    #download-database-select {
+        flex-direction: column;
         width: 100%;
-        margin-top: 10px;
-        padding: 8px;
+        background-color: #fff;
+        border-radius: 0.3rem;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        outline: 0;
+    }
+
+    .modal-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        padding: 1rem;
+        border-bottom: 1px solid #dee2e6;
+        border-top-left-radius: calc(0.3rem - 1px);
+        border-top-right-radius: calc(0.3rem - 1px);
+    }
+
+    .modal-body {
+        position: relative;
+        flex: 1 1 auto;
+        padding: 1rem;
+    }
+
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        padding: 0.75rem;
+        border-top: 1px solid #dee2e6;
+        gap: 0.5rem;
+    }
+
+    /* Ensure the modal and its contents are clickable */
+    .modal, 
+    .modal-dialog,
+    .modal-content,
+    .modal-header,
+    .modal-body,
+    .modal-footer {
+        pointer-events: auto;
     }
 
     .info-panel {
         background: var(--light-bg);
-        border-radius: 8px;
         padding: 20px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        border-radius: 8px;
     }
 
     .info-group {
@@ -451,10 +655,9 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 10px;
+        padding: 12px;
         background: white;
         border-radius: 6px;
-        border-left: 4px solid var(--primary-color);
     }
 
     .info-label {
@@ -463,7 +666,6 @@
     }
 
     .info-value {
-        color: var(--primary-color);
         font-family: monospace;
     }
 
@@ -472,22 +674,156 @@
         background: white;
         border-radius: 6px;
         padding: 10px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
     }
 
     .table-info table {
         margin-bottom: 0;
     }
 
-    .table-info th {
+    /* Tab styles */
+    .nav-tabs {
+        border-bottom: 2px solid var(--medium-gray);
+        margin-bottom: 25px;
+        gap: 4px;
+    }
+
+    .nav-tabs .nav-link {
+        border: none;
+        color: var(--dark-gray);
+        padding: 12px 24px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 12px 12px 0 0;
+        background-color: var(--light-gray);
+        margin-bottom: -2px;
+        transition: all 0.2s ease;
+    }
+
+    .nav-tabs .nav-link:hover {
+        background-color: rgba(13, 110, 253, 0.05);
+        color: var(--primary-color);
+    }
+
+    .nav-tabs .nav-link.active {
+        color: var(--primary-color);
+        background-color: white;
+        border: 2px solid var(--medium-gray);
+        border-bottom: 2px solid white;
         font-weight: 600;
+    }
+
+    .nav-tabs .nav-link i {
+        font-size: 1.1em;
+        opacity: 0.7;
+    }
+
+    .nav-tabs .nav-link.active i {
+        opacity: 1;
+    }
+
+    .tab-content {
+        background: white;
+        border: 2px solid var(--medium-gray);
+        border-radius: 0 12px 12px 12px;
+        padding: 25px;
+        margin-top: -2px;
+    }
+
+    @media (max-width: 768px) {
+        .nav-tabs {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+    }
+
+    /* Add tooltip styles */
+    [data-tooltip] {
+        position: relative;
+    }
+
+    [data-tooltip]:hover::before {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 8px 12px;
+        background-color: rgba(0, 0, 0, 0.8);
+        color: white;
+        font-size: 0.8rem;
+        border-radius: 6px;
+        white-space: nowrap;
+        z-index: 1000;
+        margin-bottom: 5px;
+    }
+
+    [data-tooltip]:hover::after {
+        content: '';
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 6px solid transparent;
+        border-top-color: rgba(0, 0, 0, 0.8);
+        margin-bottom: -6px;
+    }
+
+    .form-text {
+        font-size: 0.85rem;
+        color: var(--dark-gray);
+        margin-top: 0.25rem;
+        opacity: 0.8;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-label {
+        font-weight: 500;
+        margin-bottom: 0.5rem;
         color: var(--dark-gray);
     }
 
-    .info-panel h3 {
-        color: var(--dark-gray);
-        font-size: 1.1rem;
-        margin-top: 20px;
+    /* Info icon for additional help */
+    .info-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background-color: rgba(13, 110, 253, 0.1);
+        color: var(--primary-color);
+        font-size: 12px;
+        margin-left: 6px;
+        cursor: help;
+    }
+
+    /* Status indicator styles */
+    .status-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.85rem;
+    }
+
+    .status-indicator::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .status-indicator.active::before {
+        background-color: #28a745;
+    }
+
+    .status-indicator.inactive::before {
+        background-color: #dc3545;
     }
 </style>
 
@@ -497,138 +833,264 @@
 
     // Function to load existing databases
     function loadDatabases() {
-        fetch('/api/databases')
+        return fetch('/api/databases')
             .then(response => response.json())
-            .then(databases => {
+            .then(data => {
                 const databaseList = document.getElementById('database-list');
-                const activeDatabaseSelect = document.getElementById('active-database');
-                databaseList.innerHTML = '';
-                activeDatabaseSelect.innerHTML = '<option value="">Select active database</option>';
+                const activeSelect = document.getElementById('active-database');
                 
-                databases.forEach(db => {
+                // Clear existing options
+                databaseList.innerHTML = '';
+                activeSelect.innerHTML = '<option value="">Select active database</option>';
+                
+                data.forEach(db => {
+                    // Add to list
                     const li = document.createElement('li');
-                    li.textContent = db.name;
-                    const deleteButton = document.createElement('button');
-                    deleteButton.textContent = 'Delete';
-                    deleteButton.onclick = () => deleteDatabase(db.name);
-                    li.appendChild(deleteButton);
+                    li.className = 'database-item';
+                    li.innerHTML = `
+                        <span class="database-name">${db.name}</span>
+                        <button class="btn-icon delete-database" 
+                                onclick="deleteDatabase('${db.id}')"
+                                data-tooltip="Delete this database">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    `;
                     databaseList.appendChild(li);
-
+                    
+                    // Add to select
                     const option = document.createElement('option');
-                    option.value = db.name;
+                    option.value = db.id;
                     option.textContent = db.name;
-                    if (db.name === activeDatabase) {
-                        option.selected = true;
-                    }
-                    activeDatabaseSelect.appendChild(option);
+                    activeSelect.appendChild(option);
                 });
+                
+                // Set current active database
+                return fetch('/api/active-database')
+                    .then(response => response.json())
+                    .then(activeData => {
+                        if (activeData.name) {
+                            activeSelect.value = activeData.name;
+                        }
+                    });
             });
     }
 
     // Function to create a new database
-    document.getElementById('create-database-form').addEventListener('submit', function(e) {
+    document.getElementById('create-database-form').addEventListener('submit', async function(e) {
         e.preventDefault();
-        const databaseName = document.getElementById('database-name').value;
-        fetch('/api/databases', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ name: databaseName }),
-        })
-        .then(response => response.json())
-        .then(data => {
+        let databaseName = document.getElementById('database-name').value.trim();
+        
+        if (!databaseName) {
+            showAlert('Database name cannot be empty', 'danger');
+            return;
+        }
+        
+        // Remove .db extension if user included it
+        if (databaseName.endsWith('.db')) {
+            databaseName = databaseName.slice(0, -3);
+        }
+        
+        try {
+            setDatabaseInfoLoading(true);
+            
+            // Create database
+            const createResponse = await fetch('/api/databases', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: databaseName }),
+            });
+
+            if (!createResponse.ok) {
+                const error = await createResponse.json();
+                throw new Error(error.detail || 'Failed to create database');
+            }
+
+            const data = await createResponse.json();
             console.log('Database created:', data);
-            loadDatabases();
+            
+            // Clear input
             document.getElementById('database-name').value = '';
-        });
+            
+            // Set as active database with retry
+            let retries = 3;
+            while (retries > 0) {
+                try {
+                    const activeResponse = await fetch('/api/active-database', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ name: data.id }), // Use full name with .db extension
+                    });
+                    
+                    if (!activeResponse.ok) {
+                        const error = await activeResponse.json();
+                        throw new Error(error.detail || 'Failed to set active database');
+                    }
+                    
+                    const activeData = await activeResponse.json();
+                    console.log('Active database set:', activeData);
+                    break; // Success, exit retry loop
+                    
+                } catch (error) {
+                    retries--;
+                    if (retries === 0) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s between retries
+                }
+            }
+            
+            // Refresh UI
+            await loadDatabases();
+            await loadDatabaseInfo();
+            
+            showAlert(`Successfully created database: ${data.name}`, 'success');
+        } catch (error) {
+            console.error('Error:', error);
+            showAlert(error.message, 'danger');
+        } finally {
+            setDatabaseInfoLoading(false);
+        }
     });
 
     // Function to select active database
-    document.getElementById('active-database').addEventListener('change', function(e) {
+    document.getElementById('active-database').addEventListener('change', async function(e) {
         const databaseName = e.target.value;
-        fetch('/api/active-database', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ name: databaseName }),
-        })
-        .then(response => response.json())
-        .then(data => {
+        try {
+            setDatabaseInfoLoading(true);
+            
+            const response = await fetch('/api/active-database', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: databaseName }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to set active database');
+            }
+
+            const data = await response.json();
             console.log('Active database set:', data);
-            activeDatabase = databaseName;
-            loadDatabaseInfo();
-        });
+            
+            // Add a small delay before loading the new database info
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Wait for database info to update
+            await loadDatabaseInfo();
+            await loadDatabases();
+            
+            showAlert(`Successfully switched to database: ${databaseName}`, 'success');
+        } catch (error) {
+            console.error('Error setting active database:', error);
+            showAlert(`Failed to switch database: ${error.message}`, 'danger');
+            loadDatabases(); // Refresh list to ensure correct selection
+        } finally {
+            setDatabaseInfoLoading(false);
+        }
     });
 
-    // Function to load database information
+    // Add loading state handler
+    function setDatabaseInfoLoading(isLoading) {
+        const loadingText = 'Loading...';
+        if (isLoading) {
+            document.getElementById('db-name').textContent = loadingText;
+            document.getElementById('db-size').textContent = loadingText;
+            document.getElementById('total-articles').textContent = loadingText;
+            document.getElementById('last-entry').textContent = loadingText;
+            document.getElementById('first-entry').textContent = loadingText;
+            document.getElementById('total-topics').textContent = loadingText;
+            document.getElementById('table-info').innerHTML = 
+                '<tr><td colspan="2">Loading table information...</td></tr>';
+        }
+    }
+
+    // Update loadDatabaseInfo to use async/await and add error handling
+    async function loadDatabaseInfo() {
+        try {
+            const response = await fetch('/api/database-info');
+            if (!response.ok) {
+                throw new Error('Failed to load database info');
+            }
+            
+            const data = await response.json();
+            console.log('Loaded database info:', data); // Debug log
+            
+            // Update basic info
+            document.getElementById('db-name').textContent = data.name || 'N/A';  // Use full name with .db
+            document.getElementById('db-size').textContent = formatFileSize(data.size);
+            document.getElementById('total-articles').textContent = 
+                (data.total_articles || 0).toLocaleString();
+            document.getElementById('last-entry').textContent = formatDate(data.last_entry);
+            document.getElementById('first-entry').textContent = formatDate(data.first_entry);
+            document.getElementById('total-topics').textContent = 
+                (data.total_topics || 0).toLocaleString();
+            
+            // Update table information
+            const tableBody = document.getElementById('table-info');
+            if (data.tables && data.tables.length > 0) {
+                tableBody.innerHTML = data.tables
+                    .map(table => `
+                        <tr>
+                            <td>${table.name}</td>
+                            <td>${table.rows.toLocaleString()}</td>
+                        </tr>
+                    `)
+                    .join('');
+            } else {
+                tableBody.innerHTML = '<tr><td colspan="2">No tables found</td></tr>';
+            }
+        } catch (error) {
+            console.error('Error loading database info:', error);
+            document.getElementById('database-info').innerHTML = 
+                '<div class="alert alert-danger">Error loading database information</div>';
+            throw error; // Re-throw to handle in calling function
+        }
+    }
+
+    // Helper function to format file size
+    function formatFileSize(bytes) {
+        if (!bytes) return 'N/A';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        return `${size.toFixed(2)} ${units[unitIndex]}`;
+    }
+
+    // Helper function to format date
     function formatDate(dateString) {
         if (!dateString) return 'N/A';
-        const date = new Date(dateString);
-        return date.toLocaleString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-        });
-    }
-
-    function formatFileSize(bytes) {
-        if (!bytes) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    function loadDatabaseInfo() {
-        fetch('/api/database-info')
-            .then(response => response.json())
-            .then(data => {
-                // Update basic info
-                document.getElementById('db-name').textContent = data.name || 'N/A';
-                document.getElementById('db-size').textContent = formatFileSize(data.size);
-                document.getElementById('total-articles').textContent = (data.total_articles || 0).toLocaleString();
-                document.getElementById('last-entry').textContent = formatDate(data.last_entry);
-                document.getElementById('first-entry').textContent = formatDate(data.first_entry);
-                document.getElementById('total-topics').textContent = (data.total_topics || 0).toLocaleString();
-                
-                // Update table information
-                const tableBody = document.getElementById('table-info');
-                if (data.tables && data.tables.length > 0) {
-                    tableBody.innerHTML = data.tables
-                        .map(table => `
-                            <tr>
-                                <td>${table.name}</td>
-                                <td>${table.rows.toLocaleString()}</td>
-                            </tr>
-                        `)
-                        .join('');
-                } else {
-                    tableBody.innerHTML = '<tr><td colspan="2">No tables found</td></tr>';
-                }
-            })
-            .catch(error => {
-                console.error('Error loading database info:', error);
-                document.getElementById('database-info').innerHTML = 
-                    '<div class="alert alert-danger">Error loading database information</div>';
-            });
+        return new Date(dateString).toLocaleString();
     }
 
     // Function to delete a database
-    function deleteDatabase(name) {
-        if (confirm(`Are you sure you want to delete the database "${name}"?`)) {
-            fetch(`/api/databases/${name}`, {
+    async function deleteDatabase(dbName) {
+        if (!confirm(`Are you sure you want to delete database "${dbName}"? This cannot be undone.`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/databases/${dbName}`, {
                 method: 'DELETE',
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('Database deleted:', data);
-                loadDatabases();
             });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to delete database');
+            }
+            
+            // Refresh the database lists
+            await loadDatabases();
+            showAlert(`Successfully deleted database: ${dbName}`, 'success');
+        } catch (error) {
+            console.error('Error deleting database:', error);
+            showAlert(error.message, 'danger');
         }
     }
 
@@ -1076,5 +1538,195 @@
     function downloadDatabase() {
         showDownloadDialog();
     }
-</script>
-{% endblock %}
+
+    // Add tooltips to all elements with data-tooltip attribute
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add info icons to form labels
+        const labels = document.querySelectorAll('.form-label');
+        labels.forEach(label => {
+            if (label.dataset.info) {
+                const infoIcon = document.createElement('span');
+                infoIcon.className = 'info-icon';
+                infoIcon.innerHTML = '<i class="fas fa-info"></i>';
+                infoIcon.dataset.tooltip = label.dataset.info;
+                label.appendChild(infoIcon);
+            }
+        });
+    });
+
+    // Update showMergeDialog function
+    async function showMergeDialog() {
+        try {
+            // Create modal from template
+            const template = document.getElementById('merge-dialog-template');
+            const modalContainer = template.content.cloneNode(true);
+            document.body.appendChild(modalContainer);
+
+            // Get the modal element - use the one we just added
+            const modalElement = document.body.querySelector('.modal:last-child');
+            
+            // Create backdrop
+            const backdrop = document.createElement('div');
+            backdrop.className = 'modal-backdrop fade show';
+            document.body.appendChild(backdrop);
+
+            // Initialize Bootstrap modal
+            const modal = new bootstrap.Modal(modalElement);
+            
+            // Initialize tabs
+            const tabs = modalElement.querySelectorAll('[data-bs-toggle="tab"]');
+            tabs.forEach(tab => {
+                new bootstrap.Tab(tab);
+            });
+
+            // Get backup select element
+            const select = modalElement.querySelector('#backup-select');
+            select.innerHTML = '<option value="">Loading backups...</option>';
+            
+            try {
+                const response = await fetch('/api/backups');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch backups');
+                }
+                
+                const backups = await response.json();
+                console.log('Loaded backups:', backups); // Debug log
+                
+                // Populate backup select
+                select.innerHTML = '<option value="">Select a backup...</option>';
+                if (backups && backups.length > 0) {
+                    backups.forEach(backup => {
+                        const option = document.createElement('option');
+                        option.value = backup.name;
+                        option.textContent = `${backup.name} (${backup.size}) - ${backup.date}`;
+                        select.appendChild(option);
+                    });
+                    select.disabled = false;
+                } else {
+                    select.innerHTML = '<option value="">No backups available</option>';
+                    select.disabled = true;
+                }
+            } catch (error) {
+                console.error('Error loading backups:', error);
+                select.innerHTML = '<option value="">Error loading backups</option>';
+                select.disabled = true;
+                showAlert('Failed to load backup list: ' + error.message, 'danger');
+            }
+
+            // Add cleanup handler
+            modalElement.addEventListener('hidden.bs.modal', () => {
+                modal.dispose();
+                modalElement.remove();
+                backdrop.remove();
+            });
+
+            // Show modal
+            modal.show();
+            
+        } catch (error) {
+            console.error('Error showing modal:', error);
+            showAlert('Failed to show merge dialog: ' + error.message, 'danger');
+        }
+    }
+
+    // Update mergeFromBackup function
+    async function mergeFromBackup() {
+        const modalElement = document.querySelector('.modal');
+        if (!modalElement) {
+            console.error('Modal element not found');
+            return;
+        }
+        
+        const formData = new FormData();
+        const mergeButton = modalElement.querySelector('.modal-footer .btn-primary');
+        
+        // Check for uploaded file first - use the correct selector
+        const fileInput = document.querySelector('#database-upload');  // Changed from modalElement.querySelector
+        const uploadFile = fileInput?.files[0];
+        console.log('File input element:', fileInput);
+        console.log('File selected:', uploadFile);
+        
+        let hasValidInput = false;
+        
+        if (uploadFile) {
+            formData.append('uploaded_file', uploadFile);
+            hasValidInput = true;
+            console.log('Added file to form data:', uploadFile.name);
+        } else {
+            // If no file, check for backup selection
+            const backupSelect = modalElement.querySelector('#backup-select');
+            const selectedBackup = backupSelect?.value;
+            console.log('Selected backup:', selectedBackup);
+            
+            if (selectedBackup && selectedBackup !== '') {
+                formData.append('backup_name', selectedBackup);
+                hasValidInput = true;
+                console.log('Added backup name to form data:', selectedBackup);
+            } else {
+                console.log('No backup selected');
+            }
+        }
+        
+        if (!hasValidInput) {
+            showAlert('Please select a backup or upload a file', 'warning');
+            return;
+        }
+        
+        try {
+            if (mergeButton) {
+                mergeButton.disabled = true;
+                mergeButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Merging...';
+            }
+            
+            console.log('Sending merge request with form data:', Array.from(formData.entries()));
+            
+            const response = await fetch('/api/merge_backup', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText);
+            }
+            
+            const result = await response.json();
+            showAlert(result.message || 'Successfully merged database', 'success');
+            
+            // Close modal and refresh
+            const modal = bootstrap.Modal.getInstance(modalElement);
+            if (modal) modal.hide();
+            location.reload();
+            
+        } catch (error) {
+            console.error('Error merging backup:', error);
+            showAlert('Failed to merge backup: ' + error.message, 'danger');
+        } finally {
+            if (mergeButton) {
+                mergeButton.disabled = false;
+                mergeButton.innerHTML = 'Merge';
+            }
+        }
+    }
+
+    // Add showAlert function if not already defined
+    if (typeof showAlert === 'undefined') {
+        function showAlert(message, type = 'info') {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            
+            const alertContainer = document.querySelector('.alert-container') || document.body;
+            alertContainer.appendChild(alertDiv);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+    }
+</script>{% endblock %}
+

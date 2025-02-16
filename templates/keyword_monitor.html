@@ -1,31 +1,35 @@
 {% extends "base.html" %}
 
-{% block title %}Aunoo AI - Keyword Monitor{% endblock %}
+{% block title %}AuNoo AI - Keyword Monitor{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
             <h1>Keyword Monitor</h1>
-            <p class="text-muted">Create keyword groups and add keywords to monitor news articles</p>
+            <p class="text-muted">Monitor news articles by configuring keyword groups and search terms</p>
         </div>
         <div class="d-flex align-items-center gap-3">
             <div class="d-flex align-items-center">
                 <div class="me-3">
-                    <div class="text-muted small">API Requests Today</div>
-                    <div class="progress" style="width: 150px; height: 5px;">
+                    <div class="text-muted small">API Usage Today</div>
+                    <div class="progress" style="width: 150px; height: 5px;" 
+                         data-tooltip="Shows current API usage against daily limit">
                         <div id="mainRequestProgress" class="progress-bar" role="progressbar" style="width: 0%"></div>
                     </div>
                     <div class="text-end small">
                         <span id="mainRequestsUsed" class="text-muted">0</span>/<span id="mainRequestLimit">100</span>
-                        <div id="resetTimer" class="text-muted" style="font-size: 0.8rem;"></div>
+                        <div id="resetTimer" class="text-muted" style="font-size: 0.8rem;"
+                             data-tooltip="Time until API quota resets"></div>
                     </div>
                 </div>
             </div>
-            <button class="btn btn-success me-2" onclick="showNewGroupModal()">
+            <button class="btn btn-success me-2" onclick="showNewGroupModal()"
+                    data-tooltip="Create a new group of keywords to monitor">
                 <i class="fas fa-plus"></i> New Group
             </button>
-            <button class="btn btn-primary" onclick="showSettingsModal()">
+            <button class="btn btn-primary" onclick="showSettingsModal()"
+                    data-tooltip="Configure monitoring settings and intervals">
                 <i class="fas fa-cog"></i> Settings
             </button>
         </div>
@@ -34,7 +38,7 @@
     {% if not keyword_groups %}
     <div class="alert alert-info">
         <i class="fas fa-info-circle"></i> 
-        Start by creating a keyword group for a specific topic, then add keywords to monitor.
+        Get started by creating a keyword group. Each group can monitor multiple related keywords.
     </div>
     {% endif %}
 
@@ -45,7 +49,10 @@
                 <div class="card-header">
                     <div class="d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">{{ group.name }}</h5>
-                        <span class="badge bg-secondary">Topic: {{ group.topic }}</span>
+                        <span class="badge bg-secondary" 
+                              data-tooltip="Topic this group belongs to">
+                            Topic: {{ group.topic }}
+                        </span>
                     </div>
                 </div>
                 <div class="card-body">
@@ -58,21 +65,27 @@
                                 {{ keyword.keyword }}
                                 <button class="btn-close ms-2" 
                                         onclick="deleteKeyword({{ keyword.id }})"
+                                        data-tooltip="Remove this keyword"
                                         aria-label="Delete keyword"></button>
                             </div>
                             {% endfor %}
                         </div>
                         {% else %}
                         <div class="alert alert-light">
-                            No keywords added yet. Add keywords to start monitoring.
+                            <i class="fas fa-lightbulb"></i>
+                            Add keywords to start monitoring news articles for this group.
                         </div>
                         {% endif %}
                     </div>
                     <div class="d-flex justify-content-between">
-                        <button class="btn btn-sm btn-outline-primary" onclick="showAddKeywordModal({{ group.id }})">
+                        <button class="btn btn-sm btn-outline-primary" 
+                                onclick="showAddKeywordModal({{ group.id }})"
+                                data-tooltip="Add a new keyword to this group">
                             <i class="fas fa-plus"></i> Add Keyword
                         </button>
-                        <button class="btn btn-sm btn-outline-danger" onclick="deleteGroup({{ group.id }})">
+                        <button class="btn btn-sm btn-outline-danger" 
+                                onclick="deleteGroup({{ group.id }})"
+                                data-tooltip="Delete this entire group">
                             <i class="fas fa-trash"></i> Delete Group
                         </button>
                     </div>
@@ -96,18 +109,26 @@
                     <div class="mb-3">
                         <label for="groupName" class="form-label">Group Name</label>
                         <input type="text" class="form-control" id="groupName" required
-                               placeholder="Enter a descriptive name for this group">
-                        <div class="form-text">Example: "AI Safety News" or "Cloud Computing Updates"</div>
+                               placeholder="Enter a descriptive name for this group"
+                               data-tooltip="Choose a name that describes what you're monitoring">
+                        <div class="form-text">
+                            <i class="fas fa-info-circle"></i>
+                            Example: "AI Safety News" or "Cloud Computing Updates"
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="topicSelect" class="form-label">Topic</label>
-                        <select class="form-select" id="topicSelect" required>
+                        <select class="form-select" id="topicSelect" required
+                                data-tooltip="Select the topic this group belongs to">
                             <option value="">Select a topic...</option>
                             {% for topic in topics %}
                             <option value="{{ topic.name }}">{{ topic.name }}</option>
                             {% endfor %}
                         </select>
-                        <div class="form-text">Select the topic this keyword group will monitor</div>
+                        <div class="form-text">
+                            <i class="fas fa-info-circle"></i>
+                            Select the topic this keyword group will monitor
+                        </div>
                     </div>
                 </form>
             </div>
@@ -163,6 +184,17 @@
             </div>
             <div class="modal-body">
                 <form id="settingsForm">
+                    <div class="mb-4">
+                        <h6>Search Settings</h6>
+                        <div class="form-group">
+                            <label for="searchDateRange">Search Date Range (days)</label>
+                            <input type="number" class="form-control" id="searchDateRange" 
+                                   name="searchDateRange" min="1" max="30" 
+                                   value="{{ search_date_range|default(7) }}">
+                            <small class="text-muted">Number of days to look back when searching for articles (1-30 days)</small>
+                        </div>
+                    </div>
+
                     <div class="mb-4">
                         <h6>Check Interval</h6>
                         <div class="input-group">
@@ -253,6 +285,53 @@
         </div>
     </div>
 </div>
+
+<!-- Add this CSS -->
+<style>
+    /* Tooltip styles */
+    [data-tooltip] {
+        position: relative;
+        cursor: help;
+    }
+
+    [data-tooltip]:hover::before {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 8px 12px;
+        background-color: rgba(0, 0, 0, 0.8);
+        color: white;
+        font-size: 0.8rem;
+        border-radius: 6px;
+        white-space: nowrap;
+        z-index: 1000;
+        margin-bottom: 5px;
+    }
+
+    [data-tooltip]:hover::after {
+        content: '';
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 6px solid transparent;
+        border-top-color: rgba(0, 0, 0, 0.8);
+        margin-bottom: -6px;
+    }
+
+    .form-text {
+        font-size: 0.85rem;
+        color: var(--dark-gray);
+        margin-top: 0.25rem;
+    }
+
+    .form-text i {
+        opacity: 0.7;
+        margin-right: 4px;
+    }
+</style>
 {% endblock %}
 
 {% block extra_js %}
@@ -538,6 +617,7 @@ async function saveSettings() {
             check_interval: parseInt(document.getElementById('checkInterval').value),
             interval_unit: parseInt(document.getElementById('intervalUnit').value),
             daily_request_limit: parseInt(document.getElementById('dailyRequestLimit').value),
+            search_date_range: parseInt(document.getElementById('searchDateRange').value),
             search_fields: searchFields,
             language: document.getElementById('language').value,
             sort_by: document.getElementById('sortBy').value,

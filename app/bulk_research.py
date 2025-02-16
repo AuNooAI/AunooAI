@@ -194,3 +194,15 @@ class BulkResearch:
 
     def set_ai_model(self, model_name: str):
         self.ai_model = get_ai_model(model_name)
+
+    async def analyze_articles(self, urls: List[str], topic: str) -> None:
+        for url in urls:
+            # Check if it's from keyword alerts
+            alert_article = self.db.get_keyword_alert_article(url)
+            if alert_article:
+                # Analyze the article
+                analysis = await self.analyze_single_article(url)
+                
+                # If analysis successful, move to main articles table
+                if analysis:
+                    await self.research.move_alert_to_articles(url)

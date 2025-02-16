@@ -11,6 +11,16 @@ logging.basicConfig(
     level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+
+def parse_datetime(date_string: str) -> datetime:
+    """Parse datetime string handling both ISO format with and without timezone"""
+    try:
+        # Try parsing ISO format with timezone
+        return datetime.fromisoformat(date_string.replace('Z', '+00:00'))
+    except ValueError:
+        # Fallback to basic ISO format without timezone
+        return datetime.fromisoformat(date_string)
+
 class Report:
     def __init__(self, db):
         self.db = db
@@ -159,10 +169,10 @@ class Report:
 
     @staticmethod
     def _get_date_range(articles: List[Dict]) -> Dict:
-        dates = [datetime.strptime(a['publication_date'], '%Y-%m-%d') for a in articles]
+        dates = [parse_datetime(a['publication_date']).strftime('%Y-%m-%d') for a in articles]
         return {
-            'start': min(dates).strftime('%Y-%m-%d'),
-            'end': max(dates).strftime('%Y-%m-%d')
+            'start': min(dates),
+            'end': max(dates)
         }
 
     def _generate_section_data(self, articles: List[Dict], custom_sections: Optional[Dict] = None) -> Dict:

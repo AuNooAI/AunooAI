@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Aunoo AI - Keyword Alerts{% endblock %}
+{% block title %}AuNoo AI - Keyword Alerts{% endblock %}
 
 {% block content %}
 <div class="container mt-4">
@@ -70,13 +70,16 @@
             <div class="d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">EMERGING TRENDS DASHBOARD</h5>
                 <div>
+                    <button class="btn btn-outline-danger btn-sm me-2" id="bulkDeleteBtn" style="display: none;">
+                        <i class="fas fa-trash"></i> Delete Selected (<span id="deleteCount">0</span>)
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm me-2" id="bulkAnalyzeBtn" style="display: none;">
+                        <i class="fas fa-microscope"></i> Analyze Selected (<span id="selectedCount">0</span>)
+                    </button>
                     <button class="btn btn-outline-secondary btn-sm" onclick="exportAlerts()">
                         <i class="fas fa-file-export"></i> Export
                     </button>
                 </div>
-            </div>
-            <div class="mt-2">
-                <span class="badge bg-success me-2">Real time monitoring</span>
             </div>
         </div>
         <div class="card-body">
@@ -84,33 +87,50 @@
                 <table class="table table-hover align-middle">
                     <thead>
                         <tr>
-                            <th>EMERGING TREND</th>
-                            <th>REFERENCES</th>
-                            <th style="width: 200px;">GROWTH</th>
-                            <th>SIZE</th>
-                            <th>TAGS</th>
-                            <th>ACTIONS</th>
+                            <th>Status</th>
+                            <th>Emerging Trend</th>
+                            <th>References</th>
+                            <th style="width: 200px;">Growth</th>
+                            <th>Size</th>
+                            <th>Tags</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for group in groups %}
-                        <tr>
+                        <tr data-topic="{{ group.topic }}" data-total-count="{{ group.total_count }}">
                             <td>
-                                <div>
-                                    <strong>{{ group.name }}</strong>
-                                    <p class="text-muted small mb-0">{{ group.topic }}</p>
+                                <span class="badge bg-{{ status_colors[group.growth_status] }}">
+                                    {{ group.growth_status }}
+                                </span>
+                            </td>
+                            <td>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>{{ group.name }}</strong>
+                                        <p class="text-muted small mb-0">{{ group.topic }}</p>
+                                    </div>
                                 </div>
                             </td>
                             <td>
                                 <div class="d-flex gap-1">
                                     {% if group.alerts %}
                                         {% for alert in group.alerts[:3] %}
-                                        <a href="{{ alert.article.url }}" 
-                                           class="badge rounded-pill bg-light text-dark text-decoration-none" 
-                                           title="{{ alert.article.title }}" 
-                                           target="_blank">
+                                        <span class="article-reference"
+                                              data-url="{{ alert.article.url }}"
+                                              data-title="{{ alert.article.title }}"
+                                              data-summary="{{ alert.article.summary }}"
+                                              data-topic="{{ group.topic }}"
+                                              data-group-id="{{ group.id }}"
+                                              onclick="toggleArticleSelection(this)"
+                                              title="{{ alert.article.title }}">
                                             {{ loop.index }}
-                                        </a>
+                                        </span>
+                                        {% for keyword in alert.keywords %}
+                                            <span class="badge bg-info ms-1">
+                                                <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                            </span>
+                                        {% endfor %}
                                         {% endfor %}
                                     {% else %}
                                         <span class="text-muted">No recent references</span>
@@ -125,31 +145,21 @@
                                                 height="40" 
                                                 style="width: 120px; height: 40px;"></canvas>
                                     </div>
-                                    {% set status_colors = {
-                                        'NEW': 'primary',
-                                        'Exploding': 'danger',
-                                        'Surging': 'warning',
-                                        'Growing': 'success',
-                                        'Stable': 'secondary',
-                                        'Declining': 'info',
-                                        'No Data': 'secondary'
-                                    } %}
-                                    <span class="badge bg-{{ status_colors[group.growth_status] }} ms-2">
-                                        {{ group.growth_status }}
-                                    </span>
                                 </div>
                             </td>
                             <td>
-                                <span class="badge bg-secondary">{{ group.alerts|length }} articles</span>
+                                <span class="badge bg-primary">{{ group.unread_count }} alerts</span>
                             </td>
                             <td>
                                 {% for keyword in group.keywords[:3] %}
-                                <span class="badge bg-light text-dark border">{{ keyword }}</span>
+                                <span class="badge bg-info">
+                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                </span>
                                 {% endfor %}
                             </td>
                             <td>
-                                <button class="btn btn-sm btn-outline-secondary">
-                                    <i class="fas fa-eye-slash"></i> Hide
+                                <button class="btn btn-sm btn-outline-secondary" title="Hide trend">
+                                    <i class="fas fa-eye-slash"></i>
                                 </button>
                             </td>
                         </tr>
@@ -167,20 +177,52 @@
                 <div class="card">
                     <div class="card-header bg-light">
                         <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <h5 class="mb-0">{{ group.name }}</h5>
-                                <div class="text-muted small">
-                                    Topic: <span class="badge bg-secondary">{{ group.topic }}</span>
-                                    {% if group.keywords %}
-                                        <span class="ms-2">Monitoring: 
-                                            {% for keyword in group.keywords %}
-                                            <span class="badge bg-info">{{ keyword }}</span>
-                                            {% endfor %}
-                                        </span>
-                                    {% endif %}
+                            <div class="d-flex align-items-center gap-3">
+                                <div>
+                                    <h5 class="mb-0">{{ group.name }}</h5>
+                                    <div class="text-muted small">
+                                        Topic: <span class="badge bg-secondary">{{ group.topic }}</span>
+                                        {% if group.keywords %}
+                                            <span class="ms-2">Monitoring: 
+                                                {% for keyword in group.keywords %}
+                                                <span class="badge bg-info">
+                                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                                </span>
+                                                {% endfor %}
+                                            </span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input show-read-toggle" 
+                                           type="checkbox" 
+                                           id="showReadToggle_{{ group.id }}"
+                                           data-topic="{{ group.topic }}"
+                                           data-group-id="{{ group.id }}">
+                                    <label class="form-check-label" for="showReadToggle_{{ group.id }}">
+                                        Show read articles (<span class="total-count">{{ group.total_count }}</span> total)
+                                    </label>
                                 </div>
                             </div>
-                            <span class="badge bg-primary">{{ group.alerts|length }} alerts</span>
+                            <div class="d-flex gap-2 align-items-center" data-group-id="{{ group.id }}">
+                                <button class="btn btn-outline-primary btn-sm bulk-analyze-btn" 
+                                        data-topic="{{ group.topic }}"
+                                        data-group-id="{{ group.id }}"
+                                        onclick="analyzeBulkArticles('{{ group.topic }}', '{{ group.id }}')"
+                                        style="display: none;">
+                                    <i class="fas fa-microscope"></i> 
+                                    Analyze Selected (<span class="selected-count">0</span>)
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm bulk-delete-btn"
+                                        data-topic="{{ group.topic }}"
+                                        data-group-id="{{ group.id }}"
+                                        onclick="bulkDeleteArticles('{{ group.topic }}', '{{ group.id }}')"
+                                        style="display: none;">
+                                    <i class="fas fa-trash"></i>
+                                    Delete Selected (<span class="delete-count">0</span>)
+                                </button>
+                                <span class="badge bg-primary">{{ group.unread_count }} alerts</span>
+                            </div>
                         </div>
                     </div>
                     
@@ -193,32 +235,36 @@
                                     <th>Article</th>
                                     <th style="width: 150px">Source</th>
                                     <th style="width: 150px">Detected</th>
-                                    <th style="width: 100px">Actions</th>
+                                    <th style="width: 150px">Tags</th>
+                                    <th style="width: 250px">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for alert in group.alerts %}
                                 <tr>
                                     <td>
-                                        <span class="badge bg-primary">New</span>
+                                        <div class="d-flex align-items-center">
+                                            <span class="badge bg-primary">New</span>
+                                        </div>
                                     </td>
                                     <td>
                                         <div class="d-flex flex-column" style="max-width: 600px;">
                                             <div class="mb-1">
-                                                <a href="{{ alert.article.url }}" target="_blank" class="h6 text-decoration-none">
-                                                    {{ alert.article.title }}
-                                                </a>
+                                                <div class="d-flex gap-2 align-items-center">
+                                                    <span class="article-reference"
+                                                          data-url="{{ alert.article.url }}"
+                                                          data-title="{{ alert.article.title }}"
+                                                          data-summary="{{ alert.article.summary }}"
+                                                          data-topic="{{ group.topic }}"
+                                                          data-group-id="{{ group.id }}"
+                                                          onclick="toggleArticleSelection(this)"
+                                                          title="{{ alert.article.title }}">
+                                                        {{ loop.index }}
+                                                    </span>
+                                                    <a href="{{ alert.article.url }}" target="_blank">{{ alert.article.title }}</a>
+                                                </div>
+                                                <p class="text-muted mb-0 small">{{ alert.article.summary }}</p>
                                             </div>
-                                            <div class="mb-1">
-                                                <span class="badge bg-light text-dark">
-                                                    <i class="fas fa-tag"></i> {{ alert.matched_keyword }}
-                                                </span>
-                                            </div>
-                                            {% if alert.article.summary %}
-                                            <div class="text-muted small" style="max-height: 60px; overflow-y: auto;">
-                                                {{ alert.article.summary[:200] }}...
-                                            </div>
-                                            {% endif %}
                                         </div>
                                     </td>
                                     <td>
@@ -238,9 +284,50 @@
                                         </div>
                                     </td>
                                     <td>
-                                        <button class="btn btn-sm btn-outline-success" onclick="markAsRead('{{ alert.id }}')">
-                                            <i class="fas fa-check"></i> Mark Read
-                                        </button>
+                                        {% if alert.matched_keyword %}
+                                            <span class="badge bg-info">
+                                                <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
+                                            </span>
+                                        {% endif %}
+                                        {% for keyword in alert.keywords %}
+                                            {% if keyword != alert.matched_keyword %}
+                                            <span class="badge bg-info ms-1">
+                                                <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                            </span>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-column gap-2">
+                                            <div class="d-flex gap-2">
+                                                <button class="btn btn-sm btn-outline-success" 
+                                                        onclick="markAsRead('{{ alert.id }}')"
+                                                        data-topic="{{ group.topic }}"
+                                                        data-group-id="{{ group.id }}"
+                                                        title="Mark as read">
+                                                    <i class="fas fa-check"></i>
+                                                </button>
+                                                <a href="/research?url={{ alert.article.url|urlencode }}&topic={{ group.topic|urlencode }}" 
+                                                   class="btn btn-sm btn-outline-primary"
+                                                   title="Analyze article">
+                                                    <i class="fas fa-microscope"></i>
+                                                </a>
+                                            </div>
+                                            <div class="d-flex gap-2">
+                                                <a href="https://12ft.io/{{ alert.article.url }}" 
+                                                   class="btn btn-sm btn-outline-secondary"
+                                                   title="Bypass Paywall with 12ft.io" 
+                                                   target="_blank">
+                                                    <i class="fas fa-unlock"></i>
+                                                </a>
+                                                <a href="https://archive.is/{{ alert.article.url }}" 
+                                                   class="btn btn-sm btn-outline-secondary"
+                                                   title="View archived version" 
+                                                   target="_blank">
+                                                    <i class="fas fa-archive"></i>
+                                                </a>
+                                            </div>
+                                        </div>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -275,6 +362,126 @@
 </div>
 
 <style>
+/* Reset any potential conflicting styles */
+.badge {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0.35em 0.8em !important;
+    font-size: 0.75em !important;
+    font-weight: 500 !important;
+    line-height: 1.4 !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+    vertical-align: baseline !important;
+    border-radius: 12px !important;  /* More curved edges */
+    margin-right: 0.4rem !important;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;  /* Subtle shadow */
+    letter-spacing: 0.02em !important;
+}
+
+/* Softer colors for badges */
+.badge.bg-primary {
+    background-color: rgba(13, 110, 253, 0.1) !important;
+    color: #0d6efd !important;
+    border: 1px solid rgba(13, 110, 253, 0.2) !important;
+}
+
+.badge.bg-info {
+    background-color: rgba(23, 162, 184, 0.1) !important;
+    color: #17a2b8 !important;
+    border: 1px solid rgba(23, 162, 184, 0.2) !important;
+}
+
+.badge.bg-secondary {
+    background-color: rgba(108, 117, 125, 0.1) !important;
+    color: #6c757d !important;
+    border: 1px solid rgba(108, 117, 125, 0.2) !important;
+}
+
+/* Hover effect for interactive badges */
+.badge[onclick],
+.badge[role="button"] {
+    transition: all 0.2s ease !important;
+    cursor: pointer !important;
+}
+
+.badge[onclick]:hover,
+.badge[role="button"]:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+}
+
+/* Icon styling within badges */
+.badge i {
+    font-size: 0.85em !important;
+    margin-right: 0.3em !important;
+    opacity: 0.8 !important;
+}
+
+/* Status-specific colors */
+.badge.bg-success {
+    background-color: rgba(40, 167, 69, 0.1) !important;
+    color: #28a745 !important;
+    border: 1px solid rgba(40, 167, 69, 0.2) !important;
+}
+
+.badge.bg-warning {
+    background-color: rgba(255, 193, 7, 0.1) !important;
+    color: #d39e00 !important;
+    border: 1px solid rgba(255, 193, 7, 0.2) !important;
+}
+
+.badge.bg-danger {
+    background-color: rgba(220, 53, 69, 0.1) !important;
+    color: #dc3545 !important;
+    border: 1px solid rgba(220, 53, 69, 0.2) !important;
+}
+
+/* Ensure the badge container is visible */
+td .d-flex.align-items-center {
+    display: flex !important;
+    min-height: 24px !important;
+    padding: 4px 0 !important;
+}
+
+/* Style for the rounded pill badges */
+.rounded-pill {
+    width: 24px !important;
+    height: 24px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 50% !important;
+}
+
+/* Make sure the article reference badges are visible */
+.article-reference {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 24px !important;
+    height: 24px !important;
+    border-radius: 50% !important;
+    background-color: var(--bs-light) !important;
+    border: 1px solid var(--bs-gray-300) !important;
+    color: var(--bs-dark) !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+}
+
+.article-reference:hover {
+    background-color: var(--bs-primary) !important;
+    color: white !important;
+    border-color: var(--bs-primary) !important;
+}
+
+.article-reference.selected {
+    background-color: var(--bs-primary) !important;
+    color: white !important;
+    border-color: var(--bs-primary) !important;
+}
+
 .sparkline-container {
     position: relative;
     margin-right: 10px;
@@ -306,16 +513,65 @@
     vertical-align: middle;
 }
 
-.badge {
-    font-weight: normal;
+.d-flex.align-items-center {
+    gap: 0.25rem;
+    flex-wrap: wrap;
 }
 
-.rounded-pill {
-    width: 24px;
-    height: 24px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+td .d-flex.align-items-center {
+    min-height: 24px;
+}
+
+.keyword-labels {
+    display: none;
+    position: absolute;
+    top: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    padding: 4px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    white-space: nowrap;
+    z-index: 1000;
+    min-width: max-content;
+}
+
+.article-reference:hover .keyword-labels {
+    display: block;
+}
+
+.keyword-labels .badge {
+    font-size: 0.75rem;
+    margin: 0 2px;
+    padding: 3px 6px;
+    display: inline-block;
+}
+
+.keyword-labels:after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid white;
+}
+
+.badge.small {
+    font-size: 0.7rem;
+    padding: 0.2em 0.5em;
+}
+
+td .d-flex.flex-wrap {
+    gap: 0.25rem !important;
+}
+
+.d-flex.gap-2 {
+    gap: 0.5rem !important;
 }
 
 /* Update the alert styling */
@@ -344,9 +600,101 @@
 .alert.fade:not(.show) {
     opacity: 0;
 }
+
+.article-reference {
+    background-color: var(--bs-light);
+    color: var(--bs-dark);
+    border: 1px solid var(--bs-gray-300);
+    padding: 2px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.article-reference:hover {
+    background-color: var(--bs-primary-rgb, #0d6efd);
+    color: white;
+    text-decoration: none;
+}
+
+.article-reference.selected {
+    background-color: var(--bs-primary-rgb, #0d6efd);
+    color: white;
+    border-color: var(--bs-primary-rgb, #0d6efd);
+}
+
+.keyword-labels {
+    display: none;
+    position: absolute;
+    top: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    padding: 4px;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    white-space: nowrap;
+    z-index: 1000;
+    min-width: max-content;
+}
+
+.article-reference:hover .keyword-labels {
+    display: block;
+}
+
+.keyword-labels .badge {
+    font-size: 0.75rem;
+    margin: 0 2px;
+    padding: 3px 6px;
+    display: inline-block;
+}
+
+.keyword-labels:after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid white;
+}
+
+.badge.small {
+    font-size: 0.7rem;
+    padding: 0.2em 0.5em;
+}
+
+td .d-flex.flex-wrap {
+    gap: 0.25rem !important;
+}
+
+.d-flex.gap-2 {
+    gap: 0.5rem !important;
+}
 </style>
 
 <script>
+// At the top of the script section, change the storage structure
+const selectedArticles = {
+    byTopic: {},  // Store by topic for bulk operations
+    byGroup: {}   // Store by group for UI updates
+};
+
+function generateTopicId(topic) {
+    return `bulkAnalyzeBtn_${topic.replace(/[^a-zA-Z0-9]/g, '_')}`;
+}
+
+let selectedArticlesByTopic = {};
+
 function drawSparkline(canvas, data) {
     const ctx = canvas.getContext('2d');
     const width = canvas.width;
@@ -460,10 +808,36 @@ async function markAsRead(alertId) {
         
         if (!response.ok) throw new Error('Failed to mark alert as read');
         
-        window.location.reload();
+        const alertElement = document.querySelector(`[onclick*="${alertId}"]`);
+        if (!alertElement) throw new Error('Alert element not found');
+        
+        const topic = alertElement.dataset.topic;
+        const groupId = alertElement.dataset.groupId;
+        
+        if (!topic || !groupId) {
+            console.error('Missing topic or groupId:', { topic, groupId });
+            throw new Error('Missing required data attributes');
+        }
+        
+        // Update the status badge count
+        const groupCard = alertElement.closest('.card');
+        const statusBadge = groupCard.querySelector('.badge.bg-primary');
+        const currentCount = parseInt(statusBadge.textContent);
+        if (!isNaN(currentCount)) {
+            const newCount = Math.max(0, currentCount - 1);
+            statusBadge.textContent = `${newCount} alerts`;
+        }
+        
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (!toggle) throw new Error('Toggle element not found');
+        
+        // Refresh with current toggle state
+        await refreshGroupArticles(topic, groupId, toggle.checked);
+        
+        showAlert('Alert marked as read', 'success');
     } catch (error) {
         console.error('Error:', error);
-        alert('Failed to mark alert as read');
+        showAlert('Failed to mark alert as read', 'danger');
     }
 }
 
@@ -531,24 +905,60 @@ async function checkKeywords() {
             method: 'POST'
         });
         
-        const data = await response.json();
-        
         if (response.status === 429) {
             showAlert('API daily request limit reached. Please try again tomorrow.', 'warning');
-        } else if (!response.ok) {
-            throw new Error(data.detail || 'Failed to check keywords');
-        } else {
-            window.location.reload();
+            return;
+        }
+        
+        if (!response.ok) {
+            throw new Error('Failed to check keywords');
+        }
+        
+        // Store current toggle states and button states
+        const groups = document.querySelectorAll('.card[data-topic]');
+        for (const group of groups) {
+            const topic = group.dataset.topic;
+            const toggle = document.querySelector(`#showReadToggle_${topic}`);
+            if (toggle) {
+                await refreshGroupArticles(topic, toggle.checked);
+            }
         }
         
     } catch (error) {
         console.error('Error:', error);
-        showAlert(error.message || 'Failed to check keywords. Please try again.');
+        showAlert('Failed to check keywords. Please try again.', 'danger');
     } finally {
         button.disabled = false;
         button.innerHTML = originalHtml;
     }
 }
+
+// Update the DOMContentLoaded event listener to be simpler
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize toggles
+    document.querySelectorAll('.show-read-toggle').forEach(toggle => {
+        const topic = toggle.dataset.topic;
+        const groupId = toggle.dataset.groupId;
+        
+        if (!topic || !groupId) {
+            console.error('Toggle missing required data attributes');
+            return;
+        }
+        
+        const savedState = localStorage.getItem(`showReadArticles_${groupId}`);
+        toggle.checked = savedState === 'true' || false;
+        
+        toggle.addEventListener('change', async function() {
+            console.log(`Toggle changed for group ${groupId} (${topic}): ${this.checked}`);
+            localStorage.setItem(`showReadArticles_${groupId}`, this.checked);
+            await refreshGroupArticles(topic, groupId, this.checked);
+        });
+    });
+
+    // Initialize reset timer
+    updateResetTimer();
+    setInterval(updateResetTimer, 60000);
+});
 
 // Add custom date formatting
 function formatDate(dateStr) {
@@ -612,6 +1022,12 @@ async function togglePolling(enabled) {
             label.textContent = `Auto-polling ${enabled ? 'enabled' : 'disabled'}`;
         }
         
+        // Update the monitoring badge color
+        const monitoringBadge = document.querySelector('.badge');
+        if (monitoringBadge && monitoringBadge.textContent.trim() === 'Real time monitoring') {
+            monitoringBadge.className = `badge ${enabled ? 'bg-success' : 'bg-danger'} me-2`;
+        }
+        
         // Update the next check time display
         const nextCheckSpan = document.querySelector('span.text-muted i.fa-hourglass-half')?.parentElement;
         if (nextCheckSpan) {
@@ -642,21 +1058,6 @@ async function togglePolling(enabled) {
         }
     }
 }
-
-// Add this function to update the next check time periodically
-function updateNextCheckTime() {
-    const nextCheckSpan = document.querySelector('span.text-muted i.fa-hourglass-half')?.parentElement;
-    if (nextCheckSpan && !nextCheckSpan.textContent.includes('Polling disabled')) {
-        const timeagoSpan = nextCheckSpan.querySelector('.timeago');
-        if (timeagoSpan) {
-            const dateStr = timeagoSpan.dataset.date;
-            timeagoSpan.textContent = timeAgo(dateStr);
-        }
-    }
-}
-
-// Update next check time every minute
-setInterval(updateNextCheckTime, 60000);
 
 function updateResetTimer() {
     const now = new Date();
@@ -731,6 +1132,359 @@ async function exportAlerts() {
     } catch (error) {
         console.error('Error exporting alerts:', error);
         showAlert('Failed to export alerts. Please try again.', 'danger');
+    }
+}
+
+function toggleArticleSelection(element) {
+    const articleData = {
+        url: element.dataset.url,
+        title: element.dataset.title,
+        summary: element.dataset.summary,
+        topic: element.dataset.topic,
+        groupId: element.dataset.groupId
+    };
+    
+    // Initialize storage if needed
+    if (!selectedArticles.byTopic[articleData.topic]) {
+        selectedArticles.byTopic[articleData.topic] = [];
+    }
+    if (!selectedArticles.byGroup[articleData.groupId]) {
+        selectedArticles.byGroup[articleData.groupId] = [];
+    }
+    
+    element.classList.toggle('selected');
+    
+    if (element.classList.contains('selected')) {
+        // Add to both topic and group arrays if not already present
+        if (!selectedArticles.byTopic[articleData.topic].some(article => article.url === articleData.url)) {
+            selectedArticles.byTopic[articleData.topic].push(articleData);
+        }
+        if (!selectedArticles.byGroup[articleData.groupId].some(article => article.url === articleData.url)) {
+            selectedArticles.byGroup[articleData.groupId].push(articleData);
+        }
+    } else {
+        // Remove from both arrays
+        selectedArticles.byTopic[articleData.topic] = selectedArticles.byTopic[articleData.topic]
+            .filter(article => article.url !== articleData.url);
+        selectedArticles.byGroup[articleData.groupId] = selectedArticles.byGroup[articleData.groupId]
+            .filter(article => article.url !== articleData.url);
+    }
+    
+    updateBulkButtons(articleData.topic, articleData.groupId);
+}
+
+function updateBulkButtons(topic, groupId) {
+    const groupArticles = selectedArticles.byGroup[groupId] || [];
+    const buttonContainer = document.querySelector(`.d-flex[data-group-id="${groupId}"]`);
+    if (!buttonContainer) return;
+    
+    // Update analyze button for this specific group
+    const bulkAnalyzeBtn = buttonContainer.querySelector('.bulk-analyze-btn');
+    if (bulkAnalyzeBtn) {
+        if (groupArticles.length > 0) {
+            bulkAnalyzeBtn.style.display = 'inline-block';
+            const selectedCount = bulkAnalyzeBtn.querySelector('.selected-count');
+            if (selectedCount) {
+                selectedCount.textContent = groupArticles.length;
+            }
+        } else {
+            bulkAnalyzeBtn.style.display = 'none';
+        }
+    }
+    
+    // Update delete button for this specific group
+    const bulkDeleteBtn = buttonContainer.querySelector('.bulk-delete-btn');
+    if (bulkDeleteBtn) {
+        if (groupArticles.length > 0) {
+            bulkDeleteBtn.style.display = 'inline-block';
+            const deleteCount = bulkDeleteBtn.querySelector('.delete-count');
+            if (deleteCount) {
+                deleteCount.textContent = groupArticles.length;
+            }
+        } else {
+            bulkDeleteBtn.style.display = 'none';
+        }
+    }
+}
+
+function analyzeBulkArticles(topic, groupId) {
+    const articles = selectedArticles.byGroup[groupId] || [];
+    if (articles.length === 0) {
+        showAlert('No articles selected for analysis', 'warning');
+        return;
+    }
+    
+    const urls = articles.map(article => article.url).join('\n');
+    const params = new URLSearchParams({
+        urlList: urls,
+        topic: topic
+    });
+    
+    window.location.href = `/bulk-research?${params.toString()}`;
+}
+
+async function bulkDeleteArticles(topic, groupId) {
+    const articles = selectedArticles.byGroup[groupId] || [];
+    
+    if (articles.length === 0) {
+        showAlert('No articles selected for deletion', 'warning');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete ${articles.length} selected articles from this group?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/bulk_delete_articles', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                uris: articles.map(article => article.url)
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to delete articles');
+        }
+        
+        const result = await response.json();
+        showAlert(`Successfully deleted ${result.deleted_count} articles`, 'success');
+        
+        // Clear selections
+        selectedArticles.byGroup[groupId] = [];
+        selectedArticles.byTopic[topic] = [];
+        
+        // Update UI elements safely with null checks
+        const headerBadge = document.querySelector(`a[href="#${groupId}"] .badge, [data-topic="${topic}"] .badge.bg-primary`);
+        if (headerBadge) {
+            headerBadge.textContent = '0 alerts';
+        }
+        
+        const trendBadge = document.querySelector(`tr[data-topic="${topic}"] td:nth-child(5) .badge.bg-primary`);
+        if (trendBadge) {
+            trendBadge.textContent = '0 alerts';
+        }
+        
+        // Safely get the toggle element
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (toggle) {
+            const totalSpan = toggle.closest('label')?.querySelector('.total-count');
+            if (totalSpan) {
+                totalSpan.textContent = '0';
+            }
+            
+            // Refresh the group's content
+            await refreshGroupArticles(topic, groupId, toggle.checked || false);
+        }
+        
+        // Update the group content area
+        const groupContainer = document.querySelector(`[data-group-id="${groupId}"]`);
+        if (groupContainer) {
+            const tableBody = groupContainer.closest('.card')?.querySelector('tbody');
+            if (tableBody) {
+                if (tableBody.children.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="6">
+                                <div class="alert alert-info mb-0">
+                                    <i class="fas fa-info-circle"></i> No new alerts for this group
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }
+            }
+        }
+
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to delete articles. Please try again.', 'danger');
+    }
+}
+
+// Update refreshGroupArticles to use passed showRead parameter
+async function refreshGroupArticles(topic, groupId, showRead = false) {
+    try {
+        console.log(`Refreshing articles for group ${groupId} (${topic}), showRead: ${showRead}`);
+        
+        const response = await fetch(`/api/keyword-monitor/alerts/${encodeURIComponent(topic)}?show_read=${showRead}&group_id=${groupId}`);
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch alerts');
+        }
+        
+        const data = await response.json();
+        
+        // Update the card selector to find by group-id
+        const card = document.querySelector(`.card .d-flex[data-group-id="${groupId}"]`).closest('.card');
+        if (!card) {
+            console.error(`Card not found for group ${groupId} (${topic})`);
+            return;
+        }
+        
+        updateGroupAlerts(card, data, groupId);
+        
+    } catch (error) {
+        console.error('Error refreshing articles:', error);
+        showAlert('Failed to refresh articles', 'danger');
+    }
+}
+
+// Update updateGroupAlerts to handle the card element directly
+function updateGroupAlerts(card, data, groupId) {
+    const tableBody = card.querySelector('tbody');
+    if (!tableBody) {
+        console.error('Table body not found');
+        return;
+    }
+    
+    // Update count in the group panel
+    const alertCountBadge = card.querySelector('.badge.bg-primary');
+    if (alertCountBadge) {
+        alertCountBadge.textContent = `${data.unread_count} alerts`;
+    }
+    
+    // Update count in trend dashboard (but not the status badge)
+    const trendRow = document.querySelector(`tr[data-topic="${data.topic}"]`);
+    if (trendRow) {
+        // Find the size column badge specifically (not the status badge)
+        const trendCountBadge = trendRow.querySelector('td:nth-child(5) .badge.bg-primary');
+        if (trendCountBadge) {
+            trendCountBadge.textContent = `${data.unread_count} alerts`;
+        }
+    }
+    
+    // Generate alerts HTML
+    let html = '';
+    for (const alert of data.alerts) {
+        html += `
+            <tr class="${alert.is_read ? 'text-muted bg-light' : ''}">
+                <td>
+                    <div class="d-flex align-items-center">
+                        ${alert.is_read ? 
+                            '<span class="badge bg-secondary">Read</span>' : 
+                            '<span class="badge bg-primary">New</span>'}
+                    </div>
+                </td>
+                <td>
+                    <div class="d-flex flex-column" style="max-width: 600px;">
+                        <div class="mb-1">
+                            <div class="d-flex gap-2 align-items-center">
+                                <span class="article-reference"
+                                      data-url="${alert.article.url}"
+                                      data-title="${alert.article.title}"
+                                      data-summary="${alert.article.summary}"
+                                      data-topic="${data.topic}"
+                                      data-group-id="${groupId}"
+                                      onclick="toggleArticleSelection(this)"
+                                      title="${alert.article.title}">
+                                    ${alert.id}
+                                </span>
+                                <a href="${alert.article.url}" target="_blank">${alert.article.title}</a>
+                            </div>
+                            <p class="text-muted mb-0 small">${alert.article.summary}</p>
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div class="small">
+                        <div class="fw-bold">${alert.article.source}</div>
+                        <div class="text-muted">
+                            ${new Date(alert.article.publication_date).toLocaleString()}
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div class="small">
+                        <div>${timeAgo(alert.detected_at)}</div>
+                        <div class="text-muted">
+                            ${new Date(alert.detected_at).toLocaleString()}
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    ${alert.matched_keyword ? 
+                        `<span class="badge bg-info">
+                            <i class="fas fa-tag me-1"></i>${alert.matched_keyword}
+                        </span>` : ''}
+                </td>
+                <td>
+                    <div class="d-flex flex-column gap-2">
+                        <div class="d-flex gap-2">
+                            ${!alert.is_read ? 
+                                `<button class="btn btn-sm btn-outline-success" 
+                                         onclick="markAsRead('${alert.id}')"
+                                         data-topic="${data.topic}"
+                                         data-group-id="${groupId}"
+                                         title="Mark as read">
+                                    <i class="fas fa-check"></i>
+                                </button>` : 
+                                `<button class="btn btn-sm btn-outline-secondary" 
+                                         onclick="markAsUnread('${alert.id}')"
+                                         title="Mark as unread">
+                                    <i class="fas fa-undo"></i>
+                                </button>`}
+                            <a href="/research?url=${encodeURIComponent(alert.article.url)}&topic=${encodeURIComponent(data.topic)}" 
+                               class="btn btn-sm btn-outline-primary"
+                               title="Analyze article">
+                                <i class="fas fa-microscope"></i>
+                            </a>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <a href="https://12ft.io/${alert.article.url}" 
+                               class="btn btn-sm btn-outline-secondary"
+                               title="Bypass Paywall with 12ft.io" 
+                               target="_blank">
+                                <i class="fas fa-unlock"></i>
+                            </a>
+                            <a href="https://archive.is/${alert.article.url}" 
+                               class="btn btn-sm btn-outline-secondary"
+                               title="View archived version" 
+                               target="_blank">
+                                <i class="fas fa-archive"></i>
+                            </a>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+    
+    tableBody.innerHTML = html;
+    
+    // Update the total count in toggle label
+    const totalCount = card.querySelector('.total-count');
+    if (totalCount) {
+        totalCount.textContent = data.total_count;
+    }
+    
+    // Update bulk action buttons
+    updateBulkButtons(data.topic, groupId);
+}
+
+// Update markAsUnread to pass the correct showRead state
+async function markAsUnread(alertId) {
+    try {
+        const response = await fetch(`/api/keyword-monitor/alerts/${alertId}/unread`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) throw new Error('Failed to mark alert as unread');
+        
+        const alertElement = document.querySelector(`[onclick*="${alertId}"]`);
+        const groupElement = alertElement.closest('.card');
+        const buttonContainer = groupElement.querySelector('.d-flex[data-group-id]');
+        const topic = alertElement.dataset.topic;
+        const groupId = buttonContainer.dataset.groupId;
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        
+        await refreshGroupArticles(topic, groupId, toggle.checked);
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to mark alert as unread', 'danger');
     }
 }
 </script>

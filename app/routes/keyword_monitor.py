@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
-from app.database import get_database_instance
+from app.database import Database, get_database_instance
 from app.tasks.keyword_monitor import KeywordMonitor
 from app.security.session import verify_session
 import logging
@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 import io
 import csv
 from pathlib import Path
+import sqlite3
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -130,64 +131,36 @@ async def check_now(db=Depends(get_database_instance)):
 async def get_alerts(
     request: Request,
     session=Depends(verify_session),
-    db=Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    show_read: bool = False
 ):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Get the last check time and error
-            cursor.execute("""
-                SELECT last_check_time, last_error
-                FROM keyword_monitor_status
-                WHERE id = 1
-            """)
-            status = cursor.fetchone()
-            last_check_time = status[0] if status else None
-            last_error = status[1] if status and len(status) > 1 else None
+            # Modify the query to optionally include read articles
+            read_condition = "" if show_read else "AND ka.is_read = 0"
             
-            # Get all unread alerts with article and keyword info
-            cursor.execute("""
-                SELECT 
-                    ka.id as alert_id,
-                    ka.detected_at,
-                    mk.keyword,
-                    kg.id as group_id,
-                    kg.name as group_name,
-                    kg.topic,
-                    a.uri,
-                    a.title,
-                    a.news_source,
-                    a.publication_date,
-                    a.summary
+            cursor.execute(f"""
+                SELECT ka.*, a.*, mk.keyword as matched_keyword
                 FROM keyword_alerts ka
-                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                JOIN keyword_groups kg ON mk.group_id = kg.id
                 JOIN articles a ON ka.article_uri = a.uri
-                WHERE ka.is_read = 0
+                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                WHERE 1=1 {read_condition}
                 ORDER BY ka.detected_at DESC
             """)
             
             alerts = cursor.fetchall()
             
-            # Group alerts by keyword group
-            groups = {}
+            # Format alerts with matched keywords
+            formatted_alerts = []
             for alert in alerts:
-                group_id = alert[3]  # group_id from the query
-                if group_id not in groups:
-                    groups[group_id] = {
-                        'id': group_id,
-                        'name': alert[4],  # group_name
-                        'topic': alert[5],  # topic
-                        'alerts': []
-                    }
-                
-                groups[group_id]['alerts'].append({
-                    'id': alert[0],  # alert_id
+                formatted_alerts.append({
+                    'id': alert[0],
                     'detected_at': alert[1],
-                    'keyword': alert[2],
+                    'matched_keywords': [alert[2]],  # Add matched keyword
                     'article': {
-                        'url': alert[6],  # uri
+                        'url': alert[6],
                         'title': alert[7],
                         'source': alert[8],
                         'publication_date': alert[9],
@@ -199,9 +172,7 @@ async def get_alerts(
                 "keyword_alerts.html",
                 {
                     "request": request,
-                    "groups": groups,
-                    "last_check_time": last_check_time,
-                    "last_error": last_error,
+                    "alerts": formatted_alerts,
                     "session": session
                 }
             )
@@ -210,11 +181,99 @@ async def get_alerts(
         logger.error(f"Error fetching keyword alerts: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/keyword-alerts", response_class=HTMLResponse)
+async def keyword_alerts_page(request: Request, session=Depends(verify_session)):
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get all groups with their alerts and status
+            cursor.execute("""
+                WITH alert_counts AS (
+                    SELECT 
+                        kg.id as group_id,
+                        COUNT(DISTINCT CASE WHEN ka.is_read = 0 THEN ka.id END) as unread_count,
+                        COUNT(DISTINCT ka.id) as total_count
+                    FROM keyword_groups kg
+                    LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                    LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id
+                    GROUP BY kg.id
+                )
+                SELECT 
+                    kg.id,
+                    kg.name,
+                    kg.topic,
+                    ac.unread_count,
+                    ac.total_count,
+                    (
+                        SELECT GROUP_CONCAT(keyword, '||')
+                        FROM monitored_keywords
+                        WHERE group_id = kg.id
+                    ) as keywords
+                FROM keyword_groups kg
+                LEFT JOIN alert_counts ac ON kg.id = ac.group_id
+                ORDER BY ac.unread_count DESC, kg.name
+            """)
+            
+            groups = []
+            for row in cursor.fetchall():
+                group = {
+                    'id': row[0],
+                    'name': row[1],
+                    'topic': row[2],
+                    'unread_count': row[3] or 0,
+                    'total_count': row[4] or 0,
+                    'keywords': row[5].split('||') if row[5] else [],
+                    'alerts': []
+                }
+                # ... rest of the group processing ...
+                groups.append(group)
+            
+            return templates.TemplateResponse(
+                "keyword_alerts.html",
+                {
+                    "request": request,
+                    "groups": groups,
+                    "session": session
+                }
+            )
+            
+    except Exception as e:
+        logger.error(f"Error loading keyword alerts page: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/settings")
 async def get_settings(db=Depends(get_database_instance)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
+            
+            # Create keyword_monitor_status table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS keyword_monitor_status (
+                    id INTEGER PRIMARY KEY,
+                    requests_today INTEGER DEFAULT 0,
+                    last_reset_date TEXT,
+                    last_check_time TEXT,
+                    last_error TEXT
+                )
+            """)
+            
+            # Insert default row if it doesn't exist
+            cursor.execute("""
+                INSERT OR IGNORE INTO keyword_monitor_status (id, requests_today)
+                VALUES (1, 0)
+            """)
+            conn.commit()
+            
+            # Debug: Check both tables
+            cursor.execute("SELECT * FROM keyword_monitor_status WHERE id = 1")
+            status_data = cursor.fetchone()
+            logger.debug(f"Status data: {status_data}")
+            
+            cursor.execute("SELECT * FROM keyword_monitor_settings WHERE id = 1")
+            settings_data = cursor.fetchone()
+            logger.debug(f"Settings data: {settings_data}")
             
             # Get accurate keyword count
             cursor.execute("""
@@ -242,17 +301,22 @@ async def get_settings(db=Depends(get_database_instance)):
                     s.page_size,
                     s.daily_request_limit,
                     s.is_enabled,
-                    st.requests_today,
-                    st.last_error
+                    COALESCE(kms.requests_today, 0) as requests_today,
+                    kms.last_error
                 FROM keyword_monitor_settings s
-                LEFT JOIN keyword_monitor_status st ON st.id = 1
+                LEFT JOIN (
+                    SELECT id, requests_today, last_error 
+                    FROM keyword_monitor_status 
+                    WHERE id = 1 AND last_reset_date = date('now')
+                ) kms ON kms.id = 1
                 WHERE s.id = 1
             """)
             
             settings = cursor.fetchone()
+            logger.debug(f"Settings query result: {settings}")
             
             if settings:
-                return {
+                response_data = {
                     "check_interval": settings[0],
                     "interval_unit": settings[1],
                     "search_fields": settings[2],
@@ -265,6 +329,8 @@ async def get_settings(db=Depends(get_database_instance)):
                     "last_error": settings[9],
                     "total_keywords": total_keywords
                 }
+                logger.debug(f"Returning response data: {response_data}")
+                return response_data
             else:
                 return {
                     "check_interval": 15,
@@ -503,4 +569,118 @@ async def export_alerts(db=Depends(get_database_instance)):
         )
     except Exception as e:
         logger.error(f"Error exporting alerts: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def save_keyword_alert(db: Database, article_data: dict):
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR IGNORE INTO keyword_alert_articles 
+            (url, title, summary, source, topic, keywords)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            article_data['url'],
+            article_data['title'],
+            article_data['summary'],
+            article_data['source'],
+            article_data['topic'],
+            ','.join(article_data['matched_keywords'])
+        ))
+
+@router.post("/alerts/{alert_id}/unread")
+async def mark_alert_unread(alert_id: int, db: Database = Depends(get_database_instance)):
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE keyword_alerts 
+                SET is_read = 0 
+                WHERE id = ?
+            """, (alert_id,))
+            conn.commit()
+            return {"success": True}
+    except Exception as e:
+        logger.error(f"Error in mark_alert_unread: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/alerts/{topic}")
+async def get_group_alerts(
+    topic: str,
+    group_id: int,
+    show_read: bool = False,
+    db: Database = Depends(get_database_instance)
+):
+    try:
+        with db.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Get total count for this specific group
+            cursor.execute("""
+                SELECT COUNT(DISTINCT ka.id) as total
+                FROM keyword_alerts ka
+                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                JOIN keyword_groups kg ON mk.group_id = kg.id
+                WHERE kg.topic = ? AND kg.id = ?
+            """, (topic, group_id))
+            total_count = cursor.fetchone()['total']
+            
+            # Get unread count for this specific group
+            cursor.execute("""
+                SELECT COUNT(DISTINCT ka.id) as unread_count
+                FROM keyword_alerts ka
+                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                JOIN keyword_groups kg ON mk.group_id = kg.id
+                WHERE kg.topic = ? AND kg.id = ? AND ka.is_read = 0
+            """, (topic, group_id))
+            unread_count = cursor.fetchone()['unread_count']
+            
+            # Get filtered alerts for this group
+            read_condition = "" if show_read else "AND ka.is_read = 0"
+            cursor.execute(f"""
+                SELECT 
+                    ka.id,
+                    ka.is_read,
+                    ka.detected_at,
+                    a.uri,
+                    a.title,
+                    a.summary,
+                    a.news_source,
+                    a.publication_date,
+                    mk.keyword as matched_keyword
+                FROM keyword_alerts ka
+                JOIN articles a ON ka.article_uri = a.uri
+                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                JOIN keyword_groups kg ON mk.group_id = kg.id
+                WHERE kg.topic = ? AND kg.id = ? {read_condition}
+                ORDER BY ka.detected_at DESC
+            """, (topic, group_id))
+            
+            alerts = []
+            for row in cursor.fetchall():
+                row_dict = dict(row)
+                alerts.append({
+                    "id": row_dict["id"],
+                    "is_read": bool(row_dict["is_read"]),
+                    "article": {
+                        "url": row_dict["uri"],
+                        "title": row_dict["title"],
+                        "summary": row_dict["summary"],
+                        "source": row_dict["news_source"],
+                        "publication_date": row_dict["publication_date"]
+                    },
+                    "matched_keyword": row_dict["matched_keyword"],
+                    "detected_at": row_dict["detected_at"]
+                })
+            
+            return {
+                "topic": topic,
+                "alerts": alerts,
+                "total_count": total_count,
+                "unread_count": unread_count
+            }
+            
+    except Exception as e:
+        logger.error(f"Error in get_group_alerts: {str(e)}")
+        logger.error("Full traceback:", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e)) 

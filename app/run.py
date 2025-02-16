@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv()
 
 # Get port from environment variable, default to 8000 if not set
-PORT = int(os.getenv('PORT', 9000))
+PORT = int(os.getenv('PORT', 10000))
 CERT_PATH = os.getenv('CERT_PATH', 'cert.pem')
 KEY_PATH = os.getenv('KEY_PATH', 'key.pem')
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
@@ -24,10 +24,10 @@ def configure_app():
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            "https://yourdomain.com",
-            "https://www.yourdomain.com",
             "http://localhost:8010",
             "https://localhost:8010",
+            "https://localhost:10000",
+            "http://localhost:10000"
         ] if ENVIRONMENT == 'production' else ["*"],
         allow_credentials=True,
         allow_methods=["*"],

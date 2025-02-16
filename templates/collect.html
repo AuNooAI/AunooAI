@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Aunoo AI - Article Collection{% endblock %}
+{% block title %}AuNoo AI - Article Collection{% endblock %}
 {% block content %}
 <style>
     :root {
@@ -174,6 +174,108 @@
     .btn-group-sm > .btn {
         padding: 0.25rem 0.5rem;
         font-size: 0.875rem;
+    }
+
+    /* Update button styles to match index.html */
+    .btn {
+        border-radius: 25px;
+        padding: 10px 20px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-size: 0.9rem;
+        transition: all 0.2s ease;
+    }
+
+    /* Adjust size for small buttons */
+    .btn-sm {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+    }
+
+    /* Style primary buttons */
+    .btn-outline-primary {
+        background-color: rgba(13, 110, 253, 0.1);
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        color: #0d6efd;
+    }
+
+    .btn-outline-primary:hover {
+        background-color: #0d6efd;
+        border-color: #0d6efd;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Style success buttons */
+    .btn-outline-success {
+        background-color: rgba(40, 167, 69, 0.1);
+        border: 1px solid rgba(40, 167, 69, 0.2);
+        color: #28a745;
+    }
+
+    .btn-outline-success:hover {
+        background-color: #28a745;
+        border-color: #28a745;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Style secondary buttons */
+    .btn-outline-secondary {
+        background-color: rgba(108, 117, 125, 0.1);
+        border: 1px solid rgba(108, 117, 125, 0.2);
+        color: #6c757d;
+    }
+
+    .btn-outline-secondary:hover {
+        background-color: #6c757d;
+        border-color: #6c757d;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Style link buttons */
+    .btn-link {
+        color: #0d6efd;
+        text-decoration: none;
+        padding: 6px 12px;
+        background: none;
+        border: none;
+    }
+
+    .btn-link:hover {
+        color: #0a58ca;
+        background-color: rgba(255, 105, 180, 0.1);
+        border-radius: 25px;
+        transform: translateY(-1px);
+        text-decoration: none;
+    }
+
+    /* Style button groups */
+    .d-flex.gap-2 .btn {
+        flex: 1;
+        text-align: center;
+        justify-content: center;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Add subtle hover effect for all buttons */
+    .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Ensure icons are properly aligned */
+    .btn i {
+        font-size: 0.9em;
+        margin-right: 0.3em;
+        opacity: 0.8;
     }
 </style>
 
@@ -658,15 +760,17 @@
     <div class="article-card mb-3 p-3 border rounded">
         <div class="d-flex justify-content-between align-items-start">
             <div class="form-check flex-grow-1">
-                <input class="form-check-input article-checkbox" type="checkbox" value="${article.url}" 
-                       data-article-id="${article.id}" onchange="toggleArticleSelection(this)">
+                <input class="form-check-input article-checkbox" 
+                       type="checkbox" 
+                       value="${escapeHtml(article.url)}" 
+                       onchange="toggleArticleSelection(this)">
                 <label class="form-check-label w-100">
-                    <h5 class="mb-2">${article.title}</h5>
+                    <h5 class="mb-2">${escapeHtml(article.title)}</h5>
                     <div class="article-metadata mb-2">
                         <small class="text-muted">
-                            <span class="me-2"><i class="fas fa-newspaper"></i> ${article.raw_data.source_name}</span>
+                            <span class="me-2"><i class="fas fa-newspaper"></i> ${formatSourceName(article)}</span>
                             <span class="me-2"><i class="fas fa-calendar"></i> ${formatDate(article.published_date)}</span>
-                            <span><i class="fas fa-user"></i> ${formatAuthors(article.authors)}</span>
+                            <span><i class="fas fa-user"></i> ${formatAuthors(article.authors, article.source, article)}</span>
                         </small>
                     </div>
                 </label>
@@ -675,21 +779,46 @@
         
         <div class="article-content">
             <p class="article-summary mb-2">${article.summary}</p>
-            <div class="article-full-content d-none">
-                ${article.content || 'No additional content available.'}
-            </div>
-            <div class="d-flex gap-2 mt-2">
-                <button class="btn btn-sm btn-link toggle-content" type="button">Show more</button>
-                <a href="${article.url}" target="_blank" class="btn btn-sm btn-link">
-                    <i class="fas fa-external-link-alt"></i> View Source
+        </div>
+
+        <!-- 2x2 Button Grid -->
+        <div class="d-flex flex-column gap-2 mt-2">
+            <div class="d-flex gap-2">
+                <a href="${article.url}" target="_blank" 
+                   class="btn btn-sm btn-outline-primary"
+                   title="View source">
+                    <i class="fas fa-external-link-alt"></i> View
                 </a>
-                ${article.raw_data.url_to_image ? 
-                    `<button class="btn btn-sm btn-link preview-image" type="button" 
-                             data-image-url="${article.raw_data.url_to_image}">
-                        <i class="fas fa-image"></i> Preview Image
-                    </button>` : ''
-                }
+                <button class="btn btn-sm btn-outline-success" 
+                        onclick="analyzeArticle('${article.url}')"
+                        title="Analyze article">
+                    <i class="fas fa-microscope"></i> Analyze
+                </button>
             </div>
+            <div class="d-flex gap-2">
+                <a href="https://12ft.io/${article.url}" 
+                   class="btn btn-sm btn-outline-secondary"
+                   title="Bypass Paywall with 12ft.io" 
+                   target="_blank">
+                    <i class="fas fa-unlock"></i> Bypass
+                </a>
+                <a href="https://archive.is/${article.url}" 
+                   class="btn btn-sm btn-outline-secondary"
+                   title="Check the Internet Archive" 
+                   target="_blank">
+                    <i class="fas fa-archive"></i> Archive.is
+                </a>
+            </div>
+        </div>
+
+        <!-- Preview image button only -->
+        <div class="d-flex gap-2 mt-2">
+            ${article.raw_data.url_to_image ? 
+                `<button class="btn btn-sm btn-link preview-image" type="button" 
+                         data-image-url="${article.raw_data.url_to_image}">
+                    <i class="fas fa-image"></i> Preview Image
+                </button>` : ''
+            }
         </div>
     </div>
 </script>
@@ -731,6 +860,11 @@ document.addEventListener('DOMContentLoaded', function() {
             arxivOptions.style.display = source === 'arxiv' ? 'block' : 'none';
             thenewsapiOptions.style.display = source === 'thenewsapi' ? 'block' : 'none';
             
+            // Set default dates based on selected source
+            if (source) {
+                setDefaultDatesForSource(source);
+            }
+            
             loadStoredArticles();
         });
     }
@@ -742,9 +876,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Add listeners for content toggle and image preview
     document.addEventListener('click', function(e) {
-        if (e.target.classList.contains('toggle-content')) {
-            toggleContent(e.target);
-        } else if (e.target.classList.contains('preview-image')) {
+        if (e.target.classList.contains('preview-image')) {
             previewImage(e.target.dataset.imageUrl);
         }
     });
@@ -817,6 +949,14 @@ function loadTopics() {
 // Add pagination handling
 let currentPage = 1;
 let allArticles = [];
+
+// Add this helper function near the top of your script section
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 
 // Update handleSearch function
 async function handleSearch(event) {
@@ -893,92 +1033,7 @@ function displayResults(data) {
     }
     
     data.articles.forEach(article => {
-        const articleElement = document.createElement('div');
-        articleElement.className = 'article-card mb-3 p-3 border rounded';
-        
-        // Add checkbox for multi-select
-        const checkboxDiv = document.createElement('div');
-        checkboxDiv.className = 'form-check mb-2';
-        
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.className = 'form-check-input article-checkbox';
-        checkbox.dataset.url = article.url;
-        checkbox.dataset.title = article.title;
-        checkbox.dataset.summary = article.summary;
-        checkbox.onchange = () => toggleArticleSelection(checkbox);
-        
-        const checkboxLabel = document.createElement('label');
-        checkboxLabel.className = 'form-check-label';
-        checkboxLabel.htmlFor = `article-${article.url}`;
-        checkbox.id = `article-${article.url}`;
-        checkboxLabel.appendChild(checkbox);
-        checkboxDiv.appendChild(checkbox);
-        checkboxDiv.appendChild(checkboxLabel);
-        
-        articleElement.appendChild(checkboxDiv);
-        
-        // Add title
-        const title = document.createElement('h5');
-        title.className = 'mb-2';
-        title.textContent = article.title;
-        articleElement.appendChild(title);
-        
-        // Add metadata
-        const metadata = document.createElement('div');
-        metadata.className = 'text-muted small mb-2';
-        metadata.textContent = `${article.source} | ${new Date(article.published_date).toLocaleDateString()}`;
-        if (article.authors && article.authors.length > 0) {
-            metadata.textContent += ` | ${article.authors.join(', ')}`;
-        }
-        articleElement.appendChild(metadata);
-        
-        // Add summary
-        const summary = document.createElement('p');
-        summary.className = 'article-summary mb-3';
-        summary.textContent = article.summary;
-        articleElement.appendChild(summary);
-        
-        // Add action buttons
-        const actionsDiv = document.createElement('div');
-        actionsDiv.className = 'article-actions';
-        
-        // View Source/Abstract button
-        const viewSourceBtn = document.createElement('a');
-        viewSourceBtn.href = article.url;
-        viewSourceBtn.target = '_blank';
-        viewSourceBtn.className = 'btn btn-sm btn-outline-primary';
-        viewSourceBtn.innerHTML = `<i class="fas fa-external-link-alt"></i> ${article.source === 'arxiv' ? 'View Abstract' : 'View Source'}`;
-        actionsDiv.appendChild(viewSourceBtn);
-        
-        // Add PDF link for arXiv papers
-        if (article.source === 'arxiv' && article.raw_data?.links?.pdf) {
-            const pdfBtn = document.createElement('a');
-            pdfBtn.href = article.raw_data.links.pdf;
-            pdfBtn.target = '_blank';
-            pdfBtn.className = 'btn btn-sm btn-outline-danger';
-            pdfBtn.innerHTML = '<i class="fas fa-file-pdf"></i> PDF';
-            actionsDiv.appendChild(pdfBtn);
-        }
-        
-        // Add Bypass Paywall button for news sources
-        if (article.source !== 'arxiv') {
-            const bypassBtn = document.createElement('a');
-            bypassBtn.href = `https://12ft.io/${article.url}`;
-            bypassBtn.target = '_blank';
-            bypassBtn.className = 'btn btn-sm btn-outline-secondary';
-            bypassBtn.innerHTML = '<i class="fas fa-unlock"></i> Bypass Paywall';
-            actionsDiv.appendChild(bypassBtn);
-        }
-        
-        // Analyze button
-        const analyzeBtn = document.createElement('button');
-        analyzeBtn.className = 'btn btn-sm btn-outline-success';
-        analyzeBtn.innerHTML = '<i class="fas fa-microscope"></i> Analyze';
-        analyzeBtn.onclick = () => analyzeArticle(article.url);
-        actionsDiv.appendChild(analyzeBtn);
-        
-        articleElement.appendChild(actionsDiv);
+        const articleElement = displayArticle(article);
         resultsDiv.appendChild(articleElement);
     });
     
@@ -987,6 +1042,90 @@ function displayResults(data) {
     
     // Update bulk analyze button visibility
     updateBulkAnalysisButton();
+}
+
+function displayArticle(article) {
+    const articleElement = document.createElement('div');
+    articleElement.className = 'article-card mb-3 p-3 border rounded';
+    
+    // Header with checkbox
+    const header = document.createElement('div');
+    header.className = 'd-flex justify-content-between align-items-start';
+    header.innerHTML = `
+        <div class="form-check flex-grow-1">
+            <input class="form-check-input article-checkbox" 
+                   type="checkbox" 
+                   value="${escapeHtml(article.url)}" 
+                   onchange="toggleArticleSelection(this)">
+            <label class="form-check-label w-100">
+                <h5 class="mb-2">${escapeHtml(article.title)}</h5>
+                <div class="article-metadata mb-2">
+                    <small class="text-muted">
+                        <span class="me-2"><i class="fas fa-newspaper"></i> ${formatSourceName(article)}</span>
+                        <span class="me-2"><i class="fas fa-calendar"></i> ${formatDate(article.published_date)}</span>
+                        <span><i class="fas fa-user"></i> ${formatAuthors(article.authors, article.source, article)}</span>
+                    </small>
+                </div>
+            </label>
+        </div>
+    `;
+    articleElement.appendChild(header);
+
+    // Content
+    const content = document.createElement('div');
+    content.className = 'article-content';
+    content.innerHTML = `
+        <p class="article-summary mb-2">${article.summary}</p>
+    `;
+    articleElement.appendChild(content);
+
+    // 2x2 Button Grid
+    const buttonGrid = document.createElement('div');
+    buttonGrid.className = 'd-flex flex-column gap-2 mt-2';
+    buttonGrid.innerHTML = `
+        <div class="d-flex gap-2">
+            <a href="${article.url}" target="_blank" 
+               class="btn btn-sm btn-outline-primary"
+               title="View source">
+                <i class="fas fa-external-link-alt"></i> View
+            </a>
+            <button class="btn btn-sm btn-outline-success" 
+                    onclick="analyzeArticle('${article.url}')"
+                    title="Analyze article">
+                <i class="fas fa-microscope"></i> Analyze
+            </button>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="https://12ft.io/${article.url}" 
+               class="btn btn-sm btn-outline-secondary"
+               title="Bypass Paywall with 12ft.io" 
+               target="_blank">
+                <i class="fas fa-unlock"></i> Bypass
+            </a>
+            <a href="https://archive.is/${article.url}" 
+               class="btn btn-sm btn-outline-secondary"
+               title="Check the Internet Archive" 
+               target="_blank">
+                <i class="fas fa-archive"></i> Archive.is
+            </a>
+        </div>
+    `;
+    articleElement.appendChild(buttonGrid);
+
+    // Show only Preview image button if available
+    const extraButtons = document.createElement('div');
+    extraButtons.className = 'd-flex gap-2 mt-2';
+    extraButtons.innerHTML = `
+        ${article.raw_data.url_to_image ? 
+            `<button class="btn btn-sm btn-link preview-image" type="button" 
+                     data-image-url="${article.raw_data.url_to_image}">
+                <i class="fas fa-image"></i> Preview Image
+            </button>` : ''
+        }
+    `;
+    articleElement.appendChild(extraButtons);
+
+    return articleElement;
 }
 
 function addPaginationControls(totalResults) {
@@ -1058,22 +1197,6 @@ async function loadPage(page) {
     await handleSearch(new Event('submit'));
 }
 
-function toggleContent(button) {
-    if (!button) return;
-    
-    const articleCard = button.closest('.article-card');
-    if (!articleCard) return;
-    
-    const content = articleCard.querySelector('.article-full-content');
-    if (!content) return;
-    
-    const isHidden = content.classList.contains('d-none');
-    content.classList.toggle('d-none');
-    button.innerHTML = isHidden ? 
-        '<i class="fas fa-chevron-up"></i> Show less' : 
-        '<i class="fas fa-chevron-down"></i> Show more';
-}
-
 function formatDate(dateString) {
     if (!dateString) return 'Unknown Date';
     try {
@@ -1090,8 +1213,11 @@ function formatDate(dateString) {
     }
 }
 
-function formatAuthors(authors) {
-    if (!authors || !authors.length) return 'Unknown Author';
+// Update the formatAuthors function
+function formatAuthors(authors, source, article) {
+    if (!authors || !authors.length) {
+        return 'Unknown Author';
+    }
     if (authors.length === 1) return escapeHtml(authors[0]);
     return `${escapeHtml(authors[0])} +${authors.length - 1}`;
 }
@@ -1139,7 +1265,6 @@ function updateBulkAnalysisButton() {
     if (selectedArticles.length > 0) {
         bulkAnalyzeBtn.style.display = 'block';
         selectedCount.textContent = selectedArticles.length;
-        console.log('Selected articles:', selectedArticles);  // Debug log
         bulkAnalyzeBtn.onclick = analyzeBulkArticles;
     } else {
         bulkAnalyzeBtn.style.display = 'none';
@@ -1147,6 +1272,11 @@ function updateBulkAnalysisButton() {
 }
 
 async function analyzeBulkArticles() {
+    if (selectedArticles.length === 0) {
+        alert('Please select at least one article to analyze');
+        return;
+    }
+
     const topic = document.getElementById('topicSelect').value;
     if (!topic) {
         alert('Please select a topic before analyzing articles');
@@ -1245,11 +1375,33 @@ function setDateRange(range) {
             start.setDate(today.getDate() - 7);
             break;
         case 'month':
-            start.setMonth(today.getMonth() - 1);
+            start.setDate(today.getDate() - 30);  // Changed from 30 days to exactly 30 days
             break;
         case 'year':
             start.setFullYear(today.getFullYear() - 1);
             break;
+    }
+
+    startDate.value = start.toISOString().split('T')[0];
+    endDate.value = today.toISOString().split('T')[0];
+}
+
+// Add this function to set default dates based on source
+function setDefaultDatesForSource(source) {
+    const startDate = document.getElementById('startDate');
+    const endDate = document.getElementById('endDate');
+    const today = new Date();
+    let start = new Date();
+
+    if (source === 'newsapi') {
+        // For NewsAPI, default to last 30 days
+        start.setDate(today.getDate() - 30);
+    } else if (source === 'arxiv') {
+        // For arXiv, default to last year
+        start.setFullYear(today.getFullYear() - 1);
+    } else {
+        // For other sources, default to last month
+        start.setDate(today.getDate() - 30);
     }
 
     startDate.value = start.toISOString().split('T')[0];
@@ -1334,20 +1486,27 @@ function getNewsAPIParams(searchParams) {
 }
 
 function toggleArticleSelection(checkbox) {
+    // Get the article data from the checkbox's data attributes
     const articleData = {
-        url: checkbox.getAttribute('data-url'),
-        title: checkbox.getAttribute('data-title'),
-        summary: checkbox.getAttribute('data-summary')
+        url: checkbox.value,
+        title: checkbox.closest('.article-card').querySelector('h5').textContent,
+        summary: checkbox.closest('.article-card').querySelector('.article-summary').textContent,
+        topic: document.getElementById('topicSelect').value
     };
     
+    console.log('Toggle article:', articleData); // Debug log
+    
     if (checkbox.checked) {
+        // Add article to selection if not already present
         if (!selectedArticles.some(article => article.url === articleData.url)) {
             selectedArticles.push(articleData);
         }
     } else {
+        // Remove article from selection
         selectedArticles = selectedArticles.filter(article => article.url !== articleData.url);
     }
     
+    console.log('Selected articles:', selectedArticles); // Debug log
     updateBulkAnalysisButton();
 }
 
@@ -1476,5 +1635,40 @@ function getTheNewsAPIParams(searchParams) {
         searchParams.append('locale', locale);
     }
 }
+
+function formatSourceName(article) {
+    if (article.source === 'thenewsapi') {
+        return article.raw_data?.source || 'TheNewsAPI';
+    }
+    return article.source || article.raw_data?.source?.name || 'Unknown Source';
+}
+
+// Function to select active database
+document.getElementById('active-database').addEventListener('change', function(e) {
+    const databaseName = e.target.value;
+    fetch('/api/active-database', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: databaseName }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Active database set:', data);
+        activeDatabase = databaseName;
+        // Refresh both database info and database list
+        loadDatabaseInfo();
+        loadDatabases();
+        // Show success message
+        showAlert(`Successfully switched to database: ${databaseName}`, 'success');
+    })
+    .catch(error => {
+        console.error('Error setting active database:', error);
+        showAlert(`Failed to switch database: ${error.message}`, 'danger');
+        // Refresh database list to ensure correct selection is shown
+        loadDatabases();
+    });
+});
 </script>
 {% endblock %} 

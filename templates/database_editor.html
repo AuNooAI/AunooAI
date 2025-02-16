@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Aunoo AI - Database Editor{% endblock %}
+{% block title %}AuNoo AI - Database Editor{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -20,7 +20,6 @@
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
         padding: 20px;
-        border: 1px solid var(--medium-gray);
     }
 
     .filter-panel {
@@ -121,21 +120,73 @@
         background-color: var(--light-gray);
     }
 
-    .pagination {
+    .pagination-container {
+        background-color: #f8f9fa;
+        padding: 10px 15px;
+        border-radius: 4px;
+        margin-bottom: 1rem;
         display: flex;
-        justify-content: center;
-        margin-top: 20px;
+        justify-content: space-between;
+        align-items: center;
     }
 
     .pagination-info {
         display: flex;
         align-items: center;
-        gap: 20px;
+        gap: 8px;
+        color: #666;
+        font-size: 0.9rem;
     }
 
-    .results-count {
-        color: var(--text-color);
-        font-size: 0.9em;
+    .pagination-nav {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .pagination-nav button {
+        min-width: 80px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .page-numbers {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin: 0 10px;
+        color: #666;
+    }
+
+    .panel-header {
+        border-bottom: 1px solid #e9ecef;
+        margin-bottom: 1rem;
+        padding-bottom: 1rem;
+    }
+
+    .panel-header h6 {
+        margin: 0;
+        font-weight: 600;
+    }
+
+    .table th {
+        background-color: #f8f9fa;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .table td {
+        vertical-align: middle;
+    }
+
+    .article-checkbox {
+        cursor: pointer;
+    }
+
+    .badge {
+        font-size: 0.875rem;
+        padding: 0.4em 0.8em;
     }
 </style>
 <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
@@ -152,7 +203,10 @@
             <select class="form-select" id="topicSelect">
                 <option value="">Select a topic</option>
                 {% for topic in topics %}
-                <option value="{{ topic.name }}">{{ topic.name }}</option>
+                <option value="{{ topic.name }}" 
+                        {% if selected_topic and selected_topic == topic.name %}selected{% endif %}>
+                    {{ topic.name }}
+                </option>
                 {% endfor %}
             </select>
         </div>
@@ -201,6 +255,13 @@
                         <option value="">All Driver Types</option>
                     </select>
                 </div>
+                <div class="form-group">
+                    <label>Analysis Status</label>
+                    <select class="form-select select2-multiple" id="analyzedFilter" multiple="multiple">
+                        <option value="true">Analyzed</option>
+                        <option value="false">Not Analyzed</option>
+                    </select>
+                </div>
             </div>
 
             <!-- Date Range section -->
@@ -234,26 +295,48 @@
 
     <!-- Articles Panel -->
     <div class="editor-panel">
-        <div class="panel-header">
+        <!-- Header with bulk delete button -->
+        <div class="panel-header d-flex justify-content-between align-items-center mb-3">
             <h6>ARTICLES</h6>
+            <button id="bulkDeleteBtn" 
+                    class="btn btn-danger" 
+                    onclick="bulkDeleteArticles()" 
+                    disabled>
+                Delete Selected (0)
+            </button>
+        </div>
+
+        <!-- Single pagination container -->
+        <div class="pagination-container">
             <div class="pagination-info">
-                <span class="results-count">
-                    Showing <span id="startCount">0</span> - <span id="endCount">0</span> of <span id="totalCount">0</span> articles
+                <span>Showing</span>
+                <strong><span id="startCount">0</span>-<span id="endCount">0</span></strong>
+                <span>of</span>
+                <strong><span id="totalCount">0</span></strong>
+                <span>articles</span>
+                <span class="page-numbers">
+                    <span>Page</span>
+                    <strong><span id="currentPage">1</span></strong>
+                    <span>of</span>
+                    <strong><span id="totalPages">1</span></strong>
                 </span>
-                <div class="pagination">
-                    <button class="btn btn-sm btn-outline-secondary" id="prevPage" disabled>Previous</button>
-                    <span class="mx-2">
-                        Page <span id="currentPage">1</span> of <span id="totalPages">1</span>
-                    </span>
-                    <button class="btn btn-sm btn-outline-secondary" id="nextPage" disabled>Next</button>
-                </div>
+            </div>
+            <div class="pagination-nav">
+                <button id="prevPage" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-chevron-left me-1"></i>Previous
+                </button>
+                <button id="nextPage" class="btn btn-sm btn-outline-secondary">
+                    Next<i class="fas fa-chevron-right ms-1"></i>
+                </button>
             </div>
         </div>
 
+        <!-- Articles table -->
         <div id="articleList" class="table-responsive">
             <table class="table">
                 <thead>
                     <tr>
+                        <th><input type="checkbox" id="selectAllCheckbox"></th>
                         <th>Title</th>
                         <th>Publication Date</th>
                         <th>Category</th>
@@ -261,6 +344,7 @@
                         <th>Future Signal</th>
                         <th>Time to Impact</th>
                         <th>Driver Type</th>
+                        <th>Analyzed</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -359,6 +443,28 @@
                 <label class="form-label">Tags</label>
                 <input type="text" id="analysisTags" class="form-control" placeholder="Enter tags separated by commas">
             </div>
+            <div class="mb-3 border-top pt-3">
+                <h6>Annotations</h6>
+                <div id="annotationsList" class="mb-3">
+                    <!-- Annotations will be loaded here -->
+                </div>
+                
+                <div class="card">
+                    <div class="card-body">
+                        <textarea id="newAnnotation" class="form-control mb-2" rows="3" 
+                                  placeholder="Add your analysis or comments..."></textarea>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="annotationPrivate">
+                            <label class="form-check-label" for="annotationPrivate">
+                                Private note (not included in analysis)
+                            </label>
+                        </div>
+                        <button class="btn btn-primary" onclick="saveAnnotation()">
+                            Add Annotation
+                        </button>
+                    </div>
+                </div>
+            </div>
             <div class="button-group">
                 <button onclick="saveArticle()" class="btn btn-primary">Save Changes</button>
                 <button onclick="clearForm()" class="btn btn-secondary">Cancel</button>
@@ -423,12 +529,14 @@
 {% block extra_js %}
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
 let currentTopic = '';
 let currentPage = 1;
 const itemsPerPage = 10;
 let allArticles = [];
 let filteredArticles = [];
+let selectedArticlesForDeletion = new Set();
 
 // Topic selection handler
 document.getElementById('topicSelect').addEventListener('change', handleTopicChange);
@@ -545,7 +653,8 @@ async function fetchArticlesForTopic(topicName) {
             sentiments: $('#sentimentFilter').val() || [],
             futureSignals: $('#futureSignalFilter').val() || [],
             timeImpacts: $('#timeImpactFilter').val() || [],
-            driverTypes: $('#driverTypeFilter').val() || []
+            driverTypes: $('#driverTypeFilter').val() || [],
+            analyzed: $('#analyzedFilter').val() || []
         };
 
         // Apply filters to new articles
@@ -572,6 +681,7 @@ function initializeFilters() {
         futureSignals: Array.from(document.getElementById('futureSignalFilter').selectedOptions).map(opt => opt.value).filter(v => v),
         timeImpacts: Array.from(document.getElementById('timeImpactFilter').selectedOptions).map(opt => opt.value).filter(v => v),
         driverTypes: Array.from(document.getElementById('driverTypeFilter').selectedOptions).map(opt => opt.value).filter(v => v),
+        analyzed: Array.from(document.getElementById('analyzedFilter').selectedOptions).map(opt => opt.value).filter(v => v),
         dateFrom: document.getElementById('dateFrom').value,
         dateTo: document.getElementById('dateTo').value
     };
@@ -579,61 +689,162 @@ function initializeFilters() {
 }
 
 function applyFilters() {
-    if (!allArticles.length) {
-        filteredArticles = [];
-        displayArticles();
-        updatePaginationInfo();
-        return;
-    }
-
-    const filters = {
-        search: document.getElementById('searchInput').value.toLowerCase(),
-        categories: ($('#categoryFilter').val() || []).filter(val => val !== ''),
-        sentiments: ($('#sentimentFilter').val() || []).filter(val => val !== ''),
-        futureSignals: ($('#futureSignalFilter').val() || []).filter(val => val !== ''),
-        timeImpacts: ($('#timeImpactFilter').val() || []).filter(val => val !== ''),
-        driverTypes: ($('#driverTypeFilter').val() || []).filter(val => val !== '')
-    };
-
     console.log('All articles before filtering:', allArticles.length);
+    
+    const filters = {
+        search: document.getElementById('searchInput')?.value?.toLowerCase() || '',
+        categories: Array.from($('#categoryFilter').val() || []),
+        sentiments: Array.from($('#sentimentFilter').val() || []),
+        futureSignals: Array.from($('#futureSignalFilter').val() || []),
+        timeImpacts: Array.from($('#timeImpactFilter').val() || []),
+        driverTypes: Array.from($('#driverTypeFilter').val() || []),
+        analyzed: Array.from($('#analyzedFilter').val() || [])
+    };
+    
     console.log('Applying filters:', filters);
     
     filteredArticles = allArticles.filter(article => {
+        // Debug logging for analyzed status
+        console.log('Article:', {
+            title: article.title,
+            analyzed: article.analyzed,
+            analyzedFilter: filters.analyzed
+        });
+        
+        // Search filter
         const matchesSearch = !filters.search || 
             article.title?.toLowerCase().includes(filters.search) ||
             article.summary?.toLowerCase().includes(filters.search);
             
+        // Category filter    
         const matchesCategory = !filters.categories.length || 
             (article.category && filters.categories.includes(article.category));
             
+        // Sentiment filter    
         const matchesSentiment = !filters.sentiments.length || 
             (article.sentiment && filters.sentiments.includes(article.sentiment));
             
+        // Future signal filter    
         const matchesFutureSignal = !filters.futureSignals.length || 
             (article.future_signal && filters.futureSignals.includes(article.future_signal));
             
+        // Time impact filter    
         const matchesTimeImpact = !filters.timeImpacts.length || 
             (article.time_to_impact && filters.timeImpacts.includes(article.time_to_impact));
             
+        // Driver type filter    
         const matchesDriverType = !filters.driverTypes.length || 
             (article.driver_type && filters.driverTypes.includes(article.driver_type));
+            
+        // Analyzed status filter - handle both number and string representations
+        const matchesAnalyzed = !filters.analyzed.length || 
+            filters.analyzed.includes((article.analyzed ? 'true' : 'false')) || 
+            filters.analyzed.includes(article.analyzed?.toString());
+
+        // Debug logging for filter results
+        const filterResults = {
+            matchesSearch,
+            matchesCategory,
+            matchesSentiment,
+            matchesFutureSignal,
+            matchesTimeImpact,
+            matchesDriverType,
+            matchesAnalyzed,
+            analyzedValue: article.analyzed,
+            analyzedFilter: filters.analyzed
+        };
+        console.log('Filter results for article:', article.title, filterResults);
 
         return matchesSearch && matchesCategory && matchesSentiment && 
-               matchesFutureSignal && matchesTimeImpact && matchesDriverType;
+               matchesFutureSignal && matchesTimeImpact && matchesDriverType &&
+               matchesAnalyzed;
     });
+
+    console.log('Filtered articles:', filteredArticles.length);
+    console.log('Applied filters:', filters);
 
     currentPage = 1;
     displayArticles();
     updatePaginationInfo();
-    
-    console.log('Filtered articles:', filteredArticles.length);
-    console.log('Applied filters:', filters);
 }
 
-// Add event listeners for Select2 dropdowns
+// Update displayArticles to handle empty filteredArticles
+function displayArticles() {
+    const tableBody = document.getElementById('articleTableBody');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = '';
+    
+    if (!filteredArticles || filteredArticles.length === 0) {
+        tableBody.innerHTML = `
+            <tr>
+                <td colspan="100%" class="text-center">
+                    No articles match the current filters
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const displayedArticles = filteredArticles.slice(startIndex, endIndex);
+    
+    displayedArticles.forEach(article => {
+        const row = document.createElement('tr');
+        const articleUri = article.uri ? encodeURIComponent(article.uri) : '';
+        
+        row.innerHTML = `
+            <td>
+                <input type="checkbox" 
+                       class="article-checkbox" 
+                       value="${articleUri}"
+                       ${selectedArticlesForDeletion.has(articleUri) ? 'checked' : ''}>
+            </td>
+            <td>${escapeHTML(article.title || '')}</td>
+            <td>${formatDate(article.publication_date)}</td>
+            <td>${escapeHTML(article.category || '')}</td>
+            <td>${escapeHTML(article.sentiment || '')}</td>
+            <td>${escapeHTML(article.future_signal || '')}</td>
+            <td>${escapeHTML(article.time_to_impact || '')}</td>
+            <td>${escapeHTML(article.driver_type || '')}</td>
+            <td><span class="badge ${article.analyzed ? 'bg-success' : 'bg-secondary'}">${article.analyzed ? 'Yes' : 'No'}</span></td>
+            <td>
+                ${articleUri ? `
+                    <button class="btn btn-sm btn-primary" onclick="editArticle('${articleUri}')">Edit</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteArticle('${articleUri}')">Delete</button>
+                ` : '<span class="text-muted">No URI</span>'}
+            </td>
+        `;
+        tableBody.appendChild(row);
+    });
+
+    // Add event listeners for checkboxes
+    document.querySelectorAll('.article-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            if (this.checked) {
+                selectedArticlesForDeletion.add(this.value);
+            } else {
+                selectedArticlesForDeletion.delete(this.value);
+            }
+            updateBulkDeleteButton();
+        });
+    });
+}
+
+// Update the document.ready function
 $(document).ready(function() {
     $('.select2-multiple').select2({
         placeholder: "Select options",
+        allowClear: true,
+        width: '100%'
+    }).on('change', function() {
+        applyFilters();
+    });
+
+    // Initialize the analyzed filter
+    $('#analyzedFilter').select2({
+        placeholder: "Select analysis status",
         allowClear: true,
         width: '100%'
     }).on('change', function() {
@@ -653,40 +864,6 @@ function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
     };
-}
-
-function displayArticles() {
-    const tableBody = document.getElementById('articleTableBody');
-    tableBody.innerHTML = '';
-    
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    const displayedArticles = filteredArticles.slice(startIndex, endIndex);
-    
-    displayedArticles.forEach(article => {
-        const row = document.createElement('tr');
-        // Ensure URI is properly escaped and never null
-        const articleUri = article.uri ? encodeURIComponent(article.uri) : '';
-        
-        row.innerHTML = `
-            <td>${escapeHTML(article.title || '')}</td>
-            <td>${formatDate(article.publication_date)}</td>
-            <td>${escapeHTML(article.category || '')}</td>
-            <td>${escapeHTML(article.sentiment || '')}</td>
-            <td>${escapeHTML(article.future_signal || '')}</td>
-            <td>${escapeHTML(article.time_to_impact || '')}</td>
-            <td>${escapeHTML(article.driver_type || '')}</td>
-            <td>
-                ${articleUri ? `
-                    <button class="btn btn-sm btn-primary" onclick="editArticle('${articleUri}')">Edit</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteArticle('${articleUri}')">Delete</button>
-                ` : '<span class="text-muted">No URI</span>'}
-            </td>
-        `;
-        tableBody.appendChild(row);
-    });
-    
-    updatePaginationInfo();
 }
 
 function updatePagination() {
@@ -829,6 +1006,50 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Initial load of articles
     applyFilters();
+
+    // Get topic from URL if it exists
+    const urlParams = new URLSearchParams(window.location.search);
+    const topicName = urlParams.get('topic');
+    
+    if (topicName) {
+        // Set the selected topic in the dropdown
+        const topicSelect = document.getElementById('topicSelect');
+        if (topicSelect) {
+            topicSelect.value = topicName;
+            // Trigger the change event to load the topic data
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+    }
+
+    // Add topic change handler if not already present
+    const topicSelect = document.getElementById('topicSelect');
+    if (topicSelect) {
+        topicSelect.addEventListener('change', async function() {
+            const selectedTopic = this.value;
+            if (selectedTopic) {
+                await fetchArticles(selectedTopic);
+                // Also refresh the dropdowns
+                refreshDropdownsForTopic(selectedTopic);
+            }
+        });
+    }
+
+    // Add select all functionality
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('.article-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = this.checked;
+                if (this.checked) {
+                    selectedArticlesForDeletion.add(checkbox.value);
+                } else {
+                    selectedArticlesForDeletion.delete(checkbox.value);
+                }
+            });
+            updateBulkDeleteButton();
+        });
+    }
 });
 
 // Add some styling for multiple select
@@ -870,8 +1091,80 @@ function updatePaginationInfo() {
 
     if (!startCountEl || !endCountEl || !totalCountEl || 
         !currentPageEl || !totalPagesEl || !prevButton || !nextButton) {
-        console.warn('Pagination elements not found');
-        return;
+        console.warn('Some pagination elements not found, creating them...');
+        
+        // Create pagination container if it doesn't exist
+        let paginationContainer = document.querySelector('.pagination-container');
+        if (!paginationContainer) {
+            paginationContainer = document.createElement('div');
+            paginationContainer.className = 'pagination-container d-flex justify-content-between align-items-center mb-3';
+            const articleList = document.getElementById('articleList');
+            if (articleList) {
+                articleList.parentNode.insertBefore(paginationContainer, articleList);
+            }
+        }
+
+        // Create pagination info if it doesn't exist
+        if (!startCountEl || !endCountEl || !totalCountEl) {
+            const paginationInfo = document.createElement('div');
+            paginationInfo.className = 'pagination-info';
+            paginationInfo.innerHTML = `
+                <span>Showing</span>
+                <strong><span id="startCount">0</span>-<span id="endCount">0</span></strong>
+                <span>of</span>
+                <strong><span id="totalCount">0</span></strong>
+                <span>articles</span>
+                <span class="page-numbers">
+                    <span>Page</span>
+                    <strong><span id="currentPage">1</span></strong>
+                    <span>of</span>
+                    <strong><span id="totalPages">1</span></strong>
+                </span>
+            `;
+            paginationContainer.appendChild(paginationInfo);
+        }
+
+        // Create navigation buttons if they don't exist
+        if (!prevButton || !nextButton) {
+            const paginationNav = document.createElement('div');
+            paginationNav.className = 'pagination-nav';
+            paginationNav.innerHTML = `
+                <button id="prevPage" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-chevron-left me-1"></i>Previous
+                </button>
+                <button id="nextPage" class="btn btn-sm btn-outline-secondary">
+                    Next<i class="fas fa-chevron-right ms-1"></i>
+                </button>
+            `;
+            paginationContainer.appendChild(paginationNav);
+
+            // Add event listeners to new buttons
+            document.getElementById('prevPage')?.addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    displayArticles();
+                    updatePaginationInfo();
+                }
+            });
+
+            document.getElementById('nextPage')?.addEventListener('click', () => {
+                const totalPages = Math.ceil(filteredArticles.length / itemsPerPage);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    displayArticles();
+                    updatePaginationInfo();
+                }
+            });
+        }
+
+        // Get the newly created elements
+        startCountEl = document.getElementById('startCount');
+        endCountEl = document.getElementById('endCount');
+        totalCountEl = document.getElementById('totalCount');
+        currentPageEl = document.getElementById('currentPage');
+        totalPagesEl = document.getElementById('totalPages');
+        prevButton = document.getElementById('prevPage');
+        nextButton = document.getElementById('nextPage');
     }
 
     const start = (currentPage - 1) * itemsPerPage + 1;
@@ -879,14 +1172,16 @@ function updatePaginationInfo() {
     const total = filteredArticles.length;
     const totalPages = Math.ceil(total / itemsPerPage);
 
-    startCountEl.textContent = total ? start : 0;
-    endCountEl.textContent = total ? end : 0;
-    totalCountEl.textContent = total;
-    currentPageEl.textContent = currentPage;
-    totalPagesEl.textContent = totalPages;
+    // Update the display
+    if (startCountEl) startCountEl.textContent = total ? start : 0;
+    if (endCountEl) endCountEl.textContent = total ? end : 0;
+    if (totalCountEl) totalCountEl.textContent = total;
+    if (currentPageEl) currentPageEl.textContent = currentPage;
+    if (totalPagesEl) totalPagesEl.textContent = totalPages;
 
-    prevButton.disabled = currentPage === 1;
-    nextButton.disabled = currentPage === totalPages || total === 0;
+    // Update button states
+    if (prevButton) prevButton.disabled = currentPage === 1;
+    if (nextButton) nextButton.disabled = currentPage === totalPages || total === 0;
 }
 
 function updateEndDateMin(startDate) {
@@ -981,6 +1276,9 @@ async function editArticle(uri) {
         const analysisResultDiv = document.getElementById('analysisResult');
         analysisResultDiv.style.display = 'block';
         analysisResultDiv.scrollIntoView({ behavior: 'smooth' });
+
+        // Load annotations for this article
+        await loadAnnotations(uri);
     } catch (error) {
         console.error('Error editing article:', error);
         alert(`Error editing article: ${error.message}`);
@@ -1014,6 +1312,7 @@ async function deleteArticle(uri) {
         }
     }
 }
+
 function displayAnalysisResult(result) {
     const analysisResultDiv = document.getElementById('analysisResult');
     if (analysisResultDiv) {
@@ -1142,8 +1441,21 @@ async function fetchArticles(topicName) {
     }
 
     try {
-        const dateFrom = document.getElementById('dateFrom').value;
-        const dateTo = document.getElementById('dateTo').value;
+        // Show loading state
+        const tableBody = document.querySelector('#articlesTable tbody');
+        if (tableBody) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="100%" class="text-center">
+                        <i class="fas fa-spinner fa-spin me-2"></i>
+                        Loading articles...
+                    </td>
+                </tr>
+            `;
+        }
+
+        const dateFrom = document.getElementById('dateFrom')?.value || '';
+        const dateTo = document.getElementById('dateTo')?.value || '';
         
         const params = new URLSearchParams({
             start_date: dateFrom,
@@ -1171,24 +1483,298 @@ async function fetchArticles(topicName) {
         console.log(`Loaded ${allArticles.length} articles for topic ${topicName}`);
     } catch (error) {
         console.error('Error fetching articles:', error);
-        alert('Error loading articles. Please try again.');
+        // Show error state in table
+        const tableBody = document.querySelector('#articlesTable tbody');
+        if (tableBody) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="100%" class="text-center text-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Error loading articles: ${error.message}
+                    </td>
+                </tr>
+            `;
+        }
     }
 }
 
-// Add this to your existing event listeners
-document.addEventListener('DOMContentLoaded', function() {
-    // ... existing DOMContentLoaded code ...
-    
-    // Add topic change handler if not already present
-    const topicSelect = document.getElementById('topicSelect');
-    if (topicSelect) {
-        topicSelect.addEventListener('change', async function() {
-            const selectedTopic = this.value;
-            if (selectedTopic) {
-                await fetchArticles(selectedTopic);
-            }
-        });
+// Add this function to handle bulk deletion
+async function bulkDeleteArticles() {
+    if (selectedArticlesForDeletion.size === 0) {
+        alert('Please select at least one article to delete');
+        return;
     }
-});
+
+    if (!confirm(`Are you sure you want to delete ${selectedArticlesForDeletion.size} articles?`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/bulk_delete_articles', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                uris: Array.from(selectedArticlesForDeletion)
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        alert(`Successfully deleted ${result.deleted_count} articles`);
+        
+        // Clear selection and refresh the list
+        selectedArticlesForDeletion.clear();
+        updateBulkDeleteButton();
+        const topicSelect = document.getElementById('topicSelect');
+        await fetchArticles(topicSelect.value);
+    } catch (error) {
+        console.error('Error deleting articles:', error);
+        alert(`Error deleting articles: ${error.message}`);
+    }
+}
+
+// Add this function to update the bulk delete button state
+function updateBulkDeleteButton() {
+    const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    if (bulkDeleteBtn) {
+        bulkDeleteBtn.textContent = `Delete Selected (${selectedArticlesForDeletion.size})`;
+        bulkDeleteBtn.disabled = selectedArticlesForDeletion.size === 0;
+    }
+}
+
+// Add these functions to handle annotations
+async function loadAnnotations(articleUri) {
+    console.log('Loading annotations for article:', articleUri); // Debug log
+    
+    try {
+        // Double encode the URI to match FastAPI's handling
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        console.log('Encoded URI for loading:', doubleEncodedUri); // Debug log
+        
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`);
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Load response error:', response.status, errorData); // Debug log
+            throw new Error(errorData.detail || 'Failed to load annotations');
+        }
+        
+        const annotations = await response.json();
+        console.log('Loaded annotations:', annotations); // Debug log
+        
+        const container = document.getElementById('annotationsList');
+        if (!container) {
+            console.error('Annotations container not found');
+            return;
+        }
+        
+        if (!Array.isArray(annotations)) {
+            console.error('Annotations is not an array:', annotations);
+            throw new Error('Invalid annotations data received');
+        }
+        
+        container.innerHTML = annotations.map(annotation => `
+            <div class="card mb-2" data-annotation-id="${annotation.id}">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <small class="text-muted">
+                                ${annotation.author} · ${new Date(annotation.created_at).toLocaleString()}
+                                ${annotation.is_private ? ' · <span class="badge bg-secondary">Private</span>' : ''}
+                            </small>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-outline-primary" 
+                                    onclick="editAnnotation(${annotation.id})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" 
+                                    onclick="deleteAnnotation(${annotation.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="annotation-content" data-raw-content="${encodeURIComponent(annotation.content)}">
+                        ${marked.parse(annotation.content)}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+        
+        console.log('Annotations rendered successfully'); // Debug log
+    } catch (error) {
+        console.error('Error loading annotations:', error);
+        showAlert('Failed to load annotations: ' + error.message, 'danger');
+    }
+}
+
+async function saveAnnotation() {
+    const content = document.getElementById('newAnnotation').value.trim();
+    const isPrivate = document.getElementById('annotationPrivate').checked;
+    const articleUri = document.getElementById('analysisUrl').value;
+    
+    console.log('Saving annotation:', { content, isPrivate, articleUri }); // Debug log
+    
+    if (!content) {
+        showAlert('Please enter annotation content', 'warning');
+        return;
+    }
+    
+    try {
+        // Double encode the URI to match FastAPI's handling
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        console.log('Encoded URI:', doubleEncodedUri); // Debug log
+        
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Save response error:', response.status, errorData); // Debug log
+            throw new Error(errorData.detail || 'Failed to save annotation');
+        }
+        
+        const result = await response.json();
+        console.log('Save result:', result); // Debug log
+        
+        // Clear the form
+        document.getElementById('newAnnotation').value = '';
+        document.getElementById('annotationPrivate').checked = false;
+        
+        // Reload annotations using the original articleUri
+        await loadAnnotations(articleUri);
+        showAlert('Annotation saved successfully', 'success');
+    } catch (error) {
+        console.error('Error saving annotation:', error);
+        showAlert('Failed to save annotation: ' + error.message, 'danger');
+    }
+}
+
+// Add these functions after the existing annotation functions
+async function editAnnotation(annotationId) {
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        const contentDiv = annotationCard.querySelector('.annotation-content');
+        const currentContent = contentDiv.getAttribute('data-raw-content');
+        const isPrivate = annotationCard.querySelector('.badge.bg-secondary') !== null;
+        
+        // Create edit form
+        const originalHtml = annotationCard.innerHTML;
+        annotationCard.innerHTML = `
+            <div class="card-body">
+                <textarea class="form-control mb-2" rows="3">${currentContent}</textarea>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="editPrivate_${annotationId}" ${isPrivate ? 'checked' : ''}>
+                    <label class="form-check-label" for="editPrivate_${annotationId}">
+                        Private note
+                    </label>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-primary" onclick="saveEditedAnnotation(${annotationId}, '${originalHtml}')">
+                        Save
+                    </button>
+                    <button class="btn btn-sm btn-secondary" onclick="cancelEdit(${annotationId}, '${originalHtml}')">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error setting up annotation edit:', error);
+        showAlert('Failed to set up annotation edit', 'danger');
+    }
+}
+
+async function saveEditedAnnotation(annotationId, originalHtml) {
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        const content = annotationCard.querySelector('textarea').value;
+        const isPrivate = annotationCard.querySelector('input[type="checkbox"]').checked;
+
+        const response = await fetch(`/api/articles/${encodeURIComponent(articleUri)}/annotations/${annotationId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to update annotation');
+
+        // Reload all annotations to show the update
+        await loadAnnotations(articleUri);
+        showAlert('Annotation updated successfully', 'success');
+    } catch (error) {
+        console.error('Error saving annotation edit:', error);
+        showAlert('Failed to save annotation edit', 'danger');
+        // Restore original content on error
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        annotationCard.innerHTML = originalHtml;
+    }
+}
+
+function cancelEdit(annotationId, originalHtml) {
+    const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+    annotationCard.innerHTML = originalHtml;
+}
+
+async function deleteAnnotation(annotationId) {
+    if (!confirm('Are you sure you want to delete this annotation?')) {
+        return;
+    }
+
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const response = await fetch(
+            `/api/articles/${encodeURIComponent(articleUri)}/annotations/${annotationId}`, 
+            { method: 'DELETE' }
+        );
+
+        if (!response.ok) throw new Error('Failed to delete annotation');
+
+        // Reload annotations to reflect the deletion
+        await loadAnnotations(articleUri);
+        showAlert('Annotation deleted successfully', 'success');
+    } catch (error) {
+        console.error('Error deleting annotation:', error);
+        showAlert('Failed to delete annotation', 'danger');
+    }
+}
+
+// Add this function near the top of your script section
+function showAlert(message, type = 'info') {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    alertDiv.style.top = '20px';
+    alertDiv.style.right = '20px';
+    alertDiv.style.zIndex = '9999';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    document.body.appendChild(alertDiv);
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        alertDiv.remove();
+    }, 5000);
+}
 </script>
 {% endblock %} 

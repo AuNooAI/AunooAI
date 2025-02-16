@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException, Form, Request, Body, Query, Depends, status
+"""Main FastAPI application file."""
+
+from fastapi import FastAPI, Request, Form, Query, Body, Depends, HTTPException, status  # Add this import at the top with other FastAPI imports
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from app.collectors.newsapi_collector import NewsAPICollector
@@ -12,7 +14,7 @@ from app.analyze_db import AnalyzeDB
 from config.settings import config
 from typing import Optional, List
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.dependencies import get_research
 import logging
 import traceback
@@ -42,6 +44,10 @@ from app.routes.keyword_monitor import router as keyword_monitor_router, get_ale
 from app.tasks.keyword_monitor import run_keyword_monitor
 import sqlite3
 from app.routes import database  # Make sure this import exists
+from app.routes.stats_routes import router as stats_router
+from app.routes.chat_routes import router as chat_router
+from app.routes.database import router as database_router
+import shutil
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -73,17 +79,35 @@ def timeago_filter(value):
     if not value:
         return ""
     try:
+        now = datetime.now(timezone.utc)
+        
+        # Convert input value to timezone-aware datetime
         if isinstance(value, str):
-            dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            try:
+                # Try parsing as ISO format with timezone
+                dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
+            except ValueError:
+                try:
+                    # Try parsing as simple datetime
+                    dt = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+                    dt = dt.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    # Try parsing as date only
+                    dt = datetime.strptime(value, '%Y-%m-%d')
+                    dt = dt.replace(tzinfo=timezone.utc)
         else:
-            dt = value
-            
-        now = datetime.now()
-        diff = dt - now
+            # If it's already a datetime object
+            dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        
+        # Ensure both datetimes are timezone-aware
+        if not dt.tzinfo:
+            dt = dt.replace(tzinfo=timezone.utc)
+        
+        diff = now - dt
         
         # Handle future dates
-        if diff.total_seconds() > 0:
-            seconds = int(diff.total_seconds())
+        if diff.total_seconds() < 0:
+            seconds = abs(int(diff.total_seconds()))
             if seconds < 60:
                 return f"in {seconds} seconds"
             minutes = seconds // 60
@@ -95,8 +119,8 @@ def timeago_filter(value):
             days = hours // 24
             return f"in {days} day{'s' if days != 1 else ''}"
         
-        # Handle past dates (existing logic)
-        seconds = int(abs(diff.total_seconds()))
+        # Handle past dates
+        seconds = int(diff.total_seconds())
         if seconds < 60:
             return f"{seconds} seconds ago"
         minutes = seconds // 60
@@ -131,6 +155,18 @@ app.add_middleware(
 # Add this line to include the database routes
 app.include_router(database.router)
 
+# Add this with your other router includes
+app.include_router(stats_router)
+
+# Add this with the other router includes
+app.include_router(chat_router)
+
+# Add this near the other router includes
+app.include_router(database_router)
+
+# Make sure this line exists in the router includes section
+app.include_router(topic_router)  # Add this if it's missing
+
 class ArticleData(BaseModel):
     title: str
     news_source: str
@@ -144,11 +180,11 @@ class ArticleData(BaseModel):
     sentiment_explanation: str
     time_to_impact: str
     time_to_impact_explanation: str
-    tags: List[str]
+    tags: List[str]  # This ensures tags is always a list
     driver_type: str
     driver_type_explanation: str
     submission_date: str = Field(default_factory=lambda: datetime.now().isoformat())
-    topic: str  # Add this line
+    topic: str
 
 class AddModelRequest(BaseModel):
     model_name: str = Field(..., min_length=1)
@@ -594,12 +630,14 @@ async def markdown_to_html(request: Request):
 @app.post("/api/save_article")
 async def save_article(article: ArticleData):
     try:
-        print(f"Received article data: {article.dict()}")
-        result = db.update_or_create_article(article.dict())
-        print("Article saved successfully")
-        return JSONResponse(content={"message": "Article saved successfully"})
+        logger.info(f"Received article data: {article.dict()}")
+        result = await db.save_article(article.dict())  # Use the async save_article method
+        return JSONResponse(content=result)
+    except HTTPException as he:
+        logger.error(f"HTTP error saving article: {str(he)}")
+        raise he
     except Exception as e:
-        print(f"Error saving article: {str(e)}")
+        logger.error(f"Error saving article: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/categories")
@@ -729,10 +767,22 @@ async def set_active_database(database: DatabaseActivate):
 @app.delete("/api/databases/{name}")
 async def delete_database(name: str):
     try:
-        result = db.delete_database(name)
+        # Get a fresh database instance
+        database = Database()
+        
+        # Check if trying to delete active database
+        active_db = database.get_active_database()
+        if name == active_db:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot delete active database. Please switch to another database first."
+            )
+            
+        result = database.delete_database(name)
         return JSONResponse(content=result)
+        
     except Exception as e:
-        logger.error(f"Error deleting database: {str(e)}", exc_info=True)
+        logger.error(f"Error deleting database: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/config/{item_name}")
@@ -774,6 +824,21 @@ async def get_active_database():
 @app.on_event("startup")
 def startup_event():
     global db
+    
+    # Check and copy config.json if needed
+    config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json')
+    config_sample_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json.sample')
+    
+    if not os.path.exists(config_path) and os.path.exists(config_sample_path):
+        logger.info("config.json not found, copying from config.json.sample")
+        try:
+            shutil.copy2(config_sample_path, config_path)
+            logger.info("Successfully created config.json from sample")
+        except Exception as e:
+            logger.error(f"Failed to copy config file: {str(e)}")
+            raise
+    
+    # Initialize database and continue with existing startup tasks
     db = Database()
     db.migrate_db()
     logger.info(f"Active database set to: {db.db_path}")
@@ -891,10 +956,11 @@ async def collect_articles(
     categories: Optional[str] = None,
     exclude_categories: Optional[str] = None,
     search_fields: Optional[str] = None,
-    page: int = Query(1, ge=1)
+    page: int = Query(1, ge=1),
+    db: Database = Depends(get_database_instance)  # Add database dependency
 ):
     try:
-        collector = CollectorFactory.get_collector(source)
+        collector = CollectorFactory.get_collector(source, db)  # Pass db instance
         
         # Convert date strings to datetime objects if provided
         start_date_obj = datetime.fromisoformat(start_date) if start_date else None
@@ -1071,8 +1137,7 @@ async def create_topic_page(request: Request, session=Depends(verify_session)):
 @app.post("/api/create_topic")
 async def create_topic(topic_data: dict):
     try:
-        from app.config.config import load_config
-        config = load_config()  # Load using the same method
+        config = load_config()
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'config.json')
         
         # Load existing config
@@ -1081,10 +1146,17 @@ async def create_topic(topic_data: dict):
         
         # Check if updating existing topic
         existing_topic_index = next((i for i, topic in enumerate(config['topics']) 
-                                   if topic['name'] == topic_data['name']), None)
+                               if topic['name'] == topic_data['name']), None)
+        
+        # Save to database first
+        db = Database()
         if existing_topic_index is not None:
+            # Update in database
+            db.update_topic(topic_data['name'])
             config['topics'][existing_topic_index] = topic_data
         else:
+            # Create in database
+            db.create_topic(topic_data['name'])
             config['topics'].append(topic_data)
         
         # Save updated config
@@ -1398,16 +1470,23 @@ async def delete_topic(topic_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/database-editor", response_class=HTMLResponse)
-async def database_editor_page(request: Request, session=Depends(verify_session)):
+async def database_editor_page(
+    request: Request, 
+    topic: Optional[str] = None,
+    session=Depends(verify_session)
+):
     try:
-        # Get topics for the dropdown - using existing function referenced in:
-        # main.py lines 805-825
+        # Get topics for the dropdown
         config = load_config()
         topics = [{"id": topic["name"], "name": topic["name"]} for topic in config["topics"]]
+        
+        # Log the topic parameter for debugging
+        logger.debug(f"Database editor accessed with topic: {topic}")
         
         return templates.TemplateResponse("database_editor.html", {
             "request": request,
             "topics": topics,
+            "selected_topic": topic,  # Pass the selected topic to the template
             "session": session
         })
     except Exception as e:
@@ -1817,6 +1896,17 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
+            # Define status colors mapping
+            status_colors = {
+                'NEW': 'primary',
+                'Exploding': 'danger',
+                'Surging': 'warning',
+                'Growing': 'success',
+                'Stable': 'secondary',
+                'Declining': 'info',
+                'No Data': 'secondary'
+            }
+            
             # Get the last check time
             cursor.execute("""
                 SELECT 
@@ -1952,7 +2042,8 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                     "last_error": last_error,
                     "session": session,
                     "now": now.isoformat(),
-                    "is_enabled": is_enabled
+                    "is_enabled": is_enabled,
+                    "status_colors": status_colors  # Add this line
                 }
             )
             
@@ -2049,6 +2140,17 @@ async def remove_thenewsapi_config():
 
     except Exception as e:
         logger.error(f"Error removing TheNewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Add this with the other endpoints
+@app.get("/api/models")
+async def get_available_models(session=Depends(verify_session)):
+    """Get list of available AI models."""
+    try:
+        models = ai_get_available_models()
+        return JSONResponse(content=models)
+    except Exception as e:
+        logger.error(f"Error getting available models: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":

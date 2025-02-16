@@ -1,0 +1,794 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+    .chat-container {
+        height: calc(100vh - 100px);
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: var(--light-gray);
+        border-radius: 12px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .chat-header {
+        display: flex;
+        gap: 20px;
+        align-items: center;
+        padding: 15px;
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+    }
+
+    .chat-messages {
+        flex-grow: 1;
+        overflow-y: auto;
+        border: none;
+        border-radius: 8px;
+        padding: 20px;
+        background-color: white;
+        min-height: 400px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        scroll-behavior: smooth;
+    }
+
+    .message {
+        margin-bottom: 15px;
+        padding: 10px 15px;
+        border-radius: 8px;
+        max-width: 80%;
+        position: relative;
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        transition: transform 0.2s ease;
+        animation: messageAppear 0.3s ease;
+    }
+
+    @keyframes messageAppear {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .user-message {
+        background-color: white;
+        border: none;
+        margin-left: auto;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+        background-color: var(--light-gray);
+    }
+
+    .assistant-message {
+        background-color: white;
+        border: none;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+    }
+
+    .assistant-message h1,
+    .assistant-message h2,
+    .assistant-message h3 {
+        margin-top: 0.5em;
+        margin-bottom: 0.5em;
+        font-size: 1.2em;
+    }
+
+    .assistant-message p {
+        margin-bottom: 0.5em;
+    }
+
+    .assistant-message ul,
+    .assistant-message ol {
+        margin-left: 1.5em;
+        margin-bottom: 0.5em;
+    }
+
+    .assistant-message code {
+        background-color: var(--light-gray);
+        padding: 0.2em 0.4em;
+        border-radius: 3px;
+    }
+
+    .assistant-message pre {
+        background-color: var(--light-gray);
+        padding: 1em;
+        border-radius: 5px;
+        overflow-x: auto;
+    }
+
+    .assistant-message table {
+        border-collapse: collapse;
+        margin-bottom: 1em;
+        width: 100%;
+    }
+
+    .assistant-message th,
+    .assistant-message td {
+        border: 1px solid var(--medium-gray);
+        padding: 0.5em;
+    }
+
+    .assistant-message blockquote {
+        border-left: 3px solid var(--primary-color);
+        margin: 0.5em 0;
+        padding-left: 1em;
+        color: var(--dark-gray);
+    }
+
+    .chat-input {
+        display: flex;
+        gap: 10px;
+        background-color: white;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+    }
+
+    .chat-input textarea {
+        flex-grow: 1;
+        resize: none;
+        height: 60px;
+        border: 1px solid var(--light-gray);
+        border-radius: 8px;
+        padding: 12px;
+        font-size: 14px;
+        transition: border-color 0.2s ease;
+    }
+
+    .chat-input textarea:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 2px rgba(255, 105, 180, 0.1);
+    }
+
+    .loading {
+        display: none;
+        align-items: center;
+        gap: 10px;
+        color: var(--text-color);
+    }
+
+    .loading i {
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .example-queries {
+        display: flex;
+        flex-wrap: wrap;
+        margin: 15px 0;
+        padding: 10px;
+        background-color: var(--light-gray);
+        border-radius: 8px;
+        gap: 10px;
+        transition: all 0.3s ease;
+    }
+
+    .example-queries label {
+        width: 100%;
+        margin-bottom: 5px;
+        color: var(--dark-gray);
+        font-weight: 500;
+    }
+
+    .query-button {
+        padding: 8px 16px;
+        border: 1px solid var(--primary-color);
+        background-color: white;
+        color: var(--primary-color);
+        border-radius: 20px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 0.9em;
+    }
+
+    .query-button:hover {
+        background-color: var(--primary-color);
+        color: white;
+    }
+
+    .query-button.active {
+        background-color: var(--primary-color);
+        color: white;
+    }
+
+    .category-badge {
+        padding: 4px 12px;
+        border: 1px solid var(--primary-color);
+        background-color: white;
+        color: var(--primary-color);
+        border-radius: 15px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        font-size: 0.8em;
+        margin: 2px;
+    }
+
+    .category-badge:hover {
+        background-color: var(--primary-color);
+        color: white;
+    }
+
+    .example-queries.category-mode .query-button:not(.active) {
+        display: none;
+    }
+
+    .example-queries.category-mode .category-buttons {
+        display: flex;
+        margin-top: 10px;
+        padding-top: 10px;
+        border-top: 1px solid var(--medium-gray);
+    }
+
+    .category-buttons {
+        display: none;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 8px;
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .message-icon {
+        flex-shrink: 0;
+        width: 24px;
+        height: 24px;
+        color: var(--dark-gray);
+        background-color: var(--light-gray);
+        border-radius: 50%;
+        padding: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .user-message .message-icon {
+        background-color: var(--primary-color);
+        color: white;
+    }
+
+    .message-content {
+        flex-grow: 1;
+    }
+
+    .copy-button {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        padding: 4px;
+        background: none;
+        border: none;
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        color: var(--dark-gray);
+        background-color: var(--light-gray);
+        border-radius: 4px;
+        width: 28px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .message:hover .copy-button {
+        opacity: 1;
+    }
+
+    .copy-button:hover {
+        background-color: var(--primary-color);
+        color: white;
+    }
+
+    /* Custom scrollbar */
+    .chat-messages::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .chat-messages::-webkit-scrollbar-track {
+        background: var(--light-gray);
+        border-radius: 4px;
+    }
+
+    .chat-messages::-webkit-scrollbar-thumb {
+        background: var(--medium-gray);
+        border-radius: 4px;
+    }
+
+    .chat-messages::-webkit-scrollbar-thumb:hover {
+        background: var(--dark-gray);
+    }
+
+    /* Code block styling */
+    .assistant-message pre {
+        background-color: var(--light-gray);
+        border-radius: 6px;
+        padding: 12px;
+        margin: 8px 0;
+        overflow-x: auto;
+    }
+
+    .assistant-message code {
+        font-family: 'Fira Code', monospace;
+        font-size: 0.9em;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+    <div class="chat-header">
+        <select id="topicSelect" class="form-select" style="width: 200px;">
+            <option value="">Select a topic</option>
+        </select>
+        <select id="modelSelect" class="form-select" style="width: 200px;">
+            <option value="">Select AI model</option>
+        </select>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+        <div class="message assistant-message">
+            I am Auspex! I can help you analyze articles from the database. Please select a topic and AI model to begin.
+        </div>
+    </div>
+
+    <div class="example-queries">
+        <label>Example Queries:</label>
+        <button class="query-button" data-template="summarize">Summarize a category</button>
+        <button class="query-button" data-template="trends">Analyze trends</button>
+        <button class="query-button" data-template="sentiment">Analyze sentiment</button>
+        <button class="query-button" data-template="compare">Compare categories</button>
+        <div id="categoryButtons" class="category-buttons"></div>
+    </div>
+
+    <div class="chat-input">
+        <textarea 
+            id="userInput" 
+            class="form-control" 
+            placeholder="Ask a question about the articles..."
+            disabled
+        ></textarea>
+        <button 
+            id="sendButton" 
+            class="btn btn-primary" 
+            disabled
+        >
+            <i class="fas fa-paper-plane"></i>
+        </button>
+    </div>
+
+    <div class="loading" id="loadingIndicator">
+        <i class="fas fa-spinner"></i>
+        Processing your request...
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+const topicSelect = document.getElementById('topicSelect');
+const modelSelect = document.getElementById('modelSelect');
+const userInput = document.getElementById('userInput');
+const sendButton = document.getElementById('sendButton');
+const chatMessages = document.getElementById('chatMessages');
+const loadingIndicator = document.getElementById('loadingIndicator');
+const categoryButtons = document.getElementById('categoryButtons');
+const queryButtons = document.querySelectorAll('.query-button');
+let availableCategories = [];  // Store available categories globally
+
+// Query template definitions
+const templates = {
+    summarize: {
+        base: "Provide a comprehensive summary of articles in the {category} category{timeframe_clause}. Include key themes, major developments, and important insights.",
+        needsCategory: true,
+        type: "category_summary",
+        timeframes: [
+            { label: "Last 7 days", value: "7" },
+            { label: "Last 14 days", value: "14" },
+            { label: "Last 30 days", value: "30" },
+            { label: "Last 90 days", value: "90" },
+            { label: "Last year", value: "365" },
+            { label: "All time", value: "all" }
+        ]
+    },
+    trends: {
+        base: "Analyze trends and patterns in articles from the last {timeframe}. What are the emerging themes and developments?",
+        needsCategory: false,
+        type: "trend_analysis",
+        timeframes: [
+            { label: "30 days", value: "30" },
+            { label: "60 days", value: "60" },
+            { label: "90 days", value: "90" },
+            { label: "6 months", value: "180" },
+            { label: "1 year", value: "365" },
+            { label: "All time", value: "all" }
+        ]
+    },
+    sentiment: {
+        base: "Analyze sentiment distribution {filter_clause}",
+        needsCategory: false,
+        type: "sentiment_analysis",
+        options: [
+            { label: "All articles", value: "all" },
+            { label: "Last 30 days", value: "30" },
+            { label: "Last 90 days", value: "90" },
+            { label: "Last 6 months", value: "180" },
+            { label: "Last year", value: "365" },
+            { label: "By category", value: "category" }
+        ]
+    },
+    compare: {
+        base: "Compare and contrast articles from the {category1} and {category2} categories. What are the key differences and similarities?",
+        needsCategory: true,
+        type: "category_comparison",
+        needsTwoCategories: true
+    }
+};
+
+// Handle query button clicks
+queryButtons.forEach(button => {
+    button.addEventListener('click', () => {
+        // Remove active class from all buttons
+        queryButtons.forEach(btn => btn.classList.remove('active'));
+        // Add active class to clicked button
+        button.classList.add('active');
+        
+        const templateName = button.dataset.template;
+        const template = templates[templateName];
+        if (!template) return;
+
+        document.querySelector('.example-queries').classList.add('category-mode');
+        categoryButtons.style.display = 'flex';
+
+        switch(template.type) {
+            case 'trend_analysis':
+                showTimeframeSelection(template.timeframes);
+                break;
+            case 'sentiment_analysis':
+                showSentimentOptions(template.options, availableCategories);
+                break;
+            case 'category_comparison':
+                if (availableCategories.length > 0) {
+                    showCategoryComparison(availableCategories);
+                }
+                break;
+            default:
+                if (template.needsCategory) {
+                    if (availableCategories.length > 0) {
+                        createCategoryButtons(availableCategories);
+                    }
+                } else {
+                    userInput.value = template.base;
+                    document.querySelector('.example-queries').classList.remove('category-mode');
+                    categoryButtons.style.display = 'none';
+                }
+        }
+    });
+});
+
+// Load topics
+fetch('/api/topics')
+    .then(response => response.json())
+    .then(topics => {
+        topics.forEach(topic => {
+            const option = document.createElement('option');
+            option.value = topic.name;
+            option.textContent = topic.name;
+            topicSelect.appendChild(option);
+        });
+    })
+    .catch(error => {
+        console.error('Error loading topics:', error);
+    });
+
+// Update topic change handler
+topicSelect.addEventListener('change', () => {
+    checkInputs();
+    if (topicSelect.value) {
+        // Reset category buttons
+        categoryButtons.style.display = 'none';
+        queryButtons.forEach(btn => btn.classList.remove('active'));
+        
+        // Get categories for selected topic
+        fetch(`/api/topic/${encodeURIComponent(topicSelect.value)}`)
+            .then(response => response.json())
+            .then(data => {
+                availableCategories = data.categories;  // Store categories globally
+                createCategoryButtons(data.categories);
+            })
+            .catch(error => {
+                console.error('Error loading categories:', error);
+            });
+    }
+});
+
+// Load AI models
+fetch('/api/models')
+    .then(response => response.json())
+    .then(models => {
+        // Ensure models is an array
+        const modelList = Array.isArray(models) ? models : [];
+        modelList.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.name || model;  // Handle both object and string formats
+            option.textContent = model.name || model;
+            modelSelect.appendChild(option);
+        });
+    })
+    .catch(error => {
+        console.error('Error loading AI models:', error);
+    });
+
+function checkInputs() {
+    const isReady = topicSelect.value && modelSelect.value;
+    userInput.disabled = !isReady;
+    sendButton.disabled = !isReady;
+}
+
+topicSelect.addEventListener('change', checkInputs);
+modelSelect.addEventListener('change', checkInputs);
+
+function addMessage(content, isUser) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${isUser ? 'user-message' : 'assistant-message'}`;
+    
+    // Add icon
+    const iconDiv = document.createElement('div');
+    iconDiv.className = 'message-icon';
+    iconDiv.innerHTML = isUser ? 
+        '<i class="fas fa-user"></i>' : 
+        '<i class="fas fa-robot"></i>';
+    messageDiv.appendChild(iconDiv);
+    
+    // Add content
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    if (isUser) {
+        contentDiv.innerHTML = content;
+    } else if (content && typeof content === 'object') {
+        // Format search criteria
+        let searchSummary = '## Search Criteria\n';
+        if (content.search_criteria) {
+            Object.entries(content.search_criteria).forEach(([key, value]) => {
+                if (value) {
+                    searchSummary += `- **${key}**: ${Array.isArray(value) ? value.join(', ') : value}\n`;
+                }
+            });
+        }
+        searchSummary += `\n${content.response}`;
+        contentDiv.innerHTML = marked.parse(searchSummary);
+    } else {
+        contentDiv.innerHTML = content ? marked.parse(content) : 'Error: No response received';
+    }
+    messageDiv.appendChild(contentDiv);
+    
+    // Add copy button for assistant messages
+    if (!isUser) {
+        const copyButton = document.createElement('button');
+        copyButton.className = 'copy-button';
+        copyButton.innerHTML = '<i class="fas fa-copy"></i>';
+        copyButton.title = 'Copy to clipboard';
+        copyButton.onclick = () => {
+            const textToCopy = content.response || content;
+            navigator.clipboard.writeText(textToCopy)
+                .then(() => {
+                    copyButton.innerHTML = '<i class="fas fa-check"></i>';
+                    setTimeout(() => {
+                        copyButton.innerHTML = '<i class="fas fa-copy"></i>';
+                    }, 2000);
+                })
+                .catch(err => console.error('Failed to copy:', err));
+        };
+        messageDiv.appendChild(copyButton);
+    }
+    
+    chatMessages.appendChild(messageDiv);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+async function sendMessage() {
+    const message = userInput.value.trim();
+    if (!message) return;
+
+    // Disable input while processing
+    userInput.disabled = true;
+    sendButton.disabled = true;
+    loadingIndicator.style.display = 'flex';
+
+    // Add user message to chat
+    addMessage(message, true);
+    userInput.value = '';
+
+    try {
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                message: message,
+                topic: topicSelect.value,
+                model: modelSelect.value
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (!data || !data.response) {
+            throw new Error('Invalid response format from server');
+        }
+        addMessage(data.response, false);
+    } catch (error) {
+        addMessage(`Error: ${error.message}`, false);
+        console.error('Error:', error);
+    } finally {
+        userInput.disabled = false;
+        sendButton.disabled = false;
+        loadingIndicator.style.display = 'none';
+        checkInputs();
+    }
+}
+
+sendButton.addEventListener('click', sendMessage);
+userInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+
+function createCategoryButtons(categories) {
+    categoryButtons.innerHTML = '';
+    categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select category:</div>';
+    categories.forEach(category => {
+        const button = document.createElement('button');
+        button.className = 'category-badge';
+        button.textContent = category;
+        button.addEventListener('click', () => {
+            const activeTemplate = document.querySelector('.query-button.active');
+            if (activeTemplate && templates[activeTemplate.dataset.template]) {
+                const template = templates[activeTemplate.dataset.template];
+                // After category selection, show timeframe options
+                if (template.type === 'category_summary') {
+                    showTimeframeForCategory(category, template);
+                }
+            }
+        });
+        categoryButtons.appendChild(button);
+    });
+}
+
+function showTimeframeForCategory(category, template) {
+    categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select timeframe:</div>';
+    template.timeframes.forEach(tf => {
+        const button = document.createElement('button');
+        button.className = 'category-badge';
+        button.textContent = tf.label;
+        button.addEventListener('click', () => {
+            const timeframeClause = tf.value === 'all' ? '' : ` from the ${tf.label.toLowerCase()}`;
+            userInput.value = template.base
+                .replace('{category}', category)
+                .replace('{timeframe_clause}', timeframeClause);
+            document.querySelector('.example-queries').classList.remove('category-mode');
+            categoryButtons.style.display = 'none';
+        });
+        categoryButtons.appendChild(button);
+    });
+}
+
+// Add new helper functions for template handling
+function showTimeframeSelection(timeframes) {
+    categoryButtons.innerHTML = '';
+    timeframes.forEach(tf => {
+        const button = document.createElement('button');
+        button.className = 'category-badge';
+        button.textContent = tf.label;
+        button.addEventListener('click', () => {
+            const activeTemplate = document.querySelector('.query-button.active');
+            if (activeTemplate && templates[activeTemplate.dataset.template]) {
+                const template = templates[activeTemplate.dataset.template];
+                userInput.value = template.base.replace('{timeframe}', tf.label.toLowerCase());
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            }
+        });
+        categoryButtons.appendChild(button);
+    });
+}
+
+function showCategoryComparison(categories) {
+    let selectedCategory1 = null;
+    categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select first category:</div>';
+    categories.forEach(category => {
+        const button = document.createElement('button');
+        button.className = 'category-badge';
+        button.textContent = category;
+        button.addEventListener('click', () => {
+            if (!selectedCategory1) {
+                selectedCategory1 = category;
+                categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select second category:</div>';
+                categories.filter(c => c !== category).forEach(c => {
+                    const btn = document.createElement('button');
+                    btn.className = 'category-badge';
+                    btn.textContent = c;
+                    btn.addEventListener('click', () => {
+                        const template = templates['compare'];
+                        userInput.value = template.base
+                            .replace('{category1}', selectedCategory1)
+                            .replace('{category2}', c);
+                        document.querySelector('.example-queries').classList.remove('category-mode');
+                        categoryButtons.style.display = 'none';
+                    });
+                    categoryButtons.appendChild(btn);
+                });
+            } else {
+                const template = templates['compare'];
+                userInput.value = template.base
+                    .replace('{category1}', selectedCategory1)
+                    .replace('{category2}', category);
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            }
+        });
+        categoryButtons.appendChild(button);
+    });
+}
+
+function showSentimentOptions(options, categories) {
+    categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select analysis type:</div>';
+    
+    options.forEach(option => {
+        const button = document.createElement('button');
+        button.className = 'category-badge';
+        button.textContent = option.label;
+        button.addEventListener('click', () => {
+            if (option.value === 'category') {
+                // Show category selection
+                categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select category to analyze:</div>';
+                categories.forEach(category => {
+                    const btn = document.createElement('button');
+                    btn.className = 'category-badge';
+                    btn.textContent = category;
+                    btn.addEventListener('click', () => {
+                        const template = templates['sentiment'];
+                        userInput.value = template.base.replace('{filter_clause}', `in the ${category} category`);
+                        document.querySelector('.example-queries').classList.remove('category-mode');
+                        categoryButtons.style.display = 'none';
+                    });
+                    categoryButtons.appendChild(btn);
+                });
+            } else if (option.value === 'all') {
+                const template = templates['sentiment'];
+                userInput.value = template.base.replace('{filter_clause}', 'across all articles');
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            } else {
+                const template = templates['sentiment'];
+                userInput.value = template.base.replace('{filter_clause}', `for the last ${option.label.toLowerCase()}`);
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            }
+        });
+        categoryButtons.appendChild(button);
+    });
+}
+</script>
+{% endblock %} 
