@@ -185,6 +185,17 @@
             <div class="modal-body">
                 <form id="settingsForm">
                     <div class="mb-4">
+                        <h6>Search Settings</h6>
+                        <div class="form-group">
+                            <label for="searchDateRange">Search Date Range (days)</label>
+                            <input type="number" class="form-control" id="searchDateRange" 
+                                   name="searchDateRange" min="1" max="30" 
+                                   value="{{ search_date_range|default(7) }}">
+                            <small class="text-muted">Number of days to look back when searching for articles (1-30 days)</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
                         <h6>Check Interval</h6>
                         <div class="input-group">
                             <input type="number" class="form-control" id="checkInterval" 
@@ -606,6 +617,7 @@ async function saveSettings() {
             check_interval: parseInt(document.getElementById('checkInterval').value),
             interval_unit: parseInt(document.getElementById('intervalUnit').value),
             daily_request_limit: parseInt(document.getElementById('dailyRequestLimit').value),
+            search_date_range: parseInt(document.getElementById('searchDateRange').value),
             search_fields: searchFields,
             language: document.getElementById('language').value,
             sort_by: document.getElementById('sortBy').value,
