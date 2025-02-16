@@ -2,6 +2,7 @@ import sqlite3
 import os
 import json
 import logging
+import argparse
 from datetime import datetime
 from pathlib import Path
 
@@ -13,38 +14,46 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def get_database_path():
-    """Get the path to the active database file"""
-    # Get the app root directory (where this script is located)
-    app_root = Path(__file__).parent.parent
-    data_dir = app_root / 'data'
-    
-    # First try to read from config.json
-    config_path = data_dir / 'config.json'
-    if config_path.exists():
-        try:
-            with open(config_path, 'r') as f:
-                config = json.load(f)
-                db_name = config.get('active_database', 'fnaapp.db')
-        except json.JSONDecodeError:
-            logger.warning("Could not parse config.json, using default database name")
-            db_name = 'fnaapp.db'
+def get_database_path(custom_db: str = None) -> str:
+    """Get the path to the database file"""
+    if custom_db:
+        db_path = Path(custom_db)
+        if not db_path.is_absolute():
+            # If relative path, assume relative to app root
+            app_root = Path(__file__).parent.parent
+            db_path = app_root / custom_db
     else:
-        db_name = 'fnaapp.db'
+        # Default behavior - use config.json
+        app_root = Path(__file__).parent.parent
+        data_dir = app_root / 'data'
+        
+        config_path = data_dir / 'config.json'
+        if config_path.exists():
+            try:
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                    db_name = config.get('active_database', 'fnaapp.db')
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Could not parse config.json, using default database name"
+                )
+                db_name = 'fnaapp.db'
+        else:
+            db_name = 'fnaapp.db'
+        
+        db_path = data_dir / db_name
     
-    db_path = data_dir / db_name
     if not db_path.exists():
         raise FileNotFoundError(
             f"Database file not found: {db_path}. "
-            f"Expected location: {data_dir}"
+            f"Expected location: {db_path.parent}"
         )
     
     return str(db_path)
 
 
-def update_articles_uri_key():
+def update_articles_uri_key(db_path: str):
     """Update articles table to have URI as primary key and remove duplicates"""
-    db_path = get_database_path()
     logger.info(f"Updating database: {db_path}")
 
     conn = sqlite3.connect(db_path)
@@ -152,9 +161,22 @@ def update_articles_uri_key():
         conn.close()
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='Update articles table to use URI as primary key'
+    )
+    parser.add_argument(
+        '--db', '-d',
+        help='Path to database file (default: use config.json)'
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
     try:
-        update_articles_uri_key()
+        args = parse_args()
+        db_path = get_database_path(args.db)
+        update_articles_uri_key(db_path)
     except Exception as e:
         logger.error(f"Script failed: {e}")
         exit(1) 
