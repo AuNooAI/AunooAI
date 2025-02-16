@@ -833,138 +833,264 @@
 
     // Function to load existing databases
     function loadDatabases() {
-        fetch('/api/databases')
+        return fetch('/api/databases')
             .then(response => response.json())
-            .then(databases => {
+            .then(data => {
                 const databaseList = document.getElementById('database-list');
-                const activeDatabaseSelect = document.getElementById('active-database');
-                databaseList.innerHTML = '';
-                activeDatabaseSelect.innerHTML = '<option value="">Select active database</option>';
+                const activeSelect = document.getElementById('active-database');
                 
-                databases.forEach(db => {
+                // Clear existing options
+                databaseList.innerHTML = '';
+                activeSelect.innerHTML = '<option value="">Select active database</option>';
+                
+                data.forEach(db => {
+                    // Add to list
                     const li = document.createElement('li');
-                    li.textContent = db.name;
-                    const deleteButton = document.createElement('button');
-                    deleteButton.textContent = 'Delete';
-                    deleteButton.onclick = () => deleteDatabase(db.name);
-                    li.appendChild(deleteButton);
+                    li.className = 'database-item';
+                    li.innerHTML = `
+                        <span class="database-name">${db.name}</span>
+                        <button class="btn-icon delete-database" 
+                                onclick="deleteDatabase('${db.id}')"
+                                data-tooltip="Delete this database">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    `;
                     databaseList.appendChild(li);
-
+                    
+                    // Add to select
                     const option = document.createElement('option');
-                    option.value = db.name;
+                    option.value = db.id;
                     option.textContent = db.name;
-                    if (db.name === activeDatabase) {
-                        option.selected = true;
-                    }
-                    activeDatabaseSelect.appendChild(option);
+                    activeSelect.appendChild(option);
                 });
+                
+                // Set current active database
+                return fetch('/api/active-database')
+                    .then(response => response.json())
+                    .then(activeData => {
+                        if (activeData.name) {
+                            activeSelect.value = activeData.name;
+                        }
+                    });
             });
     }
 
     // Function to create a new database
-    document.getElementById('create-database-form').addEventListener('submit', function(e) {
+    document.getElementById('create-database-form').addEventListener('submit', async function(e) {
         e.preventDefault();
-        const databaseName = document.getElementById('database-name').value;
-        fetch('/api/databases', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ name: databaseName }),
-        })
-        .then(response => response.json())
-        .then(data => {
+        let databaseName = document.getElementById('database-name').value.trim();
+        
+        if (!databaseName) {
+            showAlert('Database name cannot be empty', 'danger');
+            return;
+        }
+        
+        // Remove .db extension if user included it
+        if (databaseName.endsWith('.db')) {
+            databaseName = databaseName.slice(0, -3);
+        }
+        
+        try {
+            setDatabaseInfoLoading(true);
+            
+            // Create database
+            const createResponse = await fetch('/api/databases', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: databaseName }),
+            });
+
+            if (!createResponse.ok) {
+                const error = await createResponse.json();
+                throw new Error(error.detail || 'Failed to create database');
+            }
+
+            const data = await createResponse.json();
             console.log('Database created:', data);
-            loadDatabases();
+            
+            // Clear input
             document.getElementById('database-name').value = '';
-        });
+            
+            // Set as active database with retry
+            let retries = 3;
+            while (retries > 0) {
+                try {
+                    const activeResponse = await fetch('/api/active-database', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ name: data.id }), // Use full name with .db extension
+                    });
+                    
+                    if (!activeResponse.ok) {
+                        const error = await activeResponse.json();
+                        throw new Error(error.detail || 'Failed to set active database');
+                    }
+                    
+                    const activeData = await activeResponse.json();
+                    console.log('Active database set:', activeData);
+                    break; // Success, exit retry loop
+                    
+                } catch (error) {
+                    retries--;
+                    if (retries === 0) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s between retries
+                }
+            }
+            
+            // Refresh UI
+            await loadDatabases();
+            await loadDatabaseInfo();
+            
+            showAlert(`Successfully created database: ${data.name}`, 'success');
+        } catch (error) {
+            console.error('Error:', error);
+            showAlert(error.message, 'danger');
+        } finally {
+            setDatabaseInfoLoading(false);
+        }
     });
 
     // Function to select active database
-    document.getElementById('active-database').addEventListener('change', function(e) {
+    document.getElementById('active-database').addEventListener('change', async function(e) {
         const databaseName = e.target.value;
-        fetch('/api/active-database', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ name: databaseName }),
-        })
-        .then(response => response.json())
-        .then(data => {
+        try {
+            setDatabaseInfoLoading(true);
+            
+            const response = await fetch('/api/active-database', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: databaseName }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to set active database');
+            }
+
+            const data = await response.json();
             console.log('Active database set:', data);
-            activeDatabase = databaseName;
-            loadDatabaseInfo();
-        });
+            
+            // Add a small delay before loading the new database info
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Wait for database info to update
+            await loadDatabaseInfo();
+            await loadDatabases();
+            
+            showAlert(`Successfully switched to database: ${databaseName}`, 'success');
+        } catch (error) {
+            console.error('Error setting active database:', error);
+            showAlert(`Failed to switch database: ${error.message}`, 'danger');
+            loadDatabases(); // Refresh list to ensure correct selection
+        } finally {
+            setDatabaseInfoLoading(false);
+        }
     });
 
-    // Function to load database information
+    // Add loading state handler
+    function setDatabaseInfoLoading(isLoading) {
+        const loadingText = 'Loading...';
+        if (isLoading) {
+            document.getElementById('db-name').textContent = loadingText;
+            document.getElementById('db-size').textContent = loadingText;
+            document.getElementById('total-articles').textContent = loadingText;
+            document.getElementById('last-entry').textContent = loadingText;
+            document.getElementById('first-entry').textContent = loadingText;
+            document.getElementById('total-topics').textContent = loadingText;
+            document.getElementById('table-info').innerHTML = 
+                '<tr><td colspan="2">Loading table information...</td></tr>';
+        }
+    }
+
+    // Update loadDatabaseInfo to use async/await and add error handling
+    async function loadDatabaseInfo() {
+        try {
+            const response = await fetch('/api/database-info');
+            if (!response.ok) {
+                throw new Error('Failed to load database info');
+            }
+            
+            const data = await response.json();
+            console.log('Loaded database info:', data); // Debug log
+            
+            // Update basic info
+            document.getElementById('db-name').textContent = data.name || 'N/A';  // Use full name with .db
+            document.getElementById('db-size').textContent = formatFileSize(data.size);
+            document.getElementById('total-articles').textContent = 
+                (data.total_articles || 0).toLocaleString();
+            document.getElementById('last-entry').textContent = formatDate(data.last_entry);
+            document.getElementById('first-entry').textContent = formatDate(data.first_entry);
+            document.getElementById('total-topics').textContent = 
+                (data.total_topics || 0).toLocaleString();
+            
+            // Update table information
+            const tableBody = document.getElementById('table-info');
+            if (data.tables && data.tables.length > 0) {
+                tableBody.innerHTML = data.tables
+                    .map(table => `
+                        <tr>
+                            <td>${table.name}</td>
+                            <td>${table.rows.toLocaleString()}</td>
+                        </tr>
+                    `)
+                    .join('');
+            } else {
+                tableBody.innerHTML = '<tr><td colspan="2">No tables found</td></tr>';
+            }
+        } catch (error) {
+            console.error('Error loading database info:', error);
+            document.getElementById('database-info').innerHTML = 
+                '<div class="alert alert-danger">Error loading database information</div>';
+            throw error; // Re-throw to handle in calling function
+        }
+    }
+
+    // Helper function to format file size
+    function formatFileSize(bytes) {
+        if (!bytes) return 'N/A';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        return `${size.toFixed(2)} ${units[unitIndex]}`;
+    }
+
+    // Helper function to format date
     function formatDate(dateString) {
         if (!dateString) return 'N/A';
-        const date = new Date(dateString);
-        return date.toLocaleString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-        });
-    }
-
-    function formatFileSize(bytes) {
-        if (!bytes) return '0 Bytes';
-        const k = 1024;
-        const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-    }
-
-    function loadDatabaseInfo() {
-        fetch('/api/database-info')
-            .then(response => response.json())
-            .then(data => {
-                // Update basic info
-                document.getElementById('db-name').textContent = data.name || 'N/A';
-                document.getElementById('db-size').textContent = formatFileSize(data.size);
-                document.getElementById('total-articles').textContent = (data.total_articles || 0).toLocaleString();
-                document.getElementById('last-entry').textContent = formatDate(data.last_entry);
-                document.getElementById('first-entry').textContent = formatDate(data.first_entry);
-                document.getElementById('total-topics').textContent = (data.total_topics || 0).toLocaleString();
-                
-                // Update table information
-                const tableBody = document.getElementById('table-info');
-                if (data.tables && data.tables.length > 0) {
-                    tableBody.innerHTML = data.tables
-                        .map(table => `
-                            <tr>
-                                <td>${table.name}</td>
-                                <td>${table.rows.toLocaleString()}</td>
-                            </tr>
-                        `)
-                        .join('');
-                } else {
-                    tableBody.innerHTML = '<tr><td colspan="2">No tables found</td></tr>';
-                }
-            })
-            .catch(error => {
-                console.error('Error loading database info:', error);
-                document.getElementById('database-info').innerHTML = 
-                    '<div class="alert alert-danger">Error loading database information</div>';
-            });
+        return new Date(dateString).toLocaleString();
     }
 
     // Function to delete a database
-    function deleteDatabase(name) {
-        if (confirm(`Are you sure you want to delete the database "${name}"?`)) {
-            fetch(`/api/databases/${name}`, {
+    async function deleteDatabase(dbName) {
+        if (!confirm(`Are you sure you want to delete database "${dbName}"? This cannot be undone.`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/databases/${dbName}`, {
                 method: 'DELETE',
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log('Database deleted:', data);
-                loadDatabases();
             });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to delete database');
+            }
+            
+            // Refresh the database lists
+            await loadDatabases();
+            showAlert(`Successfully deleted database: ${dbName}`, 'success');
+        } catch (error) {
+            console.error('Error deleting database:', error);
+            showAlert(error.message, 'danger');
         }
     }
 

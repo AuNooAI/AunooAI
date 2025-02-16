@@ -1,56 +1,104 @@
-﻿# newsaddict
+﻿# AuNoo AI
 
 ## Overview
 
-An app that allows you to research and analyze news articles. It uses LLMs to extract insights from articles.
+An AI-powered news research and analysis platform that uses Large Language Models (LLMs) to extract insights from articles.
 
 ## Getting Started
 
-### Run the application:
-
-#### Create the virtual python environment
+### Clone the Repository
+```bash
+git clone https://github.com/orochford/AunooAI.git
+cd AunooAI
 ```
+
+### Local Development
+
+1. Create and activate virtual environment:
+```bash
 python -m venv .venv
+source .venv/bin/activate  # On Unix/macOS
+# or
+.venv\Scripts\activate  # On Windows
 ```
 
-#### Load the virtual python environment
-```
-source .venv/bin/activate
-```
-
-#### Install dependencies
-```
+2. Install dependencies:
+```bash
 pip install -r requirements.txt
 ```
 
-#### Start the app
+3. Generate SSL Certificate (Required):
+```bash
+# Generate self-signed certificate
+openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365
 ```
+
+4. Start the app:
+```bash
 python app/run.py
 ```
 
-#### Launch the app
+5. Access the application:
+```
 https://localhost:8000
-
-### Docker container
-
-To build the container:
-```
-docker build -t newsaddict .
 ```
 
-To run the container:
-```
-docker compose up <instance_name>
+### Docker Deployment
+
+Build the container:
+```bash
+docker build -t aunoo-ai .
 ```
 
-The docker compose file contains example instances called `newsaddict-test` and `newsaddict-customer-x`, and `newsaddict-customer-y`.
-
-To run the container with the default instance (`newsaddict-test`):
-```
+Run using Docker Compose:
+```bash
 docker compose up
 ```
 
-To run the customer-x instance (`newsaddict-customer-x`):
-``` 
-docker compose --profile customer-x up
+#### Multiple Instance Deployment
+
+The docker-compose.yml includes several pre-configured instances:
+- `aunoo-test`: Default testing instance
+- `aunoo-customer-x`: Customer X instance
+- `aunoo-customer-y`: Customer Y instance
+
+To run a specific instance:
+```bash
+docker compose --profile customer-x up  # For Customer X instance
 ```
+
+### Self-Hosting Guide
+
+1. System Requirements:
+   - Python 3.11 or higher
+   - 2GB RAM minimum
+   - 10GB storage space
+   - Linux/Unix environment recommended
+
+2. Environment Configuration:
+   ```bash
+   # Copy example environment file
+   cp .env.example .env
+   
+   # Edit with your settings
+   nano .env
+   ```
+
+3. Start Application:
+   ```bash
+   # Using systemd (recommended for production)
+   sudo cp deployment/aunoo-ai.service /etc/systemd/system/
+   sudo systemctl enable aunoo-ai
+   sudo systemctl start aunoo-ai
+   ```
+
+4. Monitor Logs:
+   ```bash
+   sudo journalctl -u aunoo-ai -f
+   ```
+
+5. Certificate Renewal:
+   ```bash
+   # Add to crontab
+   0 0 1 * * /path/to/AunooAI/scripts/renew_cert.sh
+   ```

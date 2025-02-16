@@ -807,13 +807,32 @@ async function markAsRead(alertId) {
         if (!response.ok) throw new Error('Failed to mark alert as read');
         
         const alertElement = document.querySelector(`[onclick*="${alertId}"]`);
-        const groupElement = alertElement.closest('.card');
-        const buttonContainer = groupElement.querySelector('.d-flex[data-group-id]');
-        const topic = alertElement.dataset.topic;
-        const groupId = buttonContainer.dataset.groupId;
-        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (!alertElement) throw new Error('Alert element not found');
         
+        const topic = alertElement.dataset.topic;
+        const groupId = alertElement.dataset.groupId;
+        
+        if (!topic || !groupId) {
+            console.error('Missing topic or groupId:', { topic, groupId });
+            throw new Error('Missing required data attributes');
+        }
+        
+        // Update the status badge count
+        const groupCard = alertElement.closest('.card');
+        const statusBadge = groupCard.querySelector('.badge.bg-primary');
+        const currentCount = parseInt(statusBadge.textContent);
+        if (!isNaN(currentCount)) {
+            const newCount = Math.max(0, currentCount - 1);
+            statusBadge.textContent = `${newCount} alerts`;
+        }
+        
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (!toggle) throw new Error('Toggle element not found');
+        
+        // Refresh with current toggle state
         await refreshGroupArticles(topic, groupId, toggle.checked);
+        
+        showAlert('Alert marked as read', 'success');
     } catch (error) {
         console.error('Error:', error);
         showAlert('Failed to mark alert as read', 'danger');
@@ -1232,14 +1251,52 @@ async function bulkDeleteArticles(topic, groupId) {
         const result = await response.json();
         showAlert(`Successfully deleted ${result.deleted_count} articles`, 'success');
         
-        // Clear selections for this group
+        // Clear selections
         selectedArticles.byGroup[groupId] = [];
-        selectedArticles.byTopic[topic] = selectedArticles.byTopic[topic]?.filter(
-            article => !articles.some(a => a.url === article.url)
-        ) || [];
+        selectedArticles.byTopic[topic] = [];
         
+        // Update UI elements safely with null checks
+        const headerBadge = document.querySelector(`a[href="#${groupId}"] .badge, [data-topic="${topic}"] .badge.bg-primary`);
+        if (headerBadge) {
+            headerBadge.textContent = '0 alerts';
+        }
+        
+        const trendBadge = document.querySelector(`tr[data-topic="${topic}"] td:nth-child(5) .badge.bg-primary`);
+        if (trendBadge) {
+            trendBadge.textContent = '0 alerts';
+        }
+        
+        // Safely get the toggle element
         const toggle = document.querySelector(`#showReadToggle_${groupId}`);
-        await refreshGroupArticles(topic, groupId, toggle.checked);
+        if (toggle) {
+            const totalSpan = toggle.closest('label')?.querySelector('.total-count');
+            if (totalSpan) {
+                totalSpan.textContent = '0';
+            }
+            
+            // Refresh the group's content
+            await refreshGroupArticles(topic, groupId, toggle.checked || false);
+        }
+        
+        // Update the group content area
+        const groupContainer = document.querySelector(`[data-group-id="${groupId}"]`);
+        if (groupContainer) {
+            const tableBody = groupContainer.closest('.card')?.querySelector('tbody');
+            if (tableBody) {
+                if (tableBody.children.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="6">
+                                <div class="alert alert-info mb-0">
+                                    <i class="fas fa-info-circle"></i> No new alerts for this group
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }
+            }
+        }
+
     } catch (error) {
         console.error('Error:', error);
         showAlert('Failed to delete articles. Please try again.', 'danger');

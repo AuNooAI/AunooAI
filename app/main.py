@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException, Form, Request, Body, Query, Depends, status
+"""Main FastAPI application file."""
+
+from fastapi import FastAPI, Request, Form, Query, Body, Depends, HTTPException, status  # Add this import at the top with other FastAPI imports
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from app.collectors.newsapi_collector import NewsAPICollector
@@ -160,6 +162,9 @@ app.include_router(chat_router)
 
 # Add this near the other router includes
 app.include_router(database_router)
+
+# Make sure this line exists in the router includes section
+app.include_router(topic_router)  # Add this if it's missing
 
 class ArticleData(BaseModel):
     title: str
@@ -766,10 +771,22 @@ async def set_active_database(database: DatabaseActivate):
 @app.delete("/api/databases/{name}")
 async def delete_database(name: str):
     try:
-        result = db.delete_database(name)
+        # Get a fresh database instance
+        database = Database()
+        
+        # Check if trying to delete active database
+        active_db = database.get_active_database()
+        if name == active_db:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot delete active database. Please switch to another database first."
+            )
+            
+        result = database.delete_database(name)
         return JSONResponse(content=result)
+        
     except Exception as e:
-        logger.error(f"Error deleting database: {str(e)}", exc_info=True)
+        logger.error(f"Error deleting database: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/config/{item_name}")
@@ -1109,8 +1126,7 @@ async def create_topic_page(request: Request, session=Depends(verify_session)):
 @app.post("/api/create_topic")
 async def create_topic(topic_data: dict):
     try:
-        from app.config.config import load_config
-        config = load_config()  # Load using the same method
+        config = load_config()
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'config.json')
         
         # Load existing config
@@ -1119,10 +1135,17 @@ async def create_topic(topic_data: dict):
         
         # Check if updating existing topic
         existing_topic_index = next((i for i, topic in enumerate(config['topics']) 
-                                   if topic['name'] == topic_data['name']), None)
+                               if topic['name'] == topic_data['name']), None)
+        
+        # Save to database first
+        db = Database()
         if existing_topic_index is not None:
+            # Update in database
+            db.update_topic(topic_data['name'])
             config['topics'][existing_topic_index] = topic_data
         else:
+            # Create in database
+            db.create_topic(topic_data['name'])
             config['topics'].append(topic_data)
         
         # Save updated config

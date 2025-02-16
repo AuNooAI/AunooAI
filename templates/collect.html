@@ -1642,5 +1642,33 @@ function formatSourceName(article) {
     }
     return article.source || article.raw_data?.source?.name || 'Unknown Source';
 }
+
+// Function to select active database
+document.getElementById('active-database').addEventListener('change', function(e) {
+    const databaseName = e.target.value;
+    fetch('/api/active-database', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: databaseName }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Active database set:', data);
+        activeDatabase = databaseName;
+        // Refresh both database info and database list
+        loadDatabaseInfo();
+        loadDatabases();
+        // Show success message
+        showAlert(`Successfully switched to database: ${databaseName}`, 'success');
+    })
+    .catch(error => {
+        console.error('Error setting active database:', error);
+        showAlert(`Failed to switch database: ${error.message}`, 'danger');
+        // Refresh database list to ensure correct selection is shown
+        loadDatabases();
+    });
+});
 </script>
 {% endblock %} 
