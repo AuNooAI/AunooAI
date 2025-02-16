@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from urllib.parse import unquote_plus
 import threading
+from app.utils.create_tables import create_articles_table, create_keyword_alerts_table
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -42,11 +43,22 @@ class Database:
             config = json.load(f)
         return config.get('active_database', 'fnaapp.db')
 
-    def __init__(self, db_name=None):
-        if db_name is None:
-            db_name = self.get_active_database()
-        self.db_path = os.path.join(DATABASE_DIR, db_name)
-        self.init_db()
+    def __init__(self):
+        self._init_database()
+
+    def _init_database(self):
+        """Initialize database with correct schema"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Enable foreign key support
+            cursor.execute("PRAGMA foreign_keys = ON")
+            
+            # Create tables with updated schema
+            create_articles_table(cursor)
+            create_keyword_alerts_table(cursor)
+            
+            conn.commit()
 
     def get_connection(self):
         """Get a thread-local database connection"""
@@ -413,7 +425,7 @@ class Database:
             
             # Initialize the new database
             self.db_path = db_path
-            self.init_db()
+            self._init_database()
             
             return {"message": f"Active database set to {name}"}
             
