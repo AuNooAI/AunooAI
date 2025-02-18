@@ -867,24 +867,17 @@ async def get_active_database():
 def startup_event():
     global db
     
-    # Check and copy config.json if needed
-    config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json')
-    config_sample_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json.sample')
-    
-    if not os.path.exists(config_path) and os.path.exists(config_sample_path):
-        logger.info("config.json not found, copying from config.json.sample")
-        try:
-            shutil.copy2(config_sample_path, config_path)
-            logger.info("Successfully created config.json from sample")
-        except Exception as e:
-            logger.error(f"Failed to copy config file: {str(e)}")
-            raise
-    
-    # Initialize database and continue with existing startup tasks
-    db = Database()
-    db.migrate_db()
-    logger.info(f"Active database set to: {db.db_path}")
-    asyncio.create_task(run_keyword_monitor())
+    try:
+        # Initialize database and continue with existing startup tasks
+        db = Database()
+        db.migrate_db()
+        logger.info(f"Active database set to: {db.db_path}")
+        asyncio.create_task(run_keyword_monitor())
+        
+    except Exception as e:
+        logger.error(f"Startup error: {str(e)}")
+        logger.error(f"Full traceback:\n{traceback.format_exc()}")
+        raise
 
 @app.get("/api/fetch_article_content")
 async def fetch_article_content(uri: str):
