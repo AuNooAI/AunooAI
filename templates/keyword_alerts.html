@@ -302,6 +302,8 @@
                                             <div class="d-flex gap-2">
                                                 <button class="btn btn-sm btn-outline-success" 
                                                         onclick="markAsRead('{{ alert.id }}')"
+                                                        data-topic="{{ group.topic }}"
+                                                        data-group-id="{{ group.id }}"
                                                         title="Mark as read">
                                                     <i class="fas fa-check"></i>
                                                 </button>
@@ -1415,6 +1417,8 @@ function updateGroupAlerts(card, data, groupId) {
                             ${!alert.is_read ? 
                                 `<button class="btn btn-sm btn-outline-success" 
                                          onclick="markAsRead('${alert.id}')"
+                                         data-topic="${data.topic}"
+                                         data-group-id="${groupId}"
                                          title="Mark as read">
                                     <i class="fas fa-check"></i>
                                 </button>` : 

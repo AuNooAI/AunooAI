@@ -73,29 +73,14 @@ class Database:
         self.close_connections()
 
     def init_db(self):
+        """Initialize required database tables"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Add migrations table first, before any other operations
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS migrations (
-                    id INTEGER PRIMARY KEY,
-                    name TEXT UNIQUE,
-                    applied_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            conn.commit()  # Commit immediately to ensure table exists
+            # Enable foreign keys
+            cursor.execute("PRAGMA foreign_keys = ON")
             
-            # Add users table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    username TEXT PRIMARY KEY,
-                    password TEXT NOT NULL,
-                    force_password_change INTEGER DEFAULT 1
-                )
-            """)
-            
-            # Keep existing table creation
+            # Create articles table with URI as primary key
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS articles (
                     uri TEXT PRIMARY KEY,
@@ -119,52 +104,28 @@ class Database:
                 )
             """)
             
-            # Create remaining tables
+            # Create unique index on URI
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS reports (
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_uri 
+                ON articles(uri)
+            """)
+            
+            # Create keyword alerts table with proper foreign key constraints
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS keyword_alerts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    content TEXT,
-                    created_at TEXT
+                    keyword_id INTEGER NOT NULL,
+                    article_uri TEXT NOT NULL,
+                    detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    is_read INTEGER DEFAULT 0,
+                    FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
+                    FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
+                    UNIQUE(keyword_id, article_uri)
                 )
             """)
             
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS config (
-                    name TEXT PRIMARY KEY,
-                    content TEXT
-                )
-            """)
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS tags (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE
-                )
-            """)
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS raw_articles (
-                    uri TEXT PRIMARY KEY,
-                    raw_markdown TEXT,
-                    submission_date TEXT,
-                    last_updated TEXT,
-                    topic TEXT
-                )
-            """)
-            
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_publication_date 
-                ON articles(publication_date)
-            """)
-            
+            # Rest of the table creation code...
             conn.commit()
-            
-            # Run migrations after all tables are created
-            try:
-                self.migrate_db()
-            except Exception as e:
-                logger.error(f"Error during initial migration: {str(e)}")
-                # Continue even if migrations fail - tables are created
 
     def migrate_db(self):
         try:

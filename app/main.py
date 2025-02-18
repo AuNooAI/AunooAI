@@ -47,6 +47,9 @@ from app.routes import database  # Make sure this import exists
 from app.routes.stats_routes import router as stats_router
 from app.routes.chat_routes import router as chat_router
 from app.routes.database import router as database_router
+import shutil
+from app.utils.app_info import get_app_info
+from starlette.templating import _TemplateResponse  # Add this import at the top
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -220,6 +223,28 @@ app.include_router(web_router)  # Web routes at root level
 app.include_router(topic_router)  # Topic routes
 app.include_router(keyword_monitor_router)
 
+def get_template_context(request: Request, additional_context: dict = None) -> dict:
+    """Create a base template context with common variables."""
+    # Get fresh app info
+    app_info = get_app_info()
+    logger.debug(f"Creating template context with app_info: {app_info}")
+    
+    context = {
+        "request": request,
+        "app_info": app_info,
+        "session": request.session if hasattr(request, "session") else {}
+    }
+    
+    if additional_context:
+        # Don't allow overwriting of core context
+        for key, value in additional_context.items():
+            if key not in ["request", "app_info", "session"]:
+                context[key] = value
+    
+    logger.debug(f"Final template context: {context}")
+    return context
+
+# Update the root route to use the helper function
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request, session=Depends(verify_session)):
     try:
@@ -227,12 +252,14 @@ async def root(request: Request, session=Depends(verify_session)):
         config = load_config()
         topics = [{"id": topic["name"], "name": topic["name"]} for topic in config["topics"]]
         
-        return templates.TemplateResponse("index.html", {
-            "request": request,
-            "db_info": db_info,
-            "topics": topics,
-            "session": session
-        })
+        return templates.TemplateResponse(
+            "index.html",
+            get_template_context(request, {
+                "db_info": db_info,
+                "topics": topics,
+                "session": session
+            })
+        )
     except Exception as e:
         logger.error(f"Index page error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -241,10 +268,10 @@ async def root(request: Request, session=Depends(verify_session)):
 async def login_page(request: Request):
     if request.session.get("user"):
         return RedirectResponse(url="/")
-    return templates.TemplateResponse("login.html", {
-        "request": request,
-        "session": request.session  # Add session to template context
-    })
+    return templates.TemplateResponse(
+        "login.html", 
+        get_template_context(request)
+    )
 
 @app.post("/login")
 async def login(
@@ -327,10 +354,10 @@ async def logout(request: Request):
 
 @app.get("/research", response_class=HTMLResponse)
 async def research_get(request: Request, session=Depends(verify_session)):
-    return templates.TemplateResponse("research.html", {
-        "request": request,
-        "session": request.session
-    })
+    return templates.TemplateResponse(
+        "research.html", 
+        get_template_context(request)
+    )
 
 @app.post("/research")
 async def research_post(
@@ -444,7 +471,10 @@ async def save_bulk_articles(
 
 @app.get("/analytics", response_class=HTMLResponse)
 async def analytics_route(request: Request, session=Depends(verify_session)):
-    return templates.TemplateResponse("analytics.html", {"request": request, "session": request.session})
+    return templates.TemplateResponse(
+        "analytics.html", 
+        get_template_context(request)
+    )
 
 @app.get("/api/analytics")
 def get_analytics_data(
@@ -463,12 +493,20 @@ def get_analytics_data(
 
 @app.get("/report", response_class=HTMLResponse)
 async def report_route(request: Request, session=Depends(verify_session)):
-    return templates.TemplateResponse("report.html", {"request": request, "session": request.session})
+    return templates.TemplateResponse(
+        "report.html", 
+        get_template_context(request)
+    )
 
 @app.get("/config", response_class=HTMLResponse)
-async def config_page(request: Request):
+async def config_page(request: Request, session=Depends(verify_session)):
     models = ai_get_available_models()
-    return templates.TemplateResponse("config.html", {"request": request, "models": models})
+    return templates.TemplateResponse(
+        "config.html", 
+        get_template_context(request, {
+            "models": models
+        })
+    )
 
 @app.post("/config/add_model")
 async def add_model(model_data: AddModelRequest):
@@ -828,6 +866,21 @@ async def get_active_database():
 @app.on_event("startup")
 def startup_event():
     global db
+    
+    # Check and copy config.json if needed
+    config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json')
+    config_sample_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json.sample')
+    
+    if not os.path.exists(config_path) and os.path.exists(config_sample_path):
+        logger.info("config.json not found, copying from config.json.sample")
+        try:
+            shutil.copy2(config_sample_path, config_path)
+            logger.info("Successfully created config.json from sample")
+        except Exception as e:
+            logger.error(f"Failed to copy config file: {str(e)}")
+            raise
+    
+    # Initialize database and continue with existing startup tasks
     db = Database()
     db.migrate_db()
     logger.info(f"Active database set to: {db.db_path}")
@@ -1670,7 +1723,7 @@ async def update_keyword(request: Request):
 async def change_password_page(request: Request, session=Depends(verify_session)):
     return templates.TemplateResponse(
         "change_password.html",
-        {"request": request, "session": request.session}
+        get_template_context(request, {"session": request.session})
     )
 
 @app.post("/change_password")
@@ -1688,21 +1741,19 @@ async def change_password(
         if not verify_password(current_password, user['password']):
             return templates.TemplateResponse(
                 "change_password.html",
-                {
-                    "request": request,
+                get_template_context(request, {
                     "session": request.session,
                     "error": "Current password is incorrect"
-                }
+                })
             )
             
         if new_password != confirm_password:
             return templates.TemplateResponse(
                 "change_password.html",
-                {
-                    "request": request,
+                get_template_context(request, {
                     "session": request.session,
                     "error": "New passwords do not match"
-                }
+                })
             )
             
         # Update password and first login status
@@ -1714,11 +1765,10 @@ async def change_password(
         logger.error(f"Change password error: {str(e)}")
         return templates.TemplateResponse(
             "change_password.html",
-            {
-                "request": request,
+            get_template_context(request, {
                 "session": request.session,
                 "error": "An error occurred while changing password"
-            }
+            })
         )
 
 @app.get("/api/topic-options/{topic}")
@@ -1867,12 +1917,11 @@ async def keyword_monitor_page(request: Request, session=Depends(verify_session)
             
             return templates.TemplateResponse(
                 "keyword_monitor.html",
-                {
-                    "request": request,
+                get_template_context(request, {
                     "keyword_groups": list(groups.values()),
                     "topics": topics,
                     "session": session
-                }
+                })
             )
     except Exception as e:
         logger.error(f"Error in keyword monitor page: {str(e)}")
@@ -2022,8 +2071,7 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
             
             return templates.TemplateResponse(
                 "keyword_alerts.html",
-                {
-                    "request": request,
+                get_template_context(request, {
                     "groups": groups,
                     "last_check_time": display_last_check,
                     "display_interval": display_interval,
@@ -2033,7 +2081,7 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                     "now": now.isoformat(),
                     "is_enabled": is_enabled,
                     "status_colors": status_colors  # Add this line
-                }
+                })
             )
             
     except Exception as e:
@@ -2047,7 +2095,7 @@ async def get_thenewsapi_config():
         # Force reload of environment variables
         load_dotenv(override=True)
         
-        thenewsapi_key = os.getenv('PROVIDER_THENEWSAPI_KEY')
+        thenewsapi_key = os.getenv('PROVIDER_FIRECRAWL_KEY')
         
         return JSONResponse(
             status_code=200,
@@ -2141,6 +2189,32 @@ async def get_available_models(session=Depends(verify_session)):
     except Exception as e:
         logger.error(f"Error getting available models: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.middleware("http")
+async def add_app_info(request: Request, call_next):
+    """Add app info to all templates."""
+    response = await call_next(request)
+    
+    # Check specifically for template responses
+    if isinstance(response, _TemplateResponse):
+        # Get fresh app info
+        app_info = get_app_info()
+        logger.debug(f"Middleware adding app info: {app_info}")
+        
+        # Log the full context for debugging
+        logger.debug(f"Template context before: {response.context}")
+        
+        # Update context with app info
+        if isinstance(response.context, dict):
+            response.context["app_info"] = app_info
+            
+            # Verify the update
+            logger.debug(f"Template context after: {response.context}")
+            logger.debug(f"app_info in context: {response.context.get('app_info')}")
+    else:
+        logger.debug(f"Response type: {type(response)}")
+    
+    return response
 
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
