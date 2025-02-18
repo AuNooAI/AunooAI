@@ -37,7 +37,7 @@ app/config/config.json
 *.sublime-project
 *.sublime-workspace
 *.code-workspace
-.cursorrules
+cursor.rules
 
 # OS specific
 .DS_Store

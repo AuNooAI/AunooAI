@@ -562,19 +562,30 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Make loadTopics return a promise
+// Update the loadTopics function to properly handle URL topic
 async function loadTopics() {
     try {
         const response = await fetch('/api/topics');
         const topics = await response.json();
         const topicSelect = document.getElementById('topicSelect');
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlTopic = urlParams.get('topic');
+        
         topicSelect.innerHTML = '<option value="">Select a topic</option>';
         topics.forEach(topic => {
             const option = document.createElement('option');
             option.value = topic.name;
             option.textContent = topic.name;
+            if (urlTopic && topic.name === urlTopic) {
+                option.selected = true;
+            }
             topicSelect.appendChild(option);
         });
+
+        // Trigger change event if topic was set
+        if (urlTopic) {
+            topicSelect.dispatchEvent(new Event('change'));
+        }
     } catch (error) {
         console.error('Error loading topics:', error);
     }
@@ -818,6 +829,7 @@ function saveArticle() {
                 throw new Error('Failed to save article');
             }
         }
+        toggleAnnotationControls(true);
         return responseData;
     })
     .then(data => {
@@ -873,8 +885,14 @@ function displayAnalysisResult(result) {
         
         document.getElementById('analysisTags').value = result.tags ? result.tags.join(', ') : '';
         
+        // Disable annotations if this is a new article (no uri in database)
+        toggleAnnotationControls(false);
         if (result.uri) {
-            loadAnnotations(result.uri);
+            fetch(`/api/article?uri=${encodeURIComponent(result.uri)}`)
+                .then(response => {
+                    toggleAnnotationControls(response.ok);
+                })
+                .catch(() => toggleAnnotationControls(false));
         }
         
         analysisResultsDiv.style.display = 'block';
@@ -1291,6 +1309,31 @@ function showAlert(message, type = 'info') {
     setTimeout(() => {
         alertDiv.remove();
     }, 5000);
+}
+
+// Add this function to manage annotation controls
+function toggleAnnotationControls(enabled) {
+    const newAnnotation = document.getElementById('newAnnotation');
+    const annotationPrivate = document.getElementById('annotationPrivate');
+    const addAnnotationButton = document.querySelector('.btn[onclick="saveAnnotation()"]');
+    
+    [newAnnotation, annotationPrivate, addAnnotationButton].forEach(element => {
+        if (element) {
+            element.disabled = !enabled;
+        }
+    });
+    
+    // Add a message when disabled
+    const messageDiv = document.getElementById('annotationDisabledMessage');
+    if (!messageDiv && !enabled) {
+        const message = document.createElement('div');
+        message.id = 'annotationDisabledMessage';
+        message.className = 'alert alert-info mt-2';
+        message.textContent = 'Save the article to enable annotations';
+        document.querySelector('.card-body').appendChild(message);
+    } else if (messageDiv && enabled) {
+        messageDiv.remove();
+    }
 }
 </script>
 {% endblock %}
