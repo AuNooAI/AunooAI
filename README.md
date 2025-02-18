@@ -2,7 +2,7 @@
 
 ## Overview
 
-An AI-powered news research and analysis platform that uses Large Language Models (LLMs) to extract insights from articles.
+An AI-powered news research and analysis platform that uses Large Language Models (LLMs) and Machine Learning to extract insights from articles.
 
 ## Getting Started
 
