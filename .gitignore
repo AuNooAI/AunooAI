@@ -44,7 +44,5 @@ cursor.rules
 Thumbs.db
 
 LA_notes
-app/data/fnaapp.db
-*fnaapp.db
-
+*.db
 cache/*

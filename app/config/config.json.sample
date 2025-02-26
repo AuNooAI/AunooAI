@@ -119,35 +119,5 @@
         "New Feature"
       ]
     }
-  ],
-  "providers": [
-    {
-      "name": "newsapi",
-      "display_name": "NewsAPI",
-      "config_type": "api_key",
-      "description": "Access news articles from various sources worldwide",
-      "enabled": true
-    },
-    {
-      "name": "thenewsapi",
-      "display_name": "TheNewsAPI",
-      "config_type": "api_key",
-      "description": "Access news articles from TheNewsAPI service",
-      "enabled": true
-    },
-    {
-      "name": "firecrawl",
-      "display_name": "Firecrawl Scraper",
-      "config_type": "api_key",
-      "description": "Scrape websites for news articles",
-      "enabled": true
-    },
-    {
-      "name": "arxiv",
-      "display_name": "ArXiv",
-      "config_type": "none",
-      "description": "Access scientific papers and research articles",
-      "enabled": true
-    }
   ]
 }

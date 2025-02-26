@@ -214,5 +214,19 @@
             Debug: No App Info
         </div>
     {% endif %}
+
+    <script>
+    // Add this to the base template
+    document.addEventListener('DOMContentLoaded', function() {
+        fetch('/api/app-info')
+            .then(response => response.json())
+            .then(data => {
+                document.querySelector('.app-version').textContent = data.version || 'N/A';
+                document.querySelector('.git-branch').textContent = data.branch || 'N/A';
+                document.querySelector('.last-update').textContent = data.last_update || 'N/A';
+            })
+            .catch(error => console.error('Error fetching app info:', error));
+    });
+    </script>
 </body>
 </html>

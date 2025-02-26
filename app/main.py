@@ -58,13 +58,28 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+# Move this code up, right after the app = FastAPI() line and before any routes
 app = FastAPI()
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Setup Jinja2 templates
-templates = Jinja2Templates(directory="templates")
+# Create a custom Jinja2Templates class that always includes app_info
+class AppInfoJinja2Templates(Jinja2Templates):
+    def TemplateResponse(self, name, context, *args, **kwargs):
+        # Always get fresh app info for every template response
+        from app.utils.app_info import get_app_info
+        app_info = get_app_info()
+        
+        # Ensure context is a dict and add app_info
+        if not isinstance(context, dict):
+            context = dict(context)
+        context["app_info"] = app_info
+        
+        return super().TemplateResponse(name, context, *args, **kwargs)
+
+# Setup Jinja2 templates with our custom class
+templates = AppInfoJinja2Templates(directory="templates")
 
 # Add custom filters
 def datetime_filter(value):
@@ -244,22 +259,31 @@ def get_template_context(request: Request, additional_context: dict = None) -> d
     logger.debug(f"Final template context: {context}")
     return context
 
-# Update the root route to use the helper function
+# Add this with your other dependencies
+async def get_template_context_dependency(request: Request):
+    """Dependency that provides a template context with app_info."""
+    return get_template_context(request)
+
+# Then update route handlers to use it
 @app.get("/", response_class=HTMLResponse)
-async def root(request: Request, session=Depends(verify_session)):
+async def root(
+    request: Request, 
+    session=Depends(verify_session),
+    context=Depends(get_template_context_dependency)
+):
     try:
         db_info = db.get_database_info()
         config = load_config()
         topics = [{"id": topic["name"], "name": topic["name"]} for topic in config["topics"]]
         
-        return templates.TemplateResponse(
-            "index.html",
-            get_template_context(request, {
-                "db_info": db_info,
-                "topics": topics,
-                "session": session
-            })
-        )
+        # Merge the base context with additional data
+        context.update({
+            "db_info": db_info,
+            "topics": topics,
+            "session": session
+        })
+        
+        return templates.TemplateResponse("index.html", context)
     except Exception as e:
         logger.error(f"Index page error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2192,22 +2216,17 @@ async def add_app_info(request: Request, call_next):
     if isinstance(response, _TemplateResponse):
         # Get fresh app info
         app_info = get_app_info()
-        logger.debug(f"Middleware adding app info: {app_info}")
-        
-        # Log the full context for debugging
-        logger.debug(f"Template context before: {response.context}")
         
         # Update context with app info
-        if isinstance(response.context, dict):
+        if "app_info" not in response.context:
             response.context["app_info"] = app_info
-            
-            # Verify the update
-            logger.debug(f"Template context after: {response.context}")
-            logger.debug(f"app_info in context: {response.context.get('app_info')}")
-    else:
-        logger.debug(f"Response type: {type(response)}")
     
     return response
+
+@app.get("/api/app-info")
+async def api_app_info():
+    """Get application information."""
+    return JSONResponse(content=get_app_info())
 
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
