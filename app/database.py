@@ -154,6 +154,7 @@ class Database:
                     ("add_analyzed_column", self._migrate_analyzed_column),
                     ("fix_article_annotations", self._migrate_article_annotations),
                     ("fix_duplicate_alerts", self._fix_duplicate_alerts),
+                    ("add_keyword_article_matches", self._create_keyword_article_matches_table),
                 ]
                 
                 # Apply missing migrations
@@ -306,9 +307,61 @@ class Database:
                 deleted_count = cursor.rowcount
                 if deleted_count > 0:
                     logger.info(f"Removed {deleted_count} duplicate alerts")
-        
+            
+            # Create the keyword_article_matches table if it doesn't exist
+            self._create_keyword_article_matches_table(cursor)
+            
         except Exception as e:
             logger.error(f"Error fixing duplicate alerts: {str(e)}")
+
+    def _create_keyword_article_matches_table(self, cursor):
+        """Create a table to track which keywords matched which articles"""
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # Check if the table already exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='keyword_article_matches'
+            """)
+            if cursor.fetchone() is None:
+                # Create the table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE keyword_article_matches (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        article_uri TEXT NOT NULL,
+                        keyword_ids TEXT NOT NULL,  -- Comma-separated list of keyword IDs
+                        group_id INTEGER NOT NULL,
+                        detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        is_read INTEGER DEFAULT 0,
+                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
+                        FOREIGN KEY (group_id) REFERENCES keyword_groups(id) ON DELETE CASCADE,
+                        UNIQUE(article_uri, group_id)
+                    )
+                """)
+                logger.info("Created keyword_article_matches table")
+                
+                # Populate the table with existing data
+                cursor.execute("""
+                    INSERT INTO keyword_article_matches (
+                        article_uri, keyword_ids, group_id, detected_at, is_read
+                    )
+                    SELECT 
+                        ka.article_uri,
+                        GROUP_CONCAT(ka.keyword_id),
+                        mk.group_id,
+                        MIN(ka.detected_at),
+                        MIN(ka.is_read)
+                    FROM 
+                        keyword_alerts ka
+                    JOIN
+                        monitored_keywords mk ON ka.keyword_id = mk.id
+                    GROUP BY 
+                        ka.article_uri, mk.group_id
+                """)
+                logger.info("Populated keyword_article_matches table with existing data")
+        except Exception as e:
+            logger.error(f"Error creating keyword_article_matches table: {str(e)}")
 
     def _migrate_analyzed_column(self, cursor):
         """Add analyzed column to articles table"""

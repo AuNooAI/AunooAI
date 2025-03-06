@@ -99,10 +99,36 @@ async def mark_alert_read(alert_id: int, db=Depends(get_database_instance)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE keyword_alerts SET is_read = 1 WHERE id = ?",
-                (alert_id,)
-            )
+            
+            # Check if the alert is in the keyword_article_matches table
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='keyword_article_matches'
+            """)
+            use_new_table = cursor.fetchone() is not None
+            
+            if use_new_table:
+                # Check if the alert ID is in the new table
+                cursor.execute("SELECT 1 FROM keyword_article_matches WHERE id = ?", (alert_id,))
+                if cursor.fetchone():
+                    # Update the new table
+                    cursor.execute(
+                        "UPDATE keyword_article_matches SET is_read = 1 WHERE id = ?",
+                        (alert_id,)
+                    )
+                else:
+                    # Update the old table
+                    cursor.execute(
+                        "UPDATE keyword_alerts SET is_read = 1 WHERE id = ?",
+                        (alert_id,)
+                    )
+            else:
+                # Update the old table
+                cursor.execute(
+                    "UPDATE keyword_alerts SET is_read = 1 WHERE id = ?",
+                    (alert_id,)
+                )
+            
             conn.commit()
             return {"success": True}
     except Exception as e:
@@ -603,29 +629,60 @@ async def export_alerts(db=Depends(get_database_instance)):
             'Source',
             'URL',
             'Publication Date',
-            'Matched Keyword',
+            'Matched Keywords',
             'Detection Time'
         ])
         
         # Get all alerts with related data
         with db.get_connection() as conn:
             cursor = conn.cursor()
+            
+            # Check if the keyword_article_matches table exists
             cursor.execute("""
-                SELECT 
-                    kg.name as group_name,
-                    kg.topic,
-                    a.title,
-                    a.news_source,
-                    a.uri,
-                    a.publication_date,
-                    mk.keyword as matched_keyword,
-                    ka.detected_at
-                FROM keyword_alerts ka
-                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                JOIN keyword_groups kg ON mk.group_id = kg.id
-                JOIN articles a ON ka.article_uri = a.uri
-                ORDER BY ka.detected_at DESC
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='keyword_article_matches'
             """)
+            use_new_table = cursor.fetchone() is not None
+            
+            if use_new_table:
+                # Use the new table structure
+                cursor.execute("""
+                    SELECT 
+                        kg.name as group_name,
+                        kg.topic,
+                        a.title,
+                        a.news_source,
+                        a.uri,
+                        a.publication_date,
+                        (
+                            SELECT GROUP_CONCAT(keyword, ', ')
+                            FROM monitored_keywords
+                            WHERE id IN (SELECT value FROM json_each('['||REPLACE(kam.keyword_ids, ',', ',')||']'))
+                        ) as matched_keywords,
+                        kam.detected_at
+                    FROM keyword_article_matches kam
+                    JOIN keyword_groups kg ON kam.group_id = kg.id
+                    JOIN articles a ON kam.article_uri = a.uri
+                    ORDER BY kam.detected_at DESC
+                """)
+            else:
+                # Use the original table structure
+                cursor.execute("""
+                    SELECT 
+                        kg.name as group_name,
+                        kg.topic,
+                        a.title,
+                        a.news_source,
+                        a.uri,
+                        a.publication_date,
+                        mk.keyword as matched_keyword,
+                        ka.detected_at
+                    FROM keyword_alerts ka
+                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                    JOIN keyword_groups kg ON mk.group_id = kg.id
+                    JOIN articles a ON ka.article_uri = a.uri
+                    ORDER BY ka.detected_at DESC
+                """)
             
             # Write data
             for row in cursor.fetchall():
@@ -636,7 +693,7 @@ async def export_alerts(db=Depends(get_database_instance)):
                     row[3],  # news_source
                     row[4],  # uri
                     row[5],  # publication_date
-                    row[6],  # matched_keyword
+                    row[6],  # matched_keywords
                     row[7]   # detected_at
                 ])
         
@@ -675,11 +732,36 @@ async def mark_alert_unread(alert_id: int, db: Database = Depends(get_database_i
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
+            
+            # Check if the alert is in the keyword_article_matches table
             cursor.execute("""
-                UPDATE keyword_alerts 
-                SET is_read = 0 
-                WHERE id = ?
-            """, (alert_id,))
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='keyword_article_matches'
+            """)
+            use_new_table = cursor.fetchone() is not None
+            
+            if use_new_table:
+                # Check if the alert ID is in the new table
+                cursor.execute("SELECT 1 FROM keyword_article_matches WHERE id = ?", (alert_id,))
+                if cursor.fetchone():
+                    # Update the new table
+                    cursor.execute(
+                        "UPDATE keyword_article_matches SET is_read = 0 WHERE id = ?",
+                        (alert_id,)
+                    )
+                else:
+                    # Update the old table
+                    cursor.execute(
+                        "UPDATE keyword_alerts SET is_read = 0 WHERE id = ?",
+                        (alert_id,)
+                    )
+            else:
+                # Update the old table
+                cursor.execute(
+                    "UPDATE keyword_alerts SET is_read = 0 WHERE id = ?",
+                    (alert_id,)
+                )
+            
             conn.commit()
             return {"success": True}
     except Exception as e:
@@ -698,63 +780,138 @@ async def get_group_alerts(
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Get total count for this specific group
+            # Check if the keyword_article_matches table exists
             cursor.execute("""
-                SELECT COUNT(DISTINCT ka.id) as total
-                FROM keyword_alerts ka
-                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                JOIN keyword_groups kg ON mk.group_id = kg.id
-                WHERE kg.topic = ? AND kg.id = ?
-            """, (topic, group_id))
-            total_count = cursor.fetchone()['total']
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='keyword_article_matches'
+            """)
+            use_new_table = cursor.fetchone() is not None
             
-            # Get unread count for this specific group
-            cursor.execute("""
-                SELECT COUNT(DISTINCT ka.id) as unread_count
-                FROM keyword_alerts ka
-                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                JOIN keyword_groups kg ON mk.group_id = kg.id
-                WHERE kg.topic = ? AND kg.id = ? AND ka.is_read = 0
-            """, (topic, group_id))
-            unread_count = cursor.fetchone()['unread_count']
-            
-            # Get filtered alerts for this group
-            read_condition = "" if show_read else "AND ka.is_read = 0"
-            cursor.execute(f"""
-                SELECT 
-                    ka.id,
-                    ka.is_read,
-                    ka.detected_at,
-                    a.uri,
-                    a.title,
-                    a.summary,
-                    a.news_source,
-                    a.publication_date,
-                    mk.keyword as matched_keyword
-                FROM keyword_alerts ka
-                JOIN articles a ON ka.article_uri = a.uri
-                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                JOIN keyword_groups kg ON mk.group_id = kg.id
-                WHERE kg.topic = ? AND kg.id = ? {read_condition}
-                ORDER BY ka.detected_at DESC
-            """, (topic, group_id))
-            
-            alerts = []
-            for row in cursor.fetchall():
-                row_dict = dict(row)
-                alerts.append({
-                    "id": row_dict["id"],
-                    "is_read": bool(row_dict["is_read"]),
-                    "article": {
-                        "url": row_dict["uri"],
-                        "title": row_dict["title"],
-                        "summary": row_dict["summary"],
-                        "source": row_dict["news_source"],
-                        "publication_date": row_dict["publication_date"]
-                    },
-                    "matched_keyword": row_dict["matched_keyword"],
-                    "detected_at": row_dict["detected_at"]
-                })
+            if use_new_table:
+                # Get total count for this specific group using the new table
+                cursor.execute("""
+                    SELECT COUNT(DISTINCT id) as total
+                    FROM keyword_article_matches
+                    WHERE group_id = ?
+                """, (group_id,))
+                total_count = cursor.fetchone()['total']
+                
+                # Get unread count for this specific group using the new table
+                cursor.execute("""
+                    SELECT COUNT(DISTINCT id) as unread_count
+                    FROM keyword_article_matches
+                    WHERE group_id = ? AND is_read = 0
+                """, (group_id,))
+                unread_count = cursor.fetchone()['unread_count']
+                
+                # Get filtered alerts for this group using the new table
+                read_condition = "" if show_read else "AND kam.is_read = 0"
+                cursor.execute(f"""
+                    SELECT 
+                        kam.id,
+                        kam.is_read,
+                        kam.detected_at,
+                        kam.keyword_ids,
+                        a.uri,
+                        a.title,
+                        a.summary,
+                        a.news_source,
+                        a.publication_date,
+                        (
+                            SELECT GROUP_CONCAT(keyword, '||')
+                            FROM monitored_keywords
+                            WHERE id IN (SELECT value FROM json_each('['||REPLACE(kam.keyword_ids, ',', ',')||']'))
+                        ) as matched_keywords
+                    FROM keyword_article_matches kam
+                    JOIN articles a ON kam.article_uri = a.uri
+                    JOIN keyword_groups kg ON kam.group_id = kg.id
+                    WHERE kg.topic = ? AND kam.group_id = ? {read_condition}
+                    ORDER BY kam.detected_at DESC
+                """, (topic, group_id))
+                
+                alerts = []
+                for row in cursor.fetchall():
+                    row_dict = dict(row)
+                    
+                    # Parse matched keywords
+                    keywords_list = row_dict["matched_keywords"].split('||') if row_dict["matched_keywords"] else []
+                    
+                    # Ensure all keywords are properly trimmed
+                    keywords_list = [keyword.strip() for keyword in keywords_list]
+                    
+                    alerts.append({
+                        "id": row_dict["id"],
+                        "is_read": bool(row_dict["is_read"]),
+                        "article": {
+                            "url": row_dict["uri"],
+                            "title": row_dict["title"],
+                            "summary": row_dict["summary"],
+                            "source": row_dict["news_source"],
+                            "publication_date": row_dict["publication_date"]
+                        },
+                        "matched_keyword": keywords_list[0] if keywords_list else "",
+                        "matched_keywords": keywords_list,
+                        "detected_at": row_dict["detected_at"]
+                    })
+            else:
+                # Get total count for this specific group using the old table
+                cursor.execute("""
+                    SELECT COUNT(DISTINCT ka.id) as total
+                    FROM keyword_alerts ka
+                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                    JOIN keyword_groups kg ON mk.group_id = kg.id
+                    WHERE kg.topic = ? AND kg.id = ?
+                """, (topic, group_id))
+                total_count = cursor.fetchone()['total']
+                
+                # Get unread count for this specific group using the old table
+                cursor.execute("""
+                    SELECT COUNT(DISTINCT ka.id) as unread_count
+                    FROM keyword_alerts ka
+                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                    JOIN keyword_groups kg ON mk.group_id = kg.id
+                    WHERE kg.topic = ? AND kg.id = ? AND ka.is_read = 0
+                """, (topic, group_id))
+                unread_count = cursor.fetchone()['unread_count']
+                
+                # Get filtered alerts for this group using the old table
+                read_condition = "" if show_read else "AND ka.is_read = 0"
+                cursor.execute(f"""
+                    SELECT 
+                        ka.id,
+                        ka.is_read,
+                        ka.detected_at,
+                        a.uri,
+                        a.title,
+                        a.summary,
+                        a.news_source,
+                        a.publication_date,
+                        mk.keyword as matched_keyword
+                    FROM keyword_alerts ka
+                    JOIN articles a ON ka.article_uri = a.uri
+                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                    JOIN keyword_groups kg ON mk.group_id = kg.id
+                    WHERE kg.topic = ? AND kg.id = ? {read_condition}
+                    ORDER BY ka.detected_at DESC
+                """, (topic, group_id))
+                
+                alerts = []
+                for row in cursor.fetchall():
+                    row_dict = dict(row)
+                    alerts.append({
+                        "id": row_dict["id"],
+                        "is_read": bool(row_dict["is_read"]),
+                        "article": {
+                            "url": row_dict["uri"],
+                            "title": row_dict["title"],
+                            "summary": row_dict["summary"],
+                            "source": row_dict["news_source"],
+                            "publication_date": row_dict["publication_date"]
+                        },
+                        "matched_keyword": row_dict["matched_keyword"],
+                        "matched_keywords": [row_dict["matched_keyword"].strip()] if row_dict["matched_keyword"] else [],
+                        "detected_at": row_dict["detected_at"]
+                    })
             
             return {
                 "topic": topic,

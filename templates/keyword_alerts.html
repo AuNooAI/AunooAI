@@ -134,6 +134,15 @@
                                                 <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
                                             </span>
                                         {% endif %}
+                                        {% if alert.matched_keywords %}
+                                            {% for keyword in alert.matched_keywords %}
+                                                {% if keyword and keyword != alert.matched_keyword %}
+                                                <span class="badge bg-info ms-1">
+                                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                                </span>
+                                                {% endif %}
+                                            {% endfor %}
+                                        {% endif %}
                                         {% endfor %}
                                     {% else %}
                                         <span class="text-muted">No recent references</span>
@@ -287,11 +296,22 @@
                                         </div>
                                     </td>
                                     <td>
-                                        {% if alert.matched_keyword %}
-                                            <span class="badge bg-info">
-                                                <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
-                                            </span>
-                                        {% endif %}
+                                        <div>
+                                            {% if alert.matched_keyword %}
+                                                <span class="badge bg-info ms-1">
+                                                    <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
+                                                </span>
+                                            {% endif %}
+                                            {% if alert.matched_keywords %}
+                                                {% for keyword in alert.matched_keywords %}
+                                                    {% if keyword and keyword != alert.matched_keyword %}
+                                                    <span class="badge bg-info ms-1">
+                                                        <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                                    </span>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            {% endif %}
+                                        </div>
                                     </td>
                                     <td>
                                         <div class="d-flex flex-column gap-2">
@@ -910,15 +930,8 @@ async function checkKeywords() {
             throw new Error('Failed to check keywords');
         }
         
-        // Store current toggle states and button states
-        const groups = document.querySelectorAll('.card[data-topic]');
-        for (const group of groups) {
-            const topic = group.dataset.topic;
-            const toggle = document.querySelector(`#showReadToggle_${topic}`);
-            if (toggle) {
-                await refreshGroupArticles(topic, toggle.checked);
-            }
-        }
+        // Reload the page to show all new alerts
+        window.location.reload();
         
     } catch (error) {
         console.error('Error:', error);
@@ -1314,6 +1327,13 @@ async function refreshGroupArticles(topic, groupId, showRead = false) {
         
         const data = await response.json();
         
+        // Debug: Log the data structure
+        console.log('API Response:', data);
+        if (data.alerts && data.alerts.length > 0) {
+            console.log('First alert:', data.alerts[0]);
+            console.log('matched_keywords type:', Array.isArray(data.alerts[0].matched_keywords) ? 'array' : typeof data.alerts[0].matched_keywords);
+        }
+        
         // Update the card selector to find by group-id
         const card = document.querySelector(`.card .d-flex[data-group-id="${groupId}"]`).closest('.card');
         if (!card) {
@@ -1356,6 +1376,25 @@ function updateGroupAlerts(card, data, groupId) {
     // Generate alerts HTML
     let html = '';
     for (const alert of data.alerts) {
+        // Process keywords for this alert
+        let keywordBadges = '';
+        if (alert.matched_keyword) {
+            keywordBadges += `<span class="badge bg-info">
+                <i class="fas fa-tag me-1"></i>${alert.matched_keyword}
+            </span>`;
+        }
+        
+        // Process additional keywords if available
+        if (alert.matched_keywords && Array.isArray(alert.matched_keywords)) {
+            alert.matched_keywords.forEach(keyword => {
+                if (keyword && keyword !== alert.matched_keyword) {
+                    keywordBadges += `<span class="badge bg-info ms-1">
+                        <i class="fas fa-tag me-1"></i>${keyword}
+                    </span>`;
+                }
+            });
+        }
+        
         html += `
             <tr class="${alert.is_read ? 'text-muted bg-light' : ''}">
                 <td>
@@ -1402,10 +1441,9 @@ function updateGroupAlerts(card, data, groupId) {
                     </div>
                 </td>
                 <td>
-                    ${alert.matched_keyword ? 
-                        `<span class="badge bg-info">
-                            <i class="fas fa-tag me-1"></i>${alert.matched_keyword}
-                        </span>` : ''}
+                    <div>
+                        ${keywordBadges}
+                    </div>
                 </td>
                 <td>
                     <div class="d-flex flex-column gap-2">
