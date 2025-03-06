@@ -54,6 +54,9 @@
                     <button class="btn btn-sm btn-outline-primary" onclick="checkKeywords()">
                         <i class="fas fa-sync"></i> Check Now
                     </button>
+                    <button class="btn btn-sm btn-outline-warning" onclick="fixDuplicateAlerts()">
+                        <i class="fas fa-wrench"></i> Fix Duplicates
+                    </button>
                 </div>
             </div>
         </div>
@@ -126,11 +129,11 @@
                                               title="{{ alert.article.title }}">
                                             {{ loop.index }}
                                         </span>
-                                        {% for keyword in alert.keywords %}
+                                        {% if alert.matched_keyword %}
                                             <span class="badge bg-info ms-1">
-                                                <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                                <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
                                             </span>
-                                        {% endfor %}
+                                        {% endif %}
                                         {% endfor %}
                                     {% else %}
                                         <span class="text-muted">No recent references</span>
@@ -289,13 +292,6 @@
                                                 <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
                                             </span>
                                         {% endif %}
-                                        {% for keyword in alert.keywords %}
-                                            {% if keyword != alert.matched_keyword %}
-                                            <span class="badge bg-info ms-1">
-                                                <i class="fas fa-tag me-1"></i>{{ keyword }}
-                                            </span>
-                                            {% endif %}
-                                        {% endfor %}
                                     </td>
                                     <td>
                                         <div class="d-flex flex-column gap-2">
@@ -1485,6 +1481,39 @@ async function markAsUnread(alertId) {
     } catch (error) {
         console.error('Error:', error);
         showAlert('Failed to mark alert as unread', 'danger');
+    }
+}
+
+async function fixDuplicateAlerts() {
+    const button = event.target.closest('button');
+    const originalHtml = button.innerHTML;
+    
+    try {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fixing...';
+        
+        const response = await fetch('/api/keyword-monitor/fix-duplicate-alerts', {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to fix duplicate alerts');
+        }
+        
+        const result = await response.json();
+        showAlert(`${result.message}`, 'success');
+        
+        // Reload the page to show the updated alerts
+        setTimeout(() => {
+            window.location.reload();
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to fix duplicate alerts. Please try again.', 'danger');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
     }
 }
 </script>

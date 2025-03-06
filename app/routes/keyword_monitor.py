@@ -506,6 +506,89 @@ async def toggle_polling(toggle: PollingToggle, db=Depends(get_database_instance
         logger.error(f"Error toggling polling: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/fix-duplicate-alerts")
+async def fix_duplicate_alerts(db=Depends(get_database_instance)):
+    """Fix duplicate alerts by removing duplicates and ensuring the unique constraint exists"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if the unique constraint exists
+            cursor.execute("""
+                SELECT sql FROM sqlite_master 
+                WHERE type='table' AND name='keyword_alerts'
+            """)
+            table_def = cursor.fetchone()[0]
+            
+            # If the unique constraint is missing, we need to recreate the table
+            if "UNIQUE(keyword_id, article_uri)" not in table_def:
+                logger.info("Fixing keyword_alerts table: adding unique constraint")
+                
+                # Create a temporary table with the correct schema
+                cursor.execute("""
+                    CREATE TABLE keyword_alerts_temp (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        keyword_id INTEGER NOT NULL,
+                        article_uri TEXT NOT NULL,
+                        detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        is_read INTEGER DEFAULT 0,
+                        FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
+                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
+                        UNIQUE(keyword_id, article_uri)
+                    )
+                """)
+                
+                # Copy data to the temporary table, keeping only one row per keyword_id/article_uri pair
+                cursor.execute("""
+                    INSERT OR IGNORE INTO keyword_alerts_temp (keyword_id, article_uri, detected_at, is_read)
+                    SELECT keyword_id, article_uri, MIN(detected_at), MIN(is_read)
+                    FROM keyword_alerts
+                    GROUP BY keyword_id, article_uri
+                """)
+                
+                # Get the count of rows before and after to report how many duplicates were removed
+                cursor.execute("SELECT COUNT(*) FROM keyword_alerts")
+                before_count = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM keyword_alerts_temp")
+                after_count = cursor.fetchone()[0]
+                
+                # Drop the original table and rename the temporary one
+                cursor.execute("DROP TABLE keyword_alerts")
+                cursor.execute("ALTER TABLE keyword_alerts_temp RENAME TO keyword_alerts")
+                
+                conn.commit()
+                
+                return {
+                    "success": True, 
+                    "message": f"Fixed keyword_alerts table: removed {before_count - after_count} duplicate alerts",
+                    "duplicates_removed": before_count - after_count
+                }
+            else:
+                # Even if the constraint exists, we should still remove any duplicates
+                # that might have been created before the constraint was added
+                cursor.execute("""
+                    DELETE FROM keyword_alerts
+                    WHERE id NOT IN (
+                        SELECT MIN(id)
+                        FROM keyword_alerts
+                        GROUP BY keyword_id, article_uri
+                    )
+                """)
+                
+                deleted_count = cursor.rowcount
+                conn.commit()
+                
+                return {
+                    "success": True,
+                    "message": f"Removed {deleted_count} duplicate alerts",
+                    "duplicates_removed": deleted_count
+                }
+                
+    except Exception as e:
+        logger.error(f"Error fixing duplicate alerts: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/export-alerts")
 async def export_alerts(db=Depends(get_database_instance)):
     try:
