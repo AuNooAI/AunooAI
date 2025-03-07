@@ -2036,41 +2036,98 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
             # Get alerts for each group
             groups = []
             for group_id, name, topic, unread_count, keywords in groups_data:
+                # First, check if the keyword_article_matches table exists
                 cursor.execute("""
-                    SELECT 
-                        ka.id,
-                        ka.detected_at,
-                        ka.article_uri,
-                        a.title,
-                        a.uri as url,
-                        a.news_source,
-                        a.publication_date,
-                        a.summary,
-                        mk.keyword as matched_keyword
-                    FROM keyword_alerts ka
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    JOIN articles a ON ka.article_uri = a.uri
-                    WHERE mk.group_id = ? AND ka.is_read = 0
-                    ORDER BY ka.detected_at DESC
-                """, (group_id,))
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='keyword_article_matches'
+                """)
+                use_new_table = cursor.fetchone() is not None
                 
-                alerts = [
-                    {
-                        'id': alert_id,
-                        'detected_at': detected_at,
-                        'article': {
-                            'uri': article_uri,
-                            'title': title,
-                            'url': url,
-                            'source': news_source,
-                            'publication_date': publication_date,
-                            'summary': summary
-                        },
-                        'matched_keyword': matched_keyword
-                    }
-                    for alert_id, detected_at, article_uri, title, url, news_source, 
-                        publication_date, summary, matched_keyword in cursor.fetchall()
-                ]
+                if use_new_table:
+                    # Use the new table structure
+                    cursor.execute("""
+                        SELECT 
+                            kam.id,
+                            kam.detected_at,
+                            kam.article_uri,
+                            a.title,
+                            a.uri as url,
+                            a.news_source,
+                            a.publication_date,
+                            a.summary,
+                            kam.keyword_ids,
+                            (
+                                SELECT GROUP_CONCAT(keyword, '||')
+                                FROM monitored_keywords
+                                WHERE id IN (SELECT value FROM json_each('['||REPLACE(kam.keyword_ids, ',', ',')||']'))
+                            ) as matched_keywords
+                        FROM keyword_article_matches kam
+                        JOIN articles a ON kam.article_uri = a.uri
+                        WHERE kam.group_id = ? AND kam.is_read = 0
+                        ORDER BY kam.detected_at DESC
+                    """, (group_id,))
+                    
+                    rows = cursor.fetchall()
+                    alerts = []
+                    
+                    for row in rows:
+                        alert_id, detected_at, article_uri, title, url, news_source, publication_date, summary, keyword_ids, matched_keywords = row
+                        
+                        # Convert the matched_keywords string to a list
+                        keywords_list = matched_keywords.split('||') if matched_keywords else []
+                        
+                        alerts.append({
+                            'id': alert_id,
+                            'detected_at': detected_at,
+                            'article': {
+                                'uri': article_uri,
+                                'title': title,
+                                'url': url,
+                                'source': news_source,
+                                'publication_date': publication_date,
+                                'summary': summary
+                            },
+                            'matched_keyword': keywords_list[0] if keywords_list else "",
+                            'matched_keywords': keywords_list
+                        })
+                else:
+                    # Fallback to the original query if the new table doesn't exist
+                    cursor.execute("""
+                        SELECT 
+                            ka.id,
+                            ka.detected_at,
+                            ka.article_uri,
+                            a.title,
+                            a.uri as url,
+                            a.news_source,
+                            a.publication_date,
+                            a.summary,
+                            mk.keyword as matched_keyword
+                        FROM keyword_alerts ka
+                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                        JOIN articles a ON ka.article_uri = a.uri
+                        WHERE mk.group_id = ? AND ka.is_read = 0
+                        ORDER BY ka.detected_at DESC
+                    """, (group_id,))
+                    
+                    alerts = [
+                        {
+                            'id': alert_id,
+                            'detected_at': detected_at,
+                            'article': {
+                                'uri': article_uri,
+                                'title': title,
+                                'url': url,
+                                'source': news_source,
+                                'publication_date': publication_date,
+                                'summary': summary
+                            },
+                            'matched_keyword': matched_keyword,
+                            'matched_keywords': [matched_keyword] if matched_keyword else []
+                        }
+                        for alert_id, detected_at, article_uri, title, url, news_source, 
+                            publication_date, summary, matched_keyword in cursor.fetchall()
+                    ]
                 
                 growth_status = 'No Data'
                 if unread_count:

@@ -153,6 +153,8 @@ class Database:
                     ("add_keyword_monitor_tables", self._migrate_keyword_monitor),
                     ("add_analyzed_column", self._migrate_analyzed_column),
                     ("fix_article_annotations", self._migrate_article_annotations),
+                    ("fix_duplicate_alerts", self._fix_duplicate_alerts),
+                    ("add_keyword_article_matches", self._create_keyword_article_matches_table),
                 ]
                 
                 # Apply missing migrations
@@ -232,9 +234,134 @@ class Database:
                 detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 is_read INTEGER DEFAULT 0,
                 FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
-                FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE
+                FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
+                UNIQUE(keyword_id, article_uri)
             )
         """)
+        
+        # Fix any existing duplicate alerts
+        self._fix_duplicate_alerts(cursor)
+
+    def _fix_duplicate_alerts(self, cursor):
+        """Remove duplicate alerts and ensure the unique constraint exists"""
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # Check if the unique constraint exists
+            cursor.execute("""
+                SELECT sql FROM sqlite_master 
+                WHERE type='table' AND name='keyword_alerts'
+            """)
+            table_def = cursor.fetchone()[0]
+            
+            # If the unique constraint is missing, we need to recreate the table
+            if "UNIQUE(keyword_id, article_uri)" not in table_def:
+                logger.info("Fixing keyword_alerts table: adding unique constraint")
+                
+                # Create a temporary table with the correct schema
+                cursor.execute("""
+                    CREATE TABLE keyword_alerts_temp (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        keyword_id INTEGER NOT NULL,
+                        article_uri TEXT NOT NULL,
+                        detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        is_read INTEGER DEFAULT 0,
+                        FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
+                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
+                        UNIQUE(keyword_id, article_uri)
+                    )
+                """)
+                
+                # Copy data to the temporary table, keeping only one row per keyword_id/article_uri pair
+                cursor.execute("""
+                    INSERT OR IGNORE INTO keyword_alerts_temp (keyword_id, article_uri, detected_at, is_read)
+                    SELECT keyword_id, article_uri, MIN(detected_at), MIN(is_read)
+                    FROM keyword_alerts
+                    GROUP BY keyword_id, article_uri
+                """)
+                
+                # Get the count of rows before and after to report how many duplicates were removed
+                cursor.execute("SELECT COUNT(*) FROM keyword_alerts")
+                before_count = cursor.fetchone()[0]
+                
+                cursor.execute("SELECT COUNT(*) FROM keyword_alerts_temp")
+                after_count = cursor.fetchone()[0]
+                
+                # Drop the original table and rename the temporary one
+                cursor.execute("DROP TABLE keyword_alerts")
+                cursor.execute("ALTER TABLE keyword_alerts_temp RENAME TO keyword_alerts")
+                
+                logger.info(f"Fixed keyword_alerts table: removed {before_count - after_count} duplicate alerts")
+            else:
+                # Even if the constraint exists, we should still remove any duplicates
+                # that might have been created before the constraint was added
+                cursor.execute("""
+                    DELETE FROM keyword_alerts
+                    WHERE id NOT IN (
+                        SELECT MIN(id)
+                        FROM keyword_alerts
+                        GROUP BY keyword_id, article_uri
+                    )
+                """)
+                
+                deleted_count = cursor.rowcount
+                if deleted_count > 0:
+                    logger.info(f"Removed {deleted_count} duplicate alerts")
+            
+            # Create the keyword_article_matches table if it doesn't exist
+            self._create_keyword_article_matches_table(cursor)
+            
+        except Exception as e:
+            logger.error(f"Error fixing duplicate alerts: {str(e)}")
+
+    def _create_keyword_article_matches_table(self, cursor):
+        """Create a table to track which keywords matched which articles"""
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # Check if the table already exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='keyword_article_matches'
+            """)
+            if cursor.fetchone() is None:
+                # Create the table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE keyword_article_matches (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        article_uri TEXT NOT NULL,
+                        keyword_ids TEXT NOT NULL,  -- Comma-separated list of keyword IDs
+                        group_id INTEGER NOT NULL,
+                        detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        is_read INTEGER DEFAULT 0,
+                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
+                        FOREIGN KEY (group_id) REFERENCES keyword_groups(id) ON DELETE CASCADE,
+                        UNIQUE(article_uri, group_id)
+                    )
+                """)
+                logger.info("Created keyword_article_matches table")
+                
+                # Populate the table with existing data
+                cursor.execute("""
+                    INSERT INTO keyword_article_matches (
+                        article_uri, keyword_ids, group_id, detected_at, is_read
+                    )
+                    SELECT 
+                        ka.article_uri,
+                        GROUP_CONCAT(ka.keyword_id),
+                        mk.group_id,
+                        MIN(ka.detected_at),
+                        MIN(ka.is_read)
+                    FROM 
+                        keyword_alerts ka
+                    JOIN
+                        monitored_keywords mk ON ka.keyword_id = mk.id
+                    GROUP BY 
+                        ka.article_uri, mk.group_id
+                """)
+                logger.info("Populated keyword_article_matches table with existing data")
+        except Exception as e:
+            logger.error(f"Error creating keyword_article_matches table: {str(e)}")
 
     def _migrate_analyzed_column(self, cursor):
         """Add analyzed column to articles table"""
