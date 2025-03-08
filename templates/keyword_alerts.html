@@ -2,11 +2,128 @@
 
 {% block title %}AuNoo AI - Keyword Alerts{% endblock %}
 
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+        --border-color: #dee2e6;
+        --box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+
+    h2, h5, h6 {
+        color: var(--primary-color);
+    }
+
+/* Specific styles for keyword alerts page */
+.article-reference {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 24px !important;
+    height: 24px !important;
+    border-radius: 50% !important;
+    background-color: var(--light-gray) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-color) !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+}
+
+.article-reference:hover {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+}
+
+.article-reference.selected {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+}
+
+.sparkline-container {
+    position: relative;
+    margin-right: 10px;
+    background-color: #fff;
+    border: 1px solid var(--border-color);
+    width: 120px;
+    height: 40px;
+    padding: 5px;
+}
+
+.sparkline-container canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.keyword-labels {
+    display: none;
+    position: absolute;
+    top: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    padding: 4px;
+    border-radius: 4px;
+    box-shadow: var(--box-shadow);
+    white-space: nowrap;
+    z-index: 1000;
+    min-width: max-content;
+}
+
+.article-reference:hover .keyword-labels {
+    display: block;
+}
+
+.keyword-labels .badge {
+    font-size: 0.75rem;
+    margin: 0 2px;
+    padding: 3px 6px;
+    display: inline-block;
+}
+
+.keyword-labels:after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid white;
+}
+
+/* Alert message styling */
+#alertMessage {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1050;
+    min-width: 300px;
+    max-width: 500px;
+    box-shadow: var(--box-shadow);
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-start mb-4">
         <div>
-            <h1 class="mb-3">Keyword Alerts</h1>
+            <h2 class="mb-3">Keyword Alerts</h2>
             <div class="d-flex flex-column gap-2">
                 <div class="d-flex align-items-center gap-3">
                     <span class="text-muted">
@@ -373,327 +490,6 @@
     <span id="alertText"></span>
     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
 </div>
-
-<style>
-/* Reset any potential conflicting styles */
-.badge {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    padding: 0.35em 0.8em !important;
-    font-size: 0.75em !important;
-    font-weight: 500 !important;
-    line-height: 1.4 !important;
-    text-align: center !important;
-    white-space: nowrap !important;
-    vertical-align: baseline !important;
-    border-radius: 12px !important;  /* More curved edges */
-    margin-right: 0.4rem !important;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05) !important;  /* Subtle shadow */
-    letter-spacing: 0.02em !important;
-}
-
-/* Softer colors for badges */
-.badge.bg-primary {
-    background-color: rgba(13, 110, 253, 0.1) !important;
-    color: #0d6efd !important;
-    border: 1px solid rgba(13, 110, 253, 0.2) !important;
-}
-
-.badge.bg-info {
-    background-color: rgba(23, 162, 184, 0.1) !important;
-    color: #17a2b8 !important;
-    border: 1px solid rgba(23, 162, 184, 0.2) !important;
-}
-
-.badge.bg-secondary {
-    background-color: rgba(108, 117, 125, 0.1) !important;
-    color: #6c757d !important;
-    border: 1px solid rgba(108, 117, 125, 0.2) !important;
-}
-
-/* Hover effect for interactive badges */
-.badge[onclick],
-.badge[role="button"] {
-    transition: all 0.2s ease !important;
-    cursor: pointer !important;
-}
-
-.badge[onclick]:hover,
-.badge[role="button"]:hover {
-    transform: translateY(-1px) !important;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
-}
-
-/* Icon styling within badges */
-.badge i {
-    font-size: 0.85em !important;
-    margin-right: 0.3em !important;
-    opacity: 0.8 !important;
-}
-
-/* Status-specific colors */
-.badge.bg-success {
-    background-color: rgba(40, 167, 69, 0.1) !important;
-    color: #28a745 !important;
-    border: 1px solid rgba(40, 167, 69, 0.2) !important;
-}
-
-.badge.bg-warning {
-    background-color: rgba(255, 193, 7, 0.1) !important;
-    color: #d39e00 !important;
-    border: 1px solid rgba(255, 193, 7, 0.2) !important;
-}
-
-.badge.bg-danger {
-    background-color: rgba(220, 53, 69, 0.1) !important;
-    color: #dc3545 !important;
-    border: 1px solid rgba(220, 53, 69, 0.2) !important;
-}
-
-/* Ensure the badge container is visible */
-td .d-flex.align-items-center {
-    display: flex !important;
-    min-height: 24px !important;
-    padding: 4px 0 !important;
-}
-
-/* Style for the rounded pill badges */
-.rounded-pill {
-    width: 24px !important;
-    height: 24px !important;
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    border-radius: 50% !important;
-}
-
-/* Make sure the article reference badges are visible */
-.article-reference {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 24px !important;
-    height: 24px !important;
-    border-radius: 50% !important;
-    background-color: var(--bs-light) !important;
-    border: 1px solid var(--bs-gray-300) !important;
-    color: var(--bs-dark) !important;
-    text-decoration: none !important;
-    cursor: pointer !important;
-}
-
-.article-reference:hover {
-    background-color: var(--bs-primary) !important;
-    color: white !important;
-    border-color: var(--bs-primary) !important;
-}
-
-.article-reference.selected {
-    background-color: var(--bs-primary) !important;
-    color: white !important;
-    border-color: var(--bs-primary) !important;
-}
-
-.sparkline-container {
-    position: relative;
-    margin-right: 10px;
-    background-color: #fff;
-    border: 1px solid #eee;
-    width: 120px;
-    height: 40px;  /* Increased height */
-    padding: 5px;
-}
-
-.sparkline-container canvas {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100% !important;
-    height: 100% !important;
-}
-
-.table th {
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    color: #666;
-    border-top: none;
-    padding: 0.5rem 0.75rem;
-}
-
-.table td {
-    padding: 0.75rem;
-    vertical-align: middle;
-}
-
-.d-flex.align-items-center {
-    gap: 0.25rem;
-    flex-wrap: wrap;
-}
-
-td .d-flex.align-items-center {
-    min-height: 24px;
-}
-
-.keyword-labels {
-    display: none;
-    position: absolute;
-    top: -30px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: white;
-    padding: 4px;
-    border-radius: 4px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    white-space: nowrap;
-    z-index: 1000;
-    min-width: max-content;
-}
-
-.article-reference:hover .keyword-labels {
-    display: block;
-}
-
-.keyword-labels .badge {
-    font-size: 0.75rem;
-    margin: 0 2px;
-    padding: 3px 6px;
-    display: inline-block;
-}
-
-.keyword-labels:after {
-    content: '';
-    position: absolute;
-    bottom: -5px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 0;
-    height: 0;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 5px solid white;
-}
-
-.badge.small {
-    font-size: 0.7rem;
-    padding: 0.2em 0.5em;
-}
-
-td .d-flex.flex-wrap {
-    gap: 0.25rem !important;
-}
-
-.d-flex.gap-2 {
-    gap: 0.5rem !important;
-}
-
-/* Update the alert styling */
-#alertMessage {
-    position: fixed;
-    top: 20px;
-    right: 20px;
-    z-index: 1050;
-    min-width: 300px;
-    max-width: 500px;
-}
-
-.alert {
-    margin: 0;
-    box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
-}
-
-.alert.fade {
-    transition: opacity 0.15s linear;
-}
-
-.alert.fade.show {
-    opacity: 1;
-}
-
-.alert.fade:not(.show) {
-    opacity: 0;
-}
-
-.article-reference {
-    background-color: var(--bs-light);
-    color: var(--bs-dark);
-    border: 1px solid var(--bs-gray-300);
-    padding: 2px;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    transition: all 0.2s ease;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-}
-
-.article-reference:hover {
-    background-color: var(--bs-primary-rgb, #0d6efd);
-    color: white;
-    text-decoration: none;
-}
-
-.article-reference.selected {
-    background-color: var(--bs-primary-rgb, #0d6efd);
-    color: white;
-    border-color: var(--bs-primary-rgb, #0d6efd);
-}
-
-.keyword-labels {
-    display: none;
-    position: absolute;
-    top: -30px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: white;
-    padding: 4px;
-    border-radius: 4px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    white-space: nowrap;
-    z-index: 1000;
-    min-width: max-content;
-}
-
-.article-reference:hover .keyword-labels {
-    display: block;
-}
-
-.keyword-labels .badge {
-    font-size: 0.75rem;
-    margin: 0 2px;
-    padding: 3px 6px;
-    display: inline-block;
-}
-
-.keyword-labels:after {
-    content: '';
-    position: absolute;
-    bottom: -5px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 0;
-    height: 0;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 5px solid white;
-}
-
-.badge.small {
-    font-size: 0.7rem;
-    padding: 0.2em 0.5em;
-}
-
-td .d-flex.flex-wrap {
-    gap: 0.25rem !important;
-}
-
-.d-flex.gap-2 {
-    gap: 0.5rem !important;
-}
-</style>
 
 <script>
 // At the top of the script section, change the storage structure

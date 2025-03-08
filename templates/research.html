@@ -21,7 +21,12 @@
     .container {
         max-width: 1200px;
         margin: 0 auto;
-        padding: 20px;
+        padding: 0 20px;
+    }
+
+    h1, h2, h5, h6 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
     }
 
     .research-form, .analysis-result {
@@ -39,9 +44,8 @@
     }
 
     .form-label {
+        color: var(--text-color);
         font-weight: bold;
-        margin-bottom: 5px;
-        color: var(--primary-dark);
     }
 
     .form-control, .form-select {
@@ -217,15 +221,17 @@
 <link href="https://cdn.jsdelivr.net/npm/marked/lib/marked.min.css" rel="stylesheet">
 {% endblock %}
 {% block content %}
-<div class="container">
-    <h1 class="mb-4">Research</h1>
+<div class="container mt-4">
+    <h2 class="mb-3">Research</h2>
     
     <div id="topicSelector" class="mb-4">
-        <h2>Select a Topic</h2>
-        <select id="topicSelect" class="form-select">
-            <option value="">Select a topic</option>
-            <!-- Topics will be populated dynamically -->
-        </select>
+        <div class="mb-3">
+            <label for="topicSelect" class="form-label">Select Topic</label>
+            <select id="topicSelect" class="form-select">
+                <option value="">Select a topic</option>
+                <!-- Topics will be populated dynamically -->
+            </select>
+        </div>
     </div>
 
     <div id="researchContent">

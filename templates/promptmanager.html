@@ -3,8 +3,8 @@
 {% block title %}Prompt Manager{% endblock %}
 
 {% block content %}
-<div class="container mt-2">
-    <h1>Prompt Management</h1>
+<div class="container mt-4">
+    <h1 class="mb-4">Prompt Management</h1>
 
     <div class="row">
         <div class="col-md-6">
@@ -424,6 +424,50 @@
 </script>
 
 <style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    h1, h2, h3 {
+        color: var(--primary-color);
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+        border-color: var(--primary-dark);
+    }
+
+    .btn-secondary {
+        background-color: var(--secondary-color);
+        border-color: var(--secondary-color);
+    }
+
+    .btn-secondary:hover {
+        background-color: var(--secondary-dark);
+        border-color: var(--secondary-dark);
+    }
+
+    .badge.bg-primary {
+        background-color: var(--primary-color) !important;
+    }
+
+    .badge.bg-info {
+        background-color: var(--secondary-color) !important;
+        color: white;
+    }
+
     .config-layout {
         display: flex;
         flex-wrap: wrap;
@@ -467,6 +511,16 @@
         border-radius: 5px;
         font-family: monospace;
         resize: vertical;
+    }
+
+    .prompt-editor textarea:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+    }
+
+    .form-select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
     }
 
     .prompt-actions {
@@ -532,7 +586,7 @@
         background-color: #e9ecef;
         padding: 2px 4px;
         border-radius: 3px;
-        color: #d63384;
+        color: var(--primary-color);
     }
 
     .available-variables ul {
@@ -546,6 +600,7 @@
 
     .card {
         border: 1px solid #dee2e6;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
     .diff-line {
@@ -568,7 +623,7 @@
 
     .diff-added::before {
         content: '+';
-        color: #28a745;
+        color: var(--secondary-color);
         position: absolute;
         left: -10px;
     }
@@ -586,7 +641,7 @@
 
     .prompt-section h5 {
         margin-bottom: 10px;
-        color: #666;
+        color: var(--dark-gray);
     }
 
     .delete-version {

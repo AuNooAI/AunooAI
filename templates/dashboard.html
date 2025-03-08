@@ -17,6 +17,10 @@
         --border-radius: 12px;
     }
 
+    h1, h2, h5, h6 {
+        color: var(--primary-color);
+    }
+
     .dashboard-card {
         background-color: white;
         border-radius: var(--border-radius);
@@ -281,7 +285,7 @@
     <!-- Add status messages section -->
     <div class="d-flex justify-content-between align-items-start mb-4">
         <div>
-            <h1>News Monitoring Dashboard</h1>
+            <h2 class="mb-3">News Monitoring Dashboard</h2>
             <div class="d-flex flex-column gap-2">
                 {% if last_error %}
                     <div class="alert alert-warning d-flex align-items-center">

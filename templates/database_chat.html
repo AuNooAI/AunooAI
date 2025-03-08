@@ -2,6 +2,21 @@
 
 {% block extra_css %}
 <style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    h2, h5, h6 {
+        color: var(--primary-color);
+    }
+
     .chat-container {
         height: calc(100vh - 100px);
         display: flex;
@@ -148,7 +163,7 @@
     .chat-input textarea:focus {
         outline: none;
         border-color: var(--primary-color);
-        box-shadow: 0 0 0 2px rgba(255, 105, 180, 0.1);
+        box-shadow: 0 0 0 2px rgba(255, 105, 180, 0.25);
     }
 
     .loading {
@@ -330,50 +345,59 @@
 {% endblock %}
 
 {% block content %}
-<div class="chat-container">
-    <div class="chat-header">
-        <select id="topicSelect" class="form-select" style="width: 200px;">
-            <option value="">Select a topic</option>
-        </select>
-        <select id="modelSelect" class="form-select" style="width: 200px;">
-            <option value="">Select AI model</option>
-        </select>
-    </div>
-
-    <div class="chat-messages" id="chatMessages">
-        <div class="message assistant-message">
-            I am Auspex! I can help you analyze articles from the database. Please select a topic and AI model to begin.
+<div class="container mt-4">
+    <h2 class="mb-3">Auspex AI Assistant</h2>
+    
+    <div class="chat-container">
+        <div class="chat-header">
+            <select id="topicSelect" class="form-select" style="width: 200px;">
+                <option value="">Select a topic</option>
+            </select>
+            <select id="modelSelect" class="form-select" style="width: 200px;">
+                <option value="">Select AI model</option>
+            </select>
         </div>
-    </div>
 
-    <div class="example-queries">
-        <label>Example Queries:</label>
-        <button class="query-button" data-template="summarize">Summarize a category</button>
-        <button class="query-button" data-template="trends">Analyze trends</button>
-        <button class="query-button" data-template="sentiment">Analyze sentiment</button>
-        <button class="query-button" data-template="compare">Compare categories</button>
-        <div id="categoryButtons" class="category-buttons"></div>
-    </div>
+        <div class="chat-messages" id="chatMessages">
+            <div class="message assistant-message">
+                <div class="message-icon">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div class="message-content">
+                    I am Auspex! I can help you analyze articles from the database. Please select a topic and AI model to begin.
+                </div>
+            </div>
+        </div>
 
-    <div class="chat-input">
-        <textarea 
-            id="userInput" 
-            class="form-control" 
-            placeholder="Ask a question about the articles..."
-            disabled
-        ></textarea>
-        <button 
-            id="sendButton" 
-            class="btn btn-primary" 
-            disabled
-        >
-            <i class="fas fa-paper-plane"></i>
-        </button>
-    </div>
+        <div class="example-queries">
+            <label>Example Queries:</label>
+            <button class="query-button" data-template="summarize">Summarize a category</button>
+            <button class="query-button" data-template="trends">Analyze trends</button>
+            <button class="query-button" data-template="sentiment">Analyze sentiment</button>
+            <button class="query-button" data-template="compare">Compare categories</button>
+            <div id="categoryButtons" class="category-buttons"></div>
+        </div>
 
-    <div class="loading" id="loadingIndicator">
-        <i class="fas fa-spinner"></i>
-        Processing your request...
+        <div class="chat-input">
+            <textarea 
+                id="userInput" 
+                class="form-control" 
+                placeholder="Ask a question about the articles..."
+                disabled
+            ></textarea>
+            <button 
+                id="sendButton" 
+                class="btn btn-primary" 
+                disabled
+            >
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+
+        <div class="loading" id="loadingIndicator">
+            <i class="fas fa-spinner"></i>
+            Processing your request...
+        </div>
     </div>
 </div>
 {% endblock %}

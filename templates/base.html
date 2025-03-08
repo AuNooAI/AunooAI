@@ -7,84 +7,34 @@
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/styles.css">
     <style>
+        /* Override only what's necessary for branding, keeping spacing consistent with global CSS */
         :root {
             --primary-color: #FF69B4;
             --primary-dark: #FF1493;
             --secondary-color: #32CD32;
             --secondary-dark: #228B22;
-            --text-color: #333;
-            --light-gray: #f8f9fa;
-            --medium-gray: #e9ecef;
-            --dark-gray: #343a40;
         }
 
+        /* Ensure navbar styling is consistent with global spacing */
         .navbar {
-            background-color: var(--light-gray);
-            border-bottom: 1px solid var(--medium-gray);
+            padding: var(--spacing-md) 0;
+            margin-bottom: var(--spacing-lg);
         }
 
+        /* Brand-specific styling */
         .navbar-brand {
             color: var(--primary-color);
-            font-weight: bold;
-        }
-
-        .nav-link {
-            color: var(--text-color);
+            font-weight: var(--font-weight-bold);
         }
 
         .nav-link:hover {
             color: var(--primary-dark);
         }
 
-        .dropdown-menu {
-            border-radius: 8px;
-            border: none;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        }
-
-        .dropdown-item:hover {
-            background-color: var(--medium-gray);
-            color: var(--dark-gray);
-        }
-
-        .dropdown-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-        }
-
         .dropdown-item i {
-            width: 16px;
-            text-align: center;
             color: var(--primary-color);
-        }
-
-        .nav-link i {
-            margin-right: 4px;
-            width: 16px;
-            text-align: center;
-        }
-
-        .dropdown-menu.dropdown-menu-end {
-            min-width: 200px;
-        }
-
-        .dropdown-menu .text-muted {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-
-        .dropdown-menu span {
-            font-size: 0.9rem;
-            font-weight: 500;
-            color: var(--text-color);
-        }
-
-        .dropdown-divider {
-            margin: 0.5rem 0;
         }
     </style>
     {% block extra_css %}{% endblock %}
@@ -192,7 +142,7 @@
         </div>
     </nav>
 
-    <div class="container mt-2">
+    <div class="container">
         {% block content %}{% endblock %}
     </div>
 

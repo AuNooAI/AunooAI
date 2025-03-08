@@ -21,11 +21,12 @@
     }
 
     .container {
-        max-width: 1400px;
-        padding: 40px 20px;
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 20px;
     }
 
-    h1 {
+    h1, h2, h5, h6 {
         color: var(--primary-color);
         margin-bottom: 20px;
     }
@@ -151,11 +152,11 @@
 
     .world-clock {
         max-width: 100%;
-        padding: 15px;
+        padding: 10px;
         margin: 0 auto;
         display: flex;
         flex-wrap: wrap;
-        gap: 15px;
+        gap: 8px;
         justify-content: center;
         background: white;
         border-radius: 10px;
@@ -166,9 +167,9 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding: 10px 15px;
-        min-width: 140px;
-        border-radius: 8px;
+        padding: 6px 10px;
+        min-width: 110px;
+        border-radius: 6px;
         background: var(--light-gray);
         transition: all 0.2s ease;
     }
@@ -180,21 +181,21 @@
     }
 
     .clock-city {
-        font-size: 0.85rem;
+        font-size: 0.75rem;
         font-weight: 600;
         color: var(--dark-gray);
         margin-bottom: 2px;
     }
 
     .clock-time {
-        font-size: 1.1rem;
+        font-size: 0.95rem;
         font-weight: 500;
         color: var(--primary-color);
         font-variant-numeric: tabular-nums;
     }
 
     .clock-date {
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         color: var(--text-color);
         opacity: 0.7;
     }
@@ -792,7 +793,7 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <div>
-            <h1>Control Room</h1>
+            <h2 class="mb-3">Control Room</h2>
             <p class="text-muted">What is going on in the world?</p>
         </div>
     </div>

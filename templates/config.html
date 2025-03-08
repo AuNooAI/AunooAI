@@ -1,301 +1,303 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h1>Configuration</h1>
+<div class="container mt-4">
+    <h1 class="mb-4">Configuration</h1>
 
-<!-- Add tab navigation -->
-<ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="providers-tab" data-bs-toggle="tab" data-bs-target="#providers" type="button" role="tab">
-            <i class="fas fa-plug"></i> Providers
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="ai-models-tab" data-bs-toggle="tab" data-bs-target="#ai-models" type="button" role="tab">
-            <i class="fas fa-robot"></i> AI Models
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="database-tab" data-bs-toggle="tab" data-bs-target="#database" type="button" role="tab">
-            <i class="fas fa-database"></i> Database
-        </button>
-    </li>
-    <li class="nav-item" role="presentation">
-        <button class="nav-link" id="security-tab" data-bs-toggle="tab" data-bs-target="#security" type="button" role="tab">
-            <i class="fas fa-lock"></i> Security
-        </button>
-    </li>
-</ul>
+    <!-- Add tab navigation -->
+    <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="providers-tab" data-bs-toggle="tab" data-bs-target="#providers" type="button" role="tab">
+                <i class="fas fa-plug"></i> Providers
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="ai-models-tab" data-bs-toggle="tab" data-bs-target="#ai-models" type="button" role="tab">
+                <i class="fas fa-robot"></i> AI Models
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="database-tab" data-bs-toggle="tab" data-bs-target="#database" type="button" role="tab">
+                <i class="fas fa-database"></i> Database
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="security-tab" data-bs-toggle="tab" data-bs-target="#security" type="button" role="tab">
+                <i class="fas fa-lock"></i> Security
+            </button>
+        </li>
+    </ul>
 
-<!-- Tab content -->
-<div class="tab-content" id="configTabContent">
-    <!-- Database Management Tab -->
-    <div class="tab-pane fade show active" id="database" role="tabpanel">
-        <div class="config-layout">
-            <div class="left-panel">
-                <h2>Database Management</h2>
-                <p class="text-muted mb-4">Manage your databases and configure active database settings.</p>
-                
-                <div class="config-item">
-                    <h3>Active Database</h3>
-                    <div class="form-group">
-                        <select id="active-database" class="form-select"
-                                data-tooltip="Select the database you want to use">
-                            <option value="">Select active database</option>
-                        </select>
-                        <small class="form-text text-muted">The currently active database for storing articles and analysis</small>
+    <!-- Tab content -->
+    <div class="tab-content" id="configTabContent">
+        <!-- Database Management Tab -->
+        <div class="tab-pane fade show active" id="database" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>Database Management</h2>
+                    <p class="text-muted mb-4">Manage your databases and configure active database settings.</p>
+                    
+                    <div class="config-item">
+                        <h3>Active Database</h3>
+                        <div class="form-group">
+                            <select id="active-database" class="form-select"
+                                    data-tooltip="Select the database you want to use">
+                                <option value="">Select active database</option>
+                            </select>
+                            <small class="form-text text-muted">The currently active database for storing articles and analysis</small>
+                        </div>
+                    </div>
+
+                    <div class="config-item">
+                        <h3>Available Databases</h3>
+                        <ul id="database-list">
+                            <!-- Database list will be populated dynamically -->
+                        </ul>
+                    </div>
+
+                    <div class="config-item">
+                        <h3>New Database</h3>
+                        <form id="create-database-form">
+                            <div class="form-group">
+                                <input type="text" id="database-name" 
+                                       placeholder="Enter database name" required
+                                       class="form-control"
+                                       data-tooltip="Enter a name for the new database">
+                                <small class="form-text text-muted">Create a new database for a different set of articles</small>
+                            </div>
+                            <button type="submit" class="mt-2">
+                                <i class="fas fa-plus"></i> Create Database
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="config-item">
+                        <h3>Database Operations</h3>
+                        <p class="text-muted small mb-3">Manage your database backups and maintenance.</p>
+                        <div class="database-operations">
+                            <button id="backup-database" onclick="backupDatabase()"
+                                    data-tooltip="Create a backup of the current database">
+                                <i class="fas fa-save"></i> Backup
+                            </button>
+                            <button id="download-database" onclick="showDownloadDialog()"
+                                    data-tooltip="Download a database file">
+                                <i class="fas fa-download"></i> Download
+                            </button>
+                            <button id="reset-database" class="danger" onclick="resetDatabase()"
+                                    data-tooltip="WARNING: This will delete all data">
+                                <i class="fas fa-trash"></i> Reset
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="config-item">
+                        <h3>Merge from Backup</h3>
+                        <p class="text-muted small mb-3">Import articles and settings from a backup database.</p>
+                        <button id="merge-database" onclick="showMergeDialog()"
+                                data-tooltip="Merge articles and settings from a backup">
+                            <i class="fas fa-code-merge"></i> Merge Backup
+                        </button>
                     </div>
                 </div>
-
-                <div class="config-item">
-                    <h3>Available Databases</h3>
-                    <ul id="database-list">
-                        <!-- Database list will be populated dynamically -->
-                    </ul>
-                </div>
-
-                <div class="config-item">
-                    <h3>New Database</h3>
-                    <form id="create-database-form">
-                        <div class="form-group">
-                            <input type="text" id="database-name" 
-                                   placeholder="Enter database name" required
-                                   class="form-control"
-                                   data-tooltip="Enter a name for the new database">
-                            <small class="form-text text-muted">Create a new database for a different set of articles</small>
+                <div class="right-panel">
+                    <h2>Database Information</h2>
+                    <p class="text-muted mb-4">Current database statistics and details.</p>
+                    <div id="database-info" class="info-panel">
+                        <div class="info-group">
+                            <div class="info-item">
+                                <span class="info-label">Database Name:</span>
+                                <span class="info-value" id="db-name">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Size:</span>
+                                <span class="info-value" id="db-size">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Total Articles:</span>
+                                <span class="info-value" id="total-articles">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Last Entry:</span>
+                                <span class="info-value" id="last-entry">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">First Entry:</span>
+                                <span class="info-value" id="first-entry">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Total Topics:</span>
+                                <span class="info-value" id="total-topics">Loading...</span>
+                            </div>
                         </div>
-                        <button type="submit" class="mt-2">
-                            <i class="fas fa-plus"></i> Create Database
+                        
+                        <h3 class="mt-4">Database Tables</h3>
+                        <div class="table-info">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Table Name</th>
+                                        <th>Row Count</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-info">
+                                    <tr>
+                                        <td colspan="2">Loading...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Models Tab -->
+        <div class="tab-pane fade" id="ai-models" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>AI Model Configuration</h2>
+                    <p class="text-muted mb-4">Configure API keys for different AI models used for analysis.</p>
+                    
+                    <form id="add-model-form">
+                        <div class="form-group">
+                            <label for="model-name" class="form-label">AI Model</label>
+                            <select id="model-name" required class="form-select"
+                                    data-tooltip="Select the AI model you want to configure">
+                                <option value="">Select a model</option>
+                                {% for model in models %}
+                                    <option value="{{ model.name }}" data-provider="{{ model.provider }}">
+                                        {{ model.name }} ({{ model.provider }})
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <small class="form-text text-muted">Choose an AI model to add or update its API key</small>
+                        </div>
+
+                        <div class="form-group mt-3">
+                            <label for="api-key" class="form-label">API Key</label>
+                            <input type="text" id="api-key" placeholder="Enter API key" required 
+                                   class="form-control"
+                                   data-tooltip="Enter your API key from the model provider">
+                            <small class="form-text text-muted">Find your API key in your model provider's dashboard</small>
+                        </div>
+
+                        <button type="submit" class="mt-3">
+                            <i class="fas fa-plus"></i> Add Model
                         </button>
                     </form>
                 </div>
-
-                <div class="config-item">
-                    <h3>Database Operations</h3>
-                    <p class="text-muted small mb-3">Manage your database backups and maintenance.</p>
-                    <div class="database-operations">
-                        <button id="backup-database" onclick="backupDatabase()"
-                                data-tooltip="Create a backup of the current database">
-                            <i class="fas fa-save"></i> Backup
-                        </button>
-                        <button id="download-database" onclick="showDownloadDialog()"
-                                data-tooltip="Download a database file">
-                            <i class="fas fa-download"></i> Download
-                        </button>
-                        <button id="reset-database" class="danger" onclick="resetDatabase()"
-                                data-tooltip="WARNING: This will delete all data">
-                            <i class="fas fa-trash"></i> Reset
-                        </button>
-                    </div>
-                </div>
-
-                <div class="config-item">
-                    <h3>Merge from Backup</h3>
-                    <p class="text-muted small mb-3">Import articles and settings from a backup database.</p>
-                    <button id="merge-database" onclick="showMergeDialog()"
-                            data-tooltip="Merge articles and settings from a backup">
-                        <i class="fas fa-code-merge"></i> Merge Backup
-                    </button>
+                <div class="right-panel">
+                    <h2>Available Models</h2>
+                    <p class="text-muted mb-4">Currently configured AI models and their status.</p>
+                    <ul id="model-list" class="model-list">
+                        <!-- Will be populated dynamically -->
+                    </ul>
                 </div>
             </div>
-            <div class="right-panel">
-                <h2>Database Information</h2>
-                <p class="text-muted mb-4">Current database statistics and details.</p>
-                <div id="database-info" class="info-panel">
-                    <div class="info-group">
-                        <div class="info-item">
-                            <span class="info-label">Database Name:</span>
-                            <span class="info-value" id="db-name">Loading...</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Size:</span>
-                            <span class="info-value" id="db-size">Loading...</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Total Articles:</span>
-                            <span class="info-value" id="total-articles">Loading...</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Last Entry:</span>
-                            <span class="info-value" id="last-entry">Loading...</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">First Entry:</span>
-                            <span class="info-value" id="first-entry">Loading...</span>
-                        </div>
-                        <div class="info-item">
-                            <span class="info-label">Total Topics:</span>
-                            <span class="info-value" id="total-topics">Loading...</span>
-                        </div>
-                    </div>
+        </div>
+
+        <!-- Providers Tab -->
+        <div class="tab-pane fade" id="providers" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>Article Provider Configuration</h2>
+                    <p class="text-muted mb-4">Configure API keys for different news and article providers.</p>
                     
-                    <h3 class="mt-4">Database Tables</h3>
-                    <div class="table-info">
-                        <table class="table table-sm">
-                            <thead>
-                                <tr>
-                                    <th>Table Name</th>
-                                    <th>Row Count</th>
-                                </tr>
-                            </thead>
-                            <tbody id="table-info">
-                                <tr>
-                                    <td colspan="2">Loading...</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
+                    <form id="provider-config-form">
+                        <div class="form-group">
+                            <label for="provider-name" class="form-label">Provider</label>
+                            <select id="provider-name" required class="form-select" 
+                                    data-tooltip="Select the news provider you want to configure">
+                                <option value="">Select a provider</option>
+                            </select>
+                            <small class="form-text text-muted">Choose a provider to add or update its API key</small>
+                        </div>
+
+                        <div class="form-group mt-3">
+                            <label for="provider-key" class="form-label">API Key</label>
+                            <input type="text" id="provider-key" placeholder="Enter API key" required 
+                                   class="form-control"
+                                   data-tooltip="Enter the API key from your provider account">
+                            <small class="form-text text-muted">You can find your API key in your provider's dashboard</small>
+                        </div>
+
+                        <button type="submit" class="mt-3">
+                            <i class="fas fa-plus"></i> Add Provider
+                        </button>
+                    </form>
+                </div>
+                <div class="right-panel">
+                    <h2>Available Providers</h2>
+                    <p class="text-muted mb-4">Currently configured news and article providers.</p>
+                    <ul id="provider-list" class="provider-list">
+                        <!-- Will be populated dynamically -->
+                    </ul>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- AI Models Tab -->
-    <div class="tab-pane fade" id="ai-models" role="tabpanel">
-        <div class="config-layout">
-            <div class="left-panel">
-                <h2>AI Model Configuration</h2>
-                <p class="text-muted mb-4">Configure API keys for different AI models used for analysis.</p>
-                
-                <form id="add-model-form">
-                    <div class="form-group">
-                        <label for="model-name" class="form-label">AI Model</label>
-                        <select id="model-name" required class="form-select"
-                                data-tooltip="Select the AI model you want to configure">
-                            <option value="">Select a model</option>
-                            {% for model in models %}
-                                <option value="{{ model.name }}" data-provider="{{ model.provider }}">
-                                    {{ model.name }} ({{ model.provider }})
-                                </option>
-                            {% endfor %}
-                        </select>
-                        <small class="form-text text-muted">Choose an AI model to add or update its API key</small>
+        <!-- Security Tab -->
+        <div class="tab-pane fade" id="security" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>Change Password</h2>
+                    <p class="text-muted mb-4">Update your account password. Make sure to use a strong password.</p>
+                    
+                    <form id="change-password-form">
+                        <div class="form-group">
+                            <label for="current-password" class="form-label">Current Password</label>
+                            <input type="password" id="current-password" 
+                                   placeholder="Enter current password" required
+                                   class="form-control"
+                                   data-tooltip="Enter your current password">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="new-password" class="form-label">New Password</label>
+                            <input type="password" id="new-password" 
+                                   placeholder="Enter new password" required
+                                   class="form-control"
+                                   data-tooltip="Enter a strong password that meets the requirements">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="confirm-password" class="form-label">Confirm Password</label>
+                            <input type="password" id="confirm-password" 
+                                   placeholder="Confirm new password" required
+                                   class="form-control"
+                                   data-tooltip="Re-enter your new password">
+                        </div>
+
+                        <button type="submit" class="mt-3">
+                            <i class="fas fa-key"></i> Update Password
+                        </button>
+                    </form>
+                </div>
+                <div class="right-panel">
+                    <h2>Password Requirements</h2>
+                    <p class="text-muted mb-4">Your password must meet the following requirements:</p>
+                    <ul class="requirements-list">
+                        <li class="requirement-item">
+                            <i class="fas fa-check-circle text-success"></i>
+                            At least 8 characters long
+                        </li>
+                        <li class="requirement-item">
+                            <i class="fas fa-check-circle text-success"></i>
+                            Must contain at least one uppercase letter
+                        </li>
+                        <li class="requirement-item">
+                            <i class="fas fa-check-circle text-success"></i>
+                            Must contain at least one number
+                        </li>
+                        <li class="requirement-item">
+                            <i class="fas fa-check-circle text-success"></i>
+                            Must contain at least one special character
+                        </li>
+                    </ul>
+                    <div class="alert alert-info mt-4">
+                        <i class="fas fa-info-circle"></i>
+                        For maximum security, use a unique password that you don't use elsewhere.
                     </div>
-
-                    <div class="form-group mt-3">
-                        <label for="api-key" class="form-label">API Key</label>
-                        <input type="text" id="api-key" placeholder="Enter API key" required 
-                               class="form-control"
-                               data-tooltip="Enter your API key from the model provider">
-                        <small class="form-text text-muted">Find your API key in your model provider's dashboard</small>
-                    </div>
-
-                    <button type="submit" class="mt-3">
-                        <i class="fas fa-plus"></i> Add Model
-                    </button>
-                </form>
-            </div>
-            <div class="right-panel">
-                <h2>Available Models</h2>
-                <p class="text-muted mb-4">Currently configured AI models and their status.</p>
-                <ul id="model-list" class="model-list">
-                    <!-- Will be populated dynamically -->
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <!-- Providers Tab -->
-    <div class="tab-pane fade" id="providers" role="tabpanel">
-        <div class="config-layout">
-            <div class="left-panel">
-                <h2>Article Provider Configuration</h2>
-                <p class="text-muted mb-4">Configure API keys for different news and article providers.</p>
-                
-                <form id="provider-config-form">
-                    <div class="form-group">
-                        <label for="provider-name" class="form-label">Provider</label>
-                        <select id="provider-name" required class="form-select" 
-                                data-tooltip="Select the news provider you want to configure">
-                            <option value="">Select a provider</option>
-                        </select>
-                        <small class="form-text text-muted">Choose a provider to add or update its API key</small>
-                    </div>
-
-                    <div class="form-group mt-3">
-                        <label for="provider-key" class="form-label">API Key</label>
-                        <input type="text" id="provider-key" placeholder="Enter API key" required 
-                               class="form-control"
-                               data-tooltip="Enter the API key from your provider account">
-                        <small class="form-text text-muted">You can find your API key in your provider's dashboard</small>
-                    </div>
-
-                    <button type="submit" class="mt-3">
-                        <i class="fas fa-plus"></i> Add Provider
-                    </button>
-                </form>
-            </div>
-            <div class="right-panel">
-                <h2>Available Providers</h2>
-                <p class="text-muted mb-4">Currently configured news and article providers.</p>
-                <ul id="provider-list" class="provider-list">
-                    <!-- Will be populated dynamically -->
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <!-- Security Tab -->
-    <div class="tab-pane fade" id="security" role="tabpanel">
-        <div class="config-layout">
-            <div class="left-panel">
-                <h2>Change Password</h2>
-                <p class="text-muted mb-4">Update your account password. Make sure to use a strong password.</p>
-                
-                <form id="change-password-form">
-                    <div class="form-group">
-                        <label for="current-password" class="form-label">Current Password</label>
-                        <input type="password" id="current-password" 
-                               placeholder="Enter current password" required
-                               class="form-control"
-                               data-tooltip="Enter your current password">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="new-password" class="form-label">New Password</label>
-                        <input type="password" id="new-password" 
-                               placeholder="Enter new password" required
-                               class="form-control"
-                               data-tooltip="Enter a strong password that meets the requirements">
-                    </div>
-
-                    <div class="form-group">
-                        <label for="confirm-password" class="form-label">Confirm Password</label>
-                        <input type="password" id="confirm-password" 
-                               placeholder="Confirm new password" required
-                               class="form-control"
-                               data-tooltip="Re-enter your new password">
-                    </div>
-
-                    <button type="submit" class="mt-3">
-                        <i class="fas fa-key"></i> Update Password
-                    </button>
-                </form>
-            </div>
-            <div class="right-panel">
-                <h2>Password Requirements</h2>
-                <p class="text-muted mb-4">Your password must meet the following requirements:</p>
-                <ul class="requirements-list">
-                    <li class="requirement-item">
-                        <i class="fas fa-check-circle text-success"></i>
-                        At least 8 characters long
-                    </li>
-                    <li class="requirement-item">
-                        <i class="fas fa-check-circle text-success"></i>
-                        Must contain at least one uppercase letter
-                    </li>
-                    <li class="requirement-item">
-                        <i class="fas fa-check-circle text-success"></i>
-                        Must contain at least one number
-                    </li>
-                    <li class="requirement-item">
-                        <i class="fas fa-check-circle text-success"></i>
-                        Must contain at least one special character
-                    </li>
-                </ul>
-                <div class="alert alert-info mt-4">
-                    <i class="fas fa-info-circle"></i>
-                    For maximum security, use a unique password that you don't use elsewhere.
                 </div>
             </div>
         </div>
@@ -357,8 +359,10 @@
 
 <style>
     :root {
-        --primary-color: #0d6efd;  /* Bootstrap primary blue */
-        --primary-dark: #0a58ca;   /* Darker blue */
+        --primary-color: #FF69B4;  /* Hot Pink - match global brand color */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
         --text-color: #333;
         --light-gray: #f8f9fa;
         --medium-gray: #e9ecef;
@@ -367,13 +371,13 @@
     }
 
     h1 {
-        color: var(--dark-gray);
+        color: var(--primary-color);
         margin-bottom: 20px;
     }
 
     h2 {
-        color: var(--dark-gray);
-        border-bottom: 1px solid rgba(13, 110, 253, 0.2);
+        color: var(--primary-color);
+        border-bottom: 1px solid rgba(255, 105, 180, 0.2);
         padding-bottom: 10px;
     }
 
@@ -389,8 +393,8 @@
     }
 
     button {
-        background-color: rgba(13, 110, 253, 0.1);
-        border: 1px solid rgba(13, 110, 253, 0.2);
+        background-color: rgba(255, 105, 180, 0.1);
+        border: 1px solid rgba(255, 105, 180, 0.2);
         color: var(--primary-color);
         transition: all 0.2s ease;
         padding: 8px 16px;
@@ -409,19 +413,19 @@
     }
 
     .database-operations button#backup-database {
-        background-color: rgba(40, 167, 69, 0.1);
-        border: 1px solid rgba(40, 167, 69, 0.2);
-        color: #28a745;
+        background-color: rgba(50, 205, 50, 0.1);
+        border: 1px solid rgba(50, 205, 50, 0.2);
+        color: var(--secondary-color);
     }
 
     .database-operations button#backup-database:hover {
-        background-color: #28a745;
+        background-color: var(--secondary-color);
         color: white;
     }
 
     .database-operations button#download-database {
-        background-color: rgba(13, 110, 253, 0.1);
-        border: 1px solid rgba(13, 110, 253, 0.2);
+        background-color: rgba(255, 105, 180, 0.1);
+        border: 1px solid rgba(255, 105, 180, 0.2);
         color: var(--primary-color);
     }
 
@@ -444,7 +448,7 @@
     }
 
     input, select {
-        border: 1px solid rgba(13, 110, 253, 0.2);
+        border: 1px solid rgba(255, 105, 180, 0.2);
         border-radius: 20px;
         padding: 0.5rem 1rem;
         transition: all 0.2s ease;
@@ -453,7 +457,7 @@
 
     input:focus, select:focus {
         border-color: var(--primary-color);
-        box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.15);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.15);
         outline: none;
     }
 
@@ -469,9 +473,9 @@
     }
 
     .status-badge.configured {
-        background-color: rgba(40, 167, 69, 0.1);
-        color: #28a745;
-        border: 1px solid rgba(40, 167, 69, 0.2);
+        background-color: rgba(50, 205, 50, 0.1);
+        color: var(--secondary-color);
+        border: 1px solid rgba(50, 205, 50, 0.2);
     }
 
     .status-badge.not-configured {
@@ -500,7 +504,7 @@
     }
 
     .info-item {
-        border-left: 4px solid rgba(13, 110, 253, 0.2);
+        border-left: 4px solid rgba(255, 105, 180, 0.2);
         border-radius: 15px;
     }
 
@@ -702,7 +706,7 @@
     }
 
     .nav-tabs .nav-link:hover {
-        background-color: rgba(13, 110, 253, 0.05);
+        background-color: rgba(255, 105, 180, 0.05);
         color: var(--primary-color);
     }
 
@@ -796,7 +800,7 @@
         width: 18px;
         height: 18px;
         border-radius: 50%;
-        background-color: rgba(13, 110, 253, 0.1);
+        background-color: rgba(255, 105, 180, 0.1);
         color: var(--primary-color);
         font-size: 12px;
         margin-left: 6px;
