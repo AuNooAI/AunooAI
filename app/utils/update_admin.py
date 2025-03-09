@@ -1,4 +1,5 @@
 import sqlite3
+import os
 from passlib.context import CryptContext
 
 # Create password context - matches the one used in the application
@@ -8,8 +9,11 @@ def update_admin_password(db_path: str, new_password: str):
     # Hash the password
     hashed_password = pwd_context.hash(new_password)
     
+    # Expand tilde in path if present
+    expanded_path = os.path.expanduser(db_path)
+    
     # Connect to database
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(expanded_path)
     cursor = conn.cursor()
     
     try:
@@ -34,8 +38,8 @@ def update_admin_password(db_path: str, new_password: str):
         conn.close()
 
 if __name__ == "__main__":
-    # Update these values as needed
-    DB_PATH = "../data/fnaapp.db"
+    # Use a direct relative path since we're running from within the app directory
+    DB_PATH = "data/fnaapp.db"
     NEW_PASSWORD = "admin"
     
     update_admin_password(DB_PATH, NEW_PASSWORD) 

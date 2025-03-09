@@ -12,7 +12,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv()
 
 # Get port from environment variable, default to 8000 if not set
-PORT = int(os.getenv('PORT', 10010))
+PORT = int(os.getenv('PORT', 8000))
 CERT_PATH = os.getenv('CERT_PATH', 'cert.pem')
 KEY_PATH = os.getenv('KEY_PATH', 'key.pem')
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
