@@ -293,6 +293,42 @@ class KeywordMonitor:
                                         ON CONFLICT DO NOTHING
                                     """, (keyword_id, article_url))
                                     
+                                    # Get the group_id for this keyword
+                                    cursor.execute("""
+                                        SELECT group_id FROM monitored_keywords
+                                        WHERE id = ?
+                                    """, (keyword_id,))
+                                    group_id = cursor.fetchone()[0]
+                                    
+                                    # Check if we already have a match for this article in this group
+                                    cursor.execute("""
+                                        SELECT id, keyword_ids FROM keyword_article_matches
+                                        WHERE article_uri = ? AND group_id = ?
+                                    """, (article_url, group_id))
+                                    
+                                    existing_match = cursor.fetchone()
+                                    
+                                    if existing_match:
+                                        # Update the existing match with the new keyword
+                                        match_id, keyword_ids = existing_match
+                                        keyword_id_list = keyword_ids.split(',')
+                                        if str(keyword_id) not in keyword_id_list:
+                                            keyword_id_list.append(str(keyword_id))
+                                            updated_keyword_ids = ','.join(keyword_id_list)
+                                            
+                                            cursor.execute("""
+                                                UPDATE keyword_article_matches
+                                                SET keyword_ids = ?
+                                                WHERE id = ?
+                                            """, (updated_keyword_ids, match_id))
+                                    else:
+                                        # Create a new match
+                                        cursor.execute("""
+                                            INSERT INTO keyword_article_matches (
+                                                article_uri, keyword_ids, group_id
+                                            ) VALUES (?, ?, ?)
+                                        """, (article_url, str(keyword_id), group_id))
+                                    
                                     # Commit transaction
                                     conn.commit()
                                     
