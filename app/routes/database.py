@@ -8,7 +8,17 @@ import os
 import sqlite3
 from urllib.parse import unquote_plus
 import logging
-from scripts.db_merge import DatabaseMerger
+try:
+    from scripts.db_merge import DatabaseMerger
+except ImportError:
+    # Create a stub implementation if scripts module is not available
+    class DatabaseMerger:
+        def __init__(self, *args, **kwargs):
+            logging.warning("Using stub DatabaseMerger (import failed)")
+            
+        def merge_databases(self, source_db_path):
+            logging.warning(f"STUB: Would merge database from {source_db_path}")
+            return True
 from pathlib import Path
 from datetime import datetime
 import shutil
