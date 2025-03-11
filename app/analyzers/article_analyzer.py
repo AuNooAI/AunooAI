@@ -205,8 +205,8 @@ Article text:
                     
                     # Start a new key
                     key, value = line.split(':', 1)
-                    # Remove any asterisks and whitespace from key
-                    current_key = key.strip().strip('*').strip()
+                    # Remove any asterisks, hashes, and whitespace from key
+                    current_key = key.strip().strip('*').strip('#').strip()
                     current_value = [value.strip()]
                 elif current_key:
                     # Continue with previous key
@@ -218,43 +218,59 @@ Article text:
 
             logger.debug(f"Initial parsed analysis: {json.dumps(parsed_analysis, indent=2)}")
 
+            # Clean up keys by removing Markdown formatting
+            cleaned_analysis = {}
+            for key, value in parsed_analysis.items():
+                # Remove Markdown formatting (# and ##) from keys
+                clean_key = key.lstrip('#').strip()
+                cleaned_analysis[clean_key] = value
+            
             # If Title is missing and we have an extracted title, use it as fallback
-            if "Title" not in parsed_analysis and hasattr(self, '_extracted_title') and self._extracted_title:
+            if "Title" not in cleaned_analysis and hasattr(self, '_extracted_title') and self._extracted_title:
                 logger.debug(f"Using extracted title as fallback: {self._extracted_title}")
-                parsed_analysis["Title"] = self._extracted_title
+                cleaned_analysis["Title"] = self._extracted_title
 
-            # Validate required fields
+            # Validate required fields - use case-insensitive comparison
             required_fields = ["Title", "Summary", "Category", "Future Signal", 
                              "Future Signal Explanation", "Sentiment", "Time to Impact", 
                              "Driver Type", "Tags"]
             
-            missing_fields = [field for field in required_fields if field not in parsed_analysis]
+            # Create a case-insensitive mapping of the parsed keys
+            parsed_keys_lower = {k.lower(): k for k in cleaned_analysis.keys()}
+            
+            # Check for missing fields using case-insensitive comparison
+            missing_fields = []
+            for field in required_fields:
+                if field.lower() not in parsed_keys_lower:
+                    missing_fields.append(field)
+            
             if missing_fields:
                 logger.error(f"Missing fields in analysis: {missing_fields}")
-                logger.error(f"Available fields: {list(parsed_analysis.keys())}")
+                logger.error(f"Available fields: {list(cleaned_analysis.keys())}")
                 raise ArticleAnalyzerError(f"Missing required fields in analysis: {', '.join(missing_fields)}")
 
-            # Convert keys to expected format
+            # Convert keys to expected format using case-insensitive matching
             key_mapping = {
-                "Title": "title",
-                "Summary": "summary",
-                "Category": "category",
-                "Future Signal": "future_signal",
-                "Future Signal Explanation": "future_signal_explanation",
-                "Sentiment": "sentiment",
-                "Sentiment Explanation": "sentiment_explanation",
-                "Time to Impact": "time_to_impact",
-                "Time to Impact Explanation": "time_to_impact_explanation",
-                "Driver Type": "driver_type",
-                "Driver Type Explanation": "driver_type_explanation",
-                "Tags": "tags",
-                "Publication Date": "publication_date"
+                "title": "title",
+                "summary": "summary",
+                "category": "category",
+                "future signal": "future_signal",
+                "future signal explanation": "future_signal_explanation",
+                "sentiment": "sentiment",
+                "sentiment explanation": "sentiment_explanation",
+                "time to impact": "time_to_impact",
+                "time to impact explanation": "time_to_impact_explanation",
+                "driver type": "driver_type",
+                "driver type explanation": "driver_type_explanation",
+                "tags": "tags",
+                "publication date": "publication_date"
             }
 
             result = {}
-            for old_key, value in parsed_analysis.items():
-                if old_key in key_mapping:
-                    new_key = key_mapping[old_key]
+            for old_key, value in cleaned_analysis.items():
+                old_key_lower = old_key.lower()
+                if old_key_lower in key_mapping:
+                    new_key = key_mapping[old_key_lower]
                     # Handle tags specially
                     if new_key == "tags":
                         # Convert string of comma-separated tags into a list
