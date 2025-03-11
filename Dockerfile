@@ -38,7 +38,7 @@ VOLUME /app/app/data
 VOLUME /app/reports
 
 # Set permissions for persistent directories
-RUN chmod 777 /app/app/data /app/reports
+RUN chmod -R 777 /app/app/data /app/reports
 
 # Create entrypoint script
 RUN echo '#!/bin/bash\n\
@@ -46,6 +46,13 @@ mkdir -p /app/app/data/${INSTANCE}\n\
 touch /app/app/data/${INSTANCE}/.env\n\
 chmod 666 /app/app/data/${INSTANCE}/.env\n\
 ln -sf /app/app/data/${INSTANCE}/.env /app/.env\n\
+\n\
+# Set initial admin password if ADMIN_PASSWORD is provided\n\
+if [ -n "$ADMIN_PASSWORD" ]; then\n\
+  echo "Setting initial admin password..."\n\
+  cd /app && python -c "from app.utils.update_admin import update_admin_password; update_admin_password(\"/app/app/data/${INSTANCE}/fnaapp.db\", \"$ADMIN_PASSWORD\")"\n\
+fi\n\
+\n\
 exec python app/run.py' > /entrypoint.sh && \
     chmod +x /entrypoint.sh
 

@@ -1,48 +1,51 @@
 version: '3.8'
 
 services:
-  newsaddict-test:
-    image: newsaddict:latest
+  aunooai-dev:
+    image: aunooai:latest
     build: .
     ports:
       - "6005:6005"
     volumes:
-      - newsaddict_test_data:/app/app/data
-      - newsaddict_test_reports:/app/reports
+      - aunooai_dev_data:/app/app/data
+      - aunooai_dev_reports:/app/reports
     environment:
       - PORT=6005
-      - INSTANCE=test
+      - INSTANCE=dev
+      - ADMIN_PASSWORD=admin
 
-  newsaddict-customer-x:
-    image: newsaddict:latest
+  aunooai-prod:
+    image: aunooai:latest
     build: .
     ports:
       - "5008:5008"
     volumes:
-      - newsaddict_customerx_data:/app/app/data
-      - newsaddict_customerx_reports:/app/reports
+      - aunooai_prod_data:/app/app/data
+      - aunooai_prod_reports:/app/reports
     environment:
       - PORT=5008
-      - INSTANCE=customer-x
-    profiles: ["customer-x"]
+      - INSTANCE=prod
+      - ADMIN_PASSWORD=admin
+    profiles: ["prod"]
 
-  newsaddict-customer-y:
-    image: newsaddict:latest
+  aunooai-staging:
+    image: aunooai:latest
     build: .
     ports:
       - "5009:5009"
     volumes:
-      - newsaddict_customery_data:/app/app/data
-      - newsaddict_customery_reports:/app/reports
+      - aunooai_staging_data:/app/app/data
+      - aunooai_staging_reports:/app/reports
     environment:
       - PORT=5009
-      - INSTANCE=customer-y
-    profiles: ["customer-y"]
+      - INSTANCE=staging
+      - ADMIN_PASSWORD=admin
+    profiles: ["staging"]
 
 volumes:
-  newsaddict_test_data:
-  newsaddict_test_reports:
-  newsaddict_customerx_data:
-  newsaddict_customerx_reports:
-  newsaddict_customery_data:
-  newsaddict_customery_reports: 
+  aunooai_dev_data:
+  aunooai_dev_reports:
+  aunooai_prod_data:
+  aunooai_prod_reports:
+  aunooai_staging_data:
+  aunooai_staging_reports: 
