@@ -174,6 +174,14 @@ update_tenant() {
     --timeout=$TIMEOUT \
     --concurrency=$CONCURRENCY
   
+  # Check if storage bucket is mounted, if not, add the mount
+  if ! gcloud run services describe aunooai-$tenant --region $REGION | grep -q "type: cloud-storage"; then
+    echo "Adding storage bucket mount..."
+    gcloud run services update aunooai-$tenant \
+      --region $REGION \
+      --mount type=cloud-storage,bucket=$storage_bucket,path=/app/app/data/$tenant
+  fi
+  
   echo "Tenant $tenant updated successfully!"
   echo ""
 }

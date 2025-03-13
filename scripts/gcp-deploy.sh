@@ -200,7 +200,10 @@ echo "Deploying to Cloud Run..."
 # Create environment variables string without PORT (which is reserved in Cloud Run)
 ENV_VARS="INSTANCE=$TENANT,ADMIN_PASSWORD=$ADMIN_PASSWORD,STORAGE_BUCKET=$BUCKET_NAME"
 
-gcloud run deploy aunooai-$TENANT \
+# Deploy to Cloud Run with volume mount
+echo "Deploying to Cloud Run with volume mount..."
+# Try the newer syntax first for volume mounts
+if gcloud run deploy aunooai-$TENANT \
   --image $IMAGE_NAME \
   --platform managed \
   --region $REGION \
@@ -213,7 +216,47 @@ gcloud run deploy aunooai-$TENANT \
   --cpu=2 \
   --memory=4Gi \
   --timeout=600s \
-  --concurrency=80
+  --concurrency=80 \
+  --add-volume name=storage,type=cloud-storage,bucket=$BUCKET_NAME \
+  --add-volume-mount volume=storage,mount-path=/app/app/data/$TENANT; then
+  echo "Deployment successful with volume mount using new syntax"
+# If that fails, try the older syntax
+elif gcloud beta run deploy aunooai-$TENANT \
+  --image $IMAGE_NAME \
+  --platform managed \
+  --region $REGION \
+  --allow-unauthenticated \
+  --set-env-vars="$ENV_VARS" \
+  --service-account $SA_EMAIL \
+  --cpu-boost \
+  --min-instances=1 \
+  --max-instances=10 \
+  --cpu=2 \
+  --memory=4Gi \
+  --timeout=600s \
+  --concurrency=80 \
+  --update-volume-mounts mount-path=/app/app/data/$TENANT,volume=storage \
+  --update-volumes name=storage,cloud-storage-bucket=$BUCKET_NAME; then
+  echo "Deployment successful with volume mount using beta syntax"
+# If both fail, try the direct mount syntax
+else
+  echo "Attempting deployment with direct mount syntax..."
+  gcloud beta run deploy aunooai-$TENANT \
+    --image $IMAGE_NAME \
+    --platform managed \
+    --region $REGION \
+    --allow-unauthenticated \
+    --set-env-vars="$ENV_VARS" \
+    --service-account $SA_EMAIL \
+    --cpu-boost \
+    --min-instances=1 \
+    --max-instances=10 \
+    --cpu=2 \
+    --memory=4Gi \
+    --timeout=600s \
+    --concurrency=80 \
+    --mount type=cloud-storage,bucket=$BUCKET_NAME,path=/app/app/data/$TENANT
+fi
 
 # Get the service URL
 SERVICE_URL=$(gcloud run services describe aunooai-$TENANT --region $REGION --format="value(status.url)")

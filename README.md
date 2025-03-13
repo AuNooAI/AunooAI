@@ -124,7 +124,9 @@ All tenant data is stored in Cloud Storage buckets, ensuring persistence across 
 gs://YOUR_PROJECT_ID-aunooai-TENANT_NAME/
 ```
 
-Data is automatically synced to the bucket every 5 minutes and when the container exits.
+The storage bucket is mounted as a volume in the Cloud Run service at `/app/app/data/TENANT_NAME`, providing direct file system access to the persistent storage. This ensures that all data written to this directory is automatically persisted to Cloud Storage.
+
+In addition, data is automatically synced to the bucket every 5 minutes and when the container exits as a backup mechanism.
 
 ### Self-Hosting Guide
 
@@ -176,12 +178,22 @@ Data is automatically synced to the bucket every 5 minutes and when the containe
    ./scripts/configure-tenant-storage.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
    ```
 
-2. **Resource Constraints**: If a tenant is experiencing performance issues, update its resource settings:
+2. **Missing Volume Mount**: If the Cloud Run service doesn't show a volume mount under "Revisions" -> "Volumes", add it:
+   ```bash
+   ./scripts/add-volume-mounts.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
+   ```
+   
+   To add volume mounts to all tenants:
+   ```bash
+   ./scripts/add-volume-mounts.sh --project YOUR_PROJECT_ID
+   ```
+
+3. **Resource Constraints**: If a tenant is experiencing performance issues, update its resource settings:
    ```bash
    ./scripts/update-cloud-run-deployments.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --cpu 4 --memory 8Gi
    ```
 
-3. **Data Persistence Issues**: To ensure data persistence, redeploy the tenant:
+4. **Data Persistence Issues**: To ensure data persistence, redeploy the tenant:
    ```bash
    ./scripts/gcp-deploy.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --admin-password SECURE_PASSWORD
    ```

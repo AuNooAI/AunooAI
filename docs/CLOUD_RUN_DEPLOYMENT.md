@@ -120,7 +120,32 @@ export KEY_PATH="/dev/null"
 
 **Issue**: Tenants may lose data if the Cloud Run container is terminated abruptly before syncing data back to the Cloud Storage bucket.
 
-**Solution**: We've implemented periodic data syncing in the entrypoint script:
+**Solution**: We've implemented two mechanisms for data persistence:
+
+1. **Cloud Storage Volume Mount**: The storage bucket is mounted directly as a volume in the Cloud Run service:
+
+```bash
+# Using the newer syntax (recommended for Cloud SDK 400+)
+gcloud run services update aunooai-[TENANT] \
+  --region [REGION] \
+  --add-volume name=storage,type=cloud-storage,bucket=[BUCKET_NAME] \
+  --add-volume-mount volume=storage,mount-path=/app/app/data/[TENANT]
+
+# Using the beta syntax (for older Cloud SDK versions)
+gcloud beta run services update aunooai-[TENANT] \
+  --region [REGION] \
+  --update-volume-mounts mount-path=/app/app/data/[TENANT],volume=storage \
+  --update-volumes name=storage,cloud-storage-bucket=[BUCKET_NAME]
+
+# Using the direct mount syntax (legacy)
+gcloud beta run services update aunooai-[TENANT] \
+  --region [REGION] \
+  --mount type=cloud-storage,bucket=[BUCKET_NAME],path=/app/app/data/[TENANT]
+```
+
+This provides direct file system access to the persistent storage, ensuring that all data written to this directory is automatically persisted to Cloud Storage.
+
+2. **Periodic Sync Backup**: As a secondary backup mechanism, we've implemented periodic data syncing in the entrypoint script:
 
 ```bash
 # Set up periodic sync to bucket (every 5 minutes) and on exit
@@ -142,7 +167,21 @@ SYNC_PID=$!
 echo "Started periodic sync process (PID: $SYNC_PID)"
 ```
 
-This ensures that data is synced to the Cloud Storage bucket every 5 minutes, reducing the risk of data loss.
+To verify that volume mounts are properly configured, check the Cloud Run service details under "Revisions" -> "Volumes". You should see a Cloud Storage bucket mounted.
+
+If the volume mount is missing, you can add it using:
+
+```bash
+./scripts/add-volume-mounts.sh --project [PROJECT_ID] --tenant [TENANT_NAME]
+```
+
+To add volume mounts to all tenants at once:
+
+```bash
+./scripts/add-volume-mounts.sh --project [PROJECT_ID]
+```
+
+The `add-volume-mounts.sh` script will automatically detect which volume mount syntax is compatible with your Google Cloud SDK version and apply the appropriate command.
 
 ### 5. Resource Constraints
 

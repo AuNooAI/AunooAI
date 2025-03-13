@@ -150,6 +150,12 @@ gcloud run services update aunooai-$TENANT \
   --set-env-vars="$ENV_VARS" \
   --service-account $SERVICE_ACCOUNT
 
+# Add storage bucket mount
+echo "Adding storage bucket mount..."
+gcloud run services update aunooai-$TENANT \
+  --region $REGION \
+  --mount type=cloud-storage,bucket=$BUCKET_NAME,path=/app/app/data/$INSTANCE
+
 echo ""
 echo "=== Storage Configuration Complete ==="
 echo "Tenant: $TENANT"
