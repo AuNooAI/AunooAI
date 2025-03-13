@@ -209,9 +209,11 @@ gcloud run deploy aunooai-$TENANT \
   --service-account $SA_EMAIL \
   --cpu-boost \
   --min-instances=1 \
-  --cpu=1 \
-  --memory=1Gi \
-  --timeout=300s
+  --max-instances=10 \
+  --cpu=2 \
+  --memory=4Gi \
+  --timeout=600s \
+  --concurrency=80
 
 # Get the service URL
 SERVICE_URL=$(gcloud run services describe aunooai-$TENANT --region $REGION --format="value(status.url)")

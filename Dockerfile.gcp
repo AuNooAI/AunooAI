@@ -104,12 +104,23 @@ if [ -n "$STORAGE_BUCKET" ]; then\n\
   echo "Syncing data from gs://${STORAGE_BUCKET}..."\n\
   gsutil -m rsync -r gs://${STORAGE_BUCKET}/ /app/app/data/${INSTANCE}/\n\
   \n\
-  # Set up sync back to bucket on exit\n\
+  # Set up periodic sync to bucket (every 5 minutes) and on exit\n\
   function sync_data_to_bucket() {\n\
-    echo "Syncing data back to gs://${STORAGE_BUCKET}..."\n\
+    echo "$(date): Syncing data to gs://${STORAGE_BUCKET}..."\n\
     gsutil -m rsync -r /app/app/data/${INSTANCE}/ gs://${STORAGE_BUCKET}/\n\
+    echo "$(date): Sync completed"\n\
   }\n\
+  \n\
+  # Set up exit trap\n\
   trap sync_data_to_bucket EXIT\n\
+  \n\
+  # Start periodic sync in background\n\
+  (while true; do\n\
+    sleep 300  # 5 minutes\n\
+    sync_data_to_bucket\n\
+  done) &\n\
+  SYNC_PID=$!\n\
+  echo "Started periodic sync process (PID: $SYNC_PID)"\n\
 fi\n\
 \n\
 # PORT handling: Cloud Run sets PORT automatically and we should use that\n\
