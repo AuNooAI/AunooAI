@@ -88,6 +88,9 @@ gcloud run deploy aunooai-[TENANT] \
 
 # Deploy with custom startup probe settings for applications that take longer to initialize
 ./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --admin-password [PASSWORD] --startup-timeout 300s --startup-period 10s --startup-failure-threshold 30 --disable-ssl true
+
+# Deploy with custom object retention period for data compliance
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --admin-password [PASSWORD] --retention-period 90d --disable-ssl true
 ```
 
 ## Common Issues and Solutions
@@ -320,3 +323,42 @@ Recommended resource settings:
 ### 8. Docker Authentication Issues with GCR
 
 **Issue**: When using `
+
+### 9. Object Retention Settings
+
+**Issue**: By default, Cloud Storage buckets do not have object retention policies enabled. Files persist indefinitely but can be deleted at any time, which might not meet compliance or data governance requirements.
+
+**Solution**: You can optionally set a retention policy using the `--retention-period` parameter when deploying:
+
+```bash
+# Set a 100-year retention period (effectively unlimited)
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --retention-period 100y
+
+# Set a 90-day retention period
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --retention-period 90d
+```
+
+For existing buckets, you can set retention policies using our utility script:
+
+```bash
+# Apply a 100-year retention to a specific bucket
+./scripts/set-bucket-retention.sh --project [PROJECT_ID] --tenant [TENANT] --retention-period 100y
+
+# Apply a 30-day retention to all tenant buckets in a project
+./scripts/set-bucket-retention.sh --project [PROJECT_ID] --all-tenants --retention-period 30d
+
+# Or use gsutil directly
+gsutil retention set 30d gs://[PROJECT_ID]-aunooai-[TENANT]
+```
+
+The retention period format follows the gsutil convention:
+- `30d` for 30 days
+- `1y` for 1 year
+- `100y` for 100 years (effectively unlimited retention)
+- `36h` for 36 hours
+
+**Important considerations:**
+- **Without a retention policy** (default): Files persist indefinitely but can be deleted at any time
+- **With a retention policy**: Files cannot be deleted until the retention period expires
+- Once set, retention policies cannot be removed, only increased in duration
+- Retention policies provide strong protection against accidental/intentional deletion, but reduce flexibility

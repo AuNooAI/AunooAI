@@ -32,6 +32,8 @@ STARTUP_TIMEOUT="300s"
 STARTUP_PERIOD="10s"
 STARTUP_FAILURE_THRESHOLD="30"
 DISABLE_SSL="false"
+# Object retention configuration
+RETENTION_PERIOD=""
 
 # Check if user has Docker permissions
 if ! docker info &>/dev/null; then
@@ -139,6 +141,10 @@ while [[ $# -gt 0 ]]; do
       DISABLE_SSL="$2"
       shift 2
       ;;
+    --retention-period)
+      RETENTION_PERIOD="$2"
+      shift 2
+      ;;
     --help)
       echo "Usage: $0 --project PROJECT_ID [OPTIONS]"
       echo ""
@@ -165,6 +171,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --startup-period SEC Startup probe period (default: 10s)"
       echo "  --startup-failure-threshold N Startup probe failure threshold (default: 30)"
       echo "  --disable-ssl BOOL   Disable SSL redirect (default: false)"
+      echo "  --retention-period PERIOD Object retention period (no default, format: e.g., 30d, 1y, 100y)"
       exit 0
       ;;
     *)
@@ -200,6 +207,7 @@ echo "Startup Timeout: $STARTUP_TIMEOUT"
 echo "Startup Period: $STARTUP_PERIOD"
 echo "Startup Failure Threshold: $STARTUP_FAILURE_THRESHOLD"
 echo "Disable SSL: $DISABLE_SSL"
+echo "Retention Period: $RETENTION_PERIOD"
 if [ -n "$OPENAI_API_KEY" ]; then echo "OpenAI API Key: [SET]"; fi
 if [ -n "$ANTHROPIC_API_KEY" ]; then echo "Anthropic API Key: [SET]"; fi
 if [ -n "$GOOGLE_API_KEY" ]; then echo "Google API Key: [SET]"; fi
@@ -275,6 +283,15 @@ fi
 BUCKET_NAME="${PROJECT_ID}-aunooai-${TENANT}"
 echo "Creating Cloud Storage bucket: $BUCKET_NAME"
 gsutil mb -l $REGION gs://$BUCKET_NAME || echo "Bucket already exists"
+
+# Set object retention policy (default: 30 days)
+echo "Setting object retention policy: $RETENTION_PERIOD"
+if [ -n "$RETENTION_PERIOD" ]; then
+  echo "Setting object retention policy: $RETENTION_PERIOD"
+  gsutil retention set $RETENTION_PERIOD gs://$BUCKET_NAME || echo "Failed to set retention policy, may require manual configuration"
+else
+  echo "No retention policy set. Objects can be deleted at any time but will persist indefinitely until deleted."
+fi
 
 # Build and tag the Docker image using the GCP-specific Dockerfile
 IMAGE_NAME="gcr.io/$PROJECT_ID/aunooai-$TENANT:$IMAGE_TAG"

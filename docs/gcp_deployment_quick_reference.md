@@ -37,6 +37,9 @@ gcloud services enable artifactregistry.googleapis.com containerregistry.googlea
 
 # Deployment with custom startup probe settings
 ./scripts/deploy-to-cloud-run.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --admin-password PASSWORD --startup-timeout 300s --startup-period 10s --startup-failure-threshold 30 --disable-ssl true
+
+# Deployment with object retention policy (optional, not set by default)
+./scripts/deploy-to-cloud-run.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --admin-password PASSWORD --retention-period 100y --disable-ssl true
 ```
 
 ### Update Existing Tenant
@@ -110,6 +113,15 @@ gsutil cp LOCAL_FILE gs://YOUR_PROJECT_ID-aunooai-TENANT_NAME/
 
 # Download data from bucket
 gsutil cp gs://YOUR_PROJECT_ID-aunooai-TENANT_NAME/FILE LOCAL_DESTINATION
+
+# Set object retention policy on existing bucket (optional)
+gsutil retention set 30d gs://YOUR_PROJECT_ID-aunooai-TENANT_NAME/
+
+# Apply retention policy to all tenant buckets
+./scripts/set-bucket-retention.sh --project YOUR_PROJECT_ID --all-tenants --retention-period 100y
+
+# View current retention policy
+gsutil retention get gs://YOUR_PROJECT_ID-aunooai-TENANT_NAME/
 ```
 
 ### Bucket Permissions
