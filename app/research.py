@@ -49,9 +49,13 @@ class Research:
         except Exception as e:
             logger.error(f"Error in Research initialization: {str(e)}", exc_info=True)
             raise
-        if not os.path.exists('.env'):
-            raise FileNotFoundError("The .env file does not exist. Please create it and add the necessary environment variables.")
-        load_dotenv()
+        
+        # Load environment variables if .env exists, but don't fail if it doesn't
+        try:
+            load_dotenv()
+        except Exception as e:
+            logger.warning(f"Error loading .env file: {str(e)}. Continuing with environment variables.")
+            
         self.available_models = get_available_models()
         self.ai_model = None
         self.article_analyzer = None
@@ -119,11 +123,15 @@ class Research:
         return topics
 
     def initialize_firecrawl(self):
-        firecrawl_api_key = settings.FIRECRAWL_API_KEY
-        if not firecrawl_api_key:
-            logger.warning("Firecrawl API key is missing. Some functionality will be limited.")
+        try:
+            firecrawl_api_key = settings.FIRECRAWL_API_KEY
+            if not firecrawl_api_key:
+                logger.warning("Firecrawl API key is missing. Some functionality will be limited.")
+                return None
+            return FirecrawlApp(api_key=firecrawl_api_key)
+        except Exception as e:
+            logger.warning(f"Error initializing Firecrawl: {str(e)}. Some functionality will be limited.")
             return None
-        return FirecrawlApp(api_key=firecrawl_api_key)
 
     def check_article_exists(self, uri: str) -> bool:
         """Check if an article exists in the raw_articles table."""
