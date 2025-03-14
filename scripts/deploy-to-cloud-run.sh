@@ -9,7 +9,7 @@
 set -e  # Exit on error
 
 # Default configuration
-PROJECT_ID=""
+PROJECT_ID="aunooai-project"
 REGION="us-central1"
 TENANT="tenant1"
 ADMIN_PASSWORD="admin"
@@ -21,6 +21,17 @@ MIN_INSTANCES="1"
 MAX_INSTANCES="10"
 CONCURRENCY="80"
 TIMEOUT="600s"
+IMAGE_TAG="latest"
+# LiteLLM configuration
+OPENAI_API_KEY=""
+ANTHROPIC_API_KEY=""
+GOOGLE_API_KEY=""
+LITELLM_CONFIG=""
+# Startup probe configuration
+STARTUP_TIMEOUT="300s"
+STARTUP_PERIOD="10s"
+STARTUP_FAILURE_THRESHOLD="30"
+DISABLE_SSL="false"
 
 # Check if user has Docker permissions
 if ! docker info &>/dev/null; then
@@ -92,6 +103,42 @@ while [[ $# -gt 0 ]]; do
       TIMEOUT="$2"
       shift 2
       ;;
+    --image-tag)
+      IMAGE_TAG="$2"
+      shift 2
+      ;;
+    --openai-api-key)
+      OPENAI_API_KEY="$2"
+      shift 2
+      ;;
+    --anthropic-api-key)
+      ANTHROPIC_API_KEY="$2"
+      shift 2
+      ;;
+    --google-api-key)
+      GOOGLE_API_KEY="$2"
+      shift 2
+      ;;
+    --litellm-config)
+      LITELLM_CONFIG="$2"
+      shift 2
+      ;;
+    --startup-timeout)
+      STARTUP_TIMEOUT="$2"
+      shift 2
+      ;;
+    --startup-period)
+      STARTUP_PERIOD="$2"
+      shift 2
+      ;;
+    --startup-failure-threshold)
+      STARTUP_FAILURE_THRESHOLD="$2"
+      shift 2
+      ;;
+    --disable-ssl)
+      DISABLE_SSL="$2"
+      shift 2
+      ;;
     --help)
       echo "Usage: $0 --project PROJECT_ID [OPTIONS]"
       echo ""
@@ -109,6 +156,15 @@ while [[ $# -gt 0 ]]; do
       echo "  --max-instances N    Maximum instances (default: 10)"
       echo "  --concurrency N      Concurrency per instance (default: 80)"
       echo "  --timeout SEC        Request timeout in seconds (default: 600s)"
+      echo "  --image-tag TAG      Docker image tag to use (default: latest)"
+      echo "  --openai-api-key KEY OpenAI API key"
+      echo "  --anthropic-api-key KEY Anthropic API key"
+      echo "  --google-api-key KEY Google API key"
+      echo "  --litellm-config PATH Path to LiteLLM config file"
+      echo "  --startup-timeout SEC Startup probe timeout (default: 300s)"
+      echo "  --startup-period SEC Startup probe period (default: 10s)"
+      echo "  --startup-failure-threshold N Startup probe failure threshold (default: 30)"
+      echo "  --disable-ssl BOOL   Disable SSL redirect (default: false)"
       exit 0
       ;;
     *)
@@ -139,6 +195,15 @@ echo "Min Instances: $MIN_INSTANCES"
 echo "Max Instances: $MAX_INSTANCES"
 echo "Concurrency: $CONCURRENCY"
 echo "Timeout: $TIMEOUT"
+echo "Image Tag: $IMAGE_TAG"
+echo "Startup Timeout: $STARTUP_TIMEOUT"
+echo "Startup Period: $STARTUP_PERIOD"
+echo "Startup Failure Threshold: $STARTUP_FAILURE_THRESHOLD"
+echo "Disable SSL: $DISABLE_SSL"
+if [ -n "$OPENAI_API_KEY" ]; then echo "OpenAI API Key: [SET]"; fi
+if [ -n "$ANTHROPIC_API_KEY" ]; then echo "Anthropic API Key: [SET]"; fi
+if [ -n "$GOOGLE_API_KEY" ]; then echo "Google API Key: [SET]"; fi
+if [ -n "$LITELLM_CONFIG" ]; then echo "LiteLLM Config: $LITELLM_CONFIG"; fi
 echo "========================================"
 
 # Ensure gcloud is authenticated
@@ -212,7 +277,7 @@ echo "Creating Cloud Storage bucket: $BUCKET_NAME"
 gsutil mb -l $REGION gs://$BUCKET_NAME || echo "Bucket already exists"
 
 # Build and tag the Docker image using the GCP-specific Dockerfile
-IMAGE_NAME="gcr.io/$PROJECT_ID/aunooai-$TENANT"
+IMAGE_NAME="gcr.io/$PROJECT_ID/aunooai-$TENANT:$IMAGE_TAG"
 echo "Building Docker image: $IMAGE_NAME"
 if [ "$USE_SUDO_FOR_DOCKER" = true ]; then
   sudo docker build -t $IMAGE_NAME -f Dockerfile.gcp .
@@ -223,6 +288,9 @@ fi
 # Push the image to Google Container Registry
 echo "Pushing image to Google Container Registry..."
 if [ "$USE_SUDO_FOR_DOCKER" = true ]; then
+  # Authenticate Docker with GCR using the current user's access token
+  echo "Using sudo for Docker. Authenticating with GCR..."
+  gcloud auth print-access-token | sudo docker login -u oauth2accesstoken --password-stdin https://gcr.io
   sudo docker push $IMAGE_NAME
 else
   docker push $IMAGE_NAME
@@ -245,6 +313,31 @@ echo "Deploying to Cloud Run..."
 # Create environment variables string
 ENV_VARS="INSTANCE=$TENANT,ADMIN_PASSWORD=$ADMIN_PASSWORD,STORAGE_BUCKET=$BUCKET_NAME"
 
+# Add LiteLLM environment variables if provided
+if [ -n "$OPENAI_API_KEY" ]; then
+  ENV_VARS="$ENV_VARS,OPENAI_API_KEY=$OPENAI_API_KEY"
+fi
+
+if [ -n "$ANTHROPIC_API_KEY" ]; then
+  ENV_VARS="$ENV_VARS,ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+fi
+
+if [ -n "$GOOGLE_API_KEY" ]; then
+  ENV_VARS="$ENV_VARS,GOOGLE_API_KEY=$GOOGLE_API_KEY"
+fi
+
+if [ -n "$LITELLM_CONFIG" ]; then
+  ENV_VARS="$ENV_VARS,LITELLM_CONFIG=$LITELLM_CONFIG"
+fi
+
+if [ "$DISABLE_SSL" = "true" ]; then
+  ENV_VARS="$ENV_VARS,DISABLE_SSL=true"
+fi
+
+# Comment out the startup probe parameter for now
+# STARTUP_PROBE="--startup-probe=tcp:port=$PORT,initial-delay=5s,timeout=$STARTUP_TIMEOUT,period=$STARTUP_PERIOD,failure-threshold=$STARTUP_FAILURE_THRESHOLD"
+STARTUP_PROBE=""
+
 # Try the newer syntax first for volume mounts
 if gcloud run deploy aunooai-$TENANT \
   --image $IMAGE_NAME \
@@ -261,9 +354,10 @@ if gcloud run deploy aunooai-$TENANT \
   --timeout=$TIMEOUT \
   --concurrency=$CONCURRENCY \
   --add-volume name=storage,type=cloud-storage,bucket=$BUCKET_NAME \
-  --add-volume-mount volume=storage,mount-path=/app/app/data/$TENANT; then
+  --add-volume-mount volume=storage,mount-path=/app/app/data/$TENANT \
+  $STARTUP_PROBE; then
   echo "Deployment successful with volume mount using new syntax"
-# If that fails, try the older syntax
+# If that fails, try the beta syntax with the correct parameters
 elif gcloud beta run deploy aunooai-$TENANT \
   --image $IMAGE_NAME \
   --platform managed \
@@ -278,13 +372,14 @@ elif gcloud beta run deploy aunooai-$TENANT \
   --memory=$MEMORY \
   --timeout=$TIMEOUT \
   --concurrency=$CONCURRENCY \
-  --update-volume-mounts mount-path=/app/app/data/$TENANT,volume=storage \
-  --update-volumes name=storage,cloud-storage-bucket=$BUCKET_NAME; then
+  --add-volume name=storage,type=cloud-storage,bucket=$BUCKET_NAME \
+  --add-volume-mount volume=storage,mount-path=/app/app/data/$TENANT \
+  $STARTUP_PROBE; then
   echo "Deployment successful with volume mount using beta syntax"
-# If both fail, try the direct mount syntax
+# If both fail, try without volume mounts
 else
-  echo "Attempting deployment with direct mount syntax..."
-  gcloud beta run deploy aunooai-$TENANT \
+  echo "Attempting deployment without volume mounts..."
+  gcloud run deploy aunooai-$TENANT \
     --image $IMAGE_NAME \
     --platform managed \
     --region $REGION \
@@ -298,10 +393,11 @@ else
     --memory=$MEMORY \
     --timeout=$TIMEOUT \
     --concurrency=$CONCURRENCY \
-    --mount type=cloud-storage,bucket=$BUCKET_NAME,path=/app/app/data/$TENANT
+    $STARTUP_PROBE
   
   if [ $? -eq 0 ]; then
-    echo "Deployment successful with direct mount syntax"
+    echo "Deployment successful without volume mounts"
+    echo "You may need to add volume mounts manually using the Google Cloud Console"
   else
     echo "All deployment attempts failed. Please check the error messages above."
     exit 1
@@ -320,5 +416,6 @@ echo "Admin Password: $ADMIN_PASSWORD"
 echo ""
 echo "To access the application, visit: $SERVICE_URL"
 echo "To update the deployment, run this script again with the same parameters."
+echo "To deploy with a specific image tag (e.g., litellm), use: --image-tag litellm"
 echo "To monitor the service, visit: https://console.cloud.google.com/run/detail/$REGION/aunooai-$TENANT/metrics"
 echo "==========================" 

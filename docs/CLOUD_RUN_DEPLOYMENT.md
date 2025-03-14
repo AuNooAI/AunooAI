@@ -35,20 +35,33 @@ docker build -f Dockerfile.gcp -t aunooai-app:latest .
 # Tag the image for Google Container Registry
 docker tag aunooai-app:latest gcr.io/[PROJECT_ID]/aunooai-app:latest
 
+# To use a specific tag (e.g., litellm)
+docker tag aunooai-app:latest gcr.io/[PROJECT_ID]/aunooai-app:litellm
+
 # Push the image to Google Container Registry
 docker push gcr.io/[PROJECT_ID]/aunooai-app:latest
+# Or push the specific tag
+docker push gcr.io/[PROJECT_ID]/aunooai-app:litellm
 ```
 
 ### Deploying to Cloud Run
 
 ```bash
-# Deploy to Cloud Run
+# Deploy to Cloud Run with default latest tag
 gcloud run deploy aunooai-[TENANT] \
   --image gcr.io/[PROJECT_ID]/aunooai-app:latest \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars="INSTANCE=[TENANT],ADMIN_PASSWORD=[PASSWORD],STORAGE_BUCKET=[BUCKET]"
+  --set-env-vars="INSTANCE=[TENANT],ADMIN_PASSWORD=[PASSWORD],STORAGE_BUCKET=[BUCKET],DISABLE_SSL=true"
+
+# Deploy to Cloud Run with a specific tag (e.g., litellm)
+gcloud run deploy aunooai-[TENANT] \
+  --image gcr.io/[PROJECT_ID]/aunooai-app:litellm \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars="INSTANCE=[TENANT],ADMIN_PASSWORD=[PASSWORD],STORAGE_BUCKET=[BUCKET],DISABLE_SSL=true"
 ```
 
 ### Deploying to GKE
@@ -56,6 +69,25 @@ gcloud run deploy aunooai-[TENANT] \
 ```bash
 # Deploy to GKE using the deployment script
 ./scripts/gcp-deploy.sh --project [PROJECT_ID] --tenant [TENANT] --admin-password [PASSWORD]
+```
+
+### Using the Deployment Script
+
+```bash
+# Deploy with the default latest tag
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --admin-password [PASSWORD]
+
+# Deploy with a specific tag (e.g., litellm)
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --admin-password [PASSWORD] --image-tag litellm
+
+# Deploy with SSL disabled to avoid redirect loops
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --admin-password [PASSWORD] --disable-ssl true
+
+# Deploy with LiteLLM API keys
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --admin-password [PASSWORD] --openai-api-key "your-key" --anthropic-api-key "your-key" --google-api-key "your-key" --disable-ssl true
+
+# Deploy with custom startup probe settings for applications that take longer to initialize
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --admin-password [PASSWORD] --startup-timeout 300s --startup-period 10s --startup-failure-threshold 30 --disable-ssl true
 ```
 
 ## Common Issues and Solutions
@@ -105,9 +137,9 @@ export PORT="${PORT:-8080}"
 
 ### 3. SSL Certificate Issues
 
-**Issue**: Cloud Run handles SSL termination, but the application was trying to use its own SSL.
+**Issue**: Cloud Run handles SSL termination, but the application was trying to use its own SSL, causing redirect loops.
 
-**Solution**: We explicitly disable SSL in the entrypoint script:
+**Solution**: We explicitly disable SSL in the entrypoint script and through an environment variable:
 
 ```bash
 # EXPLICITLY disable SSL for Cloud Run
@@ -116,7 +148,78 @@ export CERT_PATH="/dev/null"
 export KEY_PATH="/dev/null"
 ```
 
-### 4. Data Persistence Issues
+And when deploying, we set the `DISABLE_SSL` environment variable:
+
+```bash
+--set-env-vars="INSTANCE=[TENANT],ADMIN_PASSWORD=[PASSWORD],STORAGE_BUCKET=[BUCKET],DISABLE_SSL=true"
+```
+
+This prevents the application from attempting to redirect HTTP requests to HTTPS, which would create a redirect loop since Cloud Run already handles SSL termination.
+
+**IMPORTANT**: Always include `--disable-ssl true` when deploying to Cloud Run to avoid infinite redirect loops. Cloud Run manages SSL termination at its edge, and the application should not attempt to redirect HTTP to HTTPS.
+
+### 4. Startup Probe Configuration
+
+**Issue**: The application may take longer to start than the default Cloud Run startup probe allows, especially when initializing LiteLLM.
+
+**Solution**: If your application takes longer to start, you can adjust the startup probe parameters:
+
+```bash
+# Using the correct startup probe format for Cloud Run
+gcloud run deploy aunooai-[TENANT] \
+  --image gcr.io/[PROJECT_ID]/aunooai-app:latest \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars="INSTANCE=[TENANT],ADMIN_PASSWORD=[PASSWORD],STORAGE_BUCKET=[BUCKET],DISABLE_SSL=true" \
+  --startup-probe=tcp:port=8080,initial-delay=5s,timeout=300s,period=10s,failure-threshold=30
+```
+
+Or using the deployment script:
+
+```bash
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --startup-timeout 300s --startup-period 10s --startup-failure-threshold 30
+```
+
+In some cases, you may need to omit the startup probe entirely for the initial deployment, then add it later once the application is running. This is particularly important when deploying with LiteLLM, as initializing LiteLLM can take longer than the default startup probe allows.
+
+When debugging startup issues, check the container logs:
+
+```bash
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=aunooai-[TENANT] AND severity>=ERROR" --limit=20
+```
+
+If you see HealthCheckContainerError, try deploying without the startup probe parameters initially:
+
+```bash
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --admin-password [PASSWORD] --disable-ssl true
+```
+
+### 5. LiteLLM API Keys Configuration
+
+**Issue**: LiteLLM requires API keys for various model providers, which need to be passed to the Cloud Run service.
+
+**Solution**: Pass the API keys as environment variables when deploying:
+
+```bash
+# Deploy with LiteLLM API keys
+gcloud run deploy aunooai-[TENANT] \
+  --image gcr.io/[PROJECT_ID]/aunooai-app:latest \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --set-env-vars="INSTANCE=[TENANT],ADMIN_PASSWORD=[PASSWORD],STORAGE_BUCKET=[BUCKET],DISABLE_SSL=true,OPENAI_API_KEY=[KEY],ANTHROPIC_API_KEY=[KEY],GOOGLE_API_KEY=[KEY]"
+```
+
+Or using the deployment script:
+
+```bash
+./scripts/deploy-to-cloud-run.sh --project [PROJECT_ID] --tenant [TENANT] --admin-password [PASSWORD] --openai-api-key "your-key" --anthropic-api-key "your-key" --google-api-key "your-key"
+```
+
+This ensures that LiteLLM has the necessary credentials to access the various model providers.
+
+### 6. Data Persistence Issues
 
 **Issue**: Tenants may lose data if the Cloud Run container is terminated abruptly before syncing data back to the Cloud Storage bucket.
 
@@ -183,7 +286,7 @@ To add volume mounts to all tenants at once:
 
 The `add-volume-mounts.sh` script will automatically detect which volume mount syntax is compatible with your Google Cloud SDK version and apply the appropriate command.
 
-### 5. Resource Constraints
+### 7. Resource Constraints
 
 **Issue**: Default resource allocation may be insufficient for production workloads.
 
@@ -214,75 +317,6 @@ Recommended resource settings:
 - **Concurrency**: 80-100 for better request handling
 - **Timeout**: 600s to allow for longer-running operations
 
-## Dockerfile Structure
+### 8. Docker Authentication Issues with GCR
 
-The `Dockerfile.gcp` includes:
-
-1. Base image and dependencies
-2. Directory structure setup
-3. Python dependencies installation
-4. Application code copying
-5. Configuration setup
-6. Stub implementation for scripts module
-7. Entrypoint script creation
-8. Port configuration
-
-## Entrypoint Script
-
-The entrypoint script performs several key functions:
-
-1. Creates tenant-specific data directories
-2. Syncs data from Google Cloud Storage if specified
-3. Handles PORT environment variable
-4. Sets up environment variables
-5. Sets initial admin password if provided
-6. Verifies application structure
-7. Starts the application using cloud_run_start.py
-
-## Maintenance and Monitoring
-
-### Viewing Logs
-
-```bash
-# View Cloud Run logs
-gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=aunooai-[TENANT]" --limit=50
-
-# Stream logs in real-time
-gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=aunooai-[TENANT]" --limit=50 --format=json --stream
-```
-
-### Updating the Deployment
-
-To update the deployment:
-
-1. Make changes to the codebase
-2. Rebuild the Docker image
-3. Push the new image to Google Container Registry
-4. Deploy the new image to Cloud Run or GKE
-
-### Backup and Restore
-
-Data is automatically synced to the specified Google Cloud Storage bucket. To restore:
-
-1. Create a new deployment with the same STORAGE_BUCKET
-2. The entrypoint script will automatically sync data from the bucket
-
-## Best Practices
-
-1. **Use defensive programming**: Handle potential errors gracefully
-2. **Test locally**: Test Docker builds locally before deploying
-3. **Monitor logs**: Regularly check logs for errors
-4. **Version control**: Tag Docker images with meaningful versions
-5. **Document changes**: Keep this document updated with new issues and solutions
-
-## Troubleshooting
-
-If the application fails to start:
-
-1. Check Cloud Run logs for specific error messages
-2. Verify environment variables are set correctly
-3. Ensure the Docker image was built with the correct Dockerfile
-4. Check that all necessary directories and files exist in the image
-5. Verify that the entrypoint script has execute permissions
-
-For database-related issues, check if the stub DatabaseMerger implementation is being used, which indicates that the scripts module was not found. 
+**Issue**: When using `
