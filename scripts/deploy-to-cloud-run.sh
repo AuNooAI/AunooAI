@@ -1,7 +1,10 @@
 #!/bin/bash
 
-# AunooAI GCP Multi-Tenant Deployment Script
-# -----------------------------------------
+# AunooAI GCP Cloud Run Deployment Script
+# --------------------------------------
+# This script automates the deployment of AunooAI to Google Cloud Run.
+# It handles authentication, Docker image building, Cloud Storage setup,
+# and Cloud Run deployment with proper configuration.
 
 set -e  # Exit on error
 
@@ -12,10 +15,15 @@ TENANT="tenant1"
 ADMIN_PASSWORD="admin"
 PORT="8080"
 USE_SUDO_FOR_DOCKER=false
+MEMORY="4Gi"
+CPU="2"
+MIN_INSTANCES="1"
+MAX_INSTANCES="10"
+CONCURRENCY="80"
+TIMEOUT="600s"
 
 # Check if user has Docker permissions
 if ! docker info &>/dev/null; then
-  # For snap-based Docker installations
   if command -v snap &>/dev/null && snap list docker &>/dev/null; then
     echo "Docker is installed via snap. Using sudo for Docker commands."
     USE_SUDO_FOR_DOCKER=true
@@ -25,7 +33,6 @@ if ! docker info &>/dev/null; then
   else
     echo "Error: Docker is not running or you don't have permissions to use it."
     echo "Please make sure Docker is installed and running, and you have the necessary permissions."
-    echo "If you're using snap-based Docker, the script will automatically use sudo."
     exit 1
   fi
 fi
@@ -61,15 +68,47 @@ while [[ $# -gt 0 ]]; do
       PORT="$2"
       shift 2
       ;;
+    --memory)
+      MEMORY="$2"
+      shift 2
+      ;;
+    --cpu)
+      CPU="$2"
+      shift 2
+      ;;
+    --min-instances)
+      MIN_INSTANCES="$2"
+      shift 2
+      ;;
+    --max-instances)
+      MAX_INSTANCES="$2"
+      shift 2
+      ;;
+    --concurrency)
+      CONCURRENCY="$2"
+      shift 2
+      ;;
+    --timeout)
+      TIMEOUT="$2"
+      shift 2
+      ;;
     --help)
-      echo "Usage: $0 --project PROJECT_ID [--region REGION] [--tenant TENANT_NAME] [--admin-password PASSWORD] [--port PORT]"
+      echo "Usage: $0 --project PROJECT_ID [OPTIONS]"
+      echo ""
+      echo "Required:"
+      echo "  --project ID         GCP Project ID"
       echo ""
       echo "Options:"
-      echo "  --project ID         GCP Project ID (required)"
       echo "  --region REGION      GCP Region (default: us-central1)"
       echo "  --tenant NAME        Tenant name (default: tenant1)"
       echo "  --admin-password PWD Admin password (default: admin)"
       echo "  --port PORT          Container port (default: 8080)"
+      echo "  --memory MEMORY      Memory allocation (default: 4Gi)"
+      echo "  --cpu CPU            CPU allocation (default: 2)"
+      echo "  --min-instances N    Minimum instances (default: 1)"
+      echo "  --max-instances N    Maximum instances (default: 10)"
+      echo "  --concurrency N      Concurrency per instance (default: 80)"
+      echo "  --timeout SEC        Request timeout in seconds (default: 600s)"
       exit 0
       ;;
     *)
@@ -88,13 +127,19 @@ if [ -z "$PROJECT_ID" ]; then
 fi
 
 # Display configuration
-echo "=== AunooAI GCP Deployment ==="
+echo "=== AunooAI GCP Cloud Run Deployment ==="
 echo "Project ID: $PROJECT_ID"
 echo "Region: $REGION"
 echo "Tenant: $TENANT"
 echo "Admin Password: [REDACTED]"
 echo "Port: $PORT"
-echo "============================"
+echo "Memory: $MEMORY"
+echo "CPU: $CPU"
+echo "Min Instances: $MIN_INSTANCES"
+echo "Max Instances: $MAX_INSTANCES"
+echo "Concurrency: $CONCURRENCY"
+echo "Timeout: $TIMEOUT"
+echo "========================================"
 
 # Ensure gcloud is authenticated
 echo "Checking authentication..."
@@ -166,13 +211,13 @@ BUCKET_NAME="${PROJECT_ID}-aunooai-${TENANT}"
 echo "Creating Cloud Storage bucket: $BUCKET_NAME"
 gsutil mb -l $REGION gs://$BUCKET_NAME || echo "Bucket already exists"
 
-# Build and tag the Docker image
+# Build and tag the Docker image using the GCP-specific Dockerfile
 IMAGE_NAME="gcr.io/$PROJECT_ID/aunooai-$TENANT"
 echo "Building Docker image: $IMAGE_NAME"
 if [ "$USE_SUDO_FOR_DOCKER" = true ]; then
-  sudo docker build -t $IMAGE_NAME .
+  sudo docker build -t $IMAGE_NAME -f Dockerfile.gcp .
 else
-  docker build -t $IMAGE_NAME .
+  docker build -t $IMAGE_NAME -f Dockerfile.gcp .
 fi
 
 # Push the image to Google Container Registry
@@ -197,11 +242,9 @@ gsutil iam ch serviceAccount:$SA_EMAIL:objectAdmin gs://$BUCKET_NAME
 
 # Deploy to Cloud Run
 echo "Deploying to Cloud Run..."
-# Create environment variables string without PORT (which is reserved in Cloud Run)
+# Create environment variables string
 ENV_VARS="INSTANCE=$TENANT,ADMIN_PASSWORD=$ADMIN_PASSWORD,STORAGE_BUCKET=$BUCKET_NAME"
 
-# Deploy to Cloud Run with volume mount
-echo "Deploying to Cloud Run with volume mount..."
 # Try the newer syntax first for volume mounts
 if gcloud run deploy aunooai-$TENANT \
   --image $IMAGE_NAME \
@@ -211,12 +254,12 @@ if gcloud run deploy aunooai-$TENANT \
   --set-env-vars="$ENV_VARS" \
   --service-account $SA_EMAIL \
   --cpu-boost \
-  --min-instances=1 \
-  --max-instances=10 \
-  --cpu=2 \
-  --memory=4Gi \
-  --timeout=600s \
-  --concurrency=80 \
+  --min-instances=$MIN_INSTANCES \
+  --max-instances=$MAX_INSTANCES \
+  --cpu=$CPU \
+  --memory=$MEMORY \
+  --timeout=$TIMEOUT \
+  --concurrency=$CONCURRENCY \
   --add-volume name=storage,type=cloud-storage,bucket=$BUCKET_NAME \
   --add-volume-mount volume=storage,mount-path=/app/app/data/$TENANT; then
   echo "Deployment successful with volume mount using new syntax"
@@ -229,12 +272,12 @@ elif gcloud beta run deploy aunooai-$TENANT \
   --set-env-vars="$ENV_VARS" \
   --service-account $SA_EMAIL \
   --cpu-boost \
-  --min-instances=1 \
-  --max-instances=10 \
-  --cpu=2 \
-  --memory=4Gi \
-  --timeout=600s \
-  --concurrency=80 \
+  --min-instances=$MIN_INSTANCES \
+  --max-instances=$MAX_INSTANCES \
+  --cpu=$CPU \
+  --memory=$MEMORY \
+  --timeout=$TIMEOUT \
+  --concurrency=$CONCURRENCY \
   --update-volume-mounts mount-path=/app/app/data/$TENANT,volume=storage \
   --update-volumes name=storage,cloud-storage-bucket=$BUCKET_NAME; then
   echo "Deployment successful with volume mount using beta syntax"
@@ -249,25 +292,33 @@ else
     --set-env-vars="$ENV_VARS" \
     --service-account $SA_EMAIL \
     --cpu-boost \
-    --min-instances=1 \
-    --max-instances=10 \
-    --cpu=2 \
-    --memory=4Gi \
-    --timeout=600s \
-    --concurrency=80 \
+    --min-instances=$MIN_INSTANCES \
+    --max-instances=$MAX_INSTANCES \
+    --cpu=$CPU \
+    --memory=$MEMORY \
+    --timeout=$TIMEOUT \
+    --concurrency=$CONCURRENCY \
     --mount type=cloud-storage,bucket=$BUCKET_NAME,path=/app/app/data/$TENANT
+  
+  if [ $? -eq 0 ]; then
+    echo "Deployment successful with direct mount syntax"
+  else
+    echo "All deployment attempts failed. Please check the error messages above."
+    exit 1
+  fi
 fi
 
-# Get the service URL
+# Get the deployed service URL
 SERVICE_URL=$(gcloud run services describe aunooai-$TENANT --region $REGION --format="value(status.url)")
 
 echo ""
 echo "=== Deployment Complete ==="
-echo "Tenant: $TENANT"
+echo "AunooAI has been successfully deployed to Cloud Run."
 echo "Service URL: $SERVICE_URL"
-echo "Admin Username: admin"
+echo "Tenant: $TENANT"
 echo "Admin Password: $ADMIN_PASSWORD"
 echo ""
-echo "To deploy another tenant, run:"
-echo "$0 --project $PROJECT_ID --tenant NEW_TENANT_NAME --admin-password SECURE_PASSWORD"
-echo "" 
+echo "To access the application, visit: $SERVICE_URL"
+echo "To update the deployment, run this script again with the same parameters."
+echo "To monitor the service, visit: https://console.cloud.google.com/run/detail/$REGION/aunooai-$TENANT/metrics"
+echo "==========================" 

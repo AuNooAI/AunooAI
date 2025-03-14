@@ -116,6 +116,104 @@ export CERT_PATH="/dev/null"
 export KEY_PATH="/dev/null"
 ```
 
+### 4. Data Persistence Issues
+
+**Issue**: Tenants may lose data if the Cloud Run container is terminated abruptly before syncing data back to the Cloud Storage bucket.
+
+**Solution**: We've implemented two mechanisms for data persistence:
+
+1. **Cloud Storage Volume Mount**: The storage bucket is mounted directly as a volume in the Cloud Run service:
+
+```bash
+# Using the newer syntax (recommended for Cloud SDK 400+)
+gcloud run services update aunooai-[TENANT] \
+  --region [REGION] \
+  --add-volume name=storage,type=cloud-storage,bucket=[BUCKET_NAME] \
+  --add-volume-mount volume=storage,mount-path=/app/app/data/[TENANT]
+
+# Using the beta syntax (for older Cloud SDK versions)
+gcloud beta run services update aunooai-[TENANT] \
+  --region [REGION] \
+  --update-volume-mounts mount-path=/app/app/data/[TENANT],volume=storage \
+  --update-volumes name=storage,cloud-storage-bucket=[BUCKET_NAME]
+
+# Using the direct mount syntax (legacy)
+gcloud beta run services update aunooai-[TENANT] \
+  --region [REGION] \
+  --mount type=cloud-storage,bucket=[BUCKET_NAME],path=/app/app/data/[TENANT]
+```
+
+This provides direct file system access to the persistent storage, ensuring that all data written to this directory is automatically persisted to Cloud Storage.
+
+2. **Periodic Sync Backup**: As a secondary backup mechanism, we've implemented periodic data syncing in the entrypoint script:
+
+```bash
+# Set up periodic sync to bucket (every 5 minutes) and on exit
+function sync_data_to_bucket() {
+  echo "$(date): Syncing data to gs://${STORAGE_BUCKET}..."
+  gsutil -m rsync -r /app/app/data/${INSTANCE}/ gs://${STORAGE_BUCKET}/
+  echo "$(date): Sync completed"
+}
+
+# Set up exit trap
+trap sync_data_to_bucket EXIT
+
+# Start periodic sync in background
+(while true; do
+  sleep 300  # 5 minutes
+  sync_data_to_bucket
+done) &
+SYNC_PID=$!
+echo "Started periodic sync process (PID: $SYNC_PID)"
+```
+
+To verify that volume mounts are properly configured, check the Cloud Run service details under "Revisions" -> "Volumes". You should see a Cloud Storage bucket mounted.
+
+If the volume mount is missing, you can add it using:
+
+```bash
+./scripts/add-volume-mounts.sh --project [PROJECT_ID] --tenant [TENANT_NAME]
+```
+
+To add volume mounts to all tenants at once:
+
+```bash
+./scripts/add-volume-mounts.sh --project [PROJECT_ID]
+```
+
+The `add-volume-mounts.sh` script will automatically detect which volume mount syntax is compatible with your Google Cloud SDK version and apply the appropriate command.
+
+### 5. Resource Constraints
+
+**Issue**: Default resource allocation may be insufficient for production workloads.
+
+**Solution**: Increase CPU, memory, and concurrency settings in the Cloud Run deployment:
+
+```bash
+gcloud run deploy aunooai-$TENANT \
+  --image $IMAGE_NAME \
+  --platform managed \
+  --region $REGION \
+  --allow-unauthenticated \
+  --set-env-vars="$ENV_VARS" \
+  --service-account $SA_EMAIL \
+  --cpu-boost \
+  --min-instances=1 \
+  --max-instances=10 \
+  --cpu=2 \
+  --memory=4Gi \
+  --timeout=600s \
+  --concurrency=80
+```
+
+Recommended resource settings:
+- **CPU**: 2-4 cores depending on workload
+- **Memory**: 4-8 GB depending on workload
+- **Min Instances**: 1-2 to ensure availability
+- **Max Instances**: 10-20 to handle traffic spikes
+- **Concurrency**: 80-100 for better request handling
+- **Timeout**: 600s to allow for longer-running operations
+
 ## Dockerfile Structure
 
 The `Dockerfile.gcp` includes:

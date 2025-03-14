@@ -212,6 +212,41 @@ All tenant data is stored in Cloud Storage buckets, ensuring persistence across 
 gs://YOUR_PROJECT_ID-aunooai-TENANT_NAME/
 ```
 
+### Volume Mounts
+
+For Cloud Run deployments, we use Cloud Storage volume mounts to provide direct file system access to the persistent storage. This ensures that all data written to the specified directory is automatically persisted to Cloud Storage.
+
+The deployment script automatically configures volume mounts using the appropriate syntax for your Google Cloud SDK version:
+
+```bash
+# Using the newer syntax (recommended for Cloud SDK 400+)
+--add-volume name=storage,type=cloud-storage,bucket=[BUCKET_NAME] \
+--add-volume-mount volume=storage,mount-path=/app/app/data/[TENANT]
+```
+
+To verify that volume mounts are properly configured, check the Cloud Run service details under "Revisions" -> "Volumes". You should see:
+
+```
+Cloud Storage bucket
+[BUCKET_NAME] mounted at /app/app/data/[TENANT_NAME]
+```
+
+If the volume mount is missing, you can add it using:
+
+```bash
+./scripts/add-volume-mounts.sh --project [PROJECT_ID] --tenant [TENANT_NAME]
+```
+
+To add volume mounts to all tenants at once:
+
+```bash
+./scripts/add-volume-mounts.sh --project [PROJECT_ID]
+```
+
+### Backup Mechanism
+
+In addition to volume mounts, the application also implements a periodic sync mechanism that copies data to the Cloud Storage bucket every 5 minutes and when the container exits. This provides an additional layer of data protection.
+
 ## Environment Variables
 
 The following environment variables can be configured:
@@ -252,6 +287,43 @@ The following environment variables can be configured:
 
 - Verify that the service account has proper permissions to the Cloud Storage bucket
 - Check the application logs for any errors related to database access
+
+### Volume Mount Issues
+
+If you encounter issues with volume mounts:
+
+1. **Missing Volume Mount**: If the Cloud Run service doesn't show a volume mount under "Revisions" -> "Volumes":
+   ```bash
+   # Add volume mount for a specific tenant
+   ./scripts/add-volume-mounts.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
+   
+   # Add volume mounts for all tenants
+   ./scripts/add-volume-mounts.sh --project YOUR_PROJECT_ID
+   ```
+
+2. **Incompatible Volume Mount Syntax**: If you see errors like `unrecognized arguments: --mount` or `--add-volume`:
+   ```bash
+   # Check your Google Cloud SDK version
+   gcloud --version
+   
+   # Update Google Cloud SDK if needed
+   gcloud components update
+   ```
+   
+   The `add-volume-mounts.sh` script will automatically try different syntaxes compatible with your Google Cloud SDK version.
+
+3. **Permission Issues**: Ensure your service account has the necessary permissions:
+   ```bash
+   # Grant Storage Object Admin role to the service account
+   gcloud projects add-iam-policy-binding PROJECT_ID \
+     --member="serviceAccount:aunooai-TENANT-sa@PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/storage.objectAdmin"
+   ```
+
+4. **Data Not Persisting**: If data is still not persisting despite volume mounts:
+   - Verify the application is writing to the correct path (`/app/app/data/TENANT_NAME`)
+   - Check if the periodic sync mechanism is working by examining the logs
+   - Consider redeploying the tenant with the latest deployment script
 
 ### SSL Certificate Issues
 

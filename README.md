@@ -67,6 +67,67 @@ To run a specific instance:
 docker compose --profile customer-x up  # For Customer X instance
 ```
 
+### Google Cloud Run Deployment
+
+AunooAI can be deployed to Google Cloud Run for a scalable, serverless deployment with multi-tenant support.
+
+#### Prerequisites
+
+- Google Cloud Platform account
+- `gcloud` CLI installed and configured
+- Docker installed
+
+#### Deployment Steps
+
+1. Configure your GCP project:
+```bash
+gcloud config set project YOUR_PROJECT_ID
+```
+
+2. Deploy a new tenant:
+```bash
+./scripts/gcp-deploy.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --admin-password SECURE_PASSWORD
+```
+
+3. Check tenant storage configuration:
+```bash
+./scripts/check-tenant-storage.sh --project YOUR_PROJECT_ID --verbose
+```
+
+4. Update tenant resource settings:
+```bash
+./scripts/update-cloud-run-deployments.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
+```
+
+5. Fix all tenants at once:
+```bash
+./scripts/fix-all-tenants.sh --project YOUR_PROJECT_ID --admin-password SECURE_PASSWORD --redeploy
+```
+
+#### Resource Recommendations
+
+For production workloads, we recommend the following resource settings:
+- CPU: 2-4 cores
+- Memory: 4-8 GB
+- Min Instances: 1-2
+- Max Instances: 10-20
+- Concurrency: 80-100
+- Timeout: 600s
+
+These settings can be configured using the `update-cloud-run-deployments.sh` script.
+
+#### Data Persistence
+
+All tenant data is stored in Cloud Storage buckets, ensuring persistence across container restarts and updates. Each tenant has its own dedicated bucket:
+
+```
+gs://YOUR_PROJECT_ID-aunooai-TENANT_NAME/
+```
+
+The storage bucket is mounted as a volume in the Cloud Run service at `/app/app/data/TENANT_NAME`, providing direct file system access to the persistent storage. This ensures that all data written to this directory is automatically persisted to Cloud Storage.
+
+In addition, data is automatically synced to the bucket every 5 minutes and when the container exits as a backup mechanism.
+
 ### Self-Hosting Guide
 
 1. System Requirements:
@@ -101,4 +162,38 @@ docker compose --profile customer-x up  # For Customer X instance
    ```bash
    # Add to crontab
    0 0 1 * * /path/to/AunooAI/scripts/renew_cert.sh
+   ```
+
+## Troubleshooting
+
+### Cloud Run Deployment Issues
+
+1. **Missing Storage Bucket**: If a tenant is losing data, check if it has a storage bucket configured:
+   ```bash
+   ./scripts/verify-tenant-config.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
+   ```
+   
+   If no storage bucket is found, configure one:
+   ```bash
+   ./scripts/configure-tenant-storage.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
+   ```
+
+2. **Missing Volume Mount**: If the Cloud Run service doesn't show a volume mount under "Revisions" -> "Volumes", add it:
+   ```bash
+   ./scripts/add-volume-mounts.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
+   ```
+   
+   To add volume mounts to all tenants:
+   ```bash
+   ./scripts/add-volume-mounts.sh --project YOUR_PROJECT_ID
+   ```
+
+3. **Resource Constraints**: If a tenant is experiencing performance issues, update its resource settings:
+   ```bash
+   ./scripts/update-cloud-run-deployments.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --cpu 4 --memory 8Gi
+   ```
+
+4. **Data Persistence Issues**: To ensure data persistence, redeploy the tenant:
+   ```bash
+   ./scripts/gcp-deploy.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --admin-password SECURE_PASSWORD
    ```
