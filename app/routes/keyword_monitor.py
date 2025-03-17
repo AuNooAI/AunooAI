@@ -21,8 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/keyword-monitor")
 
 # Set up templates
-TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = Jinja2Templates(directory="templates")
 
 class KeywordGroup(BaseModel):
     name: str
