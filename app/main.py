@@ -787,13 +787,72 @@ async def get_latest_articles(
 @app.get("/api/article")
 async def get_article(uri: str):
     try:
+        # First try to get the article from the database
         article = db.get_article(uri)
-        if article is None:
-            raise HTTPException(status_code=404, detail="Article not found")
-        return JSONResponse(content=article)
+        
+        # If the article exists, return it
+        if article:
+            return JSONResponse(content=article)
+        
+        # If the article doesn't exist, try to fetch it
+        logger.info(f"Article not found in database, attempting to fetch/scrape: {uri}")
+        try:
+            # First try to fetch from raw_articles (in case it was scraped but not analyzed)
+            raw_article = research.get_existing_article_content(uri)
+            if raw_article:
+                logger.info(f"Found raw article content for {uri}")
+                return JSONResponse(
+                    content={
+                        "message": "Article found in raw content but not fully analyzed",
+                        "content": raw_article,
+                        "status": "raw_only"
+                    }
+                )
+                
+            # If not in raw_articles either, try to scrape it
+            logger.info(f"No raw content found, attempting to scrape: {uri}")
+            scraped_result = await research.scrape_article(uri)
+            
+            # Check if there was an error in the scraping process
+            if "error" in scraped_result:
+                error_msg = scraped_result.get("error", "Unknown error")
+                logger.error(f"Error scraping article: {error_msg}")
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": error_msg,
+                        "message": "Article not found and could not be scraped",
+                        "details": scraped_result.get("content", "")
+                    }
+                )
+                
+            # If scraping was successful, return the result
+            return JSONResponse(
+                content={
+                    "message": "Article scraped successfully but not yet analyzed",
+                    "content": scraped_result,
+                    "status": "scraped_only"
+                }
+            )
+            
+        except Exception as fetch_error:
+            logger.error(f"Error fetching/scraping article: {str(fetch_error)}", exc_info=True)
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "error": "Article not found",
+                    "message": f"Article not found and could not be fetched: {str(fetch_error)}"
+                }
+            )
     except Exception as e:
-        logger.error(f"Error fetching article: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in get_article endpoint: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Server error",
+                "message": f"An unexpected error occurred: {str(e)}"
+            }
+        )
 
 @app.delete("/api/article")
 async def delete_article(uri: str):
@@ -951,7 +1010,45 @@ async def get_existing_article_content(uri: str):
 
 @app.get("/api/scrape_article")
 async def scrape_article(uri: str):
-    return await research.scrape_article(uri)
+    """
+    Scrape an article URL using Firecrawl and return the content.
+    """
+    try:
+        logger.info(f"Received scrape request for URI: {uri}")
+        
+        if not uri:
+            logger.warning("Empty URI provided for scraping")
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Empty URL provided", "message": "Please provide a valid URL"}
+            )
+            
+        # Validate URI format
+        if not uri.startswith(('http://', 'https://')):
+            logger.warning(f"Invalid URI format: {uri}")
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid URL format", "message": "URL must start with http:// or https://"}
+            )
+            
+        result = await research.scrape_article(uri)
+        
+        # Check if there was an error in the scraping process
+        if "error" in result:
+            error_msg = result.get("error", "Unknown error")
+            logger.error(f"Error scraping article: {error_msg}")
+            return JSONResponse(
+                status_code=500,
+                content={"error": error_msg, "message": result.get("content", "Failed to scrape article")}
+            )
+            
+        return result
+    except Exception as e:
+        logger.error(f"Unexpected error in scrape_article endpoint: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Server error", "message": f"An unexpected error occurred: {str(e)}"}
+        )
 
 @app.get("/fetch_article_content")
 async def fetch_article_content(url: str):

@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import json
-from config.settings import DATABASE_DIR
+from app.config.settings import DATABASE_DIR
 from datetime import datetime
 from typing import List, Tuple, Optional, Dict
 from sqlalchemy import create_engine
@@ -101,6 +101,18 @@ class Database:
                     driver_type_explanation TEXT,
                     topic TEXT,
                     analyzed BOOLEAN DEFAULT FALSE
+                )
+            """)
+            
+            # Create raw_articles table for storing original content
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS raw_articles (
+                    uri TEXT PRIMARY KEY,
+                    raw_markdown TEXT,
+                    submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
+                    last_updated TEXT,
+                    topic TEXT,
+                    FOREIGN KEY (uri) REFERENCES articles(uri) ON DELETE CASCADE
                 )
             """)
             
@@ -937,6 +949,22 @@ class Database:
             cursor = conn.cursor()
             current_time = datetime.now().isoformat()
             
+            # Check if the raw_articles table exists, create it if not
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='raw_articles'")
+            if not cursor.fetchone():
+                logger.info("Creating raw_articles table as it does not exist")
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS raw_articles (
+                        uri TEXT PRIMARY KEY,
+                        raw_markdown TEXT,
+                        submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
+                        last_updated TEXT,
+                        topic TEXT,
+                        FOREIGN KEY (uri) REFERENCES articles(uri) ON DELETE CASCADE
+                    )
+                """)
+                conn.commit()
+            
             cursor.execute("SELECT * FROM raw_articles WHERE uri = ?", (uri,))
             existing_raw_article = cursor.fetchone()
             
@@ -963,6 +991,13 @@ class Database:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                
+                # First check if the raw_articles table exists
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='raw_articles'")
+                if not cursor.fetchone():
+                    logger.warning("raw_articles table does not exist yet")
+                    return None
+                
                 cursor.execute("SELECT * FROM raw_articles WHERE uri = ?", (uri,))
                 result = cursor.fetchone()
                 if result:

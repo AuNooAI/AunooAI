@@ -5,7 +5,7 @@ import logging
 import os
 import json
 from firecrawl import FirecrawlApp
-from config import settings
+from app.config import settings
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.database import Database, SessionLocal
@@ -140,6 +140,10 @@ class Research:
             return result is not None
         except Exception as e:
             logger.error(f"Error checking if article exists: {str(e)}")
+            # If the error is about missing table, return False without further errors
+            if "no such table: raw_articles" in str(e):
+                logger.warning("raw_articles table does not exist yet. Will be created on the next save.")
+                return False
             return False
 
     async def fetch_article_content(self, uri: str):
@@ -412,6 +416,22 @@ class Research:
         try:
             logger.info(f"Starting article scrape for URI: {uri}")
             
+            # Check if article analyzer is initialized
+            if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
+                if not self.ai_model:
+                    # Use the first available model as default if none is set
+                    if not self.available_models:
+                        logger.error("No AI models are configured. Cannot analyze article.")
+                        return {
+                            "error": "No AI models configured",
+                            "content": "Cannot analyze article: AI models not configured.",
+                            "source": self.extract_source(uri),
+                            "publication_date": datetime.now(timezone.utc).date().isoformat()
+                        }
+                    self.set_ai_model(self.available_models[0]['name'])
+                    logger.info(f"Automatically selected AI model: {self.available_models[0]['name']}")
+                self.article_analyzer = ArticleAnalyzer(self.ai_model)
+            
             # Check if Firecrawl is available
             if not self.firecrawl_app:
                 logger.warning("Firecrawl is not configured. Cannot scrape article.")
@@ -422,16 +442,49 @@ class Research:
                     "error": "Firecrawl not configured"
                 }
             
-            scrape_result = self.firecrawl_app.scrape_url(
-                uri,
-                params={
-                    'formats': ['markdown']
+            # Validate URI format
+            if not uri.startswith(('http://', 'https://')):
+                logger.warning(f"Invalid URI format: {uri}")
+                return {
+                    "content": f"Invalid URI format: {uri}. URI must start with http:// or https://",
+                    "source": self.extract_source(uri),
+                    "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                    "error": "Invalid URI format"
                 }
-            )
             
-            if 'markdown' in scrape_result:
+            logger.debug(f"Calling Firecrawl.scrape_url with URI: {uri}")
+            try:
+                scrape_result = self.firecrawl_app.scrape_url(
+                    uri,
+                    params={
+                        'formats': ['markdown']
+                    }
+                )
+                logger.debug(f"Firecrawl response keys: {scrape_result.keys() if isinstance(scrape_result, dict) else 'Not a dict'}")
+            except Exception as scrape_error:
+                logger.error(f"Firecrawl API error: {str(scrape_error)}")
+                return {
+                    "content": f"Error scraping article: {str(scrape_error)}",
+                    "source": self.extract_source(uri),
+                    "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                    "error": f"Firecrawl API error: {str(scrape_error)}"
+                }
+            
+            # Check if the result contains markdown
+            if isinstance(scrape_result, dict) and 'markdown' in scrape_result:
                 logger.info(f"Successfully scraped content from {uri}")
                 content = scrape_result['markdown']
+                
+                # Check if content is empty or too short
+                if not content or len(content.strip()) < 10:
+                    logger.warning(f"Received empty or too short content from Firecrawl for {uri}")
+                    return {
+                        "content": "Received empty or too short content from Firecrawl.",
+                        "source": self.extract_source(uri),
+                        "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                        "error": "Empty content"
+                    }
+                
                 # Save the raw markdown
                 try:
                     self.db.save_raw_article(uri, content, self.current_topic)
@@ -439,30 +492,49 @@ class Research:
                 except Exception as save_error:
                     logger.error(f"Failed to save raw article: {str(save_error)}")
                     logger.error(f"Current topic: {self.current_topic}")
-                    raise save_error
-
-                # Extract the date using ArticleAnalyzer
-                publication_date = self.article_analyzer.extract_publication_date(content)
-                logger.debug(f"Publication date extracted: {publication_date}")
+                    # Continue even if saving fails - we still want to return the content
+                
+                try:
+                    # Extract the date using ArticleAnalyzer
+                    publication_date = self.article_analyzer.extract_publication_date(content)
+                    logger.debug(f"Publication date extracted: {publication_date}")
+                except Exception as date_error:
+                    logger.error(f"Error extracting publication date: {str(date_error)}")
+                    publication_date = datetime.now(timezone.utc).date().isoformat()
 
                 source = self.extract_source(uri)
                 logger.info(f"Article processing complete. Source: {source}, Publication date: {publication_date}")
-                return {"content": content, "source": source, "publication_date": publication_date}
-            else:
-                logger.error(f"Failed to fetch content for {uri}")
+                
+                # Get metadata if available
+                metadata = {}
+                if 'metadata' in scrape_result:
+                    metadata = scrape_result['metadata']
+                    logger.debug(f"Metadata: {metadata}")
+                
                 return {
-                    "content": "Failed to fetch article content.", 
+                    "content": content, 
+                    "source": source, 
+                    "publication_date": publication_date,
+                    "metadata": metadata
+                }
+            else:
+                # Log the actual response format received
+                logger.error(f"Unexpected response format from Firecrawl: {scrape_result}")
+                return {
+                    "content": "Failed to fetch article content. Unexpected response format.", 
                     "source": self.extract_source(uri), 
-                    "publication_date": datetime.now(timezone.utc).date().isoformat()
+                    "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                    "error": "Unexpected response format"
                 }
             
         except Exception as e:
             logger.error(f"Error scraping article: {str(e)}", exc_info=True)
             logger.error(f"URI: {uri}, Current topic: {self.current_topic}")
             return {
-                "content": "Failed to scrape article content.", 
+                "content": f"Failed to scrape article content: {str(e)}", 
                 "source": self.extract_source(uri), 
-                "publication_date": datetime.now(timezone.utc).date().isoformat()
+                "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                "error": str(e)
             }
 
     def get_recent_articles_by_topic(self, topic_name, limit=10):
