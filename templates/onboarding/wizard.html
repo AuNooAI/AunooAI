@@ -786,6 +786,8 @@ async function saveTopic() {
             keywords: keywords
         };
         
+        console.log("Saving topic data:", JSON.stringify(topicData, null, 2));
+        
         // Send POST request
         const response = await fetch('/api/onboarding/save-topic', {
             method: 'POST',
@@ -795,15 +797,22 @@ async function saveTopic() {
             body: JSON.stringify(topicData)
         });
         
+        console.log("Response status:", response.status);
+        
         // Handle the response
         const result = await response.json();
+        console.log("Response data:", JSON.stringify(result, null, 2));
         
         // Check if confirmation is required (status code 409)
         if (response.status === 409 && result.requires_confirmation) {
             if (confirm(result.message)) {
+                console.log("User confirmed overwrite");
+                
                 // User confirmed, send another request with confirmation flag
                 topicData.requires_confirmation = true;
                 topicData.confirmed = true;
+                
+                console.log("Sending confirmation request:", JSON.stringify(topicData, null, 2));
                 
                 const confirmResponse = await fetch('/api/onboarding/save-topic', {
                     method: 'POST',
@@ -813,7 +822,10 @@ async function saveTopic() {
                     body: JSON.stringify(topicData)
                 });
                 
+                console.log("Confirmation response status:", confirmResponse.status);
+                
                 const confirmResult = await confirmResponse.json();
+                console.log("Confirmation response data:", JSON.stringify(confirmResult, null, 2));
                 
                 if (confirmResponse.ok) {
                     showSuccessMessage(confirmResult.message || "Topic saved successfully");
@@ -822,6 +834,8 @@ async function saveTopic() {
                     showErrorMessage(confirmResult.detail || "Error saving topic");
                     return false;
                 }
+            } else {
+                console.log("User canceled overwrite");
             }
             return false;
         }

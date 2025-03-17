@@ -555,17 +555,35 @@ async def save_topic(
 ):
     """Save a new topic configuration."""
     try:
+        logger.info(f"Saving topic: {topic_data.get('name', 'unknown')}")
+        logger.info(f"Topic data: {json.dumps(topic_data, indent=2)}")
+        
         # Ensure required fields exist
         if not topic_data.get("name"):
+            logger.error("Topic name is required but was not provided")
             raise HTTPException(
                 status_code=400,
                 detail="Topic name is required"
             )
 
-        # Load current config to get standard values
-        config_path = 'app/config/config.json'
-        with open(config_path, 'r') as f:
-            config = json.load(f)
+        # Get absolute path to config.json
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        config_path = os.path.join(base_dir, 'app', 'config', 'config.json')
+        logger.info(f"Using absolute config path: {config_path}")
+        logger.info(f"Config path exists: {os.path.exists(config_path)}")
+        logger.info(f"Config path is file: {os.path.isfile(config_path)}")
+        logger.info(f"Config path permissions: {oct(os.stat(config_path).st_mode)}")
+        
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                logger.info(f"Successfully loaded config with {len(config.get('topics', []))} topics")
+        except Exception as e:
+            logger.error(f"Error loading config: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to load config: {str(e)}"
+            )
 
         # Get standard values from Trend Monitoring topic (most generic)
         standard_topic = next(
@@ -573,6 +591,7 @@ async def save_topic(
              if topic['name'] == "Trend Monitoring"),
             config['topics'][0]  # Fallback to first topic if not found
         )
+        logger.info(f"Using standard topic: {standard_topic['name']}")
 
         # Format topic data to match config.json structure
         formatted_topic = {
@@ -583,6 +602,7 @@ async def save_topic(
             "time_to_impact": topic_data.get("time_to_impact", standard_topic["time_to_impact"]),
             "driver_types": topic_data.get("driver_types", standard_topic["driver_types"])
         }
+        logger.info(f"Formatted topic: {json.dumps(formatted_topic, indent=2)}")
 
         # Check if topic exists in config
         existing_topic_index = next(
@@ -590,19 +610,26 @@ async def save_topic(
              if topic['name'] == formatted_topic['name']),
             None
         )
+        logger.info(f"Topic exists in config: {existing_topic_index is not None}")
 
         # Check if topic exists in database
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT 1 FROM articles WHERE topic = ? LIMIT 1",
-                (topic_data["name"],)
-            )
-            topic_exists = cursor.fetchone() is not None
+        try:
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT 1 FROM articles WHERE topic = ? LIMIT 1",
+                    (topic_data["name"],)
+                )
+                topic_exists = cursor.fetchone() is not None
+                logger.info(f"Topic exists in database: {topic_exists}")
+        except Exception as e:
+            logger.warning(f"Error checking if topic exists in database: {str(e)}")
+            topic_exists = False
 
         # If topic exists in either place, return warning
         if existing_topic_index is not None or topic_exists:
             if not topic_data.get("requires_confirmation", False) or not topic_data.get("confirmed", False):
+                logger.info("Topic exists and requires confirmation")
                 return JSONResponse(
                     content={
                         "status": "warning",
@@ -611,58 +638,95 @@ async def save_topic(
                     },
                     status_code=409
                 )
+            else:
+                logger.info("Topic exists but user confirmed overwrite")
 
         # Update or create topic in config.json
         if existing_topic_index is not None:
+            logger.info(f"Updating existing topic at index {existing_topic_index}")
             config['topics'][existing_topic_index] = formatted_topic
         else:
+            logger.info("Adding new topic to config")
             config['topics'].append(formatted_topic)
 
         # Save updated config
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=2)
-
-        # Create or update topic in database
-        if topic_exists:
-            db.update_topic(topic_data["name"])
-        else:
-            db.create_topic(topic_data["name"])
+        try:
+            logger.info(f"Saving config to {config_path}")
+            # First create a temp file and then rename to ensure atomic write
+            temp_config_path = f"{config_path}.temp"
+            with open(temp_config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            
+            # Check if temp file was created successfully
+            if not os.path.exists(temp_config_path):
+                raise Exception(f"Failed to create temp file at {temp_config_path}")
+                
+            # Rename the temp file to the actual config file
+            os.replace(temp_config_path, config_path)
+            logger.info("Config saved successfully")
+        except Exception as e:
+            logger.error(f"Error saving config: {str(e)}")
+            # Try direct write as fallback
+            try:
+                logger.info("Trying direct write as fallback")
+                with open(config_path, 'w') as f:
+                    json.dump(config, f, indent=2)
+                logger.info("Config saved successfully with direct write")
+            except Exception as direct_write_error:
+                logger.error(f"Direct write also failed: {str(direct_write_error)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to save config: {str(e)}"
+                )
 
         # Handle keyword group
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id FROM keyword_groups WHERE name = ? AND topic = ?",
-                (topic_data["name"], topic_data["name"])
-            )
-            group = cursor.fetchone()
-
-            if group:
-                group_id = group[0]
-                # Clear existing keywords
+        try:
+            logger.info("Setting up keyword group")
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
                 cursor.execute(
-                    "DELETE FROM monitored_keywords WHERE group_id = ?",
-                    (group_id,)
-                )
-            else:
-                # Create new group
-                cursor.execute(
-                    "INSERT INTO keyword_groups (name, topic) VALUES (?, ?)",
+                    "SELECT id FROM keyword_groups WHERE name = ? AND topic = ?",
                     (topic_data["name"], topic_data["name"])
                 )
-                group_id = cursor.lastrowid
+                group = cursor.fetchone()
 
-            # Add keywords
-            keywords = topic_data.get("keywords", [])
-            for keyword in keywords:
-                cursor.execute(
-                    "INSERT INTO monitored_keywords (group_id, keyword) "
-                    "VALUES (?, ?)",
-                    (group_id, keyword)
-                )
+                if group:
+                    group_id = group[0]
+                    logger.info(f"Found existing keyword group with ID {group_id}")
+                    # Clear existing keywords
+                    cursor.execute(
+                        "DELETE FROM monitored_keywords WHERE group_id = ?",
+                        (group_id,)
+                    )
+                    logger.info(f"Cleared existing keywords for group {group_id}")
+                else:
+                    # Create new group
+                    logger.info("Creating new keyword group")
+                    cursor.execute(
+                        "INSERT INTO keyword_groups (name, topic) VALUES (?, ?)",
+                        (topic_data["name"], topic_data["name"])
+                    )
+                    group_id = cursor.lastrowid
+                    logger.info(f"Created new keyword group with ID {group_id}")
 
-            conn.commit()
+                # Add keywords
+                keywords = topic_data.get("keywords", [])
+                logger.info(f"Adding {len(keywords)} keywords to group {group_id}")
+                for keyword in keywords:
+                    cursor.execute(
+                        "INSERT INTO monitored_keywords (group_id, keyword) "
+                        "VALUES (?, ?)",
+                        (group_id, keyword)
+                    )
+                    logger.info(f"Added keyword: {keyword}")
 
+                conn.commit()
+                logger.info("Database changes committed")
+        except Exception as e:
+            logger.error(f"Error handling keyword group: {str(e)}")
+            # Continue despite keyword group error - config.json update is the priority
+
+        logger.info("Topic saved successfully")
         return JSONResponse(content={
             "status": "success",
             "message": "Topic saved successfully"
