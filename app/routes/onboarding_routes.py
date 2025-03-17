@@ -467,6 +467,9 @@ async def suggest_topic_attributes(
                 status_code=400,
                 detail="topic_name is required"
             )
+            
+        # Get optional description
+        description = topic_data.get("description", "")
 
         # Load example topics
         with open('app/config/config.json', 'r') as f:
@@ -487,16 +490,36 @@ A topic in our system can represent various types of information collections:
 3. Groups/Organizations (e.g., AI researchers, competitors, sports teams)
 4. Scenarios/Questions (e.g., "Is AI hype?", "How strong is Cloud Repatriation?")
 
+I want to create a topic called "{topic_name}".
+{f"Additional description: {description}" if description else ""}
+
 Each topic has specific characteristics:
 
 1. Topic Name: A clear description that could be a question, market, field, or group
-2. Categories: Components that help analyze and understand the topic deeply
-   Example: For "AI Hype" - AI in Finance, Research Breakthroughs, Industry Adoption
 
-3. Future Signals: Indicators of topic direction
-   - For markets: "Market Convergence", "Growth Stalling"
-   - For questions: "AI is hype", "AI is evolving gradually"
-   - For tracking: "New Hire", "New Feature"
+2. Categories: Components that help analyze and understand the topic deeply
+   Example: For "AI Hype" - AI in Finance, AI in Science, AI Research Breakthroughs
+
+3. Future Signals: CRITICAL - These are alternative possible futures or outcomes, NOT just developments
+   IMPORTANT: Signals should be short, clear statements about what MIGHT happen
+   
+   Examples of GOOD future signals for "AI Hype":
+   - "AI is just hype"
+   - "AI is a bubble"
+   - "AI is accelerating"
+   - "AI has plateaued"
+   - "AI will evolve gradually"
+   
+   Examples of GOOD future signals for "Cloud Repatriation":
+   - "Widespread cloud exit"
+   - "Selective workload repatriation"
+   - "Hybrid equilibrium emerges"
+   - "Cloud dominance continues"
+   
+   Examples of BAD future signals (too vague, not alternative futures):
+   - "Advancement in AI technology"
+   - "Significant growth in adoption"
+   - "Breakthrough in methods"
 
 4. Sentiments: Attitude towards the topic
    - Basic: Positive, Neutral, Negative
@@ -517,33 +540,92 @@ Each topic has specific characteristics:
    - Terminator: Ends developments
    - Validator: Confirms developments
 
-Please suggest appropriate attributes for a new topic called "{topic_name}".
-Focus on providing:
-1. 5-10 relevant categories
-2. 3-5 future signals
-3. 2-3 relevant keywords for monitoring (focus on companies, technologies, people, or domain names)
-4. A brief explanation of why these suggestions are relevant
+Please suggest appropriate attributes for this topic.
+First provide a brief (2-3 sentences), technical explanation of why your suggestions are appropriate, and then provide:
+1. 5-8 relevant categories - specific components of the topic
+2. 4-5 future signals - these MUST be short, alternative possible futures (5-8 words each)
+3. 3-4 relevant keywords for monitoring - specific searchable terms
 
 Format your response as JSON with the following structure:
 {{
+    "explanation": "Your explanation here",
     "categories": ["category1", "category2", ...],
     "future_signals": ["signal1", "signal2", ...],
-    "keywords": ["keyword1", "keyword2", "keyword3"],
-    "explanation": "Your explanation here"
+    "keywords": ["keyword1", "keyword2", "keyword3"]
 }}"""
 
         # Get response from LLM
-        messages = [{"role": "user", "content": prompt}]
-        response = completion(
-            model="gpt-4",
-            messages=messages,
-            max_tokens=1000
-        )
-        
-        # Parse and return suggestions
-        suggestions = json.loads(response.choices[0].message.content)
-        return JSONResponse(content=suggestions)
-        
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            response = completion(
+                model="gpt-4",
+                messages=messages,
+                max_tokens=1000
+            )
+            
+            # Parse the response
+            suggestions = json.loads(response.choices[0].message.content)
+            
+            # Validate and clean up the suggestions
+            if not suggestions.get("explanation") or len(suggestions.get("explanation", "")) < 20:
+                # Add a default explanation if missing or too short
+                suggestions["explanation"] = f"These attributes were selected to comprehensively track '{topic_name}' with focused categories and plausible alternative futures."
+            
+            # Ensure future signals are properly formatted (concise, alternative futures)
+            future_signals = suggestions.get("future_signals", [])
+            cleaned_signals = []
+            
+            for i, signal in enumerate(future_signals):
+                # Remove quotes if present
+                if signal.startswith('"') and signal.endswith('"'):
+                    signal = signal[1:-1]
+                
+                # Truncate overly long signals
+                if len(signal) > 40:
+                    signal = signal[:37] + "..."
+                
+                # Skip signals that aren't alternative futures (contain certain problematic words)
+                problematic_terms = ["advancement", "breakthrough", "progress in", "development of", "adoption of"]
+                if not any(term in signal.lower() for term in problematic_terms):
+                    cleaned_signals.append(signal)
+            
+            # Ensure we have enough signals even after filtering
+            if len(cleaned_signals) < 3:
+                default_outcomes = [
+                    f"{topic_name} becomes mainstream",
+                    f"{topic_name} remains niche",
+                    f"{topic_name} disrupts industry",
+                    f"{topic_name} evolves gradually"
+                ]
+                cleaned_signals.extend(default_outcomes[:5-len(cleaned_signals)])
+            
+            # Limit to 5 signals maximum
+            suggestions["future_signals"] = cleaned_signals[:5]
+            
+            # Ensure we have enough keywords
+            if len(suggestions.get("keywords", [])) < 3:
+                # Extract potential keywords from categories if needed
+                categories = suggestions.get("categories", [])
+                additional_keywords = [c.split()[-1] for c in categories[:3] if len(c.split()) > 1]
+                suggestions["keywords"] = list(set(suggestions.get("keywords", []) + additional_keywords))[:4]
+            
+            logger.info(f"Generated suggestions for topic '{topic_name}'")
+            return JSONResponse(content=suggestions)
+            
+        except Exception as e:
+            logger.error(f"Error in LLM processing: {str(e)}")
+            # Fallback response with reasonable defaults
+            return JSONResponse(content={
+                "explanation": f"These are baseline attributes for tracking the future trajectory of {topic_name}.",
+                "categories": [f"{topic_name} Analysis", f"{topic_name} Development", f"{topic_name} Impacts", 
+                               f"{topic_name} Applications", f"{topic_name} Challenges"],
+                "future_signals": [f"{topic_name} becomes mainstream", f"{topic_name} remains niche", 
+                                  f"{topic_name} disrupts industry", f"{topic_name} evolves gradually"],
+                "keywords": [topic_name, topic_name.lower().split()[-1] if " " in topic_name else topic_name]
+            })
+            
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error suggesting topic attributes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -565,6 +647,9 @@ async def save_topic(
                 status_code=400,
                 detail="Topic name is required"
             )
+            
+        # Get keywords if provided (optional)
+        keywords = topic_data.get("keywords", [])
 
         # Get absolute path to config.json
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -600,7 +685,8 @@ async def save_topic(
             "future_signals": topic_data.get("future_signals", []),
             "sentiment": topic_data.get("sentiment", standard_topic["sentiment"]),
             "time_to_impact": topic_data.get("time_to_impact", standard_topic["time_to_impact"]),
-            "driver_types": topic_data.get("driver_types", standard_topic["driver_types"])
+            "driver_types": topic_data.get("driver_types", standard_topic["driver_types"]),
+            "keywords": keywords
         }
         logger.info(f"Formatted topic: {json.dumps(formatted_topic, indent=2)}")
 
@@ -710,7 +796,6 @@ async def save_topic(
                     logger.info(f"Created new keyword group with ID {group_id}")
 
                 # Add keywords
-                keywords = topic_data.get("keywords", [])
                 logger.info(f"Adding {len(keywords)} keywords to group {group_id}")
                 for keyword in keywords:
                     cursor.execute(

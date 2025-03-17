@@ -30,6 +30,9 @@ ENV/
 app/data/*.db
 reports/
 app/config/config.json
+app/config/litellm_config.yaml
+app/config/templates.json
+app/config/provider_config.json
 
 # IDE and Editor files
 .idea/

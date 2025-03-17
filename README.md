@@ -164,6 +164,67 @@ In addition, data is automatically synced to the bucket every 5 minutes and when
    0 0 1 * * /path/to/AunooAI/scripts/renew_cert.sh
    ```
 
+## Updating the Application
+
+AunooAI includes a comprehensive update management system to ensure your user configurations and data are preserved when updating to new versions.
+
+### Protected User Files
+
+The following files are user-defined and will be preserved during updates:
+
+- `app/data/fnapp.db` - Application database
+- `app/config/config.json` - Main configuration file
+- `app/config/litellm_config.yaml` - LiteLLM configuration
+- `app/config/templates/` - Template files
+- `app/config/provider_config.json` - Provider configuration
+- `.env` - Environment variables
+
+### Update Management
+
+Use the provided update management script to safely update while preserving your configurations:
+
+```bash
+# Check for available updates
+python scripts/manage_update.py check
+
+# Update safely (backs up user files, pulls updates, restores files)
+python scripts/manage_update.py update
+
+# Update to a specific branch
+python scripts/manage_update.py update --branch main
+
+# Just create a backup of user files
+python scripts/manage_update.py backup
+
+# Restore from a backup
+python scripts/manage_update.py restore backups/20240317_123456
+```
+
+### Manual Backup and Restore
+
+For manual control over the backup and restore process:
+
+```bash
+# Create a backup of user files
+python scripts/preserve_user_files.py backup
+
+# List available backups
+python scripts/preserve_user_files.py list
+
+# Restore from a backup
+python scripts/preserve_user_files.py restore backups/20240317_123456
+```
+
+### Initializing Default Configurations
+
+To initialize default configuration templates:
+
+```bash
+python scripts/init_defaults.py
+```
+
+This creates default configuration files in their expected locations if they don't already exist.
+
 ## Troubleshooting
 
 ### Cloud Run Deployment Issues

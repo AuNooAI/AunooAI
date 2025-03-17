@@ -186,7 +186,7 @@
 <div class="container mt-4">
     <h1 class="mb-4">Create or Update a Scenario Topic</h1>
     
-    <form id="createTopicForm" class="mt-4">
+    <div id="createTopicForm" class="mt-4">
         <div class="mb-3">
             <label for="existingTopic" class="form-label">Select if you want to edit an existing topic (optional)</label>
             <select class="form-select" id="existingTopic">
@@ -204,23 +204,14 @@
 
         <div class="mb-3">
             <label for="topicName" class="form-label">Topic Name</label>
+            <p class="text-muted mb-2">A clear description that could be a question, market, field, or group.</p>
             <input type="text" class="form-control" id="topicName" required>
             <small class="text-muted">Example topics: {{ example_topics|join(", ") }}</small>
         </div>
 
-        <div class="mb-3">
-            <label for="categories" class="form-label">Categories</label>
-            <div class="tags-input" id="categoriesContainer">
-                <input type="text" id="categoriesInput">
-            </div>
-            <small class="text-muted">Type a value and press enter to add each category. Examples:</small>
-            <div class="example-list">
-                {{ example_categories|join(", ") }}
-            </div>
-        </div>
-
-        <div class="mb-3">
+        <div class="mb-4">
             <label for="futureSignals" class="form-label">Future Signals</label>
+            <p class="text-muted mb-2">Future Signals are scenarios that suggest potential directions for a topic. For instance, signals for an AI hype model could range from "AI is hype" and "AI is evolving gradually", to "AI is accelerating".</p>
             <div class="tags-input" id="futureSignalsContainer">
                 <input type="text" id="futureSignalsInput">
             </div>
@@ -230,8 +221,21 @@
             </div>
         </div>
 
-        <div class="mb-3">
+        <div class="mb-4">
+            <label for="categories" class="form-label">Categories</label>
+            <p class="text-muted mb-2">Each topic is broken down into categories, making it easier to organize and analyze data. For example, a topic on AI might include subcategories like AI in Finance or Cloud Quarterly Earnings.</p>
+            <div class="tags-input" id="categoriesContainer">
+                <input type="text" id="categoriesInput">
+            </div>
+            <small class="text-muted">Type a value and press enter to add each category. Examples:</small>
+            <div class="example-list">
+                {{ example_categories|join(", ") }}
+            </div>
+        </div>
+
+        <div class="mb-4">
             <label for="sentiments" class="form-label">Sentiments</label>
+            <p class="text-muted mb-2">AuNoo goes beyond basic positive, neutral, and negative sentiment analysis. It can detect tones such as mocking, critical, hyperbolic, or optimistic, providing a nuanced understanding of public and media sentiment.</p>
             <div class="tags-input" id="sentimentsContainer">
                 <input type="text" id="sentimentsInput">
             </div>
@@ -243,8 +247,9 @@
             </div>
         </div>
 
-        <div class="mb-3">
+        <div class="mb-4">
             <label for="timeToImpact" class="form-label">Time to Impact</label>
+            <p class="text-muted mb-2">Time to Impact helps assess when the impact of a trend is expected—immediate, short-term (3–18 months), mid-term (18–60 months), or long-term (5+ years). This allows decision-makers to prioritize their strategies effectively. It is based on the Three Horizon Model.</p>
             <div class="tags-input" id="timeToImpactContainer">
                 <input type="text" id="timeToImpactInput">
             </div>
@@ -256,8 +261,14 @@
             </div>
         </div>
 
-        <div class="mb-3">
+        <div class="mb-4">
             <label for="driverTypes" class="form-label">Driver Types</label>
+            <p class="text-muted mb-2">AuNoo categorizes data points based on their impact on a topic, using types like:
+                <br>• <strong>Accelerator</strong>: Speeds up the development or impact of a trend.
+                <br>• <strong>Delayer</strong>: Slows down progress.
+                <br>• <strong>Blocker</strong>: Prevents a trend from advancing.
+                <br>• <strong>Catalyst</strong>: Significantly amplifies or transforms the trajectory of a trend.
+            </p>
             <div class="tags-input" id="driverTypesContainer">
                 <input type="text" id="driverTypesInput">
             </div>
@@ -270,7 +281,7 @@
         </div>
 
         <button type="submit" class="btn btn-primary mt-3">Create/Update Topic</button>
-    </form>
+    </div>
 </div>
 
 <script>

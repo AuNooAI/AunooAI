@@ -75,29 +75,48 @@
             <div id="custom_topic_form">
                 <div class="mb-4">
                     <label class="block text-sm font-medium mb-2">Topic Name</label>
+                    <p class="text-sm text-gray-600 mb-2">A clear description that could be a question, market, field, or group. Examples: "Is AI Hype?", "Cloud Service Providers", or "Quantum Computing".</p>
                     <input type="text" id="topic_name" class="form-input w-full" placeholder="Enter topic name">
-                    <button onclick="suggestAttributes()" class="btn btn-secondary mt-2">Get Suggestions</button>
                 </div>
-
+                
                 <div class="mb-4">
-                    <label class="block text-sm font-medium mb-2">Categories</label>
-                    <div id="categories_container">
-                        <input type="text" class="form-input w-full mb-2" placeholder="Add category">
-                        <button onclick="addCategory()" class="btn btn-secondary">+ Add Category</button>
-                    </div>
+                    <label class="block text-sm font-medium mb-2">Description (optional)</label>
+                    <p class="text-sm text-gray-600 mb-2">Provide details about what you're trying to monitor or understand. The more specific you are, the better the suggestions will be.</p>
+                    <textarea id="topic_description" class="form-textarea w-full" rows="3" placeholder="Describe what you want to track or understand about this topic"></textarea>
+                </div>
+                
+                <div class="flex gap-2 mb-6">
+                    <button onclick="suggestAttributes()" class="btn btn-secondary">Get Suggestions</button>
+                    <button id="regenerateBtn" onclick="regenerateSuggestions()" class="btn btn-outline" disabled>Regenerate</button>
+                </div>
+                
+                <div id="explanation_container" class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200 hidden">
+                    <h3 class="font-medium mb-2">Why these suggestions?</h3>
+                    <p id="explanation_text" class="text-sm text-gray-700"></p>
                 </div>
 
                 <div class="mb-4">
                     <label class="block text-sm font-medium mb-2">Future Signals</label>
+                    <p class="text-sm text-gray-600 mb-2">Future Signals are scenarios that suggest potential directions for a topic. For instance, signals for an AI hype model could range from <span class="text-blue-600">"AI is hype"</span> and <span class="text-blue-600">"AI is evolving gradually"</span>, to <span class="text-blue-600">"AI is accelerating"</span>.</p>
                     <div id="signals_container">
                         <input type="text" class="form-input w-full mb-2" placeholder="Add signal">
                         <button onclick="addSignal()" class="btn btn-secondary">+ Add Signal</button>
                     </div>
                 </div>
 
+                <div class="mb-4">
+                    <label class="block text-sm font-medium mb-2">Categories</label>
+                    <p class="text-sm text-gray-600 mb-2">Each topic is broken down into categories, making it easier to organize and analyze data. For example, a topic on AI might include subcategories like <span class="text-blue-600">AI in Finance</span> or <span class="text-blue-600">Cloud Quarterly Earnings</span>.</p>
+                    <div id="categories_container">
+                        <input type="text" class="form-input w-full mb-2" placeholder="Add category">
+                        <button onclick="addCategory()" class="btn btn-secondary">+ Add Category</button>
+                    </div>
+                </div>
+
                 <!-- Default Attributes -->
                 <div class="mb-4">
                     <label class="block text-sm font-medium mb-2">Sentiment</label>
+                    <p class="text-sm text-gray-600 mb-2">AuNoo goes beyond basic positive, neutral, and negative sentiment analysis. It can detect tones such as <span class="text-blue-600">mocking</span>, <span class="text-blue-600">critical</span>, <span class="text-blue-600">hyperbolic</span>, or <span class="text-blue-600">optimistic</span>, providing a nuanced understanding of public and media sentiment.</p>
                     <select multiple id="sentiment" class="form-multiselect w-full">
                         <option selected>Positive</option>
                         <option selected>Negative</option>
@@ -107,6 +126,7 @@
 
                 <div class="mb-4">
                     <label class="block text-sm font-medium mb-2">Time to Impact</label>
+                    <p class="text-sm text-gray-600 mb-2">Time to Impact helps assess when the impact of a trend is expected—<span class="text-blue-600">immediate</span>, <span class="text-blue-600">short-term (3–18 months)</span>, <span class="text-blue-600">mid-term (18–60 months)</span>, or <span class="text-blue-600">long-term (5+ years)</span>. This allows decision-makers to prioritize their strategies effectively. It is based on the Three Horizon Model.</p>
                     <select multiple id="time_to_impact" class="form-multiselect w-full">
                         <option selected>Immediate (0-6 months)</option>
                         <option selected>Short-term (6-18 months)</option>
@@ -117,14 +137,17 @@
 
                 <div class="mb-4">
                     <label class="block text-sm font-medium mb-2">Drivers</label>
+                    <p class="text-sm text-gray-600 mb-2">AuNoo categorizes data points based on their impact on a topic, using types like:
+                        <span class="block mt-1 ml-2 text-blue-600">• <strong>Accelerator</strong>: Speeds up the development or impact of a trend.</span>
+                        <span class="block ml-2 text-blue-600">• <strong>Delayer</strong>: Slows down progress.</span>
+                        <span class="block ml-2 text-blue-600">• <strong>Blocker</strong>: Prevents a trend from advancing.</span>
+                        <span class="block ml-2 text-blue-600">• <strong>Catalyst</strong>: Significantly amplifies or transforms the trajectory of a trend.</span>
+                    </p>
                     <select multiple id="drivers" class="form-multiselect w-full">
-                        <option selected>Initiator</option>
                         <option selected>Accelerator</option>
-                        <option selected>Catalyst</option>
-                        <option selected>Inhibitor</option>
+                        <option selected>Delayer</option>
                         <option selected>Blocker</option>
-                        <option selected>Terminator</option>
-                        <option selected>Validator</option>
+                        <option selected>Catalyst</option>
                     </select>
                 </div>
             </div>
@@ -145,8 +168,23 @@
             <h2 class="text-2xl font-semibold mb-4">Set Up Keywords</h2>
             <p class="mb-4">Add keywords to monitor for your topic.</p>
 
+            <div class="p-4 bg-gray-50 rounded-lg border border-gray-200 mb-6">
+                <h3 class="font-medium mb-2">About Keywords</h3>
+                <p class="text-sm text-gray-700">Keywords are specific searchable terms used to find relevant content about your topic. They help the system find and classify articles that are relevant to your monitoring needs.</p>
+                <div class="mt-2">
+                    <p class="text-sm text-gray-700"><strong>Effective keywords include:</strong></p>
+                    <ul class="list-disc ml-5 text-sm text-gray-700">
+                        <li>Company names (e.g., <span class="text-blue-600">"OpenAI"</span>, <span class="text-blue-600">"Microsoft"</span>)</li>
+                        <li>Technologies (e.g., <span class="text-blue-600">"Quantum Computing"</span>, <span class="text-blue-600">"5G"</span>)</li>
+                        <li>People (e.g., <span class="text-blue-600">"Sundar Pichai"</span>, <span class="text-blue-600">"Sam Altman"</span>)</li>
+                        <li>Technical terms (e.g., <span class="text-blue-600">"Transformer models"</span>, <span class="text-blue-600">"Cloud repatriation"</span>)</li>
+                    </ul>
+                </div>
+            </div>
+
             <div class="mb-6">
                 <label class="block text-sm font-medium mb-2">Keywords</label>
+                <p class="text-sm text-gray-600 mb-2">These keywords will be used to search for news articles, research papers, and other content related to your topic. We've suggested a few based on your topic setup.</p>
                 <div id="keywords_container">
                     <div class="flex gap-2 mb-2">
                         <input type="text" class="form-input flex-1" placeholder="Enter keyword or phrase">
@@ -236,14 +274,26 @@ async function suggestAttributes() {
         alert('Please enter a topic name');
         return;
     }
+    
+    // Show loading state
+    document.getElementById('regenerateBtn').disabled = true;
+    const suggestBtn = document.querySelector('button[onclick="suggestAttributes()"]');
+    const originalText = suggestBtn.textContent;
+    suggestBtn.textContent = 'Loading...';
+    suggestBtn.disabled = true;
 
     try {
+        const topicDescription = document.getElementById('topic_description').value;
+        
         const response = await fetch('/api/onboarding/suggest-topic-attributes', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ topic_name: topicName })
+            body: JSON.stringify({ 
+                topic_name: topicName,
+                description: topicDescription
+            })
         });
 
         if (response.ok) {
@@ -263,12 +313,21 @@ async function suggestAttributes() {
                 addSignal(signal);
             });
             
-            // Show explanation
-            alert(suggestions.explanation);
+            // Show explanation at the top
+            const explanationContainer = document.getElementById('explanation_container');
+            explanationContainer.classList.remove('hidden');
+            document.getElementById('explanation_text').textContent = suggestions.explanation;
+            
+            // Enable regenerate button
+            document.getElementById('regenerateBtn').disabled = false;
         }
     } catch (error) {
         alert('Error getting suggestions');
         console.error(error);
+    } finally {
+        // Reset button state
+        suggestBtn.textContent = originalText;
+        suggestBtn.disabled = false;
     }
 }
 
@@ -295,12 +354,12 @@ function addSignal(value = '') {
 }
 
 // Keywords
-function addKeyword() {
+function addKeyword(value = '') {
     const container = document.getElementById('keywords_container');
     const div = document.createElement('div');
     div.className = 'flex gap-2 mb-2';
     div.innerHTML = `
-        <input type="text" class="form-input flex-1" placeholder="Enter keyword or phrase">
+        <input type="text" class="form-input flex-1" value="${value}" placeholder="Enter keyword or phrase">
         <button onclick="this.parentElement.remove()" class="btn btn-danger">Remove</button>
     `;
     container.appendChild(div);
@@ -308,6 +367,10 @@ function addKeyword() {
 
 function removeKeyword(btn) {
     btn.parentElement.remove();
+}
+
+function regenerateSuggestions() {
+    suggestAttributes();
 }
 
 // Navigation
@@ -359,6 +422,12 @@ async function nextStep() {
         }
         
         currentStep++;
+        
+        // Special handling for Step 3 to prepopulate keywords
+        if (currentStep === 3) {
+            prepareKeywordsStep();
+        }
+        
         updateStepDisplay();
     } else {
         // Final step - save keywords and complete
@@ -373,11 +442,12 @@ async function saveTopic() {
     if (topicType === 'custom') {
         const topicData = {
             name: document.getElementById('topic_name').value,
-            categories: Array.from(document.querySelectorAll('#categories_container input')).map(input => input.value),
-            future_signals: Array.from(document.querySelectorAll('#signals_container input')).map(input => input.value),
+            categories: Array.from(document.querySelectorAll('#categories_container input')).map(input => input.value).filter(val => val.trim() !== ''),
+            future_signals: Array.from(document.querySelectorAll('#signals_container input')).map(input => input.value).filter(val => val.trim() !== ''),
             sentiment: Array.from(document.getElementById('sentiment').selectedOptions).map(option => option.value),
             time_to_impact: Array.from(document.getElementById('time_to_impact').selectedOptions).map(option => option.value),
-            driver_types: Array.from(document.getElementById('drivers').selectedOptions).map(option => option.value)
+            driver_types: Array.from(document.getElementById('drivers').selectedOptions).map(option => option.value),
+            keywords: []  // Will be saved separately in Step 3
         };
         
         try {
@@ -392,6 +462,19 @@ async function saveTopic() {
             if (!response.ok) {
                 throw new Error('Failed to save topic');
             }
+            
+            // Store any suggested keywords to be used in Step 3
+            const explanation = document.getElementById('explanation_text').textContent;
+            if (explanation) {
+                localStorage.setItem('topic_name', topicData.name);
+                // If we have suggested keywords from the explanation, prepare them for Step 3
+                sessionStorage.setItem('suggested_keywords', JSON.stringify(
+                    Array.from(document.querySelectorAll('#signals_container input'))
+                    .map(input => input.value.trim())
+                    .filter(val => val !== '')
+                    .slice(0, 3) // Use the first 3 signals as keywords
+                ));
+            }
         } catch (error) {
             alert('Error saving topic');
             console.error(error);
@@ -401,7 +484,23 @@ async function saveTopic() {
 }
 
 async function saveKeywords() {
-    const keywords = Array.from(document.querySelectorAll('#keywords_container input')).map(input => input.value);
+    // Clear existing keywords container first to prevent duplicates
+    document.getElementById('keywords_container').innerHTML = '';
+    
+    // Check if we have suggested keywords from Step 2
+    const suggestedKeywords = JSON.parse(sessionStorage.getItem('suggested_keywords') || '[]');
+    
+    // Add suggested keywords
+    suggestedKeywords.forEach(keyword => {
+        addKeyword(keyword);
+    });
+    
+    // Always add at least one empty field
+    if (document.querySelectorAll('#keywords_container input').length === 0) {
+        addKeyword();
+    }
+    
+    const keywords = Array.from(document.querySelectorAll('#keywords_container input')).map(input => input.value).filter(val => val.trim() !== '');
     const topicName = document.getElementById('topic_type').value === 'custom' 
         ? document.getElementById('topic_name').value 
         : document.getElementById('existing_topic').value;
@@ -441,6 +540,25 @@ async function completeOnboarding() {
         alert('Error completing onboarding');
         console.error(error);
         throw error;
+    }
+}
+
+// Function to prepare the keywords step
+function prepareKeywordsStep() {
+    // Clear existing keywords container
+    document.getElementById('keywords_container').innerHTML = '';
+    
+    // Get keywords from the suggestion if available
+    const suggestedKeywords = JSON.parse(sessionStorage.getItem('suggested_keywords') || '[]');
+    
+    // Add suggested keywords
+    suggestedKeywords.forEach(keyword => {
+        addKeyword(keyword);
+    });
+    
+    // Always ensure at least one empty field
+    if (document.querySelectorAll('#keywords_container input').length === 0) {
+        addKeyword();
     }
 }
 

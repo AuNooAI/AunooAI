@@ -190,66 +190,76 @@
 
                         <div id="topic-suggestions" class="topic-suggestions">
                             <div class="mb-4">
-                                <label for="categories" class="form-label">Categories</label>
-                                <div class="tags-input" id="categoriesContainer">
-                                    <input type="text" id="categoriesInput" placeholder="Type and press Enter to add">
-                                </div>
-                                <small class="text-muted">Add categories that describe your topic. Examples:</small>
-                                <div class="example-list mt-2">
-                                    {% for category in example_categories[:5] %}
-                                        <span class="example-value" onclick="addExampleValue('categoriesInput', '{{ category }}')">{{ category }}</span>
-                                    {% endfor %}
-                                </div>
-                            </div>
-
-                            <div class="mb-4">
                                 <label for="future-signals" class="form-label">Future Signals</label>
+                                <p class="text-muted mb-2">Future Signals are scenarios that suggest potential directions for a topic. For instance, signals for an AI hype model could range from <span class="text-blue-600">"AI is hype"</span> and <span class="text-blue-600">"AI is evolving gradually"</span>, to <span class="text-blue-600">"AI is accelerating"</span>.</p>
                                 <div class="tags-input" id="futureSignalsContainer">
                                     <input type="text" id="futureSignalsInput" placeholder="Type and press Enter to add">
                                 </div>
                                 <small class="text-muted">Add signals that indicate future developments. Examples:</small>
                                 <div class="example-list mt-2">
                                     {% for signal in example_signals[:5] %}
-                                        <span class="example-value" onclick="addExampleValue('futureSignalsInput', '{{ signal }}')">{{ signal }}</span>
+                                        <span class="example-value text-blue-600" onclick="addExampleValue('futureSignalsInput', '{{ signal }}')">{{ signal }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label for="categories" class="form-label">Categories</label>
+                                <p class="text-muted mb-2">Each topic is broken down into categories, making it easier to organize and analyze data. For example, a topic on AI might include subcategories like <span class="text-blue-600">AI in Finance</span> or <span class="text-blue-600">Cloud Quarterly Earnings</span>.</p>
+                                <div class="tags-input" id="categoriesContainer">
+                                    <input type="text" id="categoriesInput" placeholder="Type and press Enter to add">
+                                </div>
+                                <small class="text-muted">Add categories that describe your topic. Examples:</small>
+                                <div class="example-list mt-2">
+                                    {% for category in example_categories[:5] %}
+                                        <span class="example-value text-blue-600" onclick="addExampleValue('categoriesInput', '{{ category }}')">{{ category }}</span>
                                     {% endfor %}
                                 </div>
                             </div>
 
                             <div class="mb-4">
                                 <label for="sentiment" class="form-label">Sentiment Options</label>
+                                <p class="text-muted mb-2">AuNoo goes beyond basic positive, neutral, and negative sentiment analysis. It can detect tones such as <span class="text-blue-600">mocking</span>, <span class="text-blue-600">critical</span>, <span class="text-blue-600">hyperbolic</span>, or <span class="text-blue-600">optimistic</span>, providing a nuanced understanding of public and media sentiment.</p>
                                 <div class="tags-input" id="sentimentsContainer">
                                     <input type="text" id="sentimentsInput" placeholder="Type and press Enter to add">
                                 </div>
                                 <small class="text-muted">Add sentiment categories for tracking articles. Common options:</small>
                                 <div class="example-list mt-2">
                                     {% for sentiment in example_sentiments %}
-                                        <span class="example-value" onclick="addExampleValue('sentimentsInput', '{{ sentiment }}')">{{ sentiment }}</span>
+                                        <span class="example-value text-blue-600" onclick="addExampleValue('sentimentsInput', '{{ sentiment }}')">{{ sentiment }}</span>
                                     {% endfor %}
                                 </div>
                             </div>
 
                             <div class="mb-4">
                                 <label for="time-to-impact" class="form-label">Time to Impact</label>
+                                <p class="text-muted mb-2">Time to Impact helps assess when the impact of a trend is expected—<span class="text-blue-600">immediate</span>, <span class="text-blue-600">short-term (3–18 months)</span>, <span class="text-blue-600">mid-term (18–60 months)</span>, or <span class="text-blue-600">long-term (5+ years)</span>. This allows decision-makers to prioritize their strategies effectively. It is based on the Three Horizon Model.</p>
                                 <div class="tags-input" id="timeToImpactContainer">
                                     <input type="text" id="timeToImpactInput" placeholder="Type and press Enter to add">
                                 </div>
                                 <small class="text-muted">Add time ranges for expected impact. Common ranges:</small>
                                 <div class="example-list mt-2">
                                     {% for time in example_time_to_impact %}
-                                        <span class="example-value" onclick="addExampleValue('timeToImpactInput', '{{ time }}')">{{ time }}</span>
+                                        <span class="example-value text-blue-600" onclick="addExampleValue('timeToImpactInput', '{{ time }}')">{{ time }}</span>
                                     {% endfor %}
                                 </div>
                             </div>
 
                             <div class="mb-4">
                                 <label for="driver-types" class="form-label">Driver Types</label>
+                                <p class="text-muted mb-2">AuNoo categorizes data points based on their impact on a topic, using types like:
+                                    <br>• <span class="text-blue-600"><strong>Accelerator</strong>: Speeds up the development or impact of a trend.</span>
+                                    <br>• <span class="text-blue-600"><strong>Delayer</strong>: Slows down progress.</span>
+                                    <br>• <span class="text-blue-600"><strong>Blocker</strong>: Prevents a trend from advancing.</span>
+                                    <br>• <span class="text-blue-600"><strong>Catalyst</strong>: Significantly amplifies or transforms the trajectory of a trend.</span>
+                                </p>
                                 <div class="tags-input" id="driverTypesContainer">
                                     <input type="text" id="driverTypesInput" placeholder="Type and press Enter to add">
                                 </div>
                                 <small class="text-muted">Add types of drivers that influence the topic. Common types:</small>
                                 <div class="example-list mt-2">
-                                    {% for type in example_driver_types %}
-                                        <span class="example-value" onclick="addExampleValue('driverTypesInput', '{{ type }}')">{{ type }}</span>
+                                    {% for driver in example_driver_types %}
+                                        <span class="example-value text-blue-600" onclick="addExampleValue('driverTypesInput', '{{ driver }}')">{{ driver }}</span>
                                     {% endfor %}
                                 </div>
                             </div>
