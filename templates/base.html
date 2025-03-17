@@ -56,7 +56,7 @@
                     {% if not session.get('completed_onboarding') %}
                     <li class="nav-item">
                         <a class="nav-link" href="#" onclick="resetOnboarding()">
-                            <i class="fas fa-tasks"></i> Complete Onboarding
+                            <i class="fas fa-tasks"></i> Setup Wizard
                         </a>
                     </li>
                     {% endif %}
@@ -97,7 +97,7 @@
                             <li><a class="dropdown-item" href="/create_topic"><i class="fas fa-folder-plus"></i> Scenario Topic Management</a></li>
                             <li><a class="dropdown-item" href="/keyword-monitor"><i class="fas fa-search"></i> Keywords Config</a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="/onboarding?redo=true"><i class="fas fa-redo"></i> Redo Onboarding</a></li>
+                            <li><a class="dropdown-item" href="/onboarding?redo=true"><i class="fas fa-redo"></i> Setup Wizard</a></li>
                         </ul>
                     </li>
                     <li class="nav-item">
