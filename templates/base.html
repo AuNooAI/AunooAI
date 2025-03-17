@@ -53,6 +53,13 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav">
+                    {% if not session.get('completed_onboarding') %}
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="resetOnboarding()">
+                            <i class="fas fa-tasks"></i> Complete Onboarding
+                        </a>
+                    </li>
+                    {% endif %}
                     <li class="nav-item">
                         <a class="nav-link" href="/">
                             <i class="fas fa-home"></i> Home
@@ -89,6 +96,8 @@
                             <li><a class="dropdown-item" href="/promptmanager"><i class="fas fa-brain"></i> Prompt Manager</a></li>
                             <li><a class="dropdown-item" href="/create_topic"><i class="fas fa-folder-plus"></i> Scenario Topic Management</a></li>
                             <li><a class="dropdown-item" href="/keyword-monitor"><i class="fas fa-search"></i> Keywords Config</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="/onboarding?redo=true"><i class="fas fa-redo"></i> Redo Onboarding</a></li>
                         </ul>
                     </li>
                     <li class="nav-item">
@@ -168,15 +177,44 @@
     <script>
     // Add this to the base template
     document.addEventListener('DOMContentLoaded', function() {
-        fetch('/api/app-info')
-            .then(response => response.json())
-            .then(data => {
-                document.querySelector('.app-version').textContent = data.version || 'N/A';
-                document.querySelector('.git-branch').textContent = data.branch || 'N/A';
-                document.querySelector('.last-update').textContent = data.last_update || 'N/A';
-            })
-            .catch(error => console.error('Error fetching app info:', error));
+        // Only fetch app info if we have the elements to update
+        if (document.querySelector('.app-version')) {
+            fetch('/api/app-info')
+                .then(response => response.json())
+                .then(data => {
+                    const versionEl = document.querySelector('.app-version');
+                    const branchEl = document.querySelector('.git-branch');
+                    const updateEl = document.querySelector('.last-update');
+                    
+                    if (versionEl) versionEl.textContent = data.version || 'N/A';
+                    if (branchEl) branchEl.textContent = data.branch || 'N/A';
+                    if (updateEl) updateEl.textContent = data.last_update || 'N/A';
+                })
+                .catch(error => console.error('Error fetching app info:', error));
+        }
     });
+
+    async function resetOnboarding() {
+        try {
+            // Reset the onboarding status in the database
+            const response = await fetch('/api/onboarding/reset', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (response.ok) {
+                // Redirect to onboarding page
+                window.location.href = '/onboarding';
+            } else {
+                const error = await response.json();
+                alert(`Error: ${error.detail}`);
+            }
+        } catch (error) {
+            alert(`Error: ${error.message}`);
+        }
+    }
     </script>
 </body>
 </html>

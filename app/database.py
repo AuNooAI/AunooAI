@@ -1075,15 +1075,16 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT username, password, force_password_change
+                    SELECT username, password_hash, force_password_change, completed_onboarding
                     FROM users WHERE username = ?
                 """, (username,))
                 user = cursor.fetchone()
                 if user:
                     return {
                         "username": user[0],
-                        "password": user[1],
-                        "force_password_change": bool(user[2])
+                        "password": user[1],  # Keep the key as 'password' for compatibility
+                        "force_password_change": bool(user[2]),
+                        "completed_onboarding": bool(user[3])
                     }
                 return None
         except Exception as e:
@@ -1154,19 +1155,34 @@ class Database:
                 logger.error(f"Error resetting database: {str(e)}")
                 raise
 
-    def create_user(self, username: str, hashed_password: str, force_password_change: bool = False) -> bool:
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO users (username, password, force_password_change)
-                    VALUES (?, ?, ?)
-                """, (username, hashed_password, 1 if force_password_change else 0))
-                conn.commit()
-                return True
-        except Exception as e:
-            logger.error(f"Error creating user: {str(e)}")
-            return False
+    def create_user(self, username, password_hash, force_password_change=False):
+        """Create a new user."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    username TEXT PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    force_password_change BOOLEAN DEFAULT 0,
+                    completed_onboarding BOOLEAN DEFAULT 0
+                )
+            """)
+            cursor.execute(
+                "INSERT INTO users (username, password_hash, force_password_change, completed_onboarding) VALUES (?, ?, ?, ?)",
+                (username, password_hash, force_password_change, False)
+            )
+            conn.commit()
+
+    def update_user_onboarding(self, username, completed):
+        """Update user's onboarding status."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET completed_onboarding = ? WHERE username = ?",
+                (completed, username)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def set_force_password_change(self, username: str, force: bool = True) -> bool:
         try:

@@ -50,6 +50,7 @@ from app.routes.database import router as database_router
 import shutil
 from app.utils.app_info import get_app_info
 from starlette.templating import _TemplateResponse  # Add this import at the top
+from app.routes.onboarding_routes import router as onboarding_router
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -58,11 +59,14 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Move this code up, right after the app = FastAPI() line and before any routes
+# Initialize FastAPI app
 app = FastAPI()
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Add session middleware first
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("FLASK_SECRET_KEY", "your-fallback-secret-key"),
+)
 
 # Create a custom Jinja2Templates class that always includes app_info
 class AppInfoJinja2Templates(Jinja2Templates):
@@ -71,15 +75,20 @@ class AppInfoJinja2Templates(Jinja2Templates):
         from app.utils.app_info import get_app_info
         app_info = get_app_info()
         
-        # Ensure context is a dict and add app_info
-        if not isinstance(context, dict):
-            context = dict(context)
+        # Ensure session is always available in templates
+        if "session" not in context:
+            context["session"] = context["request"].session if hasattr(context["request"], "session") else {}
+            
+        # Add app_info to context
         context["app_info"] = app_info
         
         return super().TemplateResponse(name, context, *args, **kwargs)
 
 # Setup Jinja2 templates with our custom class
 templates = AppInfoJinja2Templates(directory="templates")
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Add custom filters
 def datetime_filter(value):
@@ -163,12 +172,6 @@ analytics = Analytics(db)
 report = Report(db)
 report_generator = Report(db)
 
-# Add this after app = FastAPI()
-app.add_middleware(
-    SessionMiddleware,
-    secret_key=os.getenv("FLASK_SECRET_KEY", "your-fallback-secret-key"),  # Using existing secret key from .env
-)
-
 # Add this line to include the database routes
 app.include_router(database.router)
 
@@ -183,6 +186,9 @@ app.include_router(database_router)
 
 # Make sure this line exists in the router includes section
 app.include_router(topic_router)  # Add this if it's missing
+
+# Add onboarding router
+app.include_router(onboarding_router)
 
 class ArticleData(BaseModel):
     title: str
@@ -237,6 +243,7 @@ logger.info("Prompt routes included")
 app.include_router(web_router)  # Web routes at root level
 app.include_router(topic_router)  # Topic routes
 app.include_router(keyword_monitor_router)
+app.include_router(onboarding_router)
 
 def get_template_context(request: Request, additional_context: dict = None) -> dict:
     """Create a base template context with common variables."""
@@ -274,12 +281,46 @@ async def root(
     try:
         db_info = db.get_database_info()
         config = load_config()
-        topics = [{"id": topic["name"], "name": topic["name"]} for topic in config["topics"]]
+        
+        # Get topics from config.json
+        config_topics = {topic["name"]: topic for topic in config["topics"]}
+        
+        # Get topics from database with article counts and last article dates
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    topic, 
+                    COUNT(DISTINCT uri) as article_count,
+                    MAX(publication_date) as last_article_date
+                FROM articles 
+                WHERE topic IS NOT NULL AND topic != ''
+                GROUP BY topic
+            """)
+            db_topics = {row[0]: {"article_count": row[1], "last_article_date": row[2]} 
+                        for row in cursor.fetchall()}
+        
+        # Prepare active topics list
+        active_topics = []
+        for topic_name, topic_data in config_topics.items():
+            # Create entry with defaults
+            topic_info = {
+                "name": topic_name,
+                "article_count": 0,
+                "last_article_date": None
+            }
+            
+            # Update with database info if available
+            if topic_name in db_topics:
+                topic_info["article_count"] = db_topics[topic_name]["article_count"]
+                topic_info["last_article_date"] = db_topics[topic_name]["last_article_date"]
+            
+            active_topics.append(topic_info)
         
         # Merge the base context with additional data
         context.update({
             "db_info": db_info,
-            "topics": topics,
+            "active_topics": active_topics,
             "session": session
         })
         
@@ -293,8 +334,8 @@ async def login_page(request: Request):
     if request.session.get("user"):
         return RedirectResponse(url="/")
     return templates.TemplateResponse(
-        "login.html", 
-        get_template_context(request)
+        "login.html",
+        {"request": request}  # The template class will automatically add session
     )
 
 @app.post("/login")
@@ -356,19 +397,16 @@ async def login(
         # Check if password change is required
         if user.get('force_password_change'):
             return RedirectResponse(url="/change_password", status_code=status.HTTP_302_FOUND)
-        
+        elif not user.get('completed_onboarding'):
+            return RedirectResponse(url="/onboarding", status_code=status.HTTP_302_FOUND)
+            
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
         
     except Exception as e:
         logger.error(f"Login error: {str(e)}")
         return templates.TemplateResponse(
             "login.html",
-            {
-                "request": request,
-                "session": request.session,
-                "error": "An error occurred during login"
-            },
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            {"request": request, "error": "Invalid username or password"}
         )
 
 @app.get("/logout")
