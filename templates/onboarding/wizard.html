@@ -183,6 +183,12 @@
                         </div>
 
                         <div class="mb-3">
+                            <label for="topic-description" class="form-label">Topic Description (Optional)</label>
+                            <textarea class="form-control" id="topic-description" name="topic-description" rows="3" placeholder="Provide additional details about this topic to improve attribute suggestions"></textarea>
+                            <small class="text-muted">A brief description helps the AI provide better suggestions</small>
+                        </div>
+
+                        <div class="mb-3">
                             <button class="btn btn-outline-primary" type="button" onclick="suggestAttributes()">
                                 <i class="fas fa-magic"></i> Suggest Attributes
                             </button>
@@ -609,6 +615,7 @@ function addExampleValue(inputId, value) {
 
 async function suggestAttributes() {
     const topicName = document.getElementById('topic-name').value;
+    const topicDescription = document.getElementById('topic-description').value;
     if (!topicName) {
         alert('Please enter a topic name first');
         return;
@@ -620,7 +627,7 @@ async function suggestAttributes() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ topic_name: topicName })
+            body: JSON.stringify({ topic_name: topicName, topic_description: topicDescription })
         });
 
         if (response.ok) {
@@ -684,6 +691,7 @@ async function suggestAttributes() {
 
 async function suggestKeywords() {
     const topicName = document.getElementById('topic-name').value;
+    const topicDescription = document.getElementById('topic-description').value;
     if (!topicName) {
         alert('Please enter a topic name first');
         return;
@@ -695,7 +703,10 @@ async function suggestKeywords() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ topic_name: topicName })
+            body: JSON.stringify({ 
+                topic_name: topicName,
+                topic_description: topicDescription 
+            })
         });
 
         if (response.ok) {
@@ -758,6 +769,7 @@ async function saveTopic() {
     try {
         // Gather all selected inputs
         const topicName = document.getElementById('topic-name').value;
+        const topicDescription = document.getElementById('topic-description').value;
         const categories = getTagsFromContainer('categoriesContainer');
         const futureSignals = getTagsFromContainer('futureSignalsContainer');
         const sentiment = getTagsFromContainer('sentimentsContainer');
@@ -788,6 +800,7 @@ async function saveTopic() {
         // Prepare data
         const topicData = {
             name: topicName,
+            description: topicDescription,
             categories: categories,
             future_signals: futureSignals,
             sentiment: sentiment,
@@ -900,6 +913,7 @@ async function nextStep() {
     } else {
         // We're on the final step - save keywords by updating the topic
         const topicName = document.getElementById('topic-name').value;
+        const topicDescription = document.getElementById('topic-description').value;
         const categories = getTagsFromContainer('categoriesContainer');
         const futureSignals = getTagsFromContainer('futureSignalsContainer');
         const sentiment = getTagsFromContainer('sentimentsContainer');
@@ -917,6 +931,7 @@ async function nextStep() {
             // Include ALL topic data from both step 2 and step 3
             const topicData = {
                 name: topicName,
+                description: topicDescription,
                 categories: categories,
                 future_signals: futureSignals,
                 sentiment: sentiment,

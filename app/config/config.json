@@ -176,6 +176,50 @@
         "Terminator",
         "Unknown"
       ]
+    },
+    {
+      "name": "AI Warfare",
+      "description": "Tracking how close we are to fully autonomous and AI-driven warfare",
+      "categories": [
+        "AI Warbots\u00d7",
+        "Autonomous Weapons and Drones\u00d7",
+        "Cyber warfare and AI\u00d7",
+        "AI in Military Training\u00d7",
+        "Legal, Ethical, and Policy Debates\u00d7",
+        "AI Defense Systems\u00d7",
+        "Geopolitical AI warfare\u00d7",
+        "AI Warfare and Cybersecurity\u00d7"
+      ],
+      "future_signals": [
+        "Rise of autonomous warfare\u00d7",
+        "Strong regulatory pushback against AI...\u00d7",
+        "Reduction of human military personnel\u00d7",
+        "AI dominance in cyber warfare\u00d7",
+        "Tech giants refuse war contracts\u00d7"
+      ],
+      "sentiment": [
+        "Positive\u00d7",
+        "Negative\u00d7",
+        "Neutral\u00d7"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)\u00d7",
+        "Short-term (6-18 months)\u00d7",
+        "Mid-term (18-60 months)\u00d7",
+        "Long-term (60+ months)\u00d7"
+      ],
+      "driver_types": [
+        "Initiator\u00d7",
+        "Accelerator\u00d7",
+        "Catalyst\u00d7",
+        "Inhibitor\u00d7",
+        "Blocker\u00d7"
+      ],
+      "keywords": [
+        "AI in Military\u00d7",
+        "Autonomous Weapons\u00d7",
+        "AI Warfare\u00d7"
+      ]
     }
   ],
   "ai_models": [

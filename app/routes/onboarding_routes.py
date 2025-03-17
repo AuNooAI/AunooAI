@@ -469,7 +469,7 @@ async def suggest_topic_attributes(
             )
             
         # Get optional description
-        description = topic_data.get("description", "")
+        description = topic_data.get("topic_description", "")
 
         # Load example topics
         with open('app/config/config.json', 'r') as f:
@@ -681,6 +681,7 @@ async def save_topic(
         # Format topic data to match config.json structure
         formatted_topic = {
             "name": topic_data["name"],
+            "description": topic_data.get("description", ""),
             "categories": topic_data.get("categories", []),
             "future_signals": topic_data.get("future_signals", []),
             "sentiment": topic_data.get("sentiment", standard_topic["sentiment"]),
