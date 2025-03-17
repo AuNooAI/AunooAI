@@ -451,9 +451,17 @@ document.getElementById('deleteTopicBtn').addEventListener('click', async functi
         return;
     }
     
+    const deleteArticles = confirm(`Do you want to delete all associated articles for topic "${topicName}" from the database?`);
+    
     try {
         const response = await fetch(`/api/topic/${encodeURIComponent(topicName)}`, {
             method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                delete_articles: deleteArticles
+            })
         });
 
         if (!response.ok) {

@@ -657,9 +657,17 @@ async function deleteTopic(topicId) {
         return;
     }
 
+    const deleteArticles = confirm(`Do you want to delete all associated articles for topic "${topicId}" from the database?`);
+
     try {
         const response = await fetch(`/api/topic/${encodeURIComponent(topicId)}`, {
-            method: 'DELETE'
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                delete_articles: deleteArticles
+            })
         });
 
         if (!response.ok) {
@@ -675,7 +683,7 @@ async function deleteTopic(topicId) {
         // If no topics left, show a message
         const remainingTopics = document.querySelectorAll('.dashboard-card');
         if (remainingTopics.length === 0) {
-            const container = document.querySelector('.container');
+            const container = document.querySelector('.dashboard-container');
             container.insertAdjacentHTML('beforeend', `
                 <div class="alert alert-info mt-4">
                     No topics available. <a href="/create_topic">Create a new topic</a>

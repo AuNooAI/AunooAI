@@ -10,6 +10,7 @@ import json
 import os
 import logging
 from typing import Optional
+from pydantic import BaseModel
 
 # Setup templates
 templates = Jinja2Templates(directory="templates")
@@ -18,8 +19,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
+class DeleteTopicRequest(BaseModel):
+    delete_articles: bool = False
+
 @router.delete("/topic/{topic_name}")
-async def delete_topic(topic_name: str, request: Request, session=Depends(verify_session)):
+async def delete_topic(topic_name: str, request: Request, delete_request: DeleteTopicRequest = None, session=Depends(verify_session)):
     try:
         # Load config
         config = load_config()
@@ -49,10 +53,33 @@ async def delete_topic(topic_name: str, request: Request, session=Depends(verify
             with open(config_path, 'w') as f:
                 json.dump(config, f, indent=2)
         
+        # Clean up keyword groups associated with this topic
+        keyword_groups_deleted = 0
+        try:
+            # Call the keyword monitoring API to delete groups
+            from app.routes.keyword_monitor import delete_groups_by_topic
+            result = await delete_groups_by_topic(topic_name, db)
+            keyword_groups_deleted = result.get("groups_deleted", 0)
+        except Exception as e:
+            logger.error(f"Error deleting keyword groups for topic {topic_name}: {str(e)}")
+        
+        # Clean up articles if requested
+        articles_deleted = 0
+        if delete_request and delete_request.delete_articles:
+            try:
+                # Call the keyword monitoring API to delete articles
+                from app.routes.keyword_monitor import delete_articles_by_topic
+                result = await delete_articles_by_topic(topic_name, db)
+                articles_deleted = result.get("articles_deleted", 0)
+            except Exception as e:
+                logger.error(f"Error deleting articles for topic {topic_name}: {str(e)}")
+        
         return {
             "message": f"Topic {topic_name} deleted successfully",
             "config_deleted": topic_found,
-            "database_deleted": db_success
+            "database_deleted": db_success,
+            "keyword_groups_deleted": keyword_groups_deleted,
+            "articles_deleted": articles_deleted
         }
         
     except Exception as e:

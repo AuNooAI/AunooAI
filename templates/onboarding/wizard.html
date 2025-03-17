@@ -888,7 +888,63 @@ async function nextStep() {
         currentStep++;
         showStep(currentStep);
     } else {
-        await completeOnboarding();
+        // We're on the final step - save keywords by updating the topic
+        const topicName = document.getElementById('topic-name').value;
+        const categories = getTagsFromContainer('categoriesContainer');
+        const futureSignals = getTagsFromContainer('futureSignalsContainer');
+        const sentiment = getTagsFromContainer('sentimentsContainer');
+        const timeToImpact = getTagsFromContainer('timeToImpactContainer');
+        const driverTypes = getTagsFromContainer('driverTypesContainer');
+        const keywords = getTagsFromContainer('keywordsContainer');
+        
+        if (keywords.length === 0) {
+            if (!confirm("No keywords added. Continue anyway?")) {
+                return;
+            }
+        }
+        
+        try {
+            // Include ALL topic data from both step 2 and step 3
+            const topicData = {
+                name: topicName,
+                categories: categories,
+                future_signals: futureSignals,
+                sentiment: sentiment,
+                time_to_impact: timeToImpact,
+                driver_types: driverTypes,
+                keywords: keywords,
+                requires_confirmation: true,
+                confirmed: true
+            };
+            
+            console.log("Saving complete topic with keywords:", JSON.stringify(topicData, null, 2));
+            
+            // Update the topic with all data
+            const response = await fetch('/api/onboarding/save-topic', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(topicData)
+            });
+            
+            console.log("Topic save response:", response.status);
+            const result = await response.json();
+            console.log("Topic save result:", JSON.stringify(result, null, 2));
+            
+            if (!response.ok) {
+                showErrorMessage("Failed to save topic: " + (result.detail || "Unknown error"));
+                return;
+            }
+            
+            showSuccessMessage("Topic saved successfully");
+            
+            // Continue with onboarding completion
+            await completeOnboarding();
+        } catch (error) {
+            console.error("Error saving topic:", error);
+            showErrorMessage("Error saving topic: " + error.message);
+        }
     }
 }
 
