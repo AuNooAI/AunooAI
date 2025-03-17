@@ -55,6 +55,32 @@ Run using Docker Compose:
 docker compose up
 ```
 
+#### App Info in Docker
+
+When building Docker images, the application automatically captures version, branch, and build date information:
+
+```bash
+# Manually specify app info during build
+docker build \
+  --build-arg APP_VERSION=$(cat version.txt) \
+  --build-arg APP_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) \
+  --build-arg APP_BUILD_DATE="$(date -u +'%Y-%m-%d %H:%M:%S')" \
+  -t aunoo-ai .
+```
+
+The docker-compose.yml file already includes commands to automatically extract this information during build.
+
+If building in CI/CD pipelines where git is not available, you can explicitly set these values:
+
+```bash
+# CI/CD example
+docker build \
+  --build-arg APP_VERSION="1.5.0" \
+  --build-arg APP_GIT_BRANCH="main" \
+  --build-arg APP_BUILD_DATE="$(date -u +'%Y-%m-%d %H:%M:%S')" \
+  -t aunoo-ai .
+```
+
 #### Multiple Instance Deployment
 
 The docker-compose.yml includes several pre-configured instances:

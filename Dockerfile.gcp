@@ -4,9 +4,17 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
+# Build arguments for app info
+ARG APP_VERSION=unknown
+ARG APP_GIT_BRANCH=unknown
+ARG APP_BUILD_DATE=unknown
+
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    APP_VERSION=${APP_VERSION} \
+    APP_GIT_BRANCH=${APP_GIT_BRANCH} \
+    APP_BUILD_DATE=${APP_BUILD_DATE}
 
 # Install system dependencies
 RUN apt-get update \

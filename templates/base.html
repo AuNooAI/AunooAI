@@ -53,13 +53,6 @@
             </button>
             <div class="collapse navbar-collapse" id="navbarNav">
                 <ul class="navbar-nav">
-                    {% if not session.get('completed_onboarding') %}
-                    <li class="nav-item">
-                        <a class="nav-link" href="#" onclick="resetOnboarding()">
-                            <i class="fas fa-tasks"></i> Setup Wizard
-                        </a>
-                    </li>
-                    {% endif %}
                     <li class="nav-item">
                         <a class="nav-link" href="/">
                             <i class="fas fa-home"></i> Home
@@ -70,7 +63,6 @@
                             <i class="fas fa-search"></i> Research
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="researchDropdown">
-                            <li><a class="dropdown-item" href="/dashboard"><i class="fas fa-graduation-cap"></i> Journal Monitor</a></li>
                             <li><a class="dropdown-item" href="/collect"><i class="fas fa-search"></i> News Search</a></li>
                             <li><a class="dropdown-item" href="/research"><i class="fas fa-plus-circle"></i> Article Analyzer</a></li>
                             <li><a class="dropdown-item" href="/bulk-research"><i class="fas fa-file-upload"></i> Article Bulk Analyzer</a></li>
@@ -101,8 +93,13 @@
                         </ul>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link" href="#" onclick="resetOnboarding()">
+                            <i class="fas fa-tasks"></i> Setup Wizard
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link" href="/keyword-alerts">
-                            <i class="fas fa-bell"></i> Keyword Alerts
+                            <i class="fas fa-bell"></i> Dashboard
                         </a>
                     </li>
                     <li class="nav-item dropdown">

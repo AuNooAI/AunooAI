@@ -3,7 +3,12 @@ version: '3.8'
 services:
   aunooai-dev:
     image: aunooai:latest
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: $(cat version.txt || echo "dev")
+        APP_GIT_BRANCH: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "dev")
+        APP_BUILD_DATE: $(date -u +'%Y-%m-%d %H:%M:%S')
     ports:
       - "6005:6005"
     volumes:
@@ -16,7 +21,12 @@ services:
 
   aunooai-prod:
     image: aunooai:latest
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: $(cat version.txt || echo "prod")
+        APP_GIT_BRANCH: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+        APP_BUILD_DATE: $(date -u +'%Y-%m-%d %H:%M:%S')
     ports:
       - "5008:5008"
     volumes:
@@ -30,7 +40,12 @@ services:
 
   aunooai-staging:
     image: aunooai:latest
-    build: .
+    build:
+      context: .
+      args:
+        APP_VERSION: $(cat version.txt || echo "staging")
+        APP_GIT_BRANCH: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "staging")
+        APP_BUILD_DATE: $(date -u +'%Y-%m-%d %H:%M:%S')
     ports:
       - "5009:5009"
     volumes:
