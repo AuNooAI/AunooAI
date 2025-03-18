@@ -572,51 +572,73 @@ async def config_page(request: Request, session=Depends(verify_session)):
 
 @app.post("/config/add_model")
 async def add_model(model_data: AddModelRequest):
-    """Add model configuration to .env file only."""
+    """Add a new model configuration by setting the appropriate environment variable."""
     try:
-        logger.info(f"Received request to add model: {model_data.dict()}")
+        logger.info(f"Adding model {model_data.model_name} for provider {model_data.provider}")
+        # Get the environment variable name based on the model and provider
         
-        if not model_data.model_name or not model_data.provider or not model_data.api_key:
-            raise HTTPException(status_code=400, detail="All fields are required")
-
-        # For HUGGINGFACE provider, only use the part after the last slash
+        # The format we'll use for environment variables is:
+        # PROVIDER_API_KEY_MODEL_NAME
+        # E.g., OPENAI_API_KEY_GPT_4, ANTHROPIC_API_KEY_CLAUDE_3_OPUS
+        
+        provider = model_data.provider.upper()
         model_name = model_data.model_name
-        if model_data.provider.upper() == 'HUGGINGFACE' and '/' in model_name:
-            model_name = model_name.split('/')[-1]
-
-        # Create environment variable name
-        env_var_name = f"{model_data.provider.upper()}_API_KEY_{model_name.replace('-', '_').upper()}"
         
-        # Update .env file
+        # Normalize model name for the environment variable:
+        # - Convert hyphens to underscores
+        # - Usually all uppercase, but preserve dots if present
+        normalized_model = model_name.replace('-', '_').upper()
+        
+        # For models with dots like GPT-3.5-TURBO or CLAUDE-3.5-SONNET
+        # Properly handle the dots in the environment variable name
+        if '.' in model_name:
+            env_var_name = f"{provider}_API_KEY_{normalized_model}"
+        else:
+            env_var_name = f"{provider}_API_KEY_{normalized_model}"
+        
+        # Support common format conversions used in the codebase
+        common_formats = [env_var_name]
+        
+        # Save environment variable(s)
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-        if not os.path.exists(env_path):
-            open(env_path, 'a').close()
-
+        logger.info(f"Saving to .env file at: {env_path}")
+        
+        # Read existing content
         try:
             with open(env_path, "r") as env_file:
                 lines = env_file.readlines()
-        except Exception as e:
+        except FileNotFoundError:
             lines = []
-
-        # Update or add the key
-        new_line = f'{env_var_name}="{model_data.api_key}"\n'
-        key_found = False
         
+        # Check if the environment variable already exists and update it
+        env_var_updated = False
         for i, line in enumerate(lines):
-            if line.startswith(f'{env_var_name}='):
-                lines[i] = new_line
-                key_found = True
+            if line.startswith(f"{env_var_name}="):
+                # Use single quotes for environment variables to be consistent
+                lines[i] = f"{env_var_name}='{model_data.api_key}'\n"
+                env_var_updated = True
                 break
         
-        if not key_found:
-            lines.append(new_line)
-
-        # Write back to .env
+        # If not updated, add it
+        if not env_var_updated:
+            # Add at the end, use single quotes to match existing format
+            lines.append(f"{env_var_name}='{model_data.api_key}'\n")
+        
+        # Write back to .env file
         with open(env_path, "w") as env_file:
             env_file.writelines(lines)
-
-        # Update environment
+        
+        # Set the environment variable in the current process
         os.environ[env_var_name] = model_data.api_key
+        
+        # Reload environment variables to ensure they take effect immediately
+        load_dotenv(dotenv_path=env_path, override=True)
+        
+        # Debug log
+        masked_key = model_data.api_key[:4] + "..." + model_data.api_key[-4:] if len(model_data.api_key) > 8 else "***"
+        logger.info(f"Added model {model_data.model_name} with environment variable {env_var_name}={masked_key}")
+        
+        # This updated model will show in the list of available models in AI Models service
         
         return JSONResponse(content={"message": f"Model {model_data.model_name} added successfully"})
 
@@ -626,23 +648,112 @@ async def add_model(model_data: AddModelRequest):
 
 @app.post("/config/remove_model")
 async def remove_model(model_data: RemoveModelRequest):
-    env_var_name = f"{model_data.provider.upper()}_API_KEY_{model_data.model_name.replace('-', '_').upper()}"
-    if env_var_name in os.environ:
-        del os.environ[env_var_name]
-    
-    # Update .env file
-    env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-    with open(env_path, "r") as env_file:
-        lines = env_file.readlines()
-    
-    # Remove the specified model and any empty lines
-    with open(env_path, "w") as env_file:
-        env_file.writelines(line for line in lines if not line.startswith(env_var_name) and line.strip())
-    
-    # Reload environment variables
-    load_dotenv(override=True)
-    
-    return JSONResponse(content={"message": f"Model {model_data.model_name} removed successfully"})
+    """Remove model configuration from .env file and environment."""
+    try:
+        model_name = model_data.model_name
+        provider = model_data.provider.upper()
+        logger.info(f"Removing model {model_name} for provider {provider}")
+        
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        
+        # Read existing content
+        with open(env_path, "r") as env_file:
+            lines = env_file.readlines()
+        
+        # Remove all variants of the model's API key
+        filtered_lines = []
+        model_keys_removed = []
+        
+        # Normalize model name for matching
+        normalized_model = model_name.replace('-', '_').upper()
+        normalized_model_with_dots = model_name.replace('-', '_').upper()
+        
+        for line in lines:
+            line_stripped = line.strip()
+            if not line_stripped:
+                filtered_lines.append(line)
+                continue
+                
+            # Get just the variable name before the equals sign
+            if '=' not in line_stripped:
+                filtered_lines.append(line)
+                continue
+                
+            key_name = line_stripped.split('=')[0]
+            
+            # Handle models with dots in the name (like gpt-3.5-turbo)
+            # Create a few common patterns to match against
+            env_var_prefix = f"{provider}_API_KEY_"
+            
+            should_remove = False
+            
+            # Direct match check
+            if key_name.startswith(env_var_prefix):
+                # Extract the model part of the key
+                model_part = key_name[len(env_var_prefix):]
+                
+                # Convert to lowercase for case-insensitive comparison
+                model_part_lower = model_part.lower()
+                normalized_model_lower = normalized_model.lower()
+                
+                # Different ways the model might be formatted in env vars
+                model_patterns = [
+                    model_name.upper(),                           # GPT-3.5-TURBO
+                    model_name.replace('-', '_').upper(),         # GPT_3_5_TURBO
+                    model_name.replace('-', '.').upper(),         # GPT.3.5.TURBO
+                    model_name.replace('-', '').upper(),          # GPT35TURBO
+                    model_name.replace('.', '_').replace('-', '_').upper()  # GPT_3_5_TURBO
+                ]
+                
+                # Special pattern for models with dots
+                if '.' in model_name:
+                    # Replace dots with underscores while preserving the dots position
+                    dot_preserved_pattern = ''.join([c if c != '.' else '_' for c in model_name.upper()])
+                    model_patterns.append(dot_preserved_pattern)
+                    
+                    # Version with dots preserved exactly
+                    model_patterns.append(model_name.replace('-', '_').upper())
+                
+                # Check if the key contains any of our model patterns
+                if any(pattern in model_part for pattern in model_patterns):
+                    should_remove = True
+                # Also check more flexible pattern matching
+                elif model_name.lower().replace('-', '').replace('.', '') in model_part_lower.replace('_', ''):
+                    should_remove = True
+            
+            if should_remove:
+                model_keys_removed.append(key_name)
+                logger.info(f"Removing env var: {key_name}")
+                
+                # Also remove from environment
+                if key_name in os.environ:
+                    del os.environ[key_name]
+                    logger.info(f"Removed from environment: {key_name}")
+            else:
+                filtered_lines.append(line)
+        
+        # Write back to .env file
+        with open(env_path, "w") as env_file:
+            env_file.write(''.join(filtered_lines))
+            if filtered_lines and not filtered_lines[-1].endswith('\n'):
+                env_file.write('\n')
+        
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
+        
+        # Also clean up any other related model environment variables
+        try:
+            from app.ai_models import clean_outdated_model_env_vars
+            clean_outdated_model_env_vars()
+        except Exception as e:
+            logger.warning(f"Could not clean outdated model environment variables: {str(e)}")
+        
+        logger.info(f"Removed model {model_name} ({provider}). Keys removed: {model_keys_removed}")
+        return JSONResponse(content={"message": f"Model {model_data.model_name} removed successfully"})
+        
+    except Exception as e:
+        logger.error(f"Error removing model: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/search_articles")
 async def search_articles(
@@ -1288,8 +1399,11 @@ async def remove_newsapi_config():
         with open(env_path, "r") as env_file:
             lines = env_file.readlines()
 
-        # Remove the NEWSAPI_KEY line
-        lines = [line for line in lines if not line.startswith('PROVIDER_NEWSAPI_KEY=')]
+        # Remove the primary and secondary API key lines
+        lines = [line for line in lines if not (
+            line.startswith('PROVIDER_NEWSAPI_KEY=') or 
+            line.startswith('NEWSAPI_KEY=')
+        )]
 
         # Write back to .env
         with open(env_path, "w") as env_file:
@@ -1298,6 +1412,11 @@ async def remove_newsapi_config():
         # Remove from current environment
         if 'PROVIDER_NEWSAPI_KEY' in os.environ:
             del os.environ['PROVIDER_NEWSAPI_KEY']
+        if 'NEWSAPI_KEY' in os.environ:
+            del os.environ['NEWSAPI_KEY']
+
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
 
         return {"message": "NewsAPI configuration removed successfully"}
 
@@ -1718,8 +1837,11 @@ async def remove_firecrawl_config():
         with open(env_path, "r") as env_file:
             lines = env_file.readlines()
 
-        # Remove the FIRECRAWL_KEY line
-        lines = [line for line in lines if not line.startswith('PROVIDER_FIRECRAWL_KEY=')]
+        # Remove the primary and secondary API key lines
+        lines = [line for line in lines if not (
+            line.startswith('PROVIDER_FIRECRAWL_KEY=') or 
+            line.startswith('FIRECRAWL_API_KEY=')
+        )]
 
         # Write back to .env
         with open(env_path, "w") as env_file:
@@ -1728,6 +1850,11 @@ async def remove_firecrawl_config():
         # Remove from current environment
         if 'PROVIDER_FIRECRAWL_KEY' in os.environ:
             del os.environ['PROVIDER_FIRECRAWL_KEY']
+        if 'FIRECRAWL_API_KEY' in os.environ:
+            del os.environ['FIRECRAWL_API_KEY']
+
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
 
         return {"message": "Firecrawl configuration removed successfully"}
 
@@ -2319,7 +2446,7 @@ async def get_thenewsapi_config():
         # Force reload of environment variables
         load_dotenv(override=True)
         
-        thenewsapi_key = os.getenv('PROVIDER_FIRECRAWL_KEY')
+        thenewsapi_key = os.getenv('PROVIDER_THENEWSAPI_KEY')
         
         return JSONResponse(
             status_code=200,
@@ -2338,7 +2465,8 @@ async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same mod
     """Save TheNewsAPI configuration."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
-        env_var_name = 'PROVIDER_THENEWSAPI_KEY'
+        primary_env_var = 'PROVIDER_THENEWSAPI_KEY'
+        secondary_env_var = 'THENEWSAPI_KEY'  # For backward compatibility
 
         # Read existing content
         try:
@@ -2347,25 +2475,36 @@ async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same mod
         except FileNotFoundError:
             lines = []
 
-        # Update or add the key
-        new_line = f'{env_var_name}="{config.api_key}"\n'
-        key_found = False
+        # Update or add the primary key
+        primary_line = f'{primary_env_var}="{config.api_key}"\n'
+        secondary_line = f'{secondary_env_var}="{config.api_key}"\n'
+        
+        primary_found = False
+        secondary_found = False
 
         for i, line in enumerate(lines):
-            if line.startswith(f'{env_var_name}='):
-                lines[i] = new_line
-                key_found = True
-                break
+            if line.startswith(f'{primary_env_var}='):
+                lines[i] = primary_line
+                primary_found = True
+            elif line.startswith(f'{secondary_env_var}='):
+                lines[i] = secondary_line
+                secondary_found = True
 
-        if not key_found:
-            lines.append(new_line)
+        if not primary_found:
+            lines.append(primary_line)
+        if not secondary_found:
+            lines.append(secondary_line)
 
         # Write back to .env
         with open(env_path, "w") as env_file:
             env_file.writelines(lines)
 
-        # Update environment
-        os.environ[env_var_name] = config.api_key
+        # Update environment variables
+        os.environ[primary_env_var] = config.api_key
+        os.environ[secondary_env_var] = config.api_key
+        
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
         
         return JSONResponse(
             status_code=200,
@@ -2386,8 +2525,11 @@ async def remove_thenewsapi_config():
         with open(env_path, "r") as env_file:
             lines = env_file.readlines()
 
-        # Remove the THENEWSAPI_KEY line
-        lines = [line for line in lines if not line.startswith('PROVIDER_THENEWSAPI_KEY=')]
+        # Remove the primary and secondary API key lines
+        lines = [line for line in lines if not (
+            line.startswith('PROVIDER_THENEWSAPI_KEY=') or 
+            line.startswith('THENEWSAPI_KEY=')
+        )]
 
         # Write back to .env
         with open(env_path, "w") as env_file:
@@ -2396,6 +2538,11 @@ async def remove_thenewsapi_config():
         # Remove from current environment
         if 'PROVIDER_THENEWSAPI_KEY' in os.environ:
             del os.environ['PROVIDER_THENEWSAPI_KEY']
+        if 'THENEWSAPI_KEY' in os.environ:
+            del os.environ['THENEWSAPI_KEY']
+
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
 
         return {"message": "TheNewsAPI configuration removed successfully"}
 
@@ -2434,6 +2581,75 @@ async def add_app_info(request: Request, call_next):
 async def api_app_info():
     """Get application information."""
     return JSONResponse(content=get_app_info())
+
+@app.post("/api/reload_environment")
+async def reload_environment():
+    """Force reload environment variables and reinitialize components that use them."""
+    try:
+        # Path to .env file
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        logger.info(f"Reloading environment from {env_path}")
+        
+        # Force reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
+        
+        # Reload AI model settings
+        try:
+            from app.ai_models import ensure_model_env_vars, get_available_models
+            ensure_model_env_vars()
+            available_models = get_available_models()
+            logger.info(f"Reloaded AI model environment: {len(available_models)} models available")
+        except Exception as e:
+            logger.error(f"Error reloading AI models: {str(e)}")
+        
+        # Reload Research instance if it exists
+        try:
+            # Get the global research instance
+            research_instance = get_research()
+            
+            # Use the new reload_environment method
+            if research_instance:
+                success = research_instance.reload_environment()
+                if success:
+                    logger.info("Research instance reloaded successfully")
+                else:
+                    logger.warning("Research instance reload did not complete successfully")
+            else:
+                logger.warning("No Research instance found to reload")
+        except Exception as e:
+            logger.error(f"Error reloading Research instance: {str(e)}")
+        
+        # Log which keys are present in the environment
+        api_keys = {
+            "NewsAPI": os.environ.get("PROVIDER_NEWSAPI_KEY") or os.environ.get("NEWSAPI_KEY"),
+            "Firecrawl": os.environ.get("PROVIDER_FIRECRAWL_KEY") or os.environ.get("FIRECRAWL_API_KEY"),
+            "TheNewsAPI": os.environ.get("PROVIDER_THENEWSAPI_KEY") or os.environ.get("THENEWSAPI_KEY"),
+            "OpenAI": os.environ.get("OPENAI_API_KEY"),
+            "Anthropic": os.environ.get("ANTHROPIC_API_KEY"),
+            "HuggingFace": os.environ.get("HUGGINGFACE_API_KEY"),
+            "Gemini": os.environ.get("GEMINI_API_KEY")
+        }
+        
+        # Mask keys for logging
+        masked_keys = {}
+        for provider, key in api_keys.items():
+            if key:
+                masked_key = key[:4] + "..." + key[-4:] if len(key) > 8 else "[SET]"
+                masked_keys[provider] = masked_key
+            else:
+                masked_keys[provider] = None
+                
+        logger.info(f"Environment reloaded. API keys present: {masked_keys}")
+        
+        return JSONResponse(
+            content={
+                "message": "Environment reloaded successfully",
+                "keys_available": {provider: bool(key) for provider, key in api_keys.items()}
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error reloading environment: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error reloading environment: {str(e)}")
 
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

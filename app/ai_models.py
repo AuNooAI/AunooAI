@@ -4,7 +4,8 @@ import yaml
 from litellm import Router
 import logging
 
-load_dotenv()
+# First, load the environment variables
+load_dotenv(override=True)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the default logging level
@@ -16,6 +17,52 @@ litellm_logger.setLevel(logging.CRITICAL)  # Only show CRITICAL messages
 # Remove all handlers from the LiteLLM logger
 for handler in litellm_logger.handlers[:]:
     litellm_logger.removeHandler(handler)
+
+def ensure_model_env_vars():
+    """
+    Ensure that model-specific environment variables are set properly from main keys.
+    This provides backward compatibility between different key formats.
+    """
+    # Define mappings between general keys and model-specific keys
+    key_mappings = {
+        "OPENAI_API_KEY": [
+            "OPENAI_API_KEY_GPT_3.5_TURBO",
+            "OPENAI_API_KEY_GPT_4O",
+            "OPENAI_API_KEY_GPT_4O_MINI"
+        ],
+        "ANTHROPIC_API_KEY": [
+            "ANTHROPIC_API_KEY_CLAUDE_3_7_SONNET_LATEST",
+            "ANTHROPIC_API_KEY_CLAUDE_3_5_SONNET_LATEST"
+        ],
+        "HUGGINGFACE_API_KEY": [
+            "HUGGINGFACE_API_KEY_MIXTRAL_8X7B"
+        ],
+        "GEMINI_API_KEY": [
+            "GEMINI_API_KEY_GEMINI_PRO"
+        ]
+    }
+    
+    # For each main key, make sure all model-specific keys are set
+    for main_key, specific_keys in key_mappings.items():
+        main_value = os.environ.get(main_key)
+        if main_value:
+            for specific_key in specific_keys:
+                if specific_key not in os.environ or not os.environ[specific_key]:
+                    os.environ[specific_key] = main_value
+                    print(f"Set {specific_key} from {main_key}")
+    
+    # Also check the other way - if any model-specific key is set but the main key isn't
+    for main_key, specific_keys in key_mappings.items():
+        if main_key not in os.environ or not os.environ[main_key]:
+            for specific_key in specific_keys:
+                specific_value = os.environ.get(specific_key)
+                if specific_value:
+                    os.environ[main_key] = specific_value
+                    print(f"Set {main_key} from {specific_key}")
+                    break
+
+# Ensure model environment variables are properly set
+ensure_model_env_vars()
 
 def clean_outdated_model_env_vars():
     """

@@ -185,6 +185,19 @@
                             <i class="fas fa-plus"></i> Add Model
                         </button>
                     </form>
+                    
+                    <div class="config-item mt-4">
+                        <h3>Environment Management</h3>
+                        <p class="text-muted small mb-3">Reload environment variables without restarting the server.</p>
+                        <div class="environment-operations">
+                            <button id="reload-environment-ai" onclick="reloadEnvironment()"
+                                    data-tooltip="Reload API keys and configuration from the .env file">
+                                <i class="fas fa-sync"></i> Reload Environment
+                            </button>
+                            <span id="reload-status-ai" class="ms-2"></span>
+                        </div>
+                        <small class="form-text text-muted mt-2">Use this to refresh AI model API keys after making changes to the .env file</small>
+                    </div>
                 </div>
                 <div class="right-panel">
                     <h2>Available Models</h2>
@@ -225,6 +238,19 @@
                             <i class="fas fa-plus"></i> Add Provider
                         </button>
                     </form>
+                    
+                    <div class="config-item mt-4">
+                        <h3>Environment Management</h3>
+                        <p class="text-muted small mb-3">Reload environment variables without restarting the server.</p>
+                        <div class="environment-operations">
+                            <button id="reload-environment" onclick="reloadEnvironment()"
+                                    data-tooltip="Reload API keys and configuration from the .env file">
+                                <i class="fas fa-sync"></i> Reload Environment
+                            </button>
+                            <span id="reload-status" class="ms-2"></span>
+                        </div>
+                        <small class="form-text text-muted mt-2">Use this to refresh API keys after making changes to the .env file</small>
+                    </div>
                 </div>
                 <div class="right-panel">
                     <h2>Available Providers</h2>
@@ -1731,6 +1757,68 @@
                 alertDiv.remove();
             }, 5000);
         }
+    }
+
+    // Function to reload environment variables (updated to handle multiple status elements)
+    function reloadEnvironment() {
+        const statusElements = [
+            document.getElementById('reload-status'),
+            document.getElementById('reload-status-ai')
+        ];
+        
+        // Update all status elements
+        statusElements.forEach(el => {
+            if (el) el.innerHTML = '<span class="text-info">Reloading...</span>';
+        });
+        
+        fetch('/api/reload_environment', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.message) {
+                // Get available keys
+                const availableKeys = Object.entries(data.keys_available || {})
+                    .filter(([_, isAvailable]) => isAvailable)
+                    .map(([provider]) => provider);
+                
+                const successMessage = `<span class="text-success">Environment reloaded successfully! Keys available: ${availableKeys.join(', ')}</span>`;
+                
+                // Update all status elements
+                statusElements.forEach(el => {
+                    if (el) el.innerHTML = successMessage;
+                });
+                
+                // Refresh the provider lists after reload
+                setTimeout(() => {
+                    loadProviders();
+                    loadAIModels();
+                    
+                    // Clear all status elements
+                    statusElements.forEach(el => {
+                        if (el) el.innerHTML = '';
+                    });
+                }, 3000);
+            }
+        })
+        .catch(error => {
+            const errorMessage = `<span class="text-danger">Error: ${error.message}</span>`;
+            
+            // Update all status elements
+            statusElements.forEach(el => {
+                if (el) el.innerHTML = errorMessage;
+            });
+            
+            setTimeout(() => {
+                // Clear all status elements
+                statusElements.forEach(el => {
+                    if (el) el.innerHTML = '';
+                });
+            }, 3000);
+        });
     }
 </script>{% endblock %}
 

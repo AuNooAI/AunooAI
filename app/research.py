@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.database import Database, SessionLocal
 from dotenv import load_dotenv
-from app.ai_models import get_ai_model, get_available_models
+from app.ai_models import get_ai_model, get_available_models, ensure_model_env_vars
 from app.database import Database 
 from app.analyzers.article_analyzer import ArticleAnalyzer
 
@@ -50,14 +50,46 @@ class Research:
             logger.error(f"Error in Research initialization: {str(e)}", exc_info=True)
             raise
         
-        # Load environment variables if .env exists, but don't fail if it doesn't
+        # Load environment variables from .env
         try:
-            load_dotenv()
+            # Use absolute path to .env file
+            env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+            logger.info(f"Loading environment variables from: {env_path}")
+            load_dotenv(dotenv_path=env_path, override=True)
+            
+            # Log important environment variables (masked)
+            for key in ['FIRECRAWL_API_KEY', 'PROVIDER_FIRECRAWL_KEY', 'OPENAI_API_KEY']:
+                value = os.getenv(key)
+                if value:
+                    masked = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "[SET]"
+                    logger.info(f"Found environment variable: {key}={masked}")
         except Exception as e:
             logger.warning(f"Error loading .env file: {str(e)}. Continuing with environment variables.")
+        
+        # Initialize AI models
+        try:
+            # Import here to avoid circular imports
+            from app.ai_models import get_available_models, get_ai_model, ensure_model_env_vars
             
-        self.available_models = get_available_models()
-        self.ai_model = None
+            # Make sure model environment variables are set correctly
+            ensure_model_env_vars()
+            
+            self.available_models = get_available_models()
+            logger.info(f"Available AI models: {[model['name'] for model in self.available_models]}")
+            
+            # Set default AI model if one is available
+            self.ai_model = None
+            if self.available_models:
+                self.set_ai_model(self.available_models[0]['name'])
+                logger.info(f"Set default AI model to: {self.available_models[0]['name']}")
+            else:
+                logger.warning("No AI models are available. Some functionality will be limited.")
+                
+        except Exception as e:
+            logger.error(f"Error initializing AI models: {str(e)}", exc_info=True)
+            self.available_models = []
+            self.ai_model = None
+        
         self.article_analyzer = None
         self.firecrawl_app = self.initialize_firecrawl()
 
@@ -124,10 +156,18 @@ class Research:
 
     def initialize_firecrawl(self):
         try:
+            # Try getting the Firecrawl API key from settings
             firecrawl_api_key = settings.FIRECRAWL_API_KEY
+            
+            # If not available from settings, try directly from environment variables
+            if not firecrawl_api_key:
+                firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY") or os.getenv("PROVIDER_FIRECRAWL_KEY")
+                
             if not firecrawl_api_key:
                 logger.warning("Firecrawl API key is missing. Some functionality will be limited.")
                 return None
+                
+            logger.info(f"Initializing Firecrawl with API key: {firecrawl_api_key[:4]}...{firecrawl_api_key[-4:]}")
             return FirecrawlApp(api_key=firecrawl_api_key)
         except Exception as e:
             logger.warning(f"Error initializing Firecrawl: {str(e)}. Some functionality will be limited.")
@@ -547,26 +587,46 @@ class Research:
 
     def set_ai_model(self, model_name):
         logger.debug(f"Setting AI model to: {model_name}")
-        if not self.available_models:
-            raise ValueError("No AI models are configured. Please add a model in the configuration section.")
-        available_names = [model['name'] for model in self.available_models]
-        logger.debug(f"Available models: {available_names}")
-        if model_name not in available_names:
-            raise ValueError(f"Model {model_name} is not configured. Please select a configured model.")
-        
-        # Set the new AI model
-        self.ai_model = get_ai_model(model_name)
-        logger.debug(f"Successfully set AI model to: {model_name}")
-        
-        # Only create new ArticleAnalyzer if it doesn't exist
-        if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
-            self.article_analyzer = ArticleAnalyzer(self.ai_model, use_cache=True)
-            logger.debug(f"Created new ArticleAnalyzer for model: {model_name}")
-        else:
-            # Update existing analyzer with new model while preserving cache
-            self.article_analyzer.ai_model = self.ai_model
-            self.article_analyzer.model_name = model_name
-            logger.debug(f"Updated existing ArticleAnalyzer with model: {model_name}")
+        try:
+            if not self.available_models:
+                logger.warning("No AI models are configured. Please add a model in the configuration section.")
+                from app.ai_models import get_available_models, ensure_model_env_vars
+                
+                # Try refreshing environment variables and models
+                ensure_model_env_vars()
+                self.available_models = get_available_models()
+                if not self.available_models:
+                    raise ValueError("No AI models are configured. Please add a model in the configuration section.")
+            
+            available_names = [model['name'] for model in self.available_models]
+            logger.debug(f"Available models: {available_names}")
+            
+            if model_name not in available_names:
+                logger.warning(f"Model {model_name} is not configured. Available models: {available_names}")
+                
+                # If requested model isn't available but others are, use the first available model
+                if available_names:
+                    logger.info(f"Using {available_names[0]} as fallback model")
+                    model_name = available_names[0]
+                else:
+                    raise ValueError(f"Model {model_name} is not configured. Please select a configured model.")
+            
+            # Set the new AI model
+            self.ai_model = get_ai_model(model_name)
+            logger.debug(f"Successfully set AI model to: {model_name}")
+            
+            # Only create new ArticleAnalyzer if it doesn't exist
+            if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
+                self.article_analyzer = ArticleAnalyzer(self.ai_model, use_cache=True)
+                logger.debug(f"Created new ArticleAnalyzer for model: {model_name}")
+            else:
+                # Update existing analyzer with new model while preserving cache
+                self.article_analyzer.ai_model = self.ai_model
+                self.article_analyzer.model_name = model_name
+                logger.debug(f"Updated existing ArticleAnalyzer with model: {model_name}")
+        except Exception as e:
+            logger.error(f"Error setting AI model: {str(e)}", exc_info=True)
+            raise
 
     def get_available_models(self):
         return self.available_models
@@ -604,6 +664,57 @@ class Research:
                     SET moved_to_articles = TRUE
                     WHERE url = ?
                 """, (url,))
+
+    def reload_environment(self):
+        """Reload environment variables and reinitialize API clients"""
+        try:
+            logger.info("Reloading environment for Research instance")
+            
+            # Reload environment variables
+            env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+            load_dotenv(dotenv_path=env_path, override=True)
+            
+            # Log important keys (masked)
+            firecrawl_key = os.environ.get("FIRECRAWL_API_KEY") or os.environ.get("PROVIDER_FIRECRAWL_KEY")
+            newsapi_key = os.environ.get("NEWSAPI_KEY") or os.environ.get("PROVIDER_NEWSAPI_KEY")
+            openai_key = os.environ.get("OPENAI_API_KEY")
+            
+            if firecrawl_key:
+                masked_key = firecrawl_key[:4] + "..." + firecrawl_key[-4:] if len(firecrawl_key) > 8 else "[SET]"
+                logger.info(f"Firecrawl API key loaded: {masked_key}")
+            
+            if newsapi_key:
+                masked_key = newsapi_key[:4] + "..." + newsapi_key[-4:] if len(newsapi_key) > 8 else "[SET]"
+                logger.info(f"NewsAPI key loaded: {masked_key}")
+            
+            if openai_key:
+                masked_key = openai_key[:4] + "..." + openai_key[-4:] if len(openai_key) > 8 else "[SET]"
+                logger.info(f"OpenAI API key loaded: {masked_key}")
+            
+            # Re-initialize API clients
+            self.initialize_firecrawl()
+            
+            # Reinitialize AI models
+            try:
+                from app.ai_models import ensure_model_env_vars, get_available_models
+                ensure_model_env_vars()
+                self.available_models = get_available_models()
+                
+                # Set the default model if we have available models
+                if self.available_models:
+                    default_model = list(self.available_models.keys())[0]
+                    self.set_ai_model(default_model)
+                    logger.info(f"Default AI model set to {default_model}")
+                else:
+                    logger.warning("No AI models available after environment reload")
+            except Exception as e:
+                logger.error(f"Error reloading AI models: {str(e)}")
+            
+            logger.info("Research environment reload completed")
+            return True
+        except Exception as e:
+            logger.error(f"Error reloading Research environment: {str(e)}")
+            return False
 
 
 
