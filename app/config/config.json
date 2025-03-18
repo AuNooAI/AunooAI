@@ -184,6 +184,10 @@
       "provider": "openai"
     },
     {
+      "name": "mixtral-8x7b",
+      "provider": "huggingface"
+    },
+    {
       "name": "gpt-4o",
       "provider": "openai"
     },
@@ -192,8 +196,16 @@
       "provider": "openai"
     },
     {
-      "name": "claude-3-5-sonnet-20240620",
+      "name": "claude-3-7-sonnet-latest",
       "provider": "anthropic"
+    },
+    {
+      "name": "claude-3-5-sonnet-latest",
+      "provider": "anthropic"
+    },
+    {
+      "name": "gemini-pro",
+      "provider": "google"
     }
   ],
   "providers": [

@@ -178,6 +178,9 @@ fi
 # Push the image to Google Container Registry
 echo "Pushing image to Google Container Registry..."
 if [ "$USE_SUDO_FOR_DOCKER" = true ]; then
+  # Authenticate Docker with GCR using the current user's access token
+  echo "Using sudo for Docker. Authenticating with GCR..."
+  gcloud auth print-access-token | sudo docker login -u oauth2accesstoken --password-stdin https://gcr.io
   sudo docker push $IMAGE_NAME
 else
   docker push $IMAGE_NAME

@@ -121,6 +121,7 @@
         padding: 10px;
         border-bottom: 1px solid var(--medium-gray);
         margin-bottom: 10px;
+        background-color: white;
     }
 
     .article-item:last-child {
@@ -129,7 +130,8 @@
 
     .article-checkbox {
         margin-right: 15px;
-        align-self: center;
+        align-self: flex-start;
+        margin-top: 5px;
     }
 
     .article-details {
@@ -138,8 +140,10 @@
 
     .article-details h4 {
         margin-top: 0;
-        margin-bottom: 5px;
+        margin-bottom: 10px;
         color: var(--primary-color);
+        font-size: 1.2rem;
+        font-weight: bold;
     }
 
     .article-meta {
@@ -151,18 +155,63 @@
     .article-dates {
         font-size: 0.8em;
         color: var(--dark-gray);
-        margin-bottom: 5px;
+        margin-bottom: 10px;
     }
 
     .article-summary {
         font-size: 0.9em;
-        margin-bottom: 5px;
+        margin-bottom: 10px;
         color: var(--text-color);
+        line-height: 1.4;
     }
 
     .article-url {
         font-size: 0.8em;
         color: var(--secondary-color);
+        text-decoration: none;
+        display: inline-block;
+    }
+
+    .article-url:hover {
+        text-decoration: underline;
+    }
+
+    .badge {
+        font-size: 0.75rem;
+        padding: 0.25em 0.6em;
+        border-radius: 0.25rem;
+        display: inline-block;
+        font-weight: normal;
+    }
+
+    .bg-success {
+        background-color: #8cca94;
+        color: #1d3b25;
+    }
+
+    .bg-info {
+        background-color: #a8d6ef;
+        color: #174a7c;
+    }
+
+    .bg-primary {
+        background-color: #ffb1d8;
+        color: #8c2c62;
+    }
+
+    .bg-secondary {
+        background-color: #b1dfb1;
+        color: #1d4d26;
+    }
+
+    .bg-warning {
+        background-color: #ffe0b2;
+        color: #805b36;
+    }
+
+    .bg-danger {
+        background-color: #f8c9c9;
+        color: #8c2727;
     }
 
     #totalCount {
@@ -691,6 +740,9 @@ document.addEventListener('DOMContentLoaded', function() {
         
         searchParams.append('page', currentPage);
         searchParams.append('per_page', articlesPerPage);
+        
+        // Request all necessary fields
+        searchParams.append('include_fields', 'title,summary,url,uri,publication_date,submission_date,category,sentiment,news_source,analyzed,ai_impact,future_signal');
 
         console.log('Fetching articles with params:', Object.fromEntries(searchParams));
 
@@ -703,7 +755,23 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .then(data => {
                 console.log('Received articles:', data);
-                displaySearchResults(data.articles);
+                
+                // Preprocess articles to ensure all required fields
+                const processedArticles = data.articles.map(article => {
+                    return {
+                        ...article,
+                        // Set defaults for any missing fields
+                        analyzed: article.analyzed || false,
+                        sentiment: article.sentiment || 'Neutral',
+                        ai_impact: article.ai_impact || null,
+                        future_signal: article.future_signal || null,
+                        // Ensure dates are properly formatted
+                        publication_date: article.publication_date || null,
+                        submission_date: article.submission_date || null
+                    };
+                });
+                
+                displaySearchResults(processedArticles);
                 updateTotalCount(data.total_count || 0);
                 currentPage++;
                 isLoading = false;
@@ -749,22 +817,90 @@ document.addEventListener('DOMContentLoaded', function() {
                 allArticleIds.push(article.uri);
             }
 
-            // Create article content
-            const articleContent = document.createElement('div');
-            articleContent.className = 'article-content';
-            articleContent.innerHTML = `
-                <h3>${article.title}</h3>
-                <p><strong>Source:</strong> ${article.news_source}</p>
-                <p><strong>Date:</strong> ${new Date(article.publication_date).toLocaleDateString()}</p>
-                <p><strong>Category:</strong> ${article.category}</p>
-                <p>${article.summary}</p>
-            `;
+            // Create article details container
+            const articleDetails = document.createElement('div');
+            articleDetails.className = 'article-details';
+
+            // Create article title
+            const title = document.createElement('h4');
+            title.textContent = article.title;
+            articleDetails.appendChild(title);
+
+            // Create tags/categories container
+            const tagsContainer = document.createElement('div');
+            tagsContainer.className = 'mb-2';
+
+            // Add tag elements based on the screenshot example
+            if (article.analyzed) {
+                appendTag(tagsContainer, 'Analyzed', 'success');
+            }
+            
+            // AI field tag (e.g., "AI in Software Development")
+            if (article.category && article.category.includes('AI')) {
+                appendTag(tagsContainer, article.category, 'info');
+            } else if (article.category) {
+                appendTag(tagsContainer, article.category, 'info');
+            }
+            
+            // Sentiment tag (e.g., "Neutral")
+            if (article.sentiment) {
+                appendTag(tagsContainer, article.sentiment, 'primary');
+            }
+            
+            // AI impact tag (e.g., "AI will evolve gradually")
+            if (article.ai_impact) {
+                appendTag(tagsContainer, article.ai_impact, 'secondary');
+            } else if (article.future_signal) {
+                // Alternative: use future_signal if ai_impact is not available
+                const impact = article.future_signal.includes('will') ? 
+                    article.future_signal : 
+                    `AI will ${article.future_signal.toLowerCase()}`;
+                appendTag(tagsContainer, impact, 'secondary');
+            }
+
+            articleDetails.appendChild(tagsContainer);
+
+            // Create publication and submission dates
+            const dateInfo = document.createElement('div');
+            dateInfo.className = 'article-dates';
+            
+            let pubDate = article.publication_date ? new Date(article.publication_date).toISOString().split('T')[0] : 'N/A';
+            let subDate = article.submission_date ? new Date(article.submission_date).toISOString().split('T')[0] : 'N/A';
+            
+            dateInfo.innerHTML = `Published: ${pubDate} | Submitted: ${subDate}`;
+            articleDetails.appendChild(dateInfo);
+
+            // Create article summary
+            const summary = document.createElement('div');
+            summary.className = 'article-summary';
+            summary.textContent = article.summary || 'No summary available.';
+            articleDetails.appendChild(summary);
+
+            // Create View Source link
+            const viewSource = document.createElement('a');
+            viewSource.href = article.url || '#';
+            viewSource.className = 'article-url';
+            viewSource.textContent = 'View Source';
+            viewSource.target = '_blank';
+            
+            // Wrap in container for styling
+            const linkContainer = document.createElement('div');
+            linkContainer.appendChild(viewSource);
+            articleDetails.appendChild(linkContainer);
 
             // Append elements
             articleElement.appendChild(checkbox);
-            articleElement.appendChild(articleContent);
+            articleElement.appendChild(articleDetails);
             elements.articleList.appendChild(articleElement);
         });
+    }
+
+    // Helper function to create tag elements
+    function appendTag(container, text, type) {
+        const tag = document.createElement('span');
+        tag.className = `badge bg-${type} me-2`;
+        tag.textContent = text;
+        container.appendChild(tag);
     }
 
     function updateTotalCount(count) {

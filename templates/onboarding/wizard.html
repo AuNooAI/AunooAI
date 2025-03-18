@@ -1,0 +1,1084 @@
+{% extends "base.html" %}
+{% block title %}Topic Wizard - AuNoo AI{% endblock %}
+
+{% block extra_css %}
+<style>
+    .step {
+        display: none;
+    }
+    .step.active {
+        display: block;
+    }
+    .step-indicator {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 2rem;
+    }
+    .step-dot {
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background-color: #e9ecef;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+    }
+    .step-dot.active {
+        background-color: var(--primary-color);
+        color: white;
+    }
+    .step-dot.completed {
+        background-color: var(--secondary-color);
+        color: white;
+    }
+    .step-line {
+        flex: 1;
+        height: 2px;
+        background-color: #e9ecef;
+        margin: 15px 10px;
+    }
+    .step-line.completed {
+        background-color: var(--secondary-color);
+    }
+    .api-key-status {
+        display: none;
+        margin-top: 0.5rem;
+    }
+    .topic-suggestions {
+        display: none;
+        margin-top: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-body">
+                    <h2 class="text-center mb-4">Welcome to AuNoo AI</h2>
+                    
+                    <!-- Step Indicators -->
+                    <div class="step-indicator mb-4">
+                        <div class="step-dot active" data-step="1">1</div>
+                        <div class="step-line"></div>
+                        <div class="step-dot" data-step="2">2</div>
+                        <div class="step-line"></div>
+                        <div class="step-dot" data-step="3">3</div>
+                    </div>
+
+                    <!-- Step 1: API Keys -->
+                    <div class="step active" id="step1">
+                        <h4>Step 1: Configure API Keys</h4>
+                        <p class="text-muted">Set up your API keys for various services</p>
+                        
+                        <!-- NewsAPI Key -->
+                        <div class="mb-3">
+                            <label for="newsapi-key" class="form-label">NewsAPI Key</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="newsapi-key" name="newsapi-key" placeholder="Enter API key">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('newsapi-key')">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('newsapi')">Test</button>
+                            </div>
+                            <div id="newsapi-status" class="api-key-status"></div>
+                            <small class="text-muted">Required for fetching news articles from various sources</small>
+                        </div>
+
+                        <!-- LLM API Key -->
+                        <div class="mb-3">
+                            <label for="llm-provider" class="form-label">LLM Provider</label>
+                            <select class="form-select" id="llm-provider" onchange="toggleLlmKeyFields()">
+                                <option value="openai" selected>OpenAI</option>
+                                <option value="anthropic">Anthropic</option>
+                                <option value="huggingface">HuggingFace</option>
+                                <option value="gemini">Google Gemini</option>
+                            </select>
+                            <small class="text-muted">Select your preferred LLM provider</small>
+                        </div>
+
+                        <!-- OpenAI API Key -->
+                        <div class="mb-3 llm-key-field" id="openai-key-field">
+                            <label for="openai-key" class="form-label">OpenAI API Key</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="openai-key" name="openai-key" placeholder="Enter API key">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('openai-key')">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('openai')">Test</button>
+                            </div>
+                            <div id="openai-status" class="api-key-status"></div>
+                            <small class="text-muted">Will be used for gpt-3.5-turbo and gpt-4o-mini models</small>
+                        </div>
+
+                        <!-- Anthropic API Key -->
+                        <div class="mb-3 llm-key-field" id="anthropic-key-field" style="display: none;">
+                            <label for="anthropic-key" class="form-label">Anthropic API Key</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="anthropic-key" name="anthropic-key" placeholder="Enter API key">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('anthropic-key')">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('anthropic')">Test</button>
+                            </div>
+                            <div id="anthropic-status" class="api-key-status"></div>
+                            <small class="text-muted">Will be used for Claude 3.7 Sonnet model</small>
+                        </div>
+
+                        <!-- HuggingFace API Key -->
+                        <div class="mb-3 llm-key-field" id="huggingface-key-field" style="display: none;">
+                            <label for="huggingface-key" class="form-label">HuggingFace API Key</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="huggingface-key" name="huggingface-key" placeholder="Enter API key">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('huggingface-key')">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('huggingface')">Test</button>
+                            </div>
+                            <div id="huggingface-status" class="api-key-status"></div>
+                            <small class="text-muted">Will be used for Mixtral-8x7B model</small>
+                        </div>
+
+                        <!-- Gemini API Key -->
+                        <div class="mb-3 llm-key-field" id="gemini-key-field" style="display: none;">
+                            <label for="gemini-key" class="form-label">Google Gemini API Key</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="gemini-key" name="gemini-key" placeholder="Enter API key">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('gemini-key')">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('gemini')">Test</button>
+                            </div>
+                            <div id="gemini-status" class="api-key-status"></div>
+                            <small class="text-muted">Will be used for Gemini Pro model</small>
+                        </div>
+
+                        <!-- Firecrawl Key -->
+                        <div class="mb-3">
+                            <label for="firecrawl-key" class="form-label">Firecrawl Key</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="firecrawl-key" name="firecrawl-key" placeholder="Enter API key">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('firecrawl-key')">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('firecrawl')">Test</button>
+                            </div>
+                            <div id="firecrawl-status" class="api-key-status"></div>
+                            <small class="text-muted">Required for web scraping and data collection</small>
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Topic Setup -->
+                    <div class="step" id="step2">
+                        <h4>Step 2: Set Up Your First Topic</h4>
+                        <p class="text-muted">Create a topic to start monitoring</p>
+                        
+                        <div class="mb-3">
+                            <label for="topic-name" class="form-label">Topic Name</label>
+                            <input type="text" class="form-control" id="topic-name" name="topic-name">
+                            <small class="text-muted">Enter a descriptive name for your topic</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="topic-description" class="form-label">Topic Description (Optional)</label>
+                            <textarea class="form-control" id="topic-description" name="topic-description" rows="3" placeholder="Provide additional details about this topic to improve attribute suggestions"></textarea>
+                            <small class="text-muted">A brief description helps the AI provide better suggestions</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <button class="btn btn-outline-primary" type="button" onclick="suggestAttributes()">
+                                <i class="fas fa-magic"></i> Suggest Attributes
+                            </button>
+                        </div>
+
+                        <div id="topic-suggestions" class="topic-suggestions">
+                            <div class="mb-4">
+                                <label for="future-signals" class="form-label">Future Signals</label>
+                                <p class="text-muted mb-2">Future Signals are scenarios that suggest potential directions for a topic. For instance, signals for an AI hype model could range from <span class="text-blue-600">"AI is hype"</span> and <span class="text-blue-600">"AI is evolving gradually"</span>, to <span class="text-blue-600">"AI is accelerating"</span>.</p>
+                                <div class="tags-input" id="futureSignalsContainer">
+                                    <input type="text" id="futureSignalsInput" placeholder="Type and press Enter to add">
+                                </div>
+                                <small class="text-muted">Add signals that indicate future developments. Examples:</small>
+                                <div class="example-list mt-2">
+                                    {% for signal in example_signals[:5] %}
+                                        <span class="example-value text-blue-600" onclick="addExampleValue('futureSignalsInput', '{{ signal }}')">{{ signal }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label for="categories" class="form-label">Categories</label>
+                                <p class="text-muted mb-2">Each topic is broken down into categories, making it easier to organize and analyze data. For example, a topic on AI might include subcategories like <span class="text-blue-600">AI in Finance</span> or <span class="text-blue-600">Cloud Quarterly Earnings</span>.</p>
+                                <div class="tags-input" id="categoriesContainer">
+                                    <input type="text" id="categoriesInput" placeholder="Type and press Enter to add">
+                                </div>
+                                <small class="text-muted">Add categories that describe your topic. Examples:</small>
+                                <div class="example-list mt-2">
+                                    {% for category in example_categories[:5] %}
+                                        <span class="example-value text-blue-600" onclick="addExampleValue('categoriesInput', '{{ category }}')">{{ category }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label for="sentiment" class="form-label">Sentiment Options</label>
+                                <p class="text-muted mb-2">AuNoo goes beyond basic positive, neutral, and negative sentiment analysis. It can detect tones such as <span class="text-blue-600">mocking</span>, <span class="text-blue-600">critical</span>, <span class="text-blue-600">hyperbolic</span>, or <span class="text-blue-600">optimistic</span>, providing a nuanced understanding of public and media sentiment.</p>
+                                <div class="tags-input" id="sentimentsContainer">
+                                    <input type="text" id="sentimentsInput" placeholder="Type and press Enter to add">
+                                </div>
+                                <small class="text-muted">Add sentiment categories for tracking articles. Common options:</small>
+                                <div class="example-list mt-2">
+                                    {% for sentiment in example_sentiments %}
+                                        <span class="example-value text-blue-600" onclick="addExampleValue('sentimentsInput', '{{ sentiment }}')">{{ sentiment }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label for="time-to-impact" class="form-label">Time to Impact</label>
+                                <p class="text-muted mb-2">Time to Impact helps assess when the impact of a trend is expected—<span class="text-blue-600">immediate</span>, <span class="text-blue-600">short-term (3–18 months)</span>, <span class="text-blue-600">mid-term (18–60 months)</span>, or <span class="text-blue-600">long-term (5+ years)</span>. This allows decision-makers to prioritize their strategies effectively. It is based on the Three Horizon Model.</p>
+                                <div class="tags-input" id="timeToImpactContainer">
+                                    <input type="text" id="timeToImpactInput" placeholder="Type and press Enter to add">
+                                </div>
+                                <small class="text-muted">Add time ranges for expected impact. Common ranges:</small>
+                                <div class="example-list mt-2">
+                                    {% for time in example_time_to_impact %}
+                                        <span class="example-value text-blue-600" onclick="addExampleValue('timeToImpactInput', '{{ time }}')">{{ time }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label for="driver-types" class="form-label">Driver Types</label>
+                                <p class="text-muted mb-2">AuNoo categorizes data points based on their impact on a topic, using types like:
+                                    <br>• <span class="text-blue-600"><strong>Accelerator</strong>: Speeds up the development or impact of a trend.</span>
+                                    <br>• <span class="text-blue-600"><strong>Delayer</strong>: Slows down progress.</span>
+                                    <br>• <span class="text-blue-600"><strong>Blocker</strong>: Prevents a trend from advancing.</span>
+                                    <br>• <span class="text-blue-600"><strong>Catalyst</strong>: Significantly amplifies or transforms the trajectory of a trend.</span>
+                                </p>
+                                <div class="tags-input" id="driverTypesContainer">
+                                    <input type="text" id="driverTypesInput" placeholder="Type and press Enter to add">
+                                </div>
+                                <small class="text-muted">Add types of drivers that influence the topic. Common types:</small>
+                                <div class="example-list mt-2">
+                                    {% for driver in example_driver_types %}
+                                        <span class="example-value text-blue-600" onclick="addExampleValue('driverTypesInput', '{{ driver }}')">{{ driver }}</span>
+                                    {% endfor %}
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="form-label">Explanation</label>
+                                <p id="suggestion-explanation" class="text-muted"></p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Keywords -->
+                    <div class="step" id="step3">
+                        <h4>Step 3: Set Up Keywords</h4>
+                        <p class="text-muted">Add keywords to monitor for your topic</p>
+                        
+                        <div class="mb-3">
+                            <button class="btn btn-outline-primary" type="button" onclick="suggestKeywords()">
+                                <i class="fas fa-magic"></i> Suggest Keywords
+                            </button>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label">Keywords</label>
+                            <div class="tags-input" id="keywordsContainer">
+                                <input type="text" id="keywordsInput" placeholder="Type and press Enter to add">
+                            </div>
+                            <small class="text-muted">Add keywords to monitor (companies, technologies, people, domains)</small>
+                            <div id="keyword-suggestions" class="example-list mt-2">
+                                <!-- Dynamically populated by suggestKeywords() -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Navigation Buttons -->
+                    <div class="d-flex justify-content-between mt-4">
+                        <button class="btn btn-secondary" onclick="prevStep()" id="prevBtn" style="display: none;">
+                            Previous
+                        </button>
+                        <button class="btn btn-primary" onclick="nextStep()" id="nextBtn">
+                            Next
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentStep = 1;
+const totalSteps = 3;
+
+// Add this function for password visibility toggle
+function togglePasswordVisibility(inputId) {
+    const input = document.getElementById(inputId);
+    const button = input.nextElementSibling;
+    const icon = button.querySelector('i');
+    
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.remove('fa-eye');
+        icon.classList.add('fa-eye-slash');
+    } else {
+        input.type = 'password';
+        icon.classList.remove('fa-eye-slash');
+        icon.classList.add('fa-eye');
+    }
+}
+
+// Modify the checkExistingKeys function
+async function checkExistingKeys() {
+    try {
+        const response = await fetch('/api/onboarding/check-keys');
+        const keyStatus = await response.json();
+        console.log("API Key status:", keyStatus);
+        
+        if (keyStatus.newsapi) {
+            const statusDiv = document.getElementById('newsapi-status');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = 'NewsAPI key configured ✓';
+            statusDiv.className = 'api-key-status text-success';
+            document.getElementById('newsapi-key').value = keyStatus.newsapi_key || '';
+            document.getElementById('newsapi-key').placeholder = 'Key configured - click to view/edit';
+        }
+        
+        if (keyStatus.firecrawl) {
+            const statusDiv = document.getElementById('firecrawl-status');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = 'Firecrawl key configured ✓';
+            statusDiv.className = 'api-key-status text-success';
+            document.getElementById('firecrawl-key').value = keyStatus.firecrawl_key || '';
+            document.getElementById('firecrawl-key').placeholder = 'Key configured - click to view/edit';
+        }
+        
+        if (keyStatus.openai) {
+            const statusDiv = document.getElementById('openai-status');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = 'OpenAI key configured ✓';
+            statusDiv.className = 'api-key-status text-success';
+            document.getElementById('openai-key').value = keyStatus.openai_key || '';
+            document.getElementById('openai-key').placeholder = 'Key configured - click to view/edit';
+            document.getElementById('llm-provider').value = 'openai';
+        }
+        
+        if (keyStatus.anthropic) {
+            const statusDiv = document.getElementById('anthropic-status');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = 'Anthropic key configured ✓';
+            statusDiv.className = 'api-key-status text-success';
+            document.getElementById('anthropic-key').value = keyStatus.anthropic_key || '';
+            document.getElementById('anthropic-key').placeholder = 'Key configured - click to view/edit';
+            document.getElementById('llm-provider').value = 'anthropic';
+        }
+        
+        if (keyStatus.huggingface) {
+            const statusDiv = document.getElementById('huggingface-status');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = 'HuggingFace key configured ✓';
+            statusDiv.className = 'api-key-status text-success';
+            document.getElementById('huggingface-key').value = keyStatus.huggingface_key || '';
+            document.getElementById('huggingface-key').placeholder = 'Key configured - click to view/edit';
+            document.getElementById('llm-provider').value = 'huggingface';
+        }
+        
+        if (keyStatus.gemini) {
+            const statusDiv = document.getElementById('gemini-status');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = 'Google Gemini key configured ✓';
+            statusDiv.className = 'api-key-status text-success';
+            document.getElementById('gemini-key').value = keyStatus.gemini_key || '';
+            document.getElementById('gemini-key').placeholder = 'Key configured - click to view/edit';
+            document.getElementById('llm-provider').value = 'gemini';
+        }
+        
+        // Update the LLM provider dropdown and toggle fields accordingly
+        toggleLlmKeyFields();
+        
+    } catch (error) {
+        console.error("Error checking API keys:", error);
+    }
+}
+
+async function testApiKey(type) {
+    const statusDiv = document.getElementById(`${type}-status`);
+    statusDiv.style.display = 'block';
+    statusDiv.innerHTML = 'Testing...';
+    statusDiv.className = 'api-key-status text-muted';
+
+    let provider;
+    let api_key;
+    
+    if (type === 'openai') {
+        provider = 'openai';
+        api_key = document.getElementById('openai-key').value;
+    } else if (type === 'anthropic') {
+        provider = 'anthropic';
+        api_key = document.getElementById('anthropic-key').value;
+    } else if (type === 'huggingface') {
+        provider = 'huggingface';
+        api_key = document.getElementById('huggingface-key').value;
+    } else if (type === 'gemini') {
+        provider = 'gemini';
+        api_key = document.getElementById('gemini-key').value;
+    } else if (type === 'newsapi') {
+        provider = 'newsapi';
+        api_key = document.getElementById('newsapi-key').value;
+    } else if (type === 'firecrawl') {
+        provider = 'firecrawl';
+        api_key = document.getElementById('firecrawl-key').value;
+    }
+
+    try {
+        const response = await fetch('/api/onboarding/validate-api-key', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                provider: provider,
+                api_key: api_key
+            })
+        });
+
+        const data = await response.json();
+        if (response.ok && data.configured) {
+            statusDiv.innerHTML = 'Key configured ✓';
+            statusDiv.className = 'api-key-status text-success';
+        } else {
+            statusDiv.innerHTML = data.detail || 'Invalid key';
+            statusDiv.className = 'api-key-status text-danger';
+        }
+    } catch (error) {
+        statusDiv.innerHTML = `Error: ${error.message}`;
+        statusDiv.className = 'api-key-status text-danger';
+    }
+}
+
+// Add CSS for tag inputs
+const style = document.createElement('style');
+style.textContent = `
+    .tags-input {
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        border-radius: 8px;
+        padding: 0.75rem;
+        min-height: 100px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: flex-start;
+        background-color: white;
+    }
+
+    .tag {
+        display: inline-flex;
+        align-items: center;
+        background-color: rgba(255, 105, 180, 0.1);
+        color: var(--primary-color);
+        padding: 0.35em 0.8em;
+        border-radius: 12px;
+        font-size: 0.75em;
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .tag .remove {
+        margin-left: 0.5rem;
+        cursor: pointer;
+        opacity: 0.6;
+        transition: opacity 0.2s;
+    }
+
+    .tag .remove:hover {
+        opacity: 1;
+    }
+
+    .tags-input input {
+        border: none;
+        outline: none;
+        padding: 0.2rem;
+        flex-grow: 1;
+        min-width: 150px;
+    }
+
+    .example-value {
+        display: inline-block;
+        padding: 0.35em 0.8em;
+        margin: 0.2rem;
+        background-color: rgba(255, 105, 180, 0.1);
+        color: var(--primary-color);
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        border-radius: 12px;
+        cursor: pointer;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+    }
+
+    .example-value:hover {
+        background-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+    }
+`;
+document.head.appendChild(style);
+
+function createTagInput(containerId, inputId) {
+    const container = document.getElementById(containerId);
+    const input = document.getElementById(inputId);
+    const tags = new Set();
+
+    function clearTags() {
+        tags.clear();
+        const existingTags = container.querySelectorAll('.tag');
+        existingTags.forEach(tag => tag.remove());
+    }
+
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            const value = this.value.trim();
+            if (value) {
+                addTag(value);
+                this.value = '';
+            }
+        }
+    });
+
+    // Also add tag when input loses focus
+    input.addEventListener('blur', function() {
+        const value = this.value.trim();
+        if (value) {
+            addTag(value);
+            this.value = '';
+        }
+    });
+
+    function addTag(value) {
+        if (tags.has(value)) return;
+        tags.add(value);
+        
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.innerHTML = `${value}<span class="remove">×</span>`;
+        
+        tag.querySelector('.remove').addEventListener('click', function() {
+            container.removeChild(tag);
+            tags.delete(value);
+        });
+        
+        container.insertBefore(tag, input);
+    }
+
+    return {
+        getTags: () => Array.from(tags),
+        clearTags: clearTags,
+        addTag: addTag
+    };
+}
+
+// Initialize tag inputs
+const categoriesInput = createTagInput('categoriesContainer', 'categoriesInput');
+const futureSignalsInput = createTagInput('futureSignalsContainer', 'futureSignalsInput');
+const sentimentsInput = createTagInput('sentimentsContainer', 'sentimentsInput');
+const timeToImpactInput = createTagInput('timeToImpactContainer', 'timeToImpactInput');
+const driverTypesInput = createTagInput('driverTypesContainer', 'driverTypesInput');
+const keywordsInput = createTagInput('keywordsContainer', 'keywordsInput');
+
+function addExampleValue(inputId, value) {
+    const input = document.getElementById(inputId);
+    if (!input) {
+        console.warn(`Input element not found: ${inputId}`);
+        return;
+    }
+    
+    input.value = value;
+    // Trigger the enter key event to add the tag
+    const event = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        bubbles: true
+    });
+    input.dispatchEvent(event);
+}
+
+async function suggestAttributes() {
+    const topicName = document.getElementById('topic-name').value;
+    const topicDescription = document.getElementById('topic-description').value;
+    if (!topicName) {
+        alert('Please enter a topic name first');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/onboarding/suggest-topic-attributes', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ topic_name: topicName, topic_description: topicDescription })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            
+            // Clear existing tags
+            categoriesInput.clearTags();
+            futureSignalsInput.clearTags();
+            sentimentsInput.clearTags();
+            timeToImpactInput.clearTags();
+            driverTypesInput.clearTags();
+            keywordsInput.clearTags();
+            
+            // Add new tags
+            data.categories.forEach(category => {
+                categoriesInput.addTag(category);
+            });
+
+            data.future_signals.forEach(signal => {
+                futureSignalsInput.addTag(signal);
+            });
+
+            // Add suggested keywords
+            if (data.keywords) {
+                const keywordSuggestions = document.getElementById('keyword-suggestions');
+                keywordSuggestions.innerHTML = '';
+                data.keywords.forEach(keyword => {
+                    const span = document.createElement('span');
+                    span.className = 'example-value';
+                    span.textContent = keyword;
+                    span.onclick = () => addExampleValue('keywordsInput', keyword);
+                    keywordSuggestions.appendChild(span);
+                });
+            }
+
+            // Update explanation
+            document.getElementById('suggestion-explanation').textContent = data.explanation;
+
+            // Show the suggestions section
+            document.getElementById('topic-suggestions').style.display = 'block';
+
+            // Add default values
+            const defaultSentiment = ['Positive', 'Negative', 'Neutral'];
+            const defaultTimeToImpact = ['Immediate (0-6 months)', 'Short-term (6-18 months)', 
+                                       'Mid-term (18-60 months)', 'Long-term (60+ months)'];
+            const defaultDriverTypes = ['Initiator', 'Accelerator', 'Catalyst', 
+                                      'Inhibitor', 'Blocker'];
+
+            defaultSentiment.forEach(s => sentimentsInput.addTag(s));
+            defaultTimeToImpact.forEach(t => timeToImpactInput.addTag(t));
+            defaultDriverTypes.forEach(d => driverTypesInput.addTag(d));
+
+        } else {
+            const error = await response.json();
+            alert(`Error: ${error.detail}`);
+        }
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    }
+}
+
+async function suggestKeywords() {
+    const topicName = document.getElementById('topic-name').value;
+    const topicDescription = document.getElementById('topic-description').value;
+    if (!topicName) {
+        alert('Please enter a topic name first');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/onboarding/suggest-topic-attributes', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+                topic_name: topicName,
+                topic_description: topicDescription 
+            })
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            
+            // Clear existing keywords
+            keywordsInput.clearTags();
+            
+            // Add suggested keywords
+            if (data.keywords) {
+                const keywordSuggestions = document.getElementById('keyword-suggestions');
+                keywordSuggestions.innerHTML = '';
+                data.keywords.forEach(keyword => {
+                    const span = document.createElement('span');
+                    span.className = 'example-value';
+                    span.textContent = keyword;
+                    span.onclick = () => addExampleValue('keywordsInput', keyword);
+                    keywordSuggestions.appendChild(span);
+                });
+            }
+        } else {
+            const error = await response.json();
+            alert(`Error: ${error.detail}`);
+        }
+    } catch (error) {
+        alert(`Error: ${error.message}`);
+    }
+}
+
+// Initialize
+async function init() {
+    try {
+        await checkExistingKeys();
+        
+        // After checking API keys, make sure the correct LLM provider field is shown
+        if (document.getElementById('anthropic-key').value) {
+            document.getElementById('llm-provider').value = 'anthropic';
+        } else if (document.getElementById('huggingface-key').value) {
+            document.getElementById('llm-provider').value = 'huggingface';
+        } else if (document.getElementById('gemini-key').value) {
+            document.getElementById('llm-provider').value = 'gemini';
+        } else {
+            document.getElementById('llm-provider').value = 'openai';
+        }
+        
+        // Toggle the visibility of LLM key fields based on selected provider
+        toggleLlmKeyFields();
+        
+        // Other initialization steps
+        showStep(1);
+    } catch (error) {
+        console.error("Initialization error:", error);
+    }
+}
+
+// Call init function when the page loads
+document.addEventListener('DOMContentLoaded', init);
+
+async function saveTopic() {
+    try {
+        // Gather all selected inputs
+        const topicName = document.getElementById('topic-name').value;
+        const topicDescription = document.getElementById('topic-description').value;
+        const categories = getTagsFromContainer('categoriesContainer');
+        const futureSignals = getTagsFromContainer('futureSignalsContainer');
+        const sentiment = getTagsFromContainer('sentimentsContainer');
+        const timeToImpact = getTagsFromContainer('timeToImpactContainer');
+        const driverTypes = getTagsFromContainer('driverTypesContainer');
+        const keywords = getTagsFromContainer('keywordsContainer');
+        
+        // Validate required fields
+        if (!topicName) {
+            showErrorMessage("Please enter a topic name");
+            return false;
+        }
+        
+        // Check if at least one API key is provided for each type
+        const newsapiKey = document.getElementById('newsapi-key').value;
+        const firecrawlKey = document.getElementById('firecrawl-key').value;
+        const openaiKey = document.getElementById('openai-key').value;
+        const anthropicKey = document.getElementById('anthropic-key').value;
+        const huggingfaceKey = document.getElementById('huggingface-key').value;
+        const geminiKey = document.getElementById('gemini-key').value;
+        
+        if (!newsapiKey || !firecrawlKey || 
+            (!openaiKey && !anthropicKey && !huggingfaceKey && !geminiKey)) {
+            showErrorMessage("Please provide all required API keys");
+            return false;
+        }
+        
+        // Prepare data
+        const topicData = {
+            name: topicName,
+            description: topicDescription,
+            categories: categories,
+            future_signals: futureSignals,
+            sentiment: sentiment,
+            time_to_impact: timeToImpact,
+            driver_types: driverTypes,
+            keywords: keywords
+        };
+        
+        console.log("Saving topic data:", JSON.stringify(topicData, null, 2));
+        
+        // Send POST request
+        const response = await fetch('/api/onboarding/save-topic', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(topicData)
+        });
+        
+        console.log("Response status:", response.status);
+        
+        // Handle the response
+        const result = await response.json();
+        console.log("Response data:", JSON.stringify(result, null, 2));
+        
+        // Check if confirmation is required (status code 409)
+        if (response.status === 409 && result.requires_confirmation) {
+            if (confirm(result.message)) {
+                console.log("User confirmed overwrite");
+                
+                // User confirmed, send another request with confirmation flag
+                topicData.requires_confirmation = true;
+                topicData.confirmed = true;
+                
+                console.log("Sending confirmation request:", JSON.stringify(topicData, null, 2));
+                
+                const confirmResponse = await fetch('/api/onboarding/save-topic', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(topicData)
+                });
+                
+                console.log("Confirmation response status:", confirmResponse.status);
+                
+                const confirmResult = await confirmResponse.json();
+                console.log("Confirmation response data:", JSON.stringify(confirmResult, null, 2));
+                
+                if (confirmResponse.ok) {
+                    showSuccessMessage(confirmResult.message || "Topic saved successfully");
+                    return true;
+                } else {
+                    showErrorMessage(confirmResult.detail || "Error saving topic");
+                    return false;
+                }
+            } else {
+                console.log("User canceled overwrite");
+            }
+            return false;
+        }
+        
+        if (response.ok) {
+            showSuccessMessage(result.message || "Topic saved successfully");
+            return true;
+        } else {
+            showErrorMessage(result.detail || "Error saving topic");
+            return false;
+        }
+    } catch (error) {
+        console.error('Error saving topic:', error);
+        showErrorMessage("Error saving topic: " + error.message);
+        return false;
+    }
+}
+
+function updateStepIndicators() {
+    document.querySelectorAll('.step-dot').forEach((dot, index) => {
+        const step = index + 1;
+        dot.className = 'step-dot' + 
+            (step === currentStep ? ' active' : '') +
+            (step < currentStep ? ' completed' : '');
+    });
+
+    document.querySelectorAll('.step-line').forEach((line, index) => {
+        line.className = 'step-line' + (index + 1 < currentStep ? ' completed' : '');
+    });
+}
+
+function showStep(step) {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById(`step${step}`).classList.add('active');
+    
+    document.getElementById('prevBtn').style.display = step === 1 ? 'none' : 'block';
+    document.getElementById('nextBtn').textContent = step === totalSteps ? 'Finish' : 'Next';
+    
+    updateStepIndicators();
+}
+
+async function nextStep() {
+    if (currentStep < totalSteps) {
+        // If we're on step 2, save the topic first
+        if (currentStep === 2) {
+            const saved = await saveTopic();
+            if (!saved) return; // If save failed, don't move to next step
+        }
+        
+        currentStep++;
+        showStep(currentStep);
+    } else {
+        // We're on the final step - save keywords by updating the topic
+        const topicName = document.getElementById('topic-name').value;
+        const topicDescription = document.getElementById('topic-description').value;
+        const categories = getTagsFromContainer('categoriesContainer');
+        const futureSignals = getTagsFromContainer('futureSignalsContainer');
+        const sentiment = getTagsFromContainer('sentimentsContainer');
+        const timeToImpact = getTagsFromContainer('timeToImpactContainer');
+        const driverTypes = getTagsFromContainer('driverTypesContainer');
+        const keywords = getTagsFromContainer('keywordsContainer');
+        
+        if (keywords.length === 0) {
+            if (!confirm("No keywords added. Continue anyway?")) {
+                return;
+            }
+        }
+        
+        try {
+            // Include ALL topic data from both step 2 and step 3
+            const topicData = {
+                name: topicName,
+                description: topicDescription,
+                categories: categories,
+                future_signals: futureSignals,
+                sentiment: sentiment,
+                time_to_impact: timeToImpact,
+                driver_types: driverTypes,
+                keywords: keywords,
+                requires_confirmation: true,
+                confirmed: true
+            };
+            
+            console.log("Saving complete topic with keywords:", JSON.stringify(topicData, null, 2));
+            
+            // Update the topic with all data
+            const response = await fetch('/api/onboarding/save-topic', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(topicData)
+            });
+            
+            console.log("Topic save response:", response.status);
+            const result = await response.json();
+            console.log("Topic save result:", JSON.stringify(result, null, 2));
+            
+            if (!response.ok) {
+                showErrorMessage("Failed to save topic: " + (result.detail || "Unknown error"));
+                return;
+            }
+            
+            showSuccessMessage("Topic saved successfully");
+            
+            // Continue with onboarding completion
+            await completeOnboarding();
+        } catch (error) {
+            console.error("Error saving topic:", error);
+            showErrorMessage("Error saving topic: " + error.message);
+        }
+    }
+}
+
+function prevStep() {
+    if (currentStep > 1) {
+        currentStep--;
+        showStep(currentStep);
+    }
+}
+
+// Add function to toggle LLM key fields based on selected provider
+function toggleLlmKeyFields() {
+    const provider = document.getElementById('llm-provider').value;
+    
+    // Hide all LLM key fields
+    document.querySelectorAll('.llm-key-field').forEach(field => {
+        field.style.display = 'none';
+    });
+    
+    // Show the selected provider's key field
+    document.getElementById(`${provider}-key-field`).style.display = 'block';
+}
+
+// Helper functions for showing messages
+function showSuccessMessage(message) {
+    const successMsg = document.createElement('div');
+    successMsg.className = 'alert alert-success mt-3';
+    successMsg.innerHTML = `
+        <i class="fas fa-check-circle"></i>
+        ${message}
+    `;
+    document.querySelector('.card-body').appendChild(successMsg);
+    
+    // Remove message after 3 seconds
+    setTimeout(() => {
+        successMsg.remove();
+    }, 3000);
+}
+
+function showErrorMessage(message) {
+    const errorMsg = document.createElement('div');
+    errorMsg.className = 'alert alert-danger mt-3';
+    errorMsg.innerHTML = `
+        <i class="fas fa-exclamation-circle"></i>
+        ${message}
+    `;
+    document.querySelector('.card-body').appendChild(errorMsg);
+    
+    // Remove message after 5 seconds
+    setTimeout(() => {
+        errorMsg.remove();
+    }, 5000);
+}
+
+// Helper functions for getting tags
+function getTagsFromContainer(containerId) {
+    const container = document.getElementById(containerId);
+    const tags = [];
+    container.querySelectorAll('.tag').forEach(tag => {
+        tags.push(tag.textContent.trim());
+    });
+    return tags;
+}
+
+function getSelectedTags(containerId) {
+    const container = document.getElementById(containerId);
+    const selectedTags = [];
+    container.querySelectorAll('.tag.selected').forEach(tag => {
+        selectedTags.push(tag.textContent.trim());
+    });
+    return selectedTags;
+}
+
+async function completeOnboarding() {
+    try {
+        const response = await fetch('/api/onboarding/complete', {
+            method: 'POST'
+        });
+        
+        if (response.ok) {
+            showSuccessMessage("Onboarding completed successfully!");
+            
+            // Redirect to keyword alerts page after a short delay
+            setTimeout(() => {
+                window.location.href = '/keyword-alerts';
+            }, 2000);
+        } else {
+            const error = await response.json();
+            throw new Error(error.detail || "Failed to complete onboarding");
+        }
+    } catch (error) {
+        console.error('Error completing onboarding:', error);
+        showErrorMessage("Error completing onboarding: " + error.message);
+    }
+}
+
+function moveToNextStep() {
+    const currentStep = getCurrentStep();
+    if (currentStep < 3) {
+        showStep(currentStep + 1);
+    }
+}
+
+function getCurrentStep() {
+    const visibleStep = document.querySelector('.step.active');
+    if (visibleStep && visibleStep.id) {
+        return parseInt(visibleStep.id.replace('step', ''));
+    }
+    return 1; // Default to first step
+}
+</script>
+{% endblock %} 

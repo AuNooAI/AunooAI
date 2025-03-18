@@ -69,10 +69,19 @@ The `deploy-to-cloud-run.sh` script handles the complete deployment process, inc
 - `--max-instances N`: Maximum instances (default: 10)
 - `--concurrency N`: Concurrency per instance (default: 80)
 - `--timeout SEC`: Request timeout in seconds (default: 600s)
+- `--image-tag TAG`: Docker image tag (default: latest)
+- `--disable-ssl BOOL`: Disable SSL redirect (default: false)
+- `--openai-api-key KEY`: OpenAI API key
+- `--anthropic-api-key KEY`: Anthropic API key
+- `--google-api-key KEY`: Google API key
+- `--litellm-config PATH`: Path to LiteLLM config file
+- `--startup-timeout SEC`: Startup probe timeout (default: 300s)
+- `--startup-period SEC`: Startup probe period (default: 10s)
+- `--startup-failure-threshold N`: Startup probe failure threshold (default: 30)
 
 **Example**:
 ```bash
-./scripts/deploy-to-cloud-run.sh --project aunooai-prod --tenant customer1 --admin-password securepass123 --region us-west1
+./scripts/deploy-to-cloud-run.sh --project aunooai-prod --tenant customer1 --admin-password securepass123 --region us-west1 --disable-ssl true
 ```
 
 ### 2. Configure Tenant Storage
@@ -153,7 +162,90 @@ The application uses a custom Docker image defined in `Dockerfile.gcp`, which in
 
 ## Data Persistence
 
-AunooAI uses Cloud Storage buckets for data persistence. Each tenant has its own bucket, which is mounted to the Cloud Run service at `/app/app/data/{tenant}`. The application automatically syncs data between the container and the bucket.
+AunooAI uses Cloud Storage buckets for data persistence. Each tenant has its own bucket with the following structure:
+- `/data/` - Contains tenant-specific application data, mounted to `/app/app/data/{tenant}` in the container
+- `/reports/` - Contains generated reports, mounted to `/app/reports/{tenant}` in the container
+
+The application automatically syncs data between the container and the bucket every 5 minutes and on container shutdown.
+
+### Storage Structure
+```
+gs://{bucket-name}/
+  ├── data/      # Application data
+  └── reports/   # Generated reports
+```
+
+When deploying a new tenant, the deployment script should create this structure in the Cloud Storage bucket:
+
+```bash
+gsutil mb gs://{bucket-name}
+gsutil mb -p gs://{bucket-name}/data
+gsutil mb -p gs://{bucket-name}/reports
+```
+
+## Common Issues and Solutions
+
+### 1. SSL Redirection Issues
+
+**Issue**: The application may enter an infinite redirect loop when deployed to Cloud Run due to SSL redirection conflicts.
+
+**Solution**: Disable SSL redirection in the application by setting the `DISABLE_SSL` environment variable to `true`:
+
+```bash
+./scripts/deploy-to-cloud-run.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --disable-ssl true
+```
+
+This prevents the application from trying to redirect HTTP to HTTPS, which would create a redirect loop because Cloud Run already handles SSL termination.
+
+### 2. Startup Probe Configuration
+
+**Issue**: The application may take longer to start than the default Cloud Run startup probe allows, especially when initializing LiteLLM.
+
+**Solution**: Configure the startup probe with longer timeouts:
+
+```bash
+./scripts/deploy-to-cloud-run.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --startup-timeout 300s --startup-period 10s --startup-failure-threshold 30
+```
+
+The correct format for the startup probe parameter in Cloud Run is:
+```
+--startup-probe=tcp:port=8080,initial-delay=5s,timeout=300s,period=10s,failure-threshold=30
+```
+
+In some cases, you may need to omit the startup probe entirely for the initial deployment, especially if the application is initializing LiteLLM configurations and API connections during startup.
+
+### 3. LiteLLM API Key Configuration
+
+**Issue**: LiteLLM requires API keys for various model providers, which need to be properly configured.
+
+**Solution**: Pass the required API keys as environment variables during deployment:
+
+```bash
+./scripts/deploy-to-cloud-run.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --openai-api-key "your-openai-key" --anthropic-api-key "your-anthropic-key" --google-api-key "your-google-key"
+```
+
+These API keys will be passed to the LiteLLM library for authentication with the respective model providers.
+
+### 4. Volume Mount Issues
+
+**Issue**: Cloud Run may fail to mount the Cloud Storage bucket properly, leading to data persistence issues.
+
+**Solution**: Use the volume mount commands explicitly:
+
+```bash
+gcloud run deploy aunooai-TENANT_NAME \
+  --region REGION \
+  --add-volume name=storage-data,type=cloud-storage,bucket=BUCKET_NAME,path=data \
+  --add-volume-mount volume=storage-data,mount-path=/app/app/data/TENANT_NAME \
+  --add-volume name=storage-reports,type=cloud-storage,bucket=BUCKET_NAME,path=reports \
+  --add-volume-mount volume=storage-reports,mount-path=/app/reports/TENANT_NAME
+```
+
+Or use the helper script:
+
+```bash
+./scripts/add-volume-mounts-to-cloud-run.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
+```
 
 ## Monitoring and Maintenance
 
@@ -162,6 +254,21 @@ AunooAI uses Cloud Storage buckets for data persistence. Each tenant has its own
 Monitor your Cloud Run services through the GCP Console:
 ```
 https://console.cloud.google.com/run/detail/{region}/aunooai-{tenant}/metrics
+```
+
+### Viewing Logs
+
+To view logs for your deployment:
+
+```bash
+# View all logs
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=aunooai-TENANT_NAME" --limit=50
+
+# View error logs
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=aunooai-TENANT_NAME AND severity>=ERROR" --limit=20
+
+# Stream logs in real-time
+gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name=aunooai-TENANT_NAME" --limit=10 --format=json --stream
 ```
 
 ### Updating Deployments

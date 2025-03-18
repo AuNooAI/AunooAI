@@ -1,7 +1,7 @@
 import sqlite3
 import os
 import json
-from config.settings import DATABASE_DIR
+from app.config.settings import DATABASE_DIR
 from datetime import datetime
 from typing import List, Tuple, Optional, Dict
 from sqlalchemy import create_engine
@@ -101,6 +101,18 @@ class Database:
                     driver_type_explanation TEXT,
                     topic TEXT,
                     analyzed BOOLEAN DEFAULT FALSE
+                )
+            """)
+            
+            # Create raw_articles table for storing original content
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS raw_articles (
+                    uri TEXT PRIMARY KEY,
+                    raw_markdown TEXT,
+                    submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
+                    last_updated TEXT,
+                    topic TEXT,
+                    FOREIGN KEY (uri) REFERENCES articles(uri) ON DELETE CASCADE
                 )
             """)
             
@@ -937,6 +949,22 @@ class Database:
             cursor = conn.cursor()
             current_time = datetime.now().isoformat()
             
+            # Check if the raw_articles table exists, create it if not
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='raw_articles'")
+            if not cursor.fetchone():
+                logger.info("Creating raw_articles table as it does not exist")
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS raw_articles (
+                        uri TEXT PRIMARY KEY,
+                        raw_markdown TEXT,
+                        submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
+                        last_updated TEXT,
+                        topic TEXT,
+                        FOREIGN KEY (uri) REFERENCES articles(uri) ON DELETE CASCADE
+                    )
+                """)
+                conn.commit()
+            
             cursor.execute("SELECT * FROM raw_articles WHERE uri = ?", (uri,))
             existing_raw_article = cursor.fetchone()
             
@@ -963,6 +991,13 @@ class Database:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                
+                # First check if the raw_articles table exists
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='raw_articles'")
+                if not cursor.fetchone():
+                    logger.warning("raw_articles table does not exist yet")
+                    return None
+                
                 cursor.execute("SELECT * FROM raw_articles WHERE uri = ?", (uri,))
                 result = cursor.fetchone()
                 if result:
@@ -1075,15 +1110,16 @@ class Database:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT username, password, force_password_change
+                    SELECT username, password_hash, force_password_change, completed_onboarding
                     FROM users WHERE username = ?
                 """, (username,))
                 user = cursor.fetchone()
                 if user:
                     return {
                         "username": user[0],
-                        "password": user[1],
-                        "force_password_change": bool(user[2])
+                        "password": user[1],  # Keep the key as 'password' for compatibility
+                        "force_password_change": bool(user[2]),
+                        "completed_onboarding": bool(user[3])
                     }
                 return None
         except Exception as e:
@@ -1101,7 +1137,7 @@ class Database:
                 # Update password and force_password_change flag
                 cursor.execute("""
                     UPDATE users 
-                    SET password = ?, force_password_change = 0 
+                    SET password_hash = ?, force_password_change = 0 
                     WHERE username = ?
                 """, (hashed_password, username))
                 conn.commit()
@@ -1154,19 +1190,34 @@ class Database:
                 logger.error(f"Error resetting database: {str(e)}")
                 raise
 
-    def create_user(self, username: str, hashed_password: str, force_password_change: bool = False) -> bool:
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO users (username, password, force_password_change)
-                    VALUES (?, ?, ?)
-                """, (username, hashed_password, 1 if force_password_change else 0))
-                conn.commit()
-                return True
-        except Exception as e:
-            logger.error(f"Error creating user: {str(e)}")
-            return False
+    def create_user(self, username, password_hash, force_password_change=False):
+        """Create a new user."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    username TEXT PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    force_password_change BOOLEAN DEFAULT 0,
+                    completed_onboarding BOOLEAN DEFAULT 0
+                )
+            """)
+            cursor.execute(
+                "INSERT INTO users (username, password_hash, force_password_change, completed_onboarding) VALUES (?, ?, ?, ?)",
+                (username, password_hash, force_password_change, False)
+            )
+            conn.commit()
+
+    def update_user_onboarding(self, username, completed):
+        """Update user's onboarding status."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET completed_onboarding = ? WHERE username = ?",
+                (completed, username)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def set_force_password_change(self, username: str, force: bool = True) -> bool:
         try:

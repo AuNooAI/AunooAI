@@ -21,8 +21,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/keyword-monitor")
 
 # Set up templates
-TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates = Jinja2Templates(directory="templates")
 
 class KeywordGroup(BaseModel):
     name: str
@@ -92,6 +91,32 @@ async def delete_group(group_id: int, db=Depends(get_database_instance)):
             conn.commit()
             return {"success": True}
     except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.delete("/groups/by-topic/{topic_name}")
+async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instance)):
+    """Delete all keyword groups associated with a specific topic"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # First, get all group IDs associated with this topic
+            cursor.execute("SELECT id FROM keyword_groups WHERE topic = ?", (topic_name,))
+            groups = cursor.fetchall()
+            
+            if not groups:
+                return {"success": True, "groups_deleted": 0}
+            
+            group_ids = [group[0] for group in groups]
+            groups_deleted = len(group_ids)
+            
+            # Delete all keyword groups for this topic
+            cursor.execute("DELETE FROM keyword_groups WHERE topic = ?", (topic_name,))
+            
+            conn.commit()
+            return {"success": True, "groups_deleted": groups_deleted}
+    except Exception as e:
+        logging.error(f"Error deleting keyword groups for topic {topic_name}: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/alerts/{alert_id}/read")
@@ -923,4 +948,48 @@ async def get_group_alerts(
     except Exception as e:
         logger.error(f"Error in get_group_alerts: {str(e)}")
         logger.error("Full traceback:", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/articles/by-topic/{topic_name}")
+async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_instance)):
+    """Delete all articles associated with a specific topic"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if articles table has a topic column
+            cursor.execute("PRAGMA table_info(articles)")
+            columns = cursor.fetchall()
+            has_topic_column = any(col[1] == 'topic' for col in columns)
+            
+            if has_topic_column:
+                # Delete articles directly associated with this topic
+                cursor.execute("DELETE FROM articles WHERE topic = ?", (topic_name,))
+                deleted_count = cursor.rowcount
+            else:
+                # We'll need to find articles from news_search_results or paper_search_results
+                cursor.execute("""
+                    DELETE FROM articles 
+                    WHERE uri IN (
+                        SELECT article_uri FROM news_search_results 
+                        WHERE topic = ?
+                    )
+                """, (topic_name,))
+                news_deleted = cursor.rowcount
+                
+                cursor.execute("""
+                    DELETE FROM articles 
+                    WHERE uri IN (
+                        SELECT article_uri FROM paper_search_results 
+                        WHERE topic = ?
+                    )
+                """, (topic_name,))
+                papers_deleted = cursor.rowcount
+                
+                deleted_count = news_deleted + papers_deleted
+            
+            conn.commit()
+            return {"success": True, "articles_deleted": deleted_count}
+    except Exception as e:
+        logging.error(f"Error deleting articles for topic {topic_name}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

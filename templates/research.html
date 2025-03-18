@@ -429,34 +429,70 @@ async function handleFormSubmit(event) {
                         console.log('User choice:', userChoice);
 
                         if (userChoice === 'existing') {
-                            const existingContent = await fetch(`/api/get_existing_article_content?uri=${encodeURIComponent(articleUrl)}`);
-                            if (existingContent.ok) {
-                                const existingData = await existingContent.json();
-                                document.getElementById('articleContent').value = existingData.content;
-                                formData.set('articleContent', existingData.content);
-                            } else {
-                                throw new Error('Failed to fetch existing article content');
+                            try {
+                                const existingContent = await fetch(`/api/get_existing_article_content?uri=${encodeURIComponent(articleUrl)}`);
+                                if (existingContent.ok) {
+                                    const existingData = await existingContent.json();
+                                    document.getElementById('articleContent').value = existingData.content;
+                                    formData.set('articleContent', existingData.content);
+                                } else {
+                                    const errorData = await existingContent.json().catch(() => ({ message: 'Failed to fetch existing article content' }));
+                                    throw new Error(errorData.message || 'Failed to fetch existing article content');
+                                }
+                            } catch (error) {
+                                console.error('Error fetching existing content:', error);
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Content Retrieval Error',
+                                    text: `Unable to retrieve existing article content: ${error.message}`,
+                                    footer: 'Try using the scrape option instead'
+                                });
+                                return;
                             }
                         } else {
                             // Fetch new version
+                            try {
+                                const scrapeResponse = await fetch(`/api/scrape_article?uri=${encodeURIComponent(articleUrl)}`);
+                                if (scrapeResponse.ok) {
+                                    const scrapeData = await scrapeResponse.json();
+                                    document.getElementById('articleContent').value = scrapeData.content;
+                                    formData.set('articleContent', scrapeData.content);
+                                } else {
+                                    const errorData = await scrapeResponse.json().catch(() => ({ message: 'Failed to scrape article content' }));
+                                    throw new Error(errorData.message || 'Failed to scrape article content');
+                                }
+                            } catch (error) {
+                                console.error('Error scraping content:', error);
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Scraping Error',
+                                    text: `Unable to scrape article content: ${error.message}`,
+                                    footer: 'Check if the URL is correct and accessible'
+                                });
+                                return;
+                            }
+                        }
+                    } else {
+                        // Article doesn't exist, fetch it
+                        try {
                             const scrapeResponse = await fetch(`/api/scrape_article?uri=${encodeURIComponent(articleUrl)}`);
                             if (scrapeResponse.ok) {
                                 const scrapeData = await scrapeResponse.json();
                                 document.getElementById('articleContent').value = scrapeData.content;
                                 formData.set('articleContent', scrapeData.content);
                             } else {
-                                throw new Error('Failed to scrape article content');
+                                const errorData = await scrapeResponse.json().catch(() => ({ message: 'Failed to scrape article content' }));
+                                throw new Error(errorData.message || 'Failed to scrape article content');
                             }
-                        }
-                    } else {
-                        // Article doesn't exist, fetch it
-                        const scrapeResponse = await fetch(`/api/scrape_article?uri=${encodeURIComponent(articleUrl)}`);
-                        if (scrapeResponse.ok) {
-                            const scrapeData = await scrapeResponse.json();
-                            document.getElementById('articleContent').value = scrapeData.content;
-                            formData.set('articleContent', scrapeData.content);
-                        } else {
-                            throw new Error('Failed to scrape article content');
+                        } catch (error) {
+                            console.error('Error scraping content:', error);
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Scraping Error',
+                                text: `Unable to scrape article content: ${error.message}`,
+                                footer: 'Check if the URL is correct and accessible'
+                            });
+                            return;
                         }
                     }
                 } else {

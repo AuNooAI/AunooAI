@@ -12,9 +12,8 @@ router = APIRouter()
 db = Database()
 logger = logging.getLogger(__name__)
 
-# Get absolute path to templates directory
-TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+# Set up templates
+templates = Jinja2Templates(directory="templates")
 
 @router.get("/keyword-alerts", response_class=HTMLResponse)
 async def keyword_alerts_page(

@@ -43,21 +43,22 @@ def update_admin_password(db_path: str, new_password: str):
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE,
-                password TEXT,
-                force_password_change INTEGER DEFAULT 0
+                password_hash TEXT,
+                force_password_change INTEGER DEFAULT 0,
+                completed_onboarding INTEGER DEFAULT 0
             )
         """)
         
         # Update the admin user's password and set force_password_change
         cursor.execute(
-            "UPDATE users SET password = ?, force_password_change = 1 WHERE username = 'admin'",
+            "UPDATE users SET password_hash = ?, force_password_change = 1, completed_onboarding = 0 WHERE username = 'admin'",
             (hashed_password,)
         )
         
         # If no rows were updated, create the admin user
         if cursor.rowcount == 0:
             cursor.execute(
-                "INSERT INTO users (username, password, force_password_change) VALUES ('admin', ?, 1)",
+                "INSERT INTO users (username, password_hash, force_password_change, completed_onboarding) VALUES ('admin', ?, 1, 0)",
                 (hashed_password,)
             )
             
@@ -71,7 +72,7 @@ def update_admin_password(db_path: str, new_password: str):
 
 if __name__ == "__main__":
     # Get database path from environment or use relative path
-    default_db_path = os.environ.get("DB_PATH", "data/fnaapp.db")
+    default_db_path = os.environ.get("DB_PATH", "app/data/fnaapp.db")
     default_password = os.environ.get("ADMIN_PASSWORD", "admin")
     
     import argparse
