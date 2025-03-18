@@ -1137,7 +1137,7 @@ class Database:
                 # Update password and force_password_change flag
                 cursor.execute("""
                     UPDATE users 
-                    SET password = ?, force_password_change = 0 
+                    SET password_hash = ?, force_password_change = 0 
                     WHERE username = ?
                 """, (hashed_password, username))
                 conn.commit()

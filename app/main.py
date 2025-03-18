@@ -1911,6 +1911,11 @@ async def change_password(
         # Update password and first login status
         db.update_user_password(username, new_password)
         
+        # Check if onboarding has been completed
+        user = db.get_user(username)  # Refresh user data
+        if not user.get('completed_onboarding'):
+            return RedirectResponse(url="/onboarding", status_code=status.HTTP_302_FOUND)
+        
         return RedirectResponse(url="/", status_code=status.HTTP_302_FOUND)
         
     except Exception as e:
@@ -1956,6 +1961,16 @@ async def api_change_password(request: Request):
         success = db.update_user_password(username, data["new_password"])
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update password")
+        
+        # Check if onboarding has been completed
+        user = db.get_user(username)  # Refresh user data
+        if not user.get('completed_onboarding'):
+            return JSONResponse(
+                content={
+                    "message": "Password updated successfully",
+                    "redirect": "/onboarding"
+                }
+            )
             
         return JSONResponse(content={"message": "Password updated successfully"})
         

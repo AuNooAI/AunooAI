@@ -176,50 +176,6 @@
         "Terminator",
         "Unknown"
       ]
-    },
-    {
-      "name": "Cloud Repatriation",
-      "description": "",
-      "categories": [
-        "Cost Analysis of Cloud Repatriation\u00d7",
-        "Regulatory Aspects of Cloud Repatriation\u00d7",
-        "Security in Cloud Repatriation\u00d7",
-        "Data Management in Repatriation\u00d7",
-        "Technical Challenges in Repatriation\u00d7",
-        "Advantages of On-Premise/ Private Cloud over Public Cloud\u00d7",
-        "Impact of Cloud Repatriation on Business Operations\u00d7",
-        "Cloud Repatriation Strategies\u00d7"
-      ],
-      "future_signals": [
-        "Drive towards Private Cloud Grows\u00d7",
-        "Emergence of Hybrid Solutions\u00d7",
-        "Businesses Struggle with Repatriation...\u00d7",
-        "Evolving Compliance Necessitates Repa...\u00d7",
-        "Security Concerns Become Dominant Rea...\u00d7"
-      ],
-      "sentiment": [
-        "Positive\u00d7",
-        "Negative\u00d7",
-        "Neutral\u00d7"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)\u00d7",
-        "Short-term (6-18 months)\u00d7",
-        "Mid-term (18-60 months)\u00d7",
-        "Long-term (60+ months)\u00d7"
-      ],
-      "driver_types": [
-        "Initiator\u00d7",
-        "Accelerator\u00d7",
-        "Catalyst\u00d7",
-        "Inhibitor\u00d7",
-        "Blocker\u00d7"
-      ],
-      "keywords": [
-        "Security in Cloud Repatriation\u00d7",
-        "Cloud Repatriation Cost\u00d7",
-        "Hybrid Cloud\u00d7"
-      ]
     }
   ],
   "ai_models": [
