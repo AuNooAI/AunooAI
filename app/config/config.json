@@ -176,6 +176,18 @@
         "Terminator",
         "Unknown"
       ]
+    },
+    {
+      "name": "Star Wars",
+      "description": "",
+      "categories": [],
+      "future_signals": [],
+      "sentiment": [],
+      "time_to_impact": [],
+      "driver_types": [],
+      "keywords": [
+        "Star wars\u00d7"
+      ]
     }
   ],
   "ai_models": [

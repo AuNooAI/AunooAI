@@ -347,8 +347,48 @@ class Research:
                     "content": "Failed to fetch article content.",
                     "source": self.extract_source(uri),
                     "publication_date": datetime.now(timezone.utc).date().isoformat(),
-                    "exists": False
+                    "success": False
                 }
+            
+        except Exception as e:
+            logger.error(f"Error in scraping: {str(e)}", exc_info=True)
+            return {
+                "content": f"Failed to scrape article content: {str(e)}",
+                "source": self.extract_source(uri),
+                "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                "success": False
+            }
+
+    async def fetch_article_content(self, uri: str):
+        """Fetch article content, checking DB first then scraping if needed."""
+        logger.debug(f"Fetching article content for URI: {uri}")
+        try:
+            # Check for existing article first
+            existing_article = self.db.get_raw_article(uri)
+            
+            if existing_article:
+                logger.info(f"Article already exists in database: {uri}")
+                return {
+                    "content": existing_article['raw_markdown'],
+                    "source": self.extract_source(uri),
+                    "publication_date": existing_article['submission_date'],
+                    "exists": True
+                }
+            
+            # If article doesn't exist, scrape it
+            logger.info(f"Article does not exist in database, scraping: {uri}")
+            scrape_result = await self._do_scrape(uri)
+            
+            if scrape_result.get("success", False):
+                # Save to database
+                self.db.save_raw_article(uri, scrape_result["content"], self.current_topic)
+                
+            return {
+                "content": scrape_result["content"],
+                "source": scrape_result["source"],
+                "publication_date": scrape_result["publication_date"],
+                "exists": False
+            }
             
         except Exception as e:
             logger.error(f"Error fetching article content: {str(e)}", exc_info=True)
@@ -380,12 +420,22 @@ class Research:
 
         if not article_text:
             article_content = await self.fetch_article_content(uri)
+            
+            # Add fail-fast check here
+            if (
+                not article_content or 
+                not article_content.get("content") or 
+                article_content.get("content").startswith("Article cannot be scraped") or
+                article_content.get("content").startswith("Failed to fetch article content")
+            ):
+                logger.error(f"Failed to fetch article content for {uri}")
+                raise ValueError(f"Failed to fetch article content: {article_content.get('content', 'Unknown error')}")
+            
             article_text = article_content["content"]
             source = article_content["source"]
             publication_date = article_content["publication_date"]
         else:
             source = self.extract_source(uri)
-            # Use ArticleAnalyzer to extract date from provided text
             publication_date = self.article_analyzer.extract_publication_date(article_text)
 
         # Truncate article text
