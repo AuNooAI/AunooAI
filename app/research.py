@@ -9,10 +9,11 @@ from app.config import settings
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from app.database import Database, SessionLocal
-from dotenv import load_dotenv
-from app.ai_models import get_ai_model, get_available_models
+from app.env_loader import load_environment, ensure_model_env_vars
 from app.database import Database 
 from app.analyzers.article_analyzer import ArticleAnalyzer
+import importlib
+from dotenv import load_dotenv
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -25,7 +26,6 @@ class Research:
     DEFAULT_TOPIC = "AI and Machine Learning"
 
     def __init__(self, db):
-        
         try:
             # Update required methods to match actual Database class methods
             required_methods = ['get_connection', 'save_raw_article', 'get_raw_article']
@@ -44,22 +44,79 @@ class Research:
                 
             self.current_topic = self.DEFAULT_TOPIC
             self.topic_configs = {}
-            self.load_config()
+            self.firecrawl_app = None  # Initialize to None explicitly
             
         except Exception as e:
             logger.error(f"Error in Research initialization: {str(e)}", exc_info=True)
             raise
         
-        # Load environment variables if .env exists, but don't fail if it doesn't
+        # Load environment variables using centralized loader
         try:
-            load_dotenv()
-        except Exception as e:
-            logger.warning(f"Error loading .env file: {str(e)}. Continuing with environment variables.")
+            load_environment()
+            ensure_model_env_vars()
             
-        self.available_models = get_available_models()
-        self.ai_model = None
-        self.article_analyzer = None
+            # Log important environment variables (masked)
+            for key in ['FIRECRAWL_API_KEY', 'PROVIDER_FIRECRAWL_KEY', 'OPENAI_API_KEY']:
+                value = os.getenv(key)
+                if value:
+                    masked = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "[SET]"
+                    logger.info(f"Found environment variable: {key}={masked}")
+        except Exception as e:
+            logger.warning(f"Error loading environment variables: {str(e)}.")
+        
+        # Initialize AI models
+        try:
+            # Import here to avoid circular imports
+            from app.ai_models import get_available_models, get_ai_model
+            
+            self.available_models = get_available_models()
+            logger.info(f"Available AI models: {[model['name'] for model in self.available_models]}")
+            
+            if not self.available_models:
+                logger.warning("No AI models found after environment setup!")
+            
+            # Initialize AI model to use
+            self.ai_model = None
+            self.article_analyzer = None
+            
+            if self.available_models:
+                self.set_ai_model(self.available_models[0]['name'])
+                logger.info(f"Set default AI model to: {self.available_models[0]['name']}")
+            else:
+                logger.warning("No AI models are available. Some functionality will be limited.")
+                
+        except Exception as e:
+            logger.error(f"Error initializing AI models: {str(e)}", exc_info=True)
+            self.available_models = []
+            self.ai_model = None
+        
+        # Initialize Firecrawl
         self.firecrawl_app = self.initialize_firecrawl()
+        if self.firecrawl_app:
+            logger.info("Firecrawl initialized successfully")
+        else:
+            logger.warning("Firecrawl initialization failed")
+            
+        # Load topic configurations
+        try:
+            self.load_config()
+            logger.info(f"Loaded {len(self.topic_configs)} topic configurations")
+            logger.info(f"Available topics: {list(self.topic_configs.keys())}")
+        except Exception as e:
+            logger.error(f"Error loading topic configurations: {str(e)}", exc_info=True)
+            # Create a default topic configuration if loading fails
+            if not self.topic_configs:
+                logger.warning("Creating default topic configuration")
+                self.topic_configs = {
+                    self.DEFAULT_TOPIC: {
+                        "name": self.DEFAULT_TOPIC,
+                        "categories": ["General AI", "Machine Learning Research", "AI Applications"],
+                        "future_signals": ["AI advances rapidly", "AI progress stalls", "AI regulated heavily"],
+                        "sentiment": ["Positive", "Neutral", "Negative"],
+                        "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
+                        "driver_types": ["Accelerator", "Inhibitor", "Catalyst"]
+                    }
+                }
 
     def load_config(self):
         """Load configuration with support for topics."""
@@ -123,14 +180,65 @@ class Research:
         return topics
 
     def initialize_firecrawl(self):
+        """Initialize the Firecrawl service. Returns None if it can't be initialized."""
+        # If we already have a working Firecrawl instance, just return it
+        if hasattr(self, 'firecrawl_app') and self.firecrawl_app:
+            logger.debug("Using existing Firecrawl instance")
+            return self.firecrawl_app
+            
         try:
-            firecrawl_api_key = settings.FIRECRAWL_API_KEY
-            if not firecrawl_api_key:
-                logger.warning("Firecrawl API key is missing. Some functionality will be limited.")
+            # First explicitly load environment variables to ensure keys are available
+            load_dotenv(override=True)
+            
+            # Import firecrawl directly rather than via dynamic imports
+            try:
+                from firecrawl import FirecrawlApp
+                logger.info("Successfully imported FirecrawlApp module")
+            except ImportError as ie:
+                logger.error(f"Firecrawl module not installed: {str(ie)}")
+                logger.error("Try installing it with: pip install firecrawl")
                 return None
-            return FirecrawlApp(api_key=firecrawl_api_key)
+                
+            # Get API key directly from environment with detailed logging
+            firecrawl_key = os.environ.get("FIRECRAWL_API_KEY")
+            provider_key = os.environ.get("PROVIDER_FIRECRAWL_KEY")
+            
+            logger.info(f"FIRECRAWL_API_KEY present: {'Yes' if firecrawl_key else 'No'}")
+            logger.info(f"PROVIDER_FIRECRAWL_KEY present: {'Yes' if provider_key else 'No'}")
+            
+            # Use any available key
+            api_key = provider_key or firecrawl_key
+            
+            if not api_key:
+                logger.error("No Firecrawl API key found in environment variables.")
+                logger.error("Please set FIRECRAWL_API_KEY or PROVIDER_FIRECRAWL_KEY in your .env file.")
+                return None
+            
+            # Create the FirecrawlApp instance
+            masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "[SET]"
+            logger.info(f"Initializing Firecrawl with API key: {masked_key}")
+            
+            firecrawl_instance = FirecrawlApp(api_key=api_key)
+            logger.info("Successfully created FirecrawlApp instance")
+            
+            # Test the instance with a basic request
+            try:
+                logger.info("Testing Firecrawl instance with a basic request...")
+                test_result = firecrawl_instance.scrape_url(
+                    "https://example.com",
+                    params={'formats': ['markdown']}
+                )
+                if 'markdown' in test_result:
+                    logger.info("Firecrawl test successful!")
+                else:
+                    logger.warning("Firecrawl test returned unexpected response format")
+            except Exception as test_error:
+                logger.warning(f"Firecrawl test request failed: {str(test_error)}")
+                # Continue anyway since the instance was created
+                
+            return firecrawl_instance
         except Exception as e:
-            logger.warning(f"Error initializing Firecrawl: {str(e)}. Some functionality will be limited.")
+            logger.error(f"Error initializing Firecrawl: {str(e)}", exc_info=True)
             return None
 
     def check_article_exists(self, uri: str) -> bool:
@@ -147,31 +255,51 @@ class Research:
             return False
 
     async def fetch_article_content(self, uri: str):
-        logger.debug(f"Fetching article content for URI: {uri}")
+        """Fetch article content using Firecrawl or from the database if available."""
         try:
+            logger.debug(f"Fetching article content for URI: {uri}")
+            
+            # Make sure we have models configured before proceeding
+            if not self.available_models:
+                logger.error("No AI models available. Trying to reload environment variables.")
+                # Reload environment and try to get models again
+                load_environment()
+                from app.ai_models import get_available_models
+                self.available_models = get_available_models()
+                logger.info(f"Available AI models after reload: {[model['name'] for model in self.available_models if model]}")
+                
+                if not self.available_models:
+                    raise ValueError("No AI models are configured")
+                    
             # Ensure ArticleAnalyzer is initialized
             if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
                 if not self.ai_model:
                     # Use the first available model as default if none is set
                     if not self.available_models:
-                        raise ValueError("No AI models are configured")
+                        raise ValueError("No AI models available")
                     self.set_ai_model(self.available_models[0]['name'])
-                else:
-                    self.article_analyzer = ArticleAnalyzer(self.ai_model)
+                
+                self.article_analyzer = ArticleAnalyzer(self.ai_model)
+                logger.info(f"Created ArticleAnalyzer with model: {self.ai_model.model_name}")
 
             # Check for existing article first
             existing_article = self.db.get_raw_article(uri)
-            
             if existing_article:
-                logger.info(f"Article already exists in database: {uri}")
+                logger.info(f"Found existing article content for URI: {uri}")
                 return {
-                    "content": existing_article['raw_markdown'],
+                    "content": existing_article['content'],
                     "source": self.extract_source(uri),
-                    "publication_date": existing_article['submission_date'],
+                    "publication_date": existing_article.get('submission_date', datetime.now(timezone.utc).date().isoformat()),
                     "exists": True
                 }
             
-            # Check if Firecrawl is available
+            # If article doesn't exist, try to scrape it
+            # Check if Firecrawl is available or try to initialize it
+            if not self.firecrawl_app:
+                logger.info("Firecrawl not initialized, attempting to initialize")
+                self.firecrawl_app = self.initialize_firecrawl()
+                
+            # If still not available after initialization, return error
             if not self.firecrawl_app:
                 logger.warning("Firecrawl is not configured. Cannot fetch article content.")
                 return {
@@ -180,34 +308,41 @@ class Research:
                     "publication_date": datetime.now(timezone.utc).date().isoformat(),
                     "error": "Firecrawl not configured"
                 }
-            
-            logger.info(f"Article does not exist in database, scraping: {uri}")
-            scrape_result = self.firecrawl_app.scrape_url(
-                uri,
-                params={
-                    'formats': ['markdown']
-                }
-            )
-            
-            if 'markdown' in scrape_result:
-                content = scrape_result['markdown']
                 
-                # Extract publication date using ArticleAnalyzer
-                raw_date = scrape_result.get('date') or scrape_result.get('published_date') or scrape_result.get('pubDate')
-                publication_date = self.article_analyzer.extract_publication_date(content)
+            # Try to scrape with Firecrawl
+            try:
+                logger.info(f"Using Firecrawl to scrape content for URI: {uri}")
+                scrape_result = self.firecrawl_app.scrape_url(
+                    uri,
+                    params={'formats': ['markdown']}
+                )
                 
-                # Save the raw markdown with current topic
-                self.db.save_raw_article(uri, content, self.current_topic)
-                
-                source = self.extract_source(uri)
-                return {
-                    "content": content, 
-                    "source": source, 
-                    "publication_date": publication_date, 
-                    "exists": False
-                }
-            else:
-                logger.error(f"Failed to fetch content for {uri}")
+                # Extract content
+                if isinstance(scrape_result, dict) and 'markdown' in scrape_result:
+                    content = scrape_result['markdown']
+                    
+                    # Extract publication date using ArticleAnalyzer
+                    publication_date = self.article_analyzer.extract_publication_date(content)
+                    
+                    # Save the raw markdown with current topic
+                    self.db.save_raw_article(uri, content, self.current_topic)
+                    
+                    return {
+                        "content": content,
+                        "source": self.extract_source(uri),
+                        "publication_date": publication_date,
+                        "exists": False
+                    }
+                else:
+                    logger.warning(f"Unexpected response format from Firecrawl for URI: {uri}")
+                    return {
+                        "content": "Failed to fetch article content. Unexpected response format.",
+                        "source": self.extract_source(uri),
+                        "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                        "exists": False
+                    }
+            except Exception as scrape_error:
+                logger.error(f"Error scraping with Firecrawl: {str(scrape_error)}")
                 return {
                     "content": "Failed to fetch article content.",
                     "source": self.extract_source(uri),
@@ -223,7 +358,7 @@ class Research:
                 "publication_date": datetime.now(timezone.utc).date().isoformat(),
                 "exists": False
             }
-        
+
     def get_existing_article_content(self, uri: str):
         """Retrieve existing article content from the database."""
         try:
@@ -412,27 +547,16 @@ class Research:
         return self.db.delete_article(uri)
 
     async def scrape_article(self, uri: str):
-        """Scrape the article using Firecrawl."""
+        """Scrape article content using Firecrawl."""
         try:
             logger.info(f"Starting article scrape for URI: {uri}")
             
-            # Check if article analyzer is initialized
-            if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
-                if not self.ai_model:
-                    # Use the first available model as default if none is set
-                    if not self.available_models:
-                        logger.error("No AI models are configured. Cannot analyze article.")
-                        return {
-                            "error": "No AI models configured",
-                            "content": "Cannot analyze article: AI models not configured.",
-                            "source": self.extract_source(uri),
-                            "publication_date": datetime.now(timezone.utc).date().isoformat()
-                        }
-                    self.set_ai_model(self.available_models[0]['name'])
-                    logger.info(f"Automatically selected AI model: {self.available_models[0]['name']}")
-                self.article_analyzer = ArticleAnalyzer(self.ai_model)
-            
-            # Check if Firecrawl is available
+            # Reload environment and check if Firecrawl is available
+            if not self.firecrawl_app:
+                logger.info("Firecrawl not configured, attempting to initialize")
+                self.firecrawl_app = self.initialize_firecrawl()
+                
+            # If still not available after initialization attempt, return error
             if not self.firecrawl_app:
                 logger.warning("Firecrawl is not configured. Cannot scrape article.")
                 return {
@@ -442,8 +566,9 @@ class Research:
                     "error": "Firecrawl not configured"
                 }
             
-            # Validate URI format
-            if not uri.startswith(('http://', 'https://')):
+            # Check if the URI is valid
+            parsed_uri = urlparse(uri)
+            if not parsed_uri.scheme or not parsed_uri.netloc:
                 logger.warning(f"Invalid URI format: {uri}")
                 return {
                     "content": f"Invalid URI format: {uri}. URI must start with http:// or https://",
@@ -452,10 +577,11 @@ class Research:
                     "error": "Invalid URI format"
                 }
             
-            logger.debug(f"Calling Firecrawl.scrape_url with URI: {uri}")
+            # Use Firecrawl to scrape the article
             try:
+                logger.info(f"Using Firecrawl to scrape {uri}")
                 scrape_result = self.firecrawl_app.scrape_url(
-                    uri,
+                    uri, 
                     params={
                         'formats': ['markdown']
                     }
@@ -470,9 +596,8 @@ class Research:
                     "error": f"Firecrawl API error: {str(scrape_error)}"
                 }
             
-            # Check if the result contains markdown
+            # Process the response if it's a dictionary containing 'markdown'
             if isinstance(scrape_result, dict) and 'markdown' in scrape_result:
-                logger.info(f"Successfully scraped content from {uri}")
                 content = scrape_result['markdown']
                 
                 # Check if content is empty or too short
@@ -485,7 +610,7 @@ class Research:
                         "error": "Empty content"
                     }
                 
-                # Save the raw markdown
+                # Try to save the article but don't fail if it can't be saved
                 try:
                     self.db.save_raw_article(uri, content, self.current_topic)
                     logger.info(f"Successfully saved raw article with topic: {self.current_topic}")
@@ -507,13 +632,16 @@ class Research:
                 
                 # Get metadata if available
                 metadata = {}
-                if 'metadata' in scrape_result:
-                    metadata = scrape_result['metadata']
-                    logger.debug(f"Metadata: {metadata}")
+                if 'title' in scrape_result:
+                    metadata['title'] = scrape_result['title']
+                if 'published_date' in scrape_result:
+                    metadata['published_date'] = scrape_result['published_date']
+                if 'author' in scrape_result:
+                    metadata['author'] = scrape_result['author']
                 
                 return {
-                    "content": content, 
-                    "source": source, 
+                    "content": content,
+                    "source": source,
                     "publication_date": publication_date,
                     "metadata": metadata
                 }
@@ -529,7 +657,6 @@ class Research:
             
         except Exception as e:
             logger.error(f"Error scraping article: {str(e)}", exc_info=True)
-            logger.error(f"URI: {uri}, Current topic: {self.current_topic}")
             return {
                 "content": f"Failed to scrape article content: {str(e)}", 
                 "source": self.extract_source(uri), 
@@ -546,27 +673,51 @@ class Research:
             return []
 
     def set_ai_model(self, model_name):
-        logger.debug(f"Setting AI model to: {model_name}")
-        if not self.available_models:
-            raise ValueError("No AI models are configured. Please add a model in the configuration section.")
-        available_names = [model['name'] for model in self.available_models]
-        logger.debug(f"Available models: {available_names}")
-        if model_name not in available_names:
-            raise ValueError(f"Model {model_name} is not configured. Please select a configured model.")
+        """
+        Set the AI model for analysis.
         
-        # Set the new AI model
-        self.ai_model = get_ai_model(model_name)
-        logger.debug(f"Successfully set AI model to: {model_name}")
+        Args:
+            model_name: The name of the model to use
+        """
+        from app.ai_models import get_ai_model, get_available_models
         
-        # Only create new ArticleAnalyzer if it doesn't exist
-        if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
-            self.article_analyzer = ArticleAnalyzer(self.ai_model, use_cache=True)
-            logger.debug(f"Created new ArticleAnalyzer for model: {model_name}")
-        else:
-            # Update existing analyzer with new model while preserving cache
-            self.article_analyzer.ai_model = self.ai_model
-            self.article_analyzer.model_name = model_name
-            logger.debug(f"Updated existing ArticleAnalyzer with model: {model_name}")
+        try:
+            # If available_models is empty, try to reload models list
+            if not self.available_models:
+                logger.warning("Available models list is empty, reloading...")
+                self.available_models = get_available_models()
+                if not self.available_models:
+                    # Log all environment variables for debugging
+                    logger.error("Still no AI models available after reload. Environment vars:")
+                    for key, value in os.environ.items():
+                        if 'API_KEY' in key:
+                            masked = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "[SET]"
+                            logger.error(f"  {key}={masked}")
+                    raise ValueError(f"No AI models available. Cannot set model to {model_name}")
+            
+            logger.info(f"Setting AI model to {model_name}")
+            
+            available_model_names = [model['name'] for model in self.available_models]
+            if model_name not in available_model_names:
+                logger.error(f"Model {model_name} not in available models: {available_model_names}")
+                if available_model_names:
+                    logger.info(f"Setting default model to {available_model_names[0]}")
+                    model_name = available_model_names[0]
+                else:
+                    raise ValueError(f"No AI models available")
+                    
+            # Load the model
+            self.ai_model = get_ai_model(model_name)
+            
+            # Initialize the article analyzer with the new model
+            from app.analyzers.article_analyzer import ArticleAnalyzer
+            self.article_analyzer = ArticleAnalyzer(self.ai_model)
+            
+            logger.info(f"Successfully set AI model to {model_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting AI model to {model_name}: {str(e)}", exc_info=True)
+            return False
 
     def get_available_models(self):
         return self.available_models
@@ -604,6 +755,63 @@ class Research:
                     SET moved_to_articles = TRUE
                     WHERE url = ?
                 """, (url,))
+
+    def reload_environment(self):
+        """Reload environment variables and reinitialize clients."""
+        try:
+            logger.info("Reloading environment for Research instance")
+            
+            # Reload environment variables
+            env_path = load_environment()
+            
+            # Log important keys (masked)
+            # Prioritize PROVIDER_FIRECRAWL_KEY over FIRECRAWL_API_KEY
+            firecrawl_key = os.environ.get("PROVIDER_FIRECRAWL_KEY") or os.environ.get("FIRECRAWL_API_KEY")
+            newsapi_key = os.environ.get("PROVIDER_NEWSAPI_KEY") or os.environ.get("NEWSAPI_KEY")
+            openai_key = os.environ.get("OPENAI_API_KEY")
+            
+            if firecrawl_key:
+                masked_key = firecrawl_key[:4] + "..." + firecrawl_key[-4:] if len(firecrawl_key) > 8 else "[SET]"
+                logger.info(f"Firecrawl API key loaded: {masked_key}")
+            
+            if newsapi_key:
+                masked_key = newsapi_key[:4] + "..." + newsapi_key[-4:] if len(newsapi_key) > 8 else "[SET]"
+                logger.info(f"NewsAPI key loaded: {masked_key}")
+            
+            if openai_key:
+                masked_key = openai_key[:4] + "..." + openai_key[-4:] if len(openai_key) > 8 else "[SET]"
+                logger.info(f"OpenAI API key loaded: {masked_key}")
+            
+            # Re-initialize API clients
+            self.firecrawl_app = self.initialize_firecrawl()
+            
+            # Reinitialize AI models
+            try:
+                from app.ai_models import ensure_model_env_vars, get_available_models
+                ensure_model_env_vars()
+                self.available_models = get_available_models()
+                
+                # Set the default model if we have available models
+                if self.available_models and len(self.available_models) > 0:
+                    # The available_models is a list of dictionaries, not a dictionary
+                    default_model = self.available_models[0]['name']
+                    self.set_ai_model(default_model)
+                    logger.info(f"Default AI model set to {default_model}")
+                else:
+                    logger.warning("No AI models available after environment reload")
+            except Exception as e:
+                logger.error(f"Error reloading AI models: {str(e)}")
+            
+            # Reinitialize the article analyzer if we have an AI model
+            if hasattr(self, 'ai_model') and self.ai_model:
+                self.article_analyzer = ArticleAnalyzer(self.ai_model)
+                logger.info(f"Reinitialized ArticleAnalyzer with model: {self.ai_model.model_name}")
+            
+            logger.info("Research environment reload completed")
+            return True
+        except Exception as e:
+            logger.error(f"Error reloading environment: {str(e)}")
+            return False
 
 
 

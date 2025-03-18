@@ -1,10 +1,8 @@
-from dotenv import load_dotenv
 import os
 import yaml
 from litellm import Router
 import logging
-
-load_dotenv()
+from app.env_loader import load_environment, ensure_model_env_vars
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the default logging level
@@ -16,6 +14,9 @@ litellm_logger.setLevel(logging.CRITICAL)  # Only show CRITICAL messages
 # Remove all handlers from the LiteLLM logger
 for handler in litellm_logger.handlers[:]:
     litellm_logger.removeHandler(handler)
+
+# Load environment variables and ensure they're properly set for models
+ensure_model_env_vars()
 
 def clean_outdated_model_env_vars():
     """

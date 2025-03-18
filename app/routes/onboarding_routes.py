@@ -43,48 +43,44 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
                         error_msg = error_data.get('message', 'Invalid NewsAPI key')
                         raise HTTPException(status_code=400, detail=error_msg)
             
-            # Save to both traditional env var and the PROVIDER_ prefix version
-            env_var_names = ['NEWSAPI_KEY', 'PROVIDER_NEWSAPI_KEY']
-            for env_var_name in env_var_names:
-                logger.info(f"Setting {env_var_name} in {env_path}")
-                
-                try:
-                    # Read existing content
-                    try:
-                        with open(env_path, "r") as env_file:
-                            lines = env_file.readlines()
-                    except FileNotFoundError:
-                        lines = []
-                    
-                    # Update or add the key
-                    new_line = f'{env_var_name}=\'{api_key}\'\n'
-                    key_found = False
-                    
-                    for i, line in enumerate(lines):
-                        if line.startswith(f'{env_var_name}='):
-                            lines[i] = new_line
-                            key_found = True
-                            break
-                    
-                    if not key_found:
-                        lines.append(new_line)
-                    
-                    # Write back to .env
-                    with open(env_path, "w") as env_file:
-                        env_file.writelines(lines)
-                        
-                    logger.info(f"Successfully wrote {env_var_name} to {env_path}")
-                except Exception as e:
-                    logger.error(f"Error writing to .env: {str(e)}")
-                    raise HTTPException(status_code=500, detail=f"Failed to save API key: {str(e)}")
-                    
-                # Update environment variable in memory
-                os.environ[env_var_name] = api_key
-                
-                # Double-check that the key was set correctly
-                if not os.getenv(env_var_name):
-                    logger.error(f"Failed to set {env_var_name} in environment variables")
-                    raise HTTPException(status_code=500, detail=f"Failed to set {env_var_name} in environment")
+            # Save API key - using primary format
+            primary_env_var = 'PROVIDER_NEWSAPI_KEY'
+            secondary_env_var = 'NEWSAPI_KEY'
+
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Update or add both keys
+            primary_line = f'{primary_env_var}="{api_key}"\n'
+            secondary_line = f'{secondary_env_var}="{api_key}"\n'
+            
+            primary_found = False
+            secondary_found = False
+
+            for i, line in enumerate(lines):
+                if line.startswith(f'{primary_env_var}='):
+                    lines[i] = primary_line
+                    primary_found = True
+                elif line.startswith(f'{secondary_env_var}='):
+                    lines[i] = secondary_line
+                    secondary_found = True
+
+            if not primary_found:
+                lines.append(primary_line)
+            if not secondary_found:
+                lines.append(secondary_line)
+
+            # Write back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+
+            # Update environment
+            os.environ[primary_env_var] = api_key
+            os.environ[secondary_env_var] = api_key
                     
         elif provider == "firecrawl":
             # Test Firecrawl key
@@ -105,44 +101,44 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
                         detail="Invalid Firecrawl API key"
                     )
                 
-                # Save to all expected environment variable names
-                env_var_names = ['FIRECRAWL_KEY', 'FIRECRAWL_API_KEY', 'BRIGHTDATA_KEY', 'PROVIDER_FIRECRAWL_KEY']
+                # Save API key - using primary format
+                primary_env_var = 'PROVIDER_FIRECRAWL_KEY'
+                secondary_env_var = 'FIRECRAWL_API_KEY'
+
+                # Read existing content
+                try:
+                    with open(env_path, "r") as env_file:
+                        lines = env_file.readlines()
+                except FileNotFoundError:
+                    lines = []
+
+                # Update or add both keys
+                primary_line = f'{primary_env_var}="{api_key}"\n'
+                secondary_line = f'{secondary_env_var}="{api_key}"\n'
                 
-                for env_var_name in env_var_names:
-                    logger.info(f"Setting {env_var_name} in {env_path}")
-                    
-                    try:
-                        # Read existing content
-                        try:
-                            with open(env_path, "r") as env_file:
-                                lines = env_file.readlines()
-                        except FileNotFoundError:
-                            lines = []
-                        
-                        # Update or add the key
-                        new_line = f'{env_var_name}=\'{api_key}\'\n'
-                        key_found = False
-                        
-                        for i, line in enumerate(lines):
-                            if line.startswith(f'{env_var_name}='):
-                                lines[i] = new_line
-                                key_found = True
-                                break
-                        
-                        if not key_found:
-                            lines.append(new_line)
-                        
-                        # Write back to .env
-                        with open(env_path, "w") as env_file:
-                            env_file.writelines(lines)
-                            
-                        logger.info(f"Successfully wrote {env_var_name} to {env_path}")
-                    except Exception as e:
-                        logger.error(f"Error writing to .env: {str(e)}")
-                        continue  # Try the next env var name
-                    
-                    # Update environment variable in memory
-                    os.environ[env_var_name] = api_key
+                primary_found = False
+                secondary_found = False
+
+                for i, line in enumerate(lines):
+                    if line.startswith(f'{primary_env_var}='):
+                        lines[i] = primary_line
+                        primary_found = True
+                    elif line.startswith(f'{secondary_env_var}='):
+                        lines[i] = secondary_line
+                        secondary_found = True
+
+                if not primary_found:
+                    lines.append(primary_line)
+                if not secondary_found:
+                    lines.append(secondary_line)
+
+                # Write back to .env
+                with open(env_path, "w") as env_file:
+                    env_file.writelines(lines)
+
+                # Update environment variables
+                os.environ[primary_env_var] = api_key
+                os.environ[secondary_env_var] = api_key
                 
             except HTTPException:
                 raise
@@ -152,182 +148,224 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
                     error_msg = "Invalid Firecrawl API key"
                 raise HTTPException(status_code=400, detail=f"Firecrawl error: {error_msg}")
                     
-        elif provider == "openai":
-            # Save OpenAI key to .env with all required model-specific names
-            base_env_var_name = 'OPENAI_API_KEY'
-            model_env_var_names = [
-                base_env_var_name,  # Base env var
-                'OPENAI_API_KEY_GPT_3.5_TURBO',
-                'OPENAI_API_KEY_GPT_4O',
-                'OPENAI_API_KEY_GPT_4O_MINI'  # 01-mini as requested by user
-            ]
+        elif provider == "thenewsapi":
+            # Save TheNewsAPI key
+            primary_env_var = 'PROVIDER_THENEWSAPI_KEY'
+            secondary_env_var = 'THENEWSAPI_KEY'
+
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Update or add both keys
+            primary_line = f'{primary_env_var}="{api_key}"\n'
+            secondary_line = f'{secondary_env_var}="{api_key}"\n'
             
-            for env_var_name in model_env_var_names:
-                logger.info(f"Setting {env_var_name} in {env_path}")
+            primary_found = False
+            secondary_found = False
+
+            for i, line in enumerate(lines):
+                if line.startswith(f'{primary_env_var}='):
+                    lines[i] = primary_line
+                    primary_found = True
+                elif line.startswith(f'{secondary_env_var}='):
+                    lines[i] = secondary_line
+                    secondary_found = True
+
+            if not primary_found:
+                lines.append(primary_line)
+            if not secondary_found:
+                lines.append(secondary_line)
+
+            # Write back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+
+            # Update environment
+            os.environ[primary_env_var] = api_key
+            os.environ[secondary_env_var] = api_key
+                    
+        elif provider == "openai":
+            # Save OpenAI key to .env
+            env_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+            logger.info(f"Saving OpenAI API key to {env_path}")
+            
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Define all required OpenAI API keys for different models
+            openai_keys = {
+                'OPENAI_API_KEY': api_key,
+                'OPENAI_API_KEY_GPT_4O_MINI': api_key,
+                'OPENAI_API_KEY_GPT_3.5_TURBO': api_key,
+                'OPENAI_API_KEY_GPT_4O': api_key
+            }
+            
+            # Update or add all OpenAI keys
+            for key_name, key_value in openai_keys.items():
+                # Update in environment
+                os.environ[key_name] = key_value
                 
-                try:
-                    # Read existing content
-                    try:
-                        with open(env_path, "r") as env_file:
-                            lines = env_file.readlines()
-                    except FileNotFoundError:
-                        lines = []
-                    
-                    # Update or add the key
-                    new_line = f'{env_var_name}=\'{api_key}\'\n'
-                    key_found = False
-                    
-                    for i, line in enumerate(lines):
-                        if line.startswith(f'{env_var_name}='):
-                            lines[i] = new_line
-                            key_found = True
-                            break
-                    
-                    if not key_found:
-                        lines.append(new_line)
-                    
-                    # Write back to .env
-                    with open(env_path, "w") as env_file:
-                        env_file.writelines(lines)
-                        
-                    logger.info(f"Successfully wrote {env_var_name} to {env_path}")
-                except Exception as e:
-                    logger.error(f"Error writing to .env: {str(e)}")
-                    continue  # Try the next env var name
+                # Update in .env file
+                key_found = False
+                for i, line in enumerate(lines):
+                    if line.startswith(f'{key_name}='):
+                        lines[i] = f'{key_name}="{key_value}"\n'
+                        key_found = True
+                        break
                 
-                # Update environment variable in memory
-                os.environ[env_var_name] = api_key
+                if not key_found:
+                    lines.append(f'{key_name}="{key_value}"\n')
+                    
+            # Write all updates back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+                
+            logger.info(f"Saved all OpenAI API keys: {', '.join(openai_keys.keys())}")
             
         elif provider == "anthropic":
-            # Save Anthropic key to .env with Claude 3.7 Sonnet as requested by user
-            base_env_var_name = 'ANTHROPIC_API_KEY'
-            model_env_var_names = [
-                base_env_var_name,  # Base env var
-                'ANTHROPIC_API_KEY_CLAUDE_3_7_SONNET_LATEST',  # As requested by user
-                'ANTHROPIC_API_KEY_CLAUDE_3_5_SONNET_LATEST'
-            ]
+            # Save Anthropic key to .env
+            env_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+            logger.info(f"Saving Anthropic API key to {env_path}")
             
-            for env_var_name in model_env_var_names:
-                logger.info(f"Setting {env_var_name} in {env_path}")
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Define all required Anthropic API keys for different models
+            anthropic_keys = {
+                'ANTHROPIC_API_KEY': api_key,
+                'ANTHROPIC_API_KEY_CLAUDE_3_7_SONNET_LATEST': api_key,
+                'ANTHROPIC_API_KEY_CLAUDE_3_5_SONNET_LATEST': api_key
+            }
+            
+            # Update or add all Anthropic keys
+            for key_name, key_value in anthropic_keys.items():
+                # Update in environment
+                os.environ[key_name] = key_value
                 
-                try:
-                    # Read existing content
-                    try:
-                        with open(env_path, "r") as env_file:
-                            lines = env_file.readlines()
-                    except FileNotFoundError:
-                        lines = []
-                    
-                    # Update or add the key
-                    new_line = f'{env_var_name}=\'{api_key}\'\n'
-                    key_found = False
-                    
-                    for i, line in enumerate(lines):
-                        if line.startswith(f'{env_var_name}='):
-                            lines[i] = new_line
-                            key_found = True
-                            break
-                    
-                    if not key_found:
-                        lines.append(new_line)
-                    
-                    # Write back to .env
-                    with open(env_path, "w") as env_file:
-                        env_file.writelines(lines)
-                        
-                    logger.info(f"Successfully wrote {env_var_name} to {env_path}")
-                except Exception as e:
-                    logger.error(f"Error writing to .env: {str(e)}")
-                    continue  # Try the next env var name
+                # Update in .env file
+                key_found = False
+                for i, line in enumerate(lines):
+                    if line.startswith(f'{key_name}='):
+                        lines[i] = f'{key_name}="{key_value}"\n'
+                        key_found = True
+                        break
                 
-                # Update environment variable in memory
-                os.environ[env_var_name] = api_key
+                if not key_found:
+                    lines.append(f'{key_name}="{key_value}"\n')
+                    
+            # Write all updates back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+                
+            logger.info(f"Saved all Anthropic API keys: {', '.join(anthropic_keys.keys())}")
             
         elif provider == "huggingface":
-            # Save Hugging Face key with model-specific names
-            env_var_names = ['HUGGINGFACE_API_KEY', 'HUGGINGFACE_API_KEY_MIXTRAL_8X7B']
+            # Save Hugging Face key
+            env_var_name = 'HUGGINGFACE_API_KEY'
+
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Update or add the key
+            new_line = f'{env_var_name}="{api_key}"\n'
+            key_found = False
+
+            for i, line in enumerate(lines):
+                if line.startswith(f'{env_var_name}='):
+                    lines[i] = new_line
+                    key_found = True
+                    break
+
+            if not key_found:
+                lines.append(new_line)
+                
+            # Add model-specific key
+            model_key_name = 'HUGGINGFACE_API_KEY_MIXTRAL_8X7B'
+            model_key_found = False
             
-            for env_var_name in env_var_names:
-                logger.info(f"Setting {env_var_name} in {env_path}")
-                
-                try:
-                    # Read existing content
-                    try:
-                        with open(env_path, "r") as env_file:
-                            lines = env_file.readlines()
-                    except FileNotFoundError:
-                        lines = []
-                    
-                    # Update or add the key
-                    new_line = f'{env_var_name}=\'{api_key}\'\n'
-                    key_found = False
-                    
-                    for i, line in enumerate(lines):
-                        if line.startswith(f'{env_var_name}='):
-                            lines[i] = new_line
-                            key_found = True
-                            break
-                    
-                    if not key_found:
-                        lines.append(new_line)
-                    
-                    # Write back to .env
-                    with open(env_path, "w") as env_file:
-                        env_file.writelines(lines)
-                        
-                    logger.info(f"Successfully wrote {env_var_name} to {env_path}")
-                except Exception as e:
-                    logger.error(f"Error writing to .env: {str(e)}")
-                    continue  # Try the next env var name
-                
-                # Update environment variable in memory
-                os.environ[env_var_name] = api_key
+            for i, line in enumerate(lines):
+                if line.startswith(f'{model_key_name}='):
+                    lines[i] = f'{model_key_name}="{api_key}"\n'
+                    model_key_found = True
+                    break
+            
+            if not model_key_found:
+                lines.append(f'{model_key_name}="{api_key}"\n')
+
+            # Write back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+
+            # Update environment
+            os.environ[env_var_name] = api_key
+            os.environ[model_key_name] = api_key
             
         elif provider == "gemini":
             # Save Google API key
-            env_var_names = ['GEMINI_API_KEY', 'GEMINI_API_KEY_GEMINI_PRO']
+            env_var_name = 'GEMINI_API_KEY'
+
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Update or add the key
+            new_line = f'{env_var_name}="{api_key}"\n'
+            key_found = False
+
+            for i, line in enumerate(lines):
+                if line.startswith(f'{env_var_name}='):
+                    lines[i] = new_line
+                    key_found = True
+                    break
+
+            if not key_found:
+                lines.append(new_line)
+                
+            # Add model-specific key
+            model_key_name = 'GEMINI_API_KEY_GEMINI_PRO'
+            model_key_found = False
             
-            for env_var_name in env_var_names:
-                logger.info(f"Setting {env_var_name} in {env_path}")
-                
-                try:
-                    # Read existing content
-                    try:
-                        with open(env_path, "r") as env_file:
-                            lines = env_file.readlines()
-                    except FileNotFoundError:
-                        lines = []
-                    
-                    # Update or add the key
-                    new_line = f'{env_var_name}=\'{api_key}\'\n'
-                    key_found = False
-                    
-                    for i, line in enumerate(lines):
-                        if line.startswith(f'{env_var_name}='):
-                            lines[i] = new_line
-                            key_found = True
-                            break
-                    
-                    if not key_found:
-                        lines.append(new_line)
-                    
-                    # Write back to .env
-                    with open(env_path, "w") as env_file:
-                        env_file.writelines(lines)
-                        
-                    logger.info(f"Successfully wrote {env_var_name} to {env_path}")
-                except Exception as e:
-                    logger.error(f"Error writing to .env: {str(e)}")
-                    continue  # Try the next env var name
-                
-                # Update environment variable in memory
-                os.environ[env_var_name] = api_key
+            for i, line in enumerate(lines):
+                if line.startswith(f'{model_key_name}='):
+                    lines[i] = f'{model_key_name}="{api_key}"\n'
+                    model_key_found = True
+                    break
+            
+            if not model_key_found:
+                lines.append(f'{model_key_name}="{api_key}"\n')
+
+            # Write back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+
+            # Update environment
+            os.environ[env_var_name] = api_key
+            os.environ[model_key_name] = api_key
             
         else:
             raise HTTPException(status_code=400, detail="Unsupported provider")
         
         # Force reload environment variables to make sure other parts of the app can see them
-        load_dotenv(override=True)
+        load_dotenv(dotenv_path=env_path, override=True)
             
         return JSONResponse(content={"status": "valid", "configured": True})
         
@@ -339,7 +377,11 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
 
 async def check_api_keys():
     """Check which API keys are configured in .env and return masked versions"""
-    load_dotenv()
+    # Make sure we're loading from the right .env file
+    env_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+    logger.info(f"Loading keys from .env: {env_path}")
+    logger.info(f"File exists: {os.path.exists(env_path)}")
+    load_dotenv(dotenv_path=env_path, override=True)
     
     def mask_key(key):
         """Return a masked version of the key if it exists"""
@@ -351,15 +393,30 @@ async def check_api_keys():
     
     # Check for all required api keys
     newsapi_key = os.getenv("PROVIDER_NEWSAPI_KEY") or os.getenv("NEWSAPI_KEY")
-    firecrawl_key = os.getenv("PROVIDER_FIRECRAWL_KEY") or os.getenv("FIRECRAWL_API_KEY") or os.getenv("BRIGHTDATA_KEY") or os.getenv("FIRECRAWL_KEY")
-    openai_key = os.getenv("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY_GPT_3.5_TURBO") or os.getenv("OPENAI_API_KEY_GPT_4O") or os.getenv("OPENAI_API_KEY_GPT_4O_MINI")
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_API_KEY_CLAUDE_3_7_SONNET_LATEST") or os.getenv("ANTHROPIC_API_KEY_CLAUDE_3_5_SONNET_LATEST")
-    huggingface_key = os.getenv("HUGGINGFACE_API_KEY") or os.getenv("HUGGINGFACE_API_KEY_MIXTRAL_8X7B")
-    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY_GEMINI_PRO")
+    firecrawl_key = os.getenv("PROVIDER_FIRECRAWL_KEY") or os.getenv("FIRECRAWL_API_KEY")
+    thenewsapi_key = os.getenv("PROVIDER_THENEWSAPI_KEY") or os.getenv("THENEWSAPI_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    huggingface_key = os.getenv("HUGGINGFACE_API_KEY")
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    
+    # Ensure both primary and secondary keys are set
+    if newsapi_key:
+        os.environ["PROVIDER_NEWSAPI_KEY"] = newsapi_key
+        os.environ["NEWSAPI_KEY"] = newsapi_key
+        
+    if firecrawl_key:
+        os.environ["PROVIDER_FIRECRAWL_KEY"] = firecrawl_key
+        os.environ["FIRECRAWL_API_KEY"] = firecrawl_key
+    
+    if thenewsapi_key:
+        os.environ["PROVIDER_THENEWSAPI_KEY"] = thenewsapi_key
+        os.environ["THENEWSAPI_KEY"] = thenewsapi_key
     
     # Log which keys are found
     logger.info(f"NewsAPI Key: {bool(newsapi_key)}")
     logger.info(f"Firecrawl Key: {bool(firecrawl_key)}")
+    logger.info(f"TheNewsAPI Key: {bool(thenewsapi_key)}")
     logger.info(f"OpenAI Key: {bool(openai_key)}")
     logger.info(f"Anthropic Key: {bool(anthropic_key)}")
     logger.info(f"HuggingFace Key: {bool(huggingface_key)}")
@@ -375,6 +432,8 @@ async def check_api_keys():
         "newsapi_key": mask_key(newsapi_key),
         "firecrawl": bool(firecrawl_key),
         "firecrawl_key": mask_key(firecrawl_key),
+        "thenewsapi": bool(thenewsapi_key),
+        "thenewsapi_key": mask_key(thenewsapi_key),
         "openai": bool(openai_key),
         "openai_key": mask_key(openai_key),
         "anthropic": bool(anthropic_key),
