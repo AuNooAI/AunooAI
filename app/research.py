@@ -63,6 +63,13 @@ class Research:
                 if value:
                     masked = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "[SET]"
                     logger.info(f"Found environment variable: {key}={masked}")
+            
+            # Debug: Log all API KEY environment variables
+            logger.info("All API KEY environment variables:")
+            for key, value in os.environ.items():
+                if 'API_KEY' in key:
+                    masked = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "[SET]"
+                    logger.info(f"  {key}={masked}")
         except Exception as e:
             logger.warning(f"Error loading .env file: {str(e)}. Continuing with environment variables.")
         
@@ -76,6 +83,24 @@ class Research:
             
             self.available_models = get_available_models()
             logger.info(f"Available AI models: {[model['name'] for model in self.available_models]}")
+            
+            if not self.available_models:
+                # Try to explicitly set environment variables for key models
+                logger.warning("No AI models found. Attempting to set key environment variables directly...")
+                openai_key = os.environ.get('OPENAI_API_KEY')
+                if openai_key:
+                    model_keys = {
+                        'OPENAI_API_KEY_GPT_3.5_TURBO': openai_key,
+                        'OPENAI_API_KEY_GPT_4O': openai_key,
+                        'OPENAI_API_KEY_GPT_4O_MINI': openai_key
+                    }
+                    for key, value in model_keys.items():
+                        os.environ[key] = value
+                        logger.info(f"Manually set {key}")
+                
+                # Try to get models again
+                self.available_models = get_available_models()
+                logger.info(f"Available AI models after manual setup: {[model['name'] for model in self.available_models]}")
             
             # Set default AI model if one is available
             self.ai_model = None
@@ -160,8 +185,9 @@ class Research:
             firecrawl_api_key = settings.FIRECRAWL_API_KEY
             
             # If not available from settings, try directly from environment variables
+            # Prioritize PROVIDER_FIRECRAWL_KEY over FIRECRAWL_API_KEY
             if not firecrawl_api_key:
-                firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY") or os.getenv("PROVIDER_FIRECRAWL_KEY")
+                firecrawl_api_key = os.getenv("PROVIDER_FIRECRAWL_KEY") or os.getenv("FIRECRAWL_API_KEY")
                 
             if not firecrawl_api_key:
                 logger.warning("Firecrawl API key is missing. Some functionality will be limited.")
@@ -675,8 +701,9 @@ class Research:
             load_dotenv(dotenv_path=env_path, override=True)
             
             # Log important keys (masked)
-            firecrawl_key = os.environ.get("FIRECRAWL_API_KEY") or os.environ.get("PROVIDER_FIRECRAWL_KEY")
-            newsapi_key = os.environ.get("NEWSAPI_KEY") or os.environ.get("PROVIDER_NEWSAPI_KEY")
+            # Prioritize PROVIDER_FIRECRAWL_KEY over FIRECRAWL_API_KEY
+            firecrawl_key = os.environ.get("PROVIDER_FIRECRAWL_KEY") or os.environ.get("FIRECRAWL_API_KEY")
+            newsapi_key = os.environ.get("PROVIDER_NEWSAPI_KEY") or os.environ.get("NEWSAPI_KEY")
             openai_key = os.environ.get("OPENAI_API_KEY")
             
             if firecrawl_key:

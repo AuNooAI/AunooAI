@@ -42,6 +42,24 @@ def ensure_model_env_vars():
         ]
     }
     
+    # Print all environment variables for debugging
+    print("\n[DEBUG] Environment variables at startup:")
+    for key in os.environ:
+        if "API_KEY" in key:
+            masked = f"{os.environ[key][:4]}...{os.environ[key][-4:]}" if len(os.environ[key]) > 8 else "[SET]"
+            print(f"  {key}: {masked}")
+    
+    # Map underscore versions to dot versions (for compatibility)
+    underscore_to_dot = {
+        "OPENAI_API_KEY_GPT_3_5_TURBO": "OPENAI_API_KEY_GPT_3.5_TURBO"
+    }
+    
+    # First, handle underscore to dot mappings
+    for underscore_key, dot_key in underscore_to_dot.items():
+        if underscore_key in os.environ and os.environ[underscore_key]:
+            os.environ[dot_key] = os.environ[underscore_key]
+            print(f"Mapped underscore key {underscore_key} to dot key {dot_key}")
+    
     # For each main key, make sure all model-specific keys are set
     for main_key, specific_keys in key_mappings.items():
         main_value = os.environ.get(main_key)
@@ -60,6 +78,13 @@ def ensure_model_env_vars():
                     os.environ[main_key] = specific_value
                     print(f"Set {main_key} from {specific_key}")
                     break
+    
+    # Print available environment variables for debugging
+    print("\nAvailable OpenAI API keys after mapping:")
+    for key in os.environ:
+        if key.startswith("OPENAI_API_KEY"):
+            masked_value = os.environ[key][:4] + "..." + os.environ[key][-4:] if len(os.environ[key]) > 8 else "[SET]"
+            print(f"  - {key}: {masked_value}")
 
 # Ensure model environment variables are properly set
 ensure_model_env_vars()

@@ -92,12 +92,10 @@
                         <div class="mb-3">
                             <label for="llm-provider" class="form-label">LLM Provider</label>
                             <select class="form-select" id="llm-provider" onchange="toggleLlmKeyFields()">
-                                <option value="openai" selected>OpenAI</option>
-                                <option value="anthropic">Anthropic</option>
-                                <option value="huggingface">HuggingFace</option>
-                                <option value="gemini">Google Gemini</option>
+                                <option value="openai" selected>OpenAI (GPT-4o-mini)</option>
+                                <option value="anthropic">Anthropic (Claude 3.7 Sonnet)</option>
                             </select>
-                            <small class="text-muted">Select your preferred LLM provider</small>
+                            <small class="text-muted">Select one LLM provider to power analysis. Your API key will be used for all models from that provider.</small>
                         </div>
 
                         <!-- OpenAI API Key -->
@@ -111,7 +109,7 @@
                                 <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('openai')">Test</button>
                             </div>
                             <div id="openai-status" class="api-key-status"></div>
-                            <small class="text-muted">Will be used for GPT models (gpt-3.5-turbo, gpt-4o, gpt-4o-mini). Format: sk-proj-xxxx</small>
+                            <small class="text-muted">Format must be exactly as shown in OpenAI dashboard: "sk-proj-xxxx". Will configure GPT-4o-mini and related models.</small>
                         </div>
 
                         <!-- Anthropic API Key -->
@@ -125,35 +123,7 @@
                                 <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('anthropic')">Test</button>
                             </div>
                             <div id="anthropic-status" class="api-key-status"></div>
-                            <small class="text-muted">Will be used for Claude 3.7 Sonnet model</small>
-                        </div>
-
-                        <!-- HuggingFace API Key -->
-                        <div class="mb-3 llm-key-field" id="huggingface-key-field" style="display: none;">
-                            <label for="huggingface-key" class="form-label">HuggingFace API Key</label>
-                            <div class="input-group">
-                                <input type="password" class="form-control" id="huggingface-key" name="huggingface-key" placeholder="Enter API key">
-                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('huggingface-key')">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('huggingface')">Test</button>
-                            </div>
-                            <div id="huggingface-status" class="api-key-status"></div>
-                            <small class="text-muted">Will be used for Mixtral-8x7B model</small>
-                        </div>
-
-                        <!-- Gemini API Key -->
-                        <div class="mb-3 llm-key-field" id="gemini-key-field" style="display: none;">
-                            <label for="gemini-key" class="form-label">Google Gemini API Key</label>
-                            <div class="input-group">
-                                <input type="password" class="form-control" id="gemini-key" name="gemini-key" placeholder="Enter API key">
-                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('gemini-key')">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('gemini')">Test</button>
-                            </div>
-                            <div id="gemini-status" class="api-key-status"></div>
-                            <small class="text-muted">Will be used for Gemini Pro model</small>
+                            <small class="text-muted">Enter the full Anthropic API key from your dashboard. Will configure Claude 3.7 Sonnet and related models.</small>
                         </div>
 
                         <!-- Firecrawl Key -->
@@ -383,26 +353,6 @@ async function checkExistingKeys() {
             document.getElementById('llm-provider').value = 'anthropic';
         }
         
-        if (keyStatus.huggingface) {
-            const statusDiv = document.getElementById('huggingface-status');
-            statusDiv.style.display = 'block';
-            statusDiv.innerHTML = 'HuggingFace key configured ✓';
-            statusDiv.className = 'api-key-status text-success';
-            document.getElementById('huggingface-key').value = keyStatus.huggingface_key || '';
-            document.getElementById('huggingface-key').placeholder = 'Key configured - click to view/edit';
-            document.getElementById('llm-provider').value = 'huggingface';
-        }
-        
-        if (keyStatus.gemini) {
-            const statusDiv = document.getElementById('gemini-status');
-            statusDiv.style.display = 'block';
-            statusDiv.innerHTML = 'Google Gemini key configured ✓';
-            statusDiv.className = 'api-key-status text-success';
-            document.getElementById('gemini-key').value = keyStatus.gemini_key || '';
-            document.getElementById('gemini-key').placeholder = 'Key configured - click to view/edit';
-            document.getElementById('llm-provider').value = 'gemini';
-        }
-        
         // Update the LLM provider dropdown and toggle fields accordingly
         toggleLlmKeyFields();
         
@@ -423,15 +373,11 @@ async function testApiKey(type) {
     if (type === 'openai') {
         provider = 'openai';
         api_key = document.getElementById('openai-key').value;
+        console.log("Setting OpenAI API keys for models: GPT-4o-mini, GPT-4o, and GPT-3.5-turbo");
     } else if (type === 'anthropic') {
         provider = 'anthropic';
         api_key = document.getElementById('anthropic-key').value;
-    } else if (type === 'huggingface') {
-        provider = 'huggingface';
-        api_key = document.getElementById('huggingface-key').value;
-    } else if (type === 'gemini') {
-        provider = 'gemini';
-        api_key = document.getElementById('gemini-key').value;
+        console.log("Setting Anthropic API keys for models: Claude 3.7 Sonnet and Claude 3.5 Sonnet");
     } else if (type === 'newsapi') {
         provider = 'newsapi';
         api_key = document.getElementById('newsapi-key').value;
@@ -744,10 +690,6 @@ async function init() {
         // After checking API keys, make sure the correct LLM provider field is shown
         if (document.getElementById('anthropic-key').value) {
             document.getElementById('llm-provider').value = 'anthropic';
-        } else if (document.getElementById('huggingface-key').value) {
-            document.getElementById('llm-provider').value = 'huggingface';
-        } else if (document.getElementById('gemini-key').value) {
-            document.getElementById('llm-provider').value = 'gemini';
         } else {
             document.getElementById('llm-provider').value = 'openai';
         }
@@ -788,11 +730,9 @@ async function saveTopic() {
         const firecrawlKey = document.getElementById('firecrawl-key').value;
         const openaiKey = document.getElementById('openai-key').value;
         const anthropicKey = document.getElementById('anthropic-key').value;
-        const huggingfaceKey = document.getElementById('huggingface-key').value;
-        const geminiKey = document.getElementById('gemini-key').value;
         
         if (!newsapiKey || !firecrawlKey || 
-            (!openaiKey && !anthropicKey && !huggingfaceKey && !geminiKey)) {
+            (!openaiKey && !anthropicKey)) {
             showErrorMessage("Please provide all required API keys");
             return false;
         }

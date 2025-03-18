@@ -190,8 +190,9 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
                     
         elif provider == "openai":
             # Save OpenAI key to .env
-            env_var_name = 'OPENAI_API_KEY'
-
+            env_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+            logger.info(f"Saving OpenAI API key to {env_path}")
+            
             # Read existing content
             try:
                 with open(env_path, "r") as env_file:
@@ -199,56 +200,41 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
             except FileNotFoundError:
                 lines = []
 
-            # Update or add the key
-            new_line = f'{env_var_name}="{api_key}"\n'
-            key_found = False
-
-            for i, line in enumerate(lines):
-                if line.startswith(f'{env_var_name}='):
-                    lines[i] = new_line
-                    key_found = True
-                    break
-
-            if not key_found:
-                lines.append(new_line)
-
-            # Write back to .env
-            with open(env_path, "w") as env_file:
-                env_file.writelines(lines)
-
-            # Update environment
-            os.environ[env_var_name] = api_key
-            
-            # Also set model-specific keys for litellm
-            model_keys = {
+            # Define all required OpenAI API keys for different models
+            openai_keys = {
+                'OPENAI_API_KEY': api_key,
+                'OPENAI_API_KEY_GPT_4O_MINI': api_key,
                 'OPENAI_API_KEY_GPT_3.5_TURBO': api_key,
-                'OPENAI_API_KEY_GPT_4O': api_key,
-                'OPENAI_API_KEY_GPT_4O_MINI': api_key
+                'OPENAI_API_KEY_GPT_4O': api_key
             }
             
-            # Add model-specific keys to .env file
-            for key_name, key_value in model_keys.items():
+            # Update or add all OpenAI keys
+            for key_name, key_value in openai_keys.items():
+                # Update in environment
+                os.environ[key_name] = key_value
+                
+                # Update in .env file
                 key_found = False
                 for i, line in enumerate(lines):
                     if line.startswith(f'{key_name}='):
-                        lines[i] = f'{key_name}=\'{key_value}\'\n'  # Use single quotes to match existing format
+                        lines[i] = f'{key_name}="{key_value}"\n'
                         key_found = True
                         break
                 
                 if not key_found:
-                    lines.append(f'{key_name}=\'{key_value}\'\n')
-                
-                # Also set in current environment
-                os.environ[key_name] = key_value
-                
+                    lines.append(f'{key_name}="{key_value}"\n')
+                    
             # Write all updates back to .env
             with open(env_path, "w") as env_file:
                 env_file.writelines(lines)
+                
+            logger.info(f"Saved all OpenAI API keys: {', '.join(openai_keys.keys())}")
             
         elif provider == "anthropic":
             # Save Anthropic key to .env
-            env_var_name = 'ANTHROPIC_API_KEY'
-
+            env_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+            logger.info(f"Saving Anthropic API key to {env_path}")
+            
             # Read existing content
             try:
                 with open(env_path, "r") as env_file:
@@ -256,46 +242,34 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
             except FileNotFoundError:
                 lines = []
 
-            # Update or add the key
-            new_line = f'{env_var_name}="{api_key}"\n'
-            key_found = False
-
-            for i, line in enumerate(lines):
-                if line.startswith(f'{env_var_name}='):
-                    lines[i] = new_line
-                    key_found = True
-                    break
-
-            if not key_found:
-                lines.append(new_line)
-
-            # Add model-specific keys
-            model_keys = {
+            # Define all required Anthropic API keys for different models
+            anthropic_keys = {
+                'ANTHROPIC_API_KEY': api_key,
                 'ANTHROPIC_API_KEY_CLAUDE_3_7_SONNET_LATEST': api_key,
                 'ANTHROPIC_API_KEY_CLAUDE_3_5_SONNET_LATEST': api_key
             }
             
-            # Update or add model-specific keys
-            for key_name, key_value in model_keys.items():
+            # Update or add all Anthropic keys
+            for key_name, key_value in anthropic_keys.items():
+                # Update in environment
+                os.environ[key_name] = key_value
+                
+                # Update in .env file
                 key_found = False
                 for i, line in enumerate(lines):
                     if line.startswith(f'{key_name}='):
-                        lines[i] = f'{key_name}=\'{key_value}\'\n'
+                        lines[i] = f'{key_name}="{key_value}"\n'
                         key_found = True
                         break
                 
                 if not key_found:
-                    lines.append(f'{key_name}=\'{key_value}\'\n')
-                
-                # Also set in current environment
-                os.environ[key_name] = key_value
-            
-            # Write back to .env
+                    lines.append(f'{key_name}="{key_value}"\n')
+                    
+            # Write all updates back to .env
             with open(env_path, "w") as env_file:
                 env_file.writelines(lines)
-
-            # Update environment
-            os.environ[env_var_name] = api_key
+                
+            logger.info(f"Saved all Anthropic API keys: {', '.join(anthropic_keys.keys())}")
             
         elif provider == "huggingface":
             # Save Hugging Face key
@@ -327,12 +301,12 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
             
             for i, line in enumerate(lines):
                 if line.startswith(f'{model_key_name}='):
-                    lines[i] = f'{model_key_name}=\'{api_key}\'\n'
+                    lines[i] = f'{model_key_name}="{api_key}"\n'
                     model_key_found = True
                     break
             
             if not model_key_found:
-                lines.append(f'{model_key_name}=\'{api_key}\'\n')
+                lines.append(f'{model_key_name}="{api_key}"\n')
 
             # Write back to .env
             with open(env_path, "w") as env_file:
@@ -372,12 +346,12 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
             
             for i, line in enumerate(lines):
                 if line.startswith(f'{model_key_name}='):
-                    lines[i] = f'{model_key_name}=\'{api_key}\'\n'
+                    lines[i] = f'{model_key_name}="{api_key}"\n'
                     model_key_found = True
                     break
             
             if not model_key_found:
-                lines.append(f'{model_key_name}=\'{api_key}\'\n')
+                lines.append(f'{model_key_name}="{api_key}"\n')
 
             # Write back to .env
             with open(env_path, "w") as env_file:
