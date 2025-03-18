@@ -82,7 +82,6 @@ RUN echo '        return True' >> /app/scripts/db_merge.py
 
 # Ensure data directories exist and have proper permissions
 RUN mkdir -p /app/app/data && \
-    mkdir -p /app/data && \
     mkdir -p /app/reports
     
 # Set permissions for directories
@@ -102,20 +101,29 @@ echo "STORAGE_BUCKET: ${STORAGE_BUCKET}"\n\
 \n\
 # Create data directory for tenant\n\
 mkdir -p /app/app/data/${INSTANCE}\n\
+mkdir -p /app/reports/${INSTANCE}\n\
 touch /app/app/data/${INSTANCE}/.env\n\
 chmod 666 /app/app/data/${INSTANCE}/.env\n\
 ln -sf /app/app/data/${INSTANCE}/.env /app/.env\n\
 echo "Created data directory for tenant: ${INSTANCE}"\n\
+echo "Created reports directory for tenant: ${INSTANCE}"\n\
 \n\
 # If a storage bucket is specified, sync data from it\n\
 if [ -n "$STORAGE_BUCKET" ]; then\n\
-  echo "Syncing data from gs://${STORAGE_BUCKET}..."\n\
-  gsutil -m rsync -r gs://${STORAGE_BUCKET}/ /app/app/data/${INSTANCE}/\n\
+  echo "Syncing data from gs://${STORAGE_BUCKET}/data/ to /app/app/data/${INSTANCE}/..."\n\
+  gsutil -m rsync -r gs://${STORAGE_BUCKET}/data/ /app/app/data/${INSTANCE}/\n\
+  \n\
+  echo "Syncing reports from gs://${STORAGE_BUCKET}/reports/ to /app/reports/${INSTANCE}/..."\n\
+  gsutil -m rsync -r gs://${STORAGE_BUCKET}/reports/ /app/reports/${INSTANCE}/\n\
   \n\
   # Set up periodic sync to bucket (every 5 minutes) and on exit\n\
   function sync_data_to_bucket() {\n\
-    echo "$(date): Syncing data to gs://${STORAGE_BUCKET}..."\n\
-    gsutil -m rsync -r /app/app/data/${INSTANCE}/ gs://${STORAGE_BUCKET}/\n\
+    echo "$(date): Syncing data to gs://${STORAGE_BUCKET}/data/..."\n\
+    gsutil -m rsync -r /app/app/data/${INSTANCE}/ gs://${STORAGE_BUCKET}/data/\n\
+    \n\
+    echo "$(date): Syncing reports to gs://${STORAGE_BUCKET}/reports/..."\n\
+    gsutil -m rsync -r /app/reports/${INSTANCE}/ gs://${STORAGE_BUCKET}/reports/\n\
+    \n\
     echo "$(date): Sync completed"\n\
   }\n\
   \n\

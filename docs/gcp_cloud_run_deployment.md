@@ -162,7 +162,26 @@ The application uses a custom Docker image defined in `Dockerfile.gcp`, which in
 
 ## Data Persistence
 
-AunooAI uses Cloud Storage buckets for data persistence. Each tenant has its own bucket, which is mounted to the Cloud Run service at `/app/app/data/{tenant}`. The application automatically syncs data between the container and the bucket.
+AunooAI uses Cloud Storage buckets for data persistence. Each tenant has its own bucket with the following structure:
+- `/data/` - Contains tenant-specific application data, mounted to `/app/app/data/{tenant}` in the container
+- `/reports/` - Contains generated reports, mounted to `/app/reports/{tenant}` in the container
+
+The application automatically syncs data between the container and the bucket every 5 minutes and on container shutdown.
+
+### Storage Structure
+```
+gs://{bucket-name}/
+  ├── data/      # Application data
+  └── reports/   # Generated reports
+```
+
+When deploying a new tenant, the deployment script should create this structure in the Cloud Storage bucket:
+
+```bash
+gsutil mb gs://{bucket-name}
+gsutil mb -p gs://{bucket-name}/data
+gsutil mb -p gs://{bucket-name}/reports
+```
 
 ## Common Issues and Solutions
 
@@ -216,8 +235,10 @@ These API keys will be passed to the LiteLLM library for authentication with the
 ```bash
 gcloud run deploy aunooai-TENANT_NAME \
   --region REGION \
-  --add-volume name=storage,type=cloud-storage,bucket=BUCKET_NAME \
-  --add-volume-mount volume=storage,mount-path=/app/app/data/TENANT_NAME
+  --add-volume name=storage-data,type=cloud-storage,bucket=BUCKET_NAME,path=data \
+  --add-volume-mount volume=storage-data,mount-path=/app/app/data/TENANT_NAME \
+  --add-volume name=storage-reports,type=cloud-storage,bucket=BUCKET_NAME,path=reports \
+  --add-volume-mount volume=storage-reports,mount-path=/app/reports/TENANT_NAME
 ```
 
 Or use the helper script:
