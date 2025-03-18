@@ -51,16 +51,17 @@ import shutil
 from app.utils.app_info import get_app_info
 from starlette.templating import _TemplateResponse  # Add this import at the top
 from app.routes.onboarding_routes import router as onboarding_router
+from app.startup import initialize_application
 
 # Set up logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
 # Initialize FastAPI app
-app = FastAPI()
+app = FastAPI(title="AuNoo AI")
 
 # Add session middleware first
 app.add_middleware(
@@ -1097,19 +1098,28 @@ async def get_active_database():
 
 @app.on_event("startup")
 def startup_event():
-    global db
-    
     try:
-        # Initialize database and continue with existing startup tasks
-        db = Database()
-        db.migrate_db()
-        logger.info(f"Active database set to: {db.db_path}")
-        asyncio.create_task(run_keyword_monitor())
+        # Use the new centralized application initialization
+        from app.startup import initialize_application
         
+        # Configure logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        )
+        
+        logger = logging.getLogger('main')
+        logger.setLevel(logging.INFO)
+        
+        # Initialize the application
+        success = initialize_application()
+        if success:
+            logger.info("Application initialized successfully")
+        else:
+            logger.error("Failed to initialize application")
+            
     except Exception as e:
-        logger.error(f"Startup error: {str(e)}")
-        logger.error(f"Full traceback:\n{traceback.format_exc()}")
-        raise
+        logging.error(f"Error during startup: {str(e)}", exc_info=True)
 
 @app.get("/api/fetch_article_content")
 async def fetch_article_content(uri: str):

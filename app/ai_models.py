@@ -1,11 +1,8 @@
-from dotenv import load_dotenv
 import os
 import yaml
 from litellm import Router
 import logging
-
-# First, load the environment variables
-load_dotenv(override=True)
+from app.env_loader import load_environment, ensure_model_env_vars
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the default logging level
@@ -18,75 +15,7 @@ litellm_logger.setLevel(logging.CRITICAL)  # Only show CRITICAL messages
 for handler in litellm_logger.handlers[:]:
     litellm_logger.removeHandler(handler)
 
-def ensure_model_env_vars():
-    """
-    Ensure that model-specific environment variables are set properly from main keys.
-    This provides backward compatibility between different key formats.
-    """
-    # Define mappings between general keys and model-specific keys
-    key_mappings = {
-        "OPENAI_API_KEY": [
-            "OPENAI_API_KEY_GPT_3.5_TURBO",
-            "OPENAI_API_KEY_GPT_4O",
-            "OPENAI_API_KEY_GPT_4O_MINI"
-        ],
-        "ANTHROPIC_API_KEY": [
-            "ANTHROPIC_API_KEY_CLAUDE_3_7_SONNET_LATEST",
-            "ANTHROPIC_API_KEY_CLAUDE_3_5_SONNET_LATEST"
-        ],
-        "HUGGINGFACE_API_KEY": [
-            "HUGGINGFACE_API_KEY_MIXTRAL_8X7B"
-        ],
-        "GEMINI_API_KEY": [
-            "GEMINI_API_KEY_GEMINI_PRO"
-        ]
-    }
-    
-    # Print all environment variables for debugging
-    print("\n[DEBUG] Environment variables at startup:")
-    for key in os.environ:
-        if "API_KEY" in key:
-            masked = f"{os.environ[key][:4]}...{os.environ[key][-4:]}" if len(os.environ[key]) > 8 else "[SET]"
-            print(f"  {key}: {masked}")
-    
-    # Map underscore versions to dot versions (for compatibility)
-    underscore_to_dot = {
-        "OPENAI_API_KEY_GPT_3_5_TURBO": "OPENAI_API_KEY_GPT_3.5_TURBO"
-    }
-    
-    # First, handle underscore to dot mappings
-    for underscore_key, dot_key in underscore_to_dot.items():
-        if underscore_key in os.environ and os.environ[underscore_key]:
-            os.environ[dot_key] = os.environ[underscore_key]
-            print(f"Mapped underscore key {underscore_key} to dot key {dot_key}")
-    
-    # For each main key, make sure all model-specific keys are set
-    for main_key, specific_keys in key_mappings.items():
-        main_value = os.environ.get(main_key)
-        if main_value:
-            for specific_key in specific_keys:
-                if specific_key not in os.environ or not os.environ[specific_key]:
-                    os.environ[specific_key] = main_value
-                    print(f"Set {specific_key} from {main_key}")
-    
-    # Also check the other way - if any model-specific key is set but the main key isn't
-    for main_key, specific_keys in key_mappings.items():
-        if main_key not in os.environ or not os.environ[main_key]:
-            for specific_key in specific_keys:
-                specific_value = os.environ.get(specific_key)
-                if specific_value:
-                    os.environ[main_key] = specific_value
-                    print(f"Set {main_key} from {specific_key}")
-                    break
-    
-    # Print available environment variables for debugging
-    print("\nAvailable OpenAI API keys after mapping:")
-    for key in os.environ:
-        if key.startswith("OPENAI_API_KEY"):
-            masked_value = os.environ[key][:4] + "..." + os.environ[key][-4:] if len(os.environ[key]) > 8 else "[SET]"
-            print(f"  - {key}: {masked_value}")
-
-# Ensure model environment variables are properly set
+# Load environment variables and ensure they're properly set for models
 ensure_model_env_vars()
 
 def clean_outdated_model_env_vars():
