@@ -28,10 +28,7 @@ ENV/
 .env
 reports/
 app/config/config.json
-app/config/litellm_config.yaml
-app/config/templates.json
-app/config/provider_config.json
-app/data/fnaapp_test.db
+app/data/*.db
 
 # IDE and Editor files
 .idea/
@@ -46,3 +43,4 @@ cursor.rules
 Thumbs.db
 LA_notes
 cache/*
+*.db
