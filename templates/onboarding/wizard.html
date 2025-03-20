@@ -92,8 +92,7 @@
                         <div class="mb-3">
                             <label for="llm-provider" class="form-label">LLM Provider</label>
                             <select class="form-select" id="llm-provider" onchange="toggleLlmKeyFields()">
-                                <option value="openai" selected>OpenAI (GPT-4o-mini)</option>
-                                <option value="anthropic">Anthropic (Claude 3.7 Sonnet)</option>
+                                <option value="">Select a provider</option>
                             </select>
                             <small class="text-muted">Select one LLM provider to power analysis. Your API key will be used for all models from that provider.</small>
                         </div>
@@ -682,10 +681,37 @@ async function suggestKeywords() {
     }
 }
 
-// Initialize
+// Add this function after the init() function
+async function loadAvailableModels() {
+    try {
+        const response = await fetch('/api/onboarding/available-models');
+        const data = await response.json();
+        
+        const providerSelect = document.getElementById('llm-provider');
+        providerSelect.innerHTML = '<option value="">Select a provider</option>';
+        
+        // Add options for each provider
+        Object.entries(data.providers).forEach(([provider, models]) => {
+            const option = document.createElement('option');
+            option.value = provider;
+            // Format provider name for display
+            const displayName = provider.charAt(0).toUpperCase() + provider.slice(1);
+            // Join all models with commas
+            const modelsList = models.join(', ');
+            option.textContent = `${displayName} (${modelsList})`;
+            option.dataset.models = JSON.stringify(models);
+            providerSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error("Error loading available models:", error);
+    }
+}
+
+// Modify the init() function to include loadAvailableModels
 async function init() {
     try {
         await checkExistingKeys();
+        await loadAvailableModels();  // Add this line
         
         // After checking API keys, make sure the correct LLM provider field is shown
         if (document.getElementById('anthropic-key').value) {
@@ -694,10 +720,7 @@ async function init() {
             document.getElementById('llm-provider').value = 'openai';
         }
         
-        // Toggle the visibility of LLM key fields based on selected provider
         toggleLlmKeyFields();
-        
-        // Other initialization steps
         showStep(1);
     } catch (error) {
         console.error("Initialization error:", error);

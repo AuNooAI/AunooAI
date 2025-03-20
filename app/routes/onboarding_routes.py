@@ -9,6 +9,7 @@ from typing import Dict
 import json
 from dotenv import load_dotenv, set_key
 from litellm import completion
+from app.ai_models import ai_get_available_models  # Add this import at the top
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -922,4 +923,21 @@ async def reset_onboarding(
         
     except Exception as e:
         logger.error(f"Error resetting onboarding: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/onboarding/available-models")
+async def get_available_models():
+    """Get list of available AI models for onboarding."""
+    try:
+        models = ai_get_available_models()
+        # Group models by provider
+        providers = {}
+        for model in models:
+            if model['provider'] not in providers:
+                providers[model['provider']] = []
+            providers[model['provider']].append(model['name'])
+            
+        return JSONResponse(content={"providers": providers})
+    except Exception as e:
+        logger.error(f"Error getting available models: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 
