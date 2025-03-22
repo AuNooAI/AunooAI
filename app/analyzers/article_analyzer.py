@@ -381,4 +381,31 @@ Article text:
             logger.warning(f"Error extracting publication date: {str(e)}")
             return datetime.now(timezone.utc).date().isoformat() 
 
+    def get_cached_analysis(self, uri, model_name):
+        """
+        Check if an analysis for this URI and model is already cached.
+        
+        Args:
+            uri: The article URI
+            model_name: The model used for analysis
+            
+        Returns:
+            The cached analysis result or None if not found
+        """
+        if not hasattr(self, 'cache') or not self.cache:
+            return None
+        
+        try:
+            cache_key = f"{uri}_{model_name}"
+            cached_result = self.cache.get(cache_key)
+            if cached_result:
+                logger.debug(f"Cache hit for {cache_key}")
+                return cached_result
+            else:
+                logger.debug(f"Cache miss for {cache_key}")
+                return None
+        except Exception as e:
+            logger.error(f"Error checking cache: {str(e)}")
+            return None
+
     #logger.debug(f"AI extracted date: {ai_extracted_date}") 
