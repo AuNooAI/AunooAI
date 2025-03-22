@@ -90,39 +90,25 @@
 
                         <!-- LLM API Key -->
                         <div class="mb-3">
-                            <label for="llm-provider" class="form-label">LLM Provider</label>
-                            <select class="form-select" id="llm-provider" onchange="toggleLlmKeyFields()">
-                                <option value="">Select a provider</option>
+                            <label for="llm-model" class="form-label">AI Model</label>
+                            <select class="form-select" id="llm-model" name="llm-model">
+                                <option value="">Select a model</option>
                             </select>
-                            <small class="text-muted">Select one LLM provider to power analysis. Your API key will be used for all models from that provider.</small>
+                            <small class="text-muted">Choose an AI model to power analysis.</small>
                         </div>
 
-                        <!-- OpenAI API Key -->
-                        <div class="mb-3 llm-key-field" id="openai-key-field">
-                            <label for="openai-key" class="form-label">OpenAI API Key</label>
+                        <!-- Model API Key -->
+                        <div class="mb-3">
+                            <label for="model-key" class="form-label">API Key</label>
                             <div class="input-group">
-                                <input type="password" class="form-control" id="openai-key" name="openai-key" placeholder="Enter API key">
-                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('openai-key')">
+                                <input type="password" class="form-control" id="model-key" name="model-key" placeholder="Enter API key">
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('model-key')">
                                     <i class="fas fa-eye"></i>
                                 </button>
-                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('openai')">Test</button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('model')">Test</button>
                             </div>
-                            <div id="openai-status" class="api-key-status"></div>
-                            <small class="text-muted">Format must be exactly as shown in OpenAI dashboard: "sk-proj-xxxx". Will configure GPT-4o-mini and related models.</small>
-                        </div>
-
-                        <!-- Anthropic API Key -->
-                        <div class="mb-3 llm-key-field" id="anthropic-key-field" style="display: none;">
-                            <label for="anthropic-key" class="form-label">Anthropic API Key</label>
-                            <div class="input-group">
-                                <input type="password" class="form-control" id="anthropic-key" name="anthropic-key" placeholder="Enter API key">
-                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibility('anthropic-key')">
-                                    <i class="fas fa-eye"></i>
-                                </button>
-                                <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('anthropic')">Test</button>
-                            </div>
-                            <div id="anthropic-status" class="api-key-status"></div>
-                            <small class="text-muted">Enter the full Anthropic API key from your dashboard. Will configure Claude 3.7 Sonnet and related models.</small>
+                            <div id="model-status" class="api-key-status"></div>
+                            <small class="text-muted" id="model-key-format">Enter API key for the selected model.</small>
                         </div>
 
                         <!-- Firecrawl Key -->
@@ -307,59 +293,14 @@ function togglePasswordVisibility(inputId) {
     }
 }
 
-// Modify the checkExistingKeys function
-async function checkExistingKeys() {
-    try {
-        const response = await fetch('/api/onboarding/check-keys');
-        const keyStatus = await response.json();
-        console.log("API Key status:", keyStatus);
-        
-        if (keyStatus.newsapi) {
-            const statusDiv = document.getElementById('newsapi-status');
-            statusDiv.style.display = 'block';
-            statusDiv.innerHTML = 'NewsAPI key configured ✓';
-            statusDiv.className = 'api-key-status text-success';
-            document.getElementById('newsapi-key').value = keyStatus.newsapi_key || '';
-            document.getElementById('newsapi-key').placeholder = 'Key configured - click to view/edit';
-        }
-        
-        if (keyStatus.firecrawl) {
-            const statusDiv = document.getElementById('firecrawl-status');
-            statusDiv.style.display = 'block';
-            statusDiv.innerHTML = 'Firecrawl key configured ✓';
-            statusDiv.className = 'api-key-status text-success';
-            document.getElementById('firecrawl-key').value = keyStatus.firecrawl_key || '';
-            document.getElementById('firecrawl-key').placeholder = 'Key configured - click to view/edit';
-        }
-        
-        if (keyStatus.openai) {
-            const statusDiv = document.getElementById('openai-status');
-            statusDiv.style.display = 'block';
-            statusDiv.innerHTML = 'OpenAI key configured ✓';
-            statusDiv.className = 'api-key-status text-success';
-            document.getElementById('openai-key').value = keyStatus.openai_key || '';
-            document.getElementById('openai-key').placeholder = 'Key configured - click to view/edit';
-            document.getElementById('llm-provider').value = 'openai';
-        }
-        
-        if (keyStatus.anthropic) {
-            const statusDiv = document.getElementById('anthropic-status');
-            statusDiv.style.display = 'block';
-            statusDiv.innerHTML = 'Anthropic key configured ✓';
-            statusDiv.className = 'api-key-status text-success';
-            document.getElementById('anthropic-key').value = keyStatus.anthropic_key || '';
-            document.getElementById('anthropic-key').placeholder = 'Key configured - click to view/edit';
-            document.getElementById('llm-provider').value = 'anthropic';
-        }
-        
-        // Update the LLM provider dropdown and toggle fields accordingly
-        toggleLlmKeyFields();
-        
-    } catch (error) {
-        console.error("Error checking API keys:", error);
-    }
-}
+// Add this after the style definitions and before the functions
+let validatedKeys = {
+    newsapi: false,
+    firecrawl: false,
+    model: false
+};
 
+// Modify the testApiKey function to track successful validations
 async function testApiKey(type) {
     const statusDiv = document.getElementById(`${type}-status`);
     statusDiv.style.display = 'block';
@@ -367,16 +308,23 @@ async function testApiKey(type) {
     statusDiv.className = 'api-key-status text-muted';
 
     let provider;
+    let model;
     let api_key;
     
-    if (type === 'openai') {
-        provider = 'openai';
-        api_key = document.getElementById('openai-key').value;
-        console.log("Setting OpenAI API keys for models: GPT-4o-mini, GPT-4o, and GPT-3.5-turbo");
-    } else if (type === 'anthropic') {
-        provider = 'anthropic';
-        api_key = document.getElementById('anthropic-key').value;
-        console.log("Setting Anthropic API keys for models: Claude 3.7 Sonnet and Claude 3.5 Sonnet");
+    if (type === 'model') {
+        const modelSelect = document.getElementById('llm-model');
+        const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+        
+        if (!selectedOption || !selectedOption.value) {
+            statusDiv.innerHTML = 'Please select a model first';
+            statusDiv.className = 'api-key-status text-danger';
+            return;
+        }
+        
+        model = selectedOption.value;
+        provider = selectedOption.dataset.provider;
+        api_key = document.getElementById('model-key').value;
+        console.log(`Testing API key for model: ${model} (${provider})`);
     } else if (type === 'newsapi') {
         provider = 'newsapi';
         api_key = document.getElementById('newsapi-key').value;
@@ -393,6 +341,7 @@ async function testApiKey(type) {
             },
             body: JSON.stringify({
                 provider: provider,
+                model: model, // Add model name to request
                 api_key: api_key
             })
         });
@@ -401,14 +350,149 @@ async function testApiKey(type) {
         if (response.ok && data.configured) {
             statusDiv.innerHTML = 'Key configured ✓';
             statusDiv.className = 'api-key-status text-success';
+            
+            // Add this line to track successful validation
+            if (type === 'model') {
+                validatedKeys[provider] = true;
+                validatedKeys['model'] = true;
+            } else {
+                validatedKeys[provider] = true;
+            }
+            
+            // Update the input field with masked key
+            const inputField = document.getElementById(`${type}-key`);
+            inputField.value = data.masked_key;
+            inputField.placeholder = 'Key configured - click to view/edit';
         } else {
             statusDiv.innerHTML = data.detail || 'Invalid key';
             statusDiv.className = 'api-key-status text-danger';
+            if (type === 'model') {
+                validatedKeys[provider] = false;
+                validatedKeys['model'] = false;
+            } else {
+                validatedKeys[provider] = false;
+            }
         }
     } catch (error) {
         statusDiv.innerHTML = `Error: ${error.message}`;
         statusDiv.className = 'api-key-status text-danger';
+        if (type === 'model') {
+            validatedKeys[provider] = false;
+            validatedKeys['model'] = false;
+        } else {
+            validatedKeys[provider] = false;
+        }
     }
+}
+
+// Modify checkExistingKeys to handle configured models
+async function checkExistingKeys() {
+    try {
+        const response = await fetch('/api/onboarding/check-keys');
+        const keyStatus = await response.json();
+        console.log("API Key status:", keyStatus);
+        
+        if (keyStatus.newsapi) {
+            validatedKeys.newsapi = true;
+            const statusDiv = document.getElementById('newsapi-status');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = 'NewsAPI key configured ✓';
+            statusDiv.className = 'api-key-status text-success';
+            document.getElementById('newsapi-key').value = keyStatus.newsapi_key || '';
+            document.getElementById('newsapi-key').placeholder = 'Key configured - click to view/edit';
+        }
+        
+        if (keyStatus.firecrawl) {
+            validatedKeys.firecrawl = true;
+            const statusDiv = document.getElementById('firecrawl-status');
+            statusDiv.style.display = 'block';
+            statusDiv.innerHTML = 'Firecrawl key configured ✓';
+            statusDiv.className = 'api-key-status text-success';
+            document.getElementById('firecrawl-key').value = keyStatus.firecrawl_key || '';
+            document.getElementById('firecrawl-key').placeholder = 'Key configured - click to view/edit';
+        }
+        
+        // Handle configured models
+        if (keyStatus.configured_models && keyStatus.configured_models.length > 0) {
+            const firstModel = keyStatus.configured_models[0];
+            validatedKeys.model = true;
+            
+            // Wait for model dropdown to be populated
+            setTimeout(() => {
+                // Try to select this model in the dropdown
+                const modelSelect = document.getElementById('llm-model');
+                for (let i = 0; i < modelSelect.options.length; i++) {
+                    if (modelSelect.options[i].value === firstModel.name) {
+                        modelSelect.selectedIndex = i;
+                        break;
+                    }
+                }
+                
+                // Update the model key field
+                const statusDiv = document.getElementById('model-status');
+                statusDiv.style.display = 'block';
+                statusDiv.innerHTML = 'Model key configured ✓';
+                statusDiv.className = 'api-key-status text-success';
+                document.getElementById('model-key').value = firstModel.key || '';
+                document.getElementById('model-key').placeholder = 'Key configured - click to view/edit';
+                
+                // Update the guidance text
+                updateApiKeyGuidance();
+            }, 500);
+        }
+    } catch (error) {
+        console.error("Error checking API keys:", error);
+    }
+}
+
+// Add this new function to validate all keys
+async function validateAllKeys() {
+    const providers = ['newsapi', 'firecrawl'];
+    
+    // Add the model validation
+    const modelSelect = document.getElementById('llm-model');
+    if (!modelSelect.value) {
+        showErrorMessage("Please select an AI model");
+        return false;
+    }
+    
+    // Add 'model' to validation list
+    providers.push('model');
+    
+    let allValid = true;
+    
+    for (const provider of providers) {
+        if (!validatedKeys[provider]) {
+            let key;
+            if (provider === 'model') {
+                key = document.getElementById('model-key').value;
+            } else {
+                key = document.getElementById(`${provider}-key`).value;
+            }
+            
+            if (!key) {
+                showErrorMessage(`Please enter ${provider === 'model' ? 'model' : provider} API key`);
+                return false;
+            }
+            
+            try {
+                if (provider === 'model') {
+                    await testApiKey('model');
+                } else {
+                    await testApiKey(provider);
+                }
+                
+                if (!validatedKeys[provider]) {
+                    allValid = false;
+                }
+            } catch (error) {
+                console.error(`Error validating ${provider} key:`, error);
+                allValid = false;
+            }
+        }
+    }
+    
+    return allValid;
 }
 
 // Add CSS for tag inputs
@@ -681,46 +765,68 @@ async function suggestKeywords() {
     }
 }
 
-// Add this function after the init() function
+// Modify loadAvailableModels to load flat list of models instead of providers
 async function loadAvailableModels() {
     try {
         const response = await fetch('/api/onboarding/available-models');
         const data = await response.json();
         
-        const providerSelect = document.getElementById('llm-provider');
-        providerSelect.innerHTML = '<option value="">Select a provider</option>';
+        const modelSelect = document.getElementById('llm-model');
+        modelSelect.innerHTML = '<option value="">Select a model</option>';
         
-        // Add options for each provider
-        Object.entries(data.providers).forEach(([provider, models]) => {
+        // Add all available models to the dropdown
+        data.models.forEach(model => {
             const option = document.createElement('option');
-            option.value = provider;
-            // Format provider name for display
-            const displayName = provider.charAt(0).toUpperCase() + provider.slice(1);
-            // Join all models with commas
-            const modelsList = models.join(', ');
-            option.textContent = `${displayName} (${modelsList})`;
-            option.dataset.models = JSON.stringify(models);
-            providerSelect.appendChild(option);
+            option.value = model.name;
+            option.textContent = `${model.name} (${model.provider})`;
+            option.dataset.provider = model.provider;
+            modelSelect.appendChild(option);
+        });
+
+        // Add event listener to update guidance text when model changes
+        modelSelect.addEventListener('change', function() {
+            updateApiKeyGuidance();
         });
     } catch (error) {
         console.error("Error loading available models:", error);
     }
 }
 
+// Add function to update the API key format guidance based on selected model
+function updateApiKeyGuidance() {
+    const modelSelect = document.getElementById('llm-model');
+    const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+    const guidanceText = document.getElementById('model-key-format');
+    
+    if (!selectedOption || !selectedOption.value) {
+        guidanceText.textContent = "Enter API key for the selected model.";
+        return;
+    }
+    
+    const provider = selectedOption.dataset.provider;
+    
+    if (provider === 'openai') {
+        guidanceText.textContent = "Format must be exactly as shown in OpenAI dashboard.";
+    } else if (provider === 'anthropic') {
+        guidanceText.textContent = "Enter the full Anthropic API key from your dashboard.";
+    } else {
+        guidanceText.textContent = `Enter the API key for ${provider}.`;
+    }
+}
+
 // Modify the init() function to include loadAvailableModels
 async function init() {
     try {
-        await checkExistingKeys();
-        await loadAvailableModels();  // Add this line
+        // Initialize validatedKeys with model
+        validatedKeys = {
+            newsapi: false,
+            firecrawl: false,
+            model: false
+        };
         
-        // After checking API keys, make sure the correct LLM provider field is shown
-        if (document.getElementById('anthropic-key').value) {
-            document.getElementById('llm-provider').value = 'anthropic';
-        } else {
-            document.getElementById('llm-provider').value = 'openai';
-        }
+        checkExistingKeys();
+        loadAvailableModels();
         
-        toggleLlmKeyFields();
         showStep(1);
     } catch (error) {
         console.error("Initialization error:", error);
@@ -751,11 +857,9 @@ async function saveTopic() {
         // Check if at least one API key is provided for each type
         const newsapiKey = document.getElementById('newsapi-key').value;
         const firecrawlKey = document.getElementById('firecrawl-key').value;
-        const openaiKey = document.getElementById('openai-key').value;
-        const anthropicKey = document.getElementById('anthropic-key').value;
+        const modelKey = document.getElementById('model-key').value;
         
-        if (!newsapiKey || !firecrawlKey || 
-            (!openaiKey && !anthropicKey)) {
+        if (!newsapiKey || !firecrawlKey || !modelKey) {
             showErrorMessage("Please provide all required API keys");
             return false;
         }
@@ -864,6 +968,15 @@ function showStep(step) {
 }
 
 async function nextStep() {
+    if (currentStep === 1) {
+        // Validate all keys before proceeding
+        const keysValid = await validateAllKeys();
+        if (!keysValid) {
+            showErrorMessage("Please ensure all API keys are valid before proceeding");
+            return;
+        }
+    }
+    
     if (currentStep < totalSteps) {
         // If we're on step 2, save the topic first
         if (currentStep === 2) {
@@ -941,19 +1054,6 @@ function prevStep() {
         currentStep--;
         showStep(currentStep);
     }
-}
-
-// Add function to toggle LLM key fields based on selected provider
-function toggleLlmKeyFields() {
-    const provider = document.getElementById('llm-provider').value;
-    
-    // Hide all LLM key fields
-    document.querySelectorAll('.llm-key-field').forEach(field => {
-        field.style.display = 'none';
-    });
-    
-    // Show the selected provider's key field
-    document.getElementById(`${provider}-key-field`).style.display = 'block';
 }
 
 // Helper functions for showing messages

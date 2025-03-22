@@ -1287,6 +1287,14 @@
         loadAvailableProviders();
     });
 
+    // Add this function to reload the configuration after key changes
+    async function reloadConfiguration() {
+        await loadAIModels();
+        await loadAvailableModels();
+        await loadProviderOptions();
+        await loadAvailableProviders();
+    }
+
     // Update the provider config form submission handler
     document.getElementById('provider-config-form').addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -1315,7 +1323,9 @@
             
             alert(`${providerName} key saved successfully`);
             document.getElementById('provider-key').value = '';
-            await loadAvailableProviders();
+            
+            // Reload the configuration after saving
+            await reloadConfiguration();
             
         } catch (error) {
             console.error(`Error saving ${providerName} key:`, error);

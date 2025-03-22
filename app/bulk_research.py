@@ -57,8 +57,8 @@ class BulkResearch:
             # Create cache directory if it doesn't exist
             os.makedirs("cache", exist_ok=True)
             
-            # Initialize ArticleAnalyzer with the AI model
-            self.article_analyzer = ArticleAnalyzer(self.research.ai_model)
+            # Initialize ArticleAnalyzer with the AI model and caching
+            self.article_analyzer = ArticleAnalyzer(self.research.ai_model, use_cache=True)
             
         except Exception as e:
             logger.error(f"Error setting up analysis: {str(e)}")
@@ -68,18 +68,55 @@ class BulkResearch:
             try:
                 logger.debug(f"Processing URL: {url} for topic: {topic}")
                 
-                # Fetch article content
-                article_content = await self.research.fetch_article_content(url)
-                if not article_content or not article_content.get("content"):
-                    raise ValueError(f"Failed to fetch content for URL: {url}")
+                # Fetch article content - use try/except to handle potential database errors
+                try:
+                    logger.debug(f"Fetching article content for URL: {url}")
+                    article_content = await self.research.fetch_article_content(url)
+                    
+                    # Log the result of the fetch operation
+                    if article_content and article_content.get("content"):
+                        logger.debug(f"Successfully fetched content for {url}, length: {len(article_content['content'])}")
+                    else:
+                        logger.error(f"Failed to fetch valid content for URL: {url}")
+                        logger.debug(f"Article content response: {article_content}")
+                        raise ValueError(f"Failed to fetch valid content for URL: {url}")
+                    
+                except Exception as fetch_error:
+                    logger.error(f"Error in fetch_article_content for {url}: {str(fetch_error)}")
+                    
+                    # If there was a foreign key constraint error, try direct scraping
+                    if "FOREIGN KEY constraint failed" in str(fetch_error):
+                        logger.info(f"Database constraint error encountered - trying direct scraping for {url}")
+                        # Use the _direct_scrape method that bypasses database operations
+                        try:
+                            article_content = await self._direct_scrape(url)
+                        except Exception as direct_scrape_error:
+                            logger.error(f"Direct scraping also failed for {url}: {str(direct_scrape_error)}")
+                            raise ValueError(f"Both fetch methods failed for {url}")
+                    else:
+                        # For other errors, reraise
+                        raise
+                
+                # Validate the article content before proceeding
+                if (
+                    not article_content or 
+                    not article_content.get("content") or 
+                    article_content.get("content").startswith("Article cannot be scraped") or
+                    article_content.get("content").startswith("Failed to fetch article content") or
+                    len(article_content.get("content", "").strip()) < 10  # Ensure we have meaningful content
+                ):
+                    logger.error(f"Invalid or empty content for URL: {url}")
+                    raise ValueError(f"Failed to fetch valid content for URL: {url}")
 
                 # Extract title if not present
                 title = article_content.get("title", "")
                 if not title:
                     title = self.article_analyzer.extract_title(article_content["content"])
+                    logger.debug(f"Extracted title for {url}: {title}")
 
                 # Get publication date from article_content
                 publication_date = self.article_analyzer.extract_publication_date(article_content["content"])
+                logger.debug(f"Extracted publication date for {url}: {publication_date}")
 
                 # Analyze article using ArticleAnalyzer
                 result = self.article_analyzer.analyze_content(
@@ -97,16 +134,13 @@ class BulkResearch:
                     driver_types=self.research.DRIVER_TYPES
                 )
 
-                logger.debug(f"Analysis result for {url}: {json.dumps(result, indent=2)}")
-
                 # Add news source, publication date and submission date
                 result["news_source"] = self.extract_source(url)
                 result["publication_date"] = publication_date
                 result["submission_date"] = datetime.datetime.now().date().isoformat()
                 result["uri"] = url  # Ensure URL is included
                 results.append(result)
-                logger.debug(f"Successfully analyzed URL: {url}")
-                logger.debug(f"Final result with metadata: {json.dumps(result, indent=2)}")
+                logger.info(f"Successfully analyzed URL: {url}")
                 
             except Exception as e:
                 logger.error(f"Error processing URL {url}: {str(e)}")
@@ -206,3 +240,54 @@ class BulkResearch:
                 # If analysis successful, move to main articles table
                 if analysis:
                     await self.research.move_alert_to_articles(url)
+
+    async def _direct_scrape(self, url):
+        """Directly scrape the URL without saving to database.
+        This is a workaround for foreign key constraint issues."""
+        try:
+            logger.debug(f"Performing direct scrape for URL: {url}")
+            
+            if not self.research.firecrawl_app:
+                logger.warning("Firecrawl is not configured. Cannot perform direct scrape.")
+                return {
+                    "content": "Article content cannot be fetched. Firecrawl is not configured.",
+                    "source": self.extract_source(url),
+                    "publication_date": datetime.datetime.now().date().isoformat(),
+                    "success": False
+                }
+            
+            # Try to scrape with Firecrawl directly
+            scrape_result = self.research.firecrawl_app.scrape_url(
+                url,
+                params={'formats': ['markdown']}
+            )
+            
+            # Extract content
+            if isinstance(scrape_result, dict) and 'markdown' in scrape_result:
+                content = scrape_result['markdown']
+                
+                # Extract publication date using ArticleAnalyzer
+                publication_date = self.article_analyzer.extract_publication_date(content)
+                
+                return {
+                    "content": content,
+                    "source": self.extract_source(url),
+                    "publication_date": publication_date,
+                    "success": True
+                }
+            else:
+                logger.warning(f"Unexpected response format from direct Firecrawl scrape for URL: {url}")
+                return {
+                    "content": "Failed to fetch article content. Unexpected response format.",
+                    "source": self.extract_source(url),
+                    "publication_date": datetime.datetime.now().date().isoformat(),
+                    "success": False
+                }
+        except Exception as scrape_error:
+            logger.error(f"Error in direct scrape: {str(scrape_error)}")
+            return {
+                "content": f"Failed to fetch article content: {str(scrape_error)}",
+                "source": self.extract_source(url),
+                "publication_date": datetime.datetime.now().date().isoformat(),
+                "success": False
+            }

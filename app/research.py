@@ -27,15 +27,18 @@ class Research:
 
     def __init__(self, db):
         try:
+            logger.debug(f"Initializing Research with DB type: {type(db).__name__}")
+            
             # Update required methods to match actual Database class methods
             required_methods = ['get_connection', 'save_raw_article', 'get_raw_article']
             
             if isinstance(db, Session):
-                #logger.debug("Converting Session to Database")
+                logger.debug("Converting Session to Database")
                 from app.database import Database
                 self.db = Database()
                 self.session = db
             elif hasattr(db, 'get_connection'):  # Check for the main required method
+                logger.debug("Using provided Database instance")
                 self.db = db
                 self.session = None
             else:
@@ -46,21 +49,28 @@ class Research:
             self.topic_configs = {}
             self.firecrawl_app = None  # Initialize to None explicitly
             
+            logger.debug(f"Default topic set to: {self.DEFAULT_TOPIC}")
+            
         except Exception as e:
             logger.error(f"Error in Research initialization: {str(e)}", exc_info=True)
             raise
         
         # Load environment variables using centralized loader
         try:
+            logger.debug("Loading environment variables")
             load_environment()
+            logger.debug("Ensuring model environment variables")
             ensure_model_env_vars()
             
             # Log important environment variables (masked)
-            for key in ['FIRECRAWL_API_KEY', 'PROVIDER_FIRECRAWL_KEY', 'OPENAI_API_KEY']:
+            for key in ['FIRECRAWL_API_KEY', 'PROVIDER_FIRECRAWL_KEY', 'OPENAI_API_KEY', 
+                       'ANTHROPIC_API_KEY', 'AZURE_OPENAI_API_KEY']:
                 value = os.getenv(key)
                 if value:
                     masked = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "[SET]"
                     logger.info(f"Found environment variable: {key}={masked}")
+                else:
+                    logger.warning(f"Environment variable not found: {key}")
         except Exception as e:
             logger.warning(f"Error loading environment variables: {str(e)}.")
         
@@ -278,16 +288,16 @@ class Research:
                     if not self.available_models:
                         raise ValueError("No AI models available")
                     self.set_ai_model(self.available_models[0]['name'])
-                
-                self.article_analyzer = ArticleAnalyzer(self.ai_model)
-                logger.info(f"Created ArticleAnalyzer with model: {self.ai_model.model_name}")
+                else:
+                    self.article_analyzer = ArticleAnalyzer(self.ai_model, use_cache=True)
+                    logger.info(f"Created ArticleAnalyzer with caching for model: {self.ai_model.model_name}")
 
             # Check for existing article first
             existing_article = self.db.get_raw_article(uri)
             if existing_article:
                 logger.info(f"Found existing article content for URI: {uri}")
                 return {
-                    "content": existing_article['content'],
+                    "content": existing_article.get('raw_markdown', ""),
                     "source": self.extract_source(uri),
                     "publication_date": existing_article.get('submission_date', datetime.now(timezone.utc).date().isoformat()),
                     "exists": True
@@ -324,8 +334,28 @@ class Research:
                     # Extract publication date using ArticleAnalyzer
                     publication_date = self.article_analyzer.extract_publication_date(content)
                     
-                    # Save the raw markdown with current topic
-                    self.db.save_raw_article(uri, content, self.current_topic)
+                    # Try to save the raw markdown with current topic, but don't fail if it can't be saved
+                    try:
+                        logger.debug(f"Attempting to save raw article for URI: {uri} with topic: {self.current_topic}")
+                        
+                        # First check if we need to create an entry in articles table
+                        cursor = self.db.get_connection().cursor()
+                        cursor.execute("SELECT 1 FROM articles WHERE uri = ?", (uri,))
+                        if not cursor.fetchone():
+                            # Create a placeholder entry in the articles table
+                            cursor.execute("""
+                                INSERT INTO articles (uri, title, news_source, submission_date, topic)
+                                VALUES (?, 'Placeholder', ?, datetime('now'), ?)
+                            """, (uri, self.extract_source(uri), self.current_topic))
+                            logger.debug(f"Created placeholder article for URI: {uri}")
+                        
+                        # Now save the raw article
+                        self.db.save_raw_article(uri, content, self.current_topic)
+                        logger.info(f"Successfully saved raw article with topic: {self.current_topic}")
+                    except Exception as save_error:
+                        logger.error(f"Failed to save raw article to database: {str(save_error)}")
+                        logger.error(f"This is a database error, but we'll continue with analysis using the scraped content")
+                        # Continue anyway - we still have the content, even if we couldn't save it
                     
                     return {
                         "content": content,
@@ -359,44 +389,72 @@ class Research:
                 "success": False
             }
 
-    async def fetch_article_content(self, uri: str):
-        """Fetch article content, checking DB first then scraping if needed."""
-        logger.debug(f"Fetching article content for URI: {uri}")
+    async def _do_scrape(self, uri):
+        """Actually perform the scraping operation."""
+        logger.debug(f"Starting _do_scrape for URI: {uri}")
+        
         try:
-            # Check for existing article first
-            existing_article = self.db.get_raw_article(uri)
-            
-            if existing_article:
-                logger.info(f"Article already exists in database: {uri}")
+            # Check if Firecrawl is available or try to initialize it
+            if not self.firecrawl_app:
+                logger.info("Firecrawl not initialized, attempting to initialize")
+                self.firecrawl_app = self.initialize_firecrawl()
+                
+            # If still not available after initialization, return error
+            if not self.firecrawl_app:
+                logger.warning("Firecrawl is not configured. Cannot fetch article content.")
                 return {
-                    "content": existing_article['raw_markdown'],
+                    "content": "Article content cannot be fetched. Firecrawl is not configured.",
                     "source": self.extract_source(uri),
-                    "publication_date": existing_article['submission_date'],
-                    "exists": True
+                    "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                    "error": "Firecrawl not configured",
+                    "success": False
                 }
             
-            # If article doesn't exist, scrape it
-            logger.info(f"Article does not exist in database, scraping: {uri}")
-            scrape_result = await self._do_scrape(uri)
+            # Try to scrape with Firecrawl
+            logger.info(f"Using Firecrawl to scrape content for URI: {uri}")
+            scrape_result = self.firecrawl_app.scrape_url(
+                uri,
+                params={'formats': ['markdown']}
+            )
             
-            if scrape_result.get("success", False):
-                # Save to database
-                self.db.save_raw_article(uri, scrape_result["content"], self.current_topic)
+            logger.debug(f"Scrape result type: {type(scrape_result)}")
+            logger.debug(f"Scrape result keys: {scrape_result.keys() if isinstance(scrape_result, dict) else 'Not a dict'}")
+            
+            # Extract content
+            if isinstance(scrape_result, dict) and 'markdown' in scrape_result:
+                content = scrape_result['markdown']
+                logger.debug(f"Content length: {len(content) if content else 0} chars")
                 
+                # Extract publication date using ArticleAnalyzer if available
+                publication_date = datetime.now(timezone.utc).date().isoformat()
+                if hasattr(self, 'article_analyzer') and self.article_analyzer:
+                    try:
+                        publication_date = self.article_analyzer.extract_publication_date(content)
+                        logger.debug(f"Extracted publication date: {publication_date}")
+                    except Exception as date_error:
+                        logger.error(f"Error extracting publication date: {str(date_error)}")
+                
+                return {
+                    "content": content,
+                    "source": self.extract_source(uri),
+                    "publication_date": publication_date,
+                    "success": True
+                }
+            else:
+                logger.warning(f"Unexpected response format from Firecrawl for URI: {uri}")
+                return {
+                    "content": "Failed to fetch article content. Unexpected response format.",
+                    "source": self.extract_source(uri),
+                    "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                    "success": False
+                }
+        except Exception as scrape_error:
+            logger.error(f"Error in _do_scrape: {str(scrape_error)}", exc_info=True)
             return {
-                "content": scrape_result["content"],
-                "source": scrape_result["source"],
-                "publication_date": scrape_result["publication_date"],
-                "exists": False
-            }
-            
-        except Exception as e:
-            logger.error(f"Error fetching article content: {str(e)}", exc_info=True)
-            return {
-                "content": "Failed to fetch article content.",
+                "content": f"Failed to fetch article content: {str(scrape_error)}",
                 "source": self.extract_source(uri),
                 "publication_date": datetime.now(timezone.utc).date().isoformat(),
-                "exists": False
+                "success": False
             }
 
     def get_existing_article_content(self, uri: str):
@@ -415,10 +473,25 @@ class Research:
             return None
 
     async def analyze_article(self, uri, article_text, summary_length, summary_voice, summary_type, topic, model_name):
+        logger.debug(f"Starting analyze_article for URI: {uri}, topic: {topic}, model: {model_name}")
+        
+        # Set topic and AI model
         self.set_topic(topic)
-        self.set_ai_model(model_name)
-
+        model_set_success = self.set_ai_model(model_name)
+        logger.debug(f"Model set success: {model_set_success}")
+        
+        if not model_set_success:
+            logger.error(f"Failed to set AI model to {model_name}")
+            # Continue anyway as the code might use a fallback model
+        
+        # If we need to make sure the ArticleAnalyzer has caching enabled
+        if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
+            from app.analyzers.article_analyzer import ArticleAnalyzer
+            self.article_analyzer = ArticleAnalyzer(self.ai_model, use_cache=True)
+            logger.info(f"Created ArticleAnalyzer with caching in analyze_article")
+        
         if not article_text:
+            logger.debug("No article text provided, fetching from URI")
             article_content = await self.fetch_article_content(uri)
             
             # Add fail-fast check here
@@ -429,51 +502,67 @@ class Research:
                 article_content.get("content").startswith("Failed to fetch article content")
             ):
                 logger.error(f"Failed to fetch article content for {uri}")
+                logger.debug(f"Article content response: {article_content}")
                 raise ValueError(f"Failed to fetch article content: {article_content.get('content', 'Unknown error')}")
             
+            logger.debug(f"Successfully fetched article content, length: {len(article_content.get('content', ''))}")
             article_text = article_content["content"]
             source = article_content["source"]
             publication_date = article_content["publication_date"]
         else:
+            logger.debug(f"Using provided article text, length: {len(article_text)}")
             source = self.extract_source(uri)
             publication_date = self.article_analyzer.extract_publication_date(article_text)
 
         # Truncate article text
+        original_length = len(article_text)
         article_text = self.article_analyzer.truncate_text(article_text)
+        logger.debug(f"Truncated article text from {original_length} to {len(article_text)} chars")
 
         # Extract title
         title = self.article_analyzer.extract_title(article_text)
+        logger.debug(f"Extracted title: {title}")
 
         # Convert summary_length to words
         try:
             summary_length_words = int(summary_length)
+            logger.debug(f"Summary length set to {summary_length_words} words")
         except ValueError:
             summary_length_words = 50  # Default to 50 words if conversion fails
+            logger.warning(f"Could not convert summary length '{summary_length}' to int, using default: 50")
 
         # Analyze content
-        parsed_analysis = self.article_analyzer.analyze_content(
-            article_text=article_text,
-            title=title,
-            source=source,
-            uri=uri,
-            summary_length=summary_length_words,
-            summary_voice=summary_voice,
-            summary_type=summary_type,
-            categories=self.CATEGORIES,
-            future_signals=self.FUTURE_SIGNALS,
-            sentiment_options=self.SENTIMENT,
-            time_to_impact_options=self.TIME_TO_IMPACT,
-            driver_types=self.DRIVER_TYPES
-        )
-
+        logger.debug("Starting content analysis with ArticleAnalyzer")
+        try:
+            parsed_analysis = self.article_analyzer.analyze_content(
+                article_text=article_text,
+                title=title,
+                source=source,
+                uri=uri,
+                summary_length=summary_length_words,
+                summary_voice=summary_voice,
+                summary_type=summary_type,
+                categories=self.CATEGORIES,
+                future_signals=self.FUTURE_SIGNALS,
+                sentiment_options=self.SENTIMENT,
+                time_to_impact_options=self.TIME_TO_IMPACT,
+                driver_types=self.DRIVER_TYPES
+            )
+            logger.debug(f"Analysis complete, received {len(parsed_analysis.keys()) if parsed_analysis else 0} fields")
+        except Exception as analysis_error:
+            logger.error(f"Article analysis failed: {str(analysis_error)}", exc_info=True) 
+            raise
+        
         # Verify and format summary
         summary = self.article_analyzer.truncate_summary(
             parsed_analysis.get("summary", ""),
             summary_length_words
         )
+        logger.debug(f"Summary length: {len(summary.split())} words")
 
         # Format tags
         tags = self.article_analyzer.format_tags(parsed_analysis.get("tags", ""))
+        logger.debug(f"Formatted tags: {tags}")
 
         analysis_result = {
             "title": title,
@@ -743,11 +832,19 @@ class Research:
                         if 'API_KEY' in key:
                             masked = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "[SET]"
                             logger.error(f"  {key}={masked}")
+                    
+                    # Add more detailed logging about API keys
+                    logger.error(f"OPENAI_API_KEY configured: {'Yes' if os.environ.get('OPENAI_API_KEY') else 'No'}")
+                    logger.error(f"ANTHROPIC_API_KEY configured: {'Yes' if os.environ.get('ANTHROPIC_API_KEY') else 'No'}")
+                    logger.error(f"AZURE_OPENAI_API_KEY configured: {'Yes' if os.environ.get('AZURE_OPENAI_API_KEY') else 'No'}")
+                    
                     raise ValueError(f"No AI models available. Cannot set model to {model_name}")
             
             logger.info(f"Setting AI model to {model_name}")
             
             available_model_names = [model['name'] for model in self.available_models]
+            logger.debug(f"Available model names: {available_model_names}")
+            
             if model_name not in available_model_names:
                 logger.error(f"Model {model_name} not in available models: {available_model_names}")
                 if available_model_names:
@@ -755,13 +852,24 @@ class Research:
                     model_name = available_model_names[0]
                 else:
                     raise ValueError(f"No AI models available")
-                    
+            
             # Load the model
+            logger.debug(f"Getting AI model instance for {model_name}")
             self.ai_model = get_ai_model(model_name)
+            logger.debug(f"AI model instance created: {type(self.ai_model).__name__}")
             
             # Initialize the article analyzer with the new model
             from app.analyzers.article_analyzer import ArticleAnalyzer
-            self.article_analyzer = ArticleAnalyzer(self.ai_model)
+            
+            # Only create new ArticleAnalyzer if it doesn't exist
+            if not hasattr(self, 'article_analyzer') or not self.article_analyzer:
+                self.article_analyzer = ArticleAnalyzer(self.ai_model, use_cache=True)
+                logger.debug(f"Created new ArticleAnalyzer with caching for model: {model_name}")
+            else:
+                # Update existing analyzer with new model while preserving cache
+                self.article_analyzer.ai_model = self.ai_model
+                self.article_analyzer.model_name = model_name
+                logger.debug(f"Updated existing ArticleAnalyzer with model: {model_name}")
             
             logger.info(f"Successfully set AI model to {model_name}")
             return True
@@ -854,8 +962,8 @@ class Research:
             
             # Reinitialize the article analyzer if we have an AI model
             if hasattr(self, 'ai_model') and self.ai_model:
-                self.article_analyzer = ArticleAnalyzer(self.ai_model)
-                logger.info(f"Reinitialized ArticleAnalyzer with model: {self.ai_model.model_name}")
+                self.article_analyzer = ArticleAnalyzer(self.ai_model, use_cache=True)
+                logger.info(f"Reinitialized ArticleAnalyzer with caching for model: {self.ai_model.model_name}")
             
             logger.info("Research environment reload completed")
             return True
