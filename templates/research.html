@@ -398,6 +398,12 @@
 
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script>
+// Add this helper function near other utility functions
+function removeProcessingIndicator() {
+    const indicator = document.getElementById('processingIndicator');
+    if (indicator) indicator.remove();
+}
+
 async function handleFormSubmit(event) {
     event.preventDefault();
     console.log('Form submission started');
@@ -470,10 +476,14 @@ async function handleFormSubmit(event) {
                                     formData.set('articleContent', existingData.content);
                                 } else {
                                     const errorData = await existingContent.json().catch(() => ({ message: 'Failed to fetch existing article content' }));
+                                    removeProcessingIndicator(); // Remove indicator before showing error
+                                    submitButton.disabled = false;
                                     throw new Error(errorData.message || 'Failed to fetch existing article content');
                                 }
                             } catch (error) {
                                 console.error('Error fetching existing content:', error);
+                                removeProcessingIndicator(); // Remove indicator before showing error
+                                submitButton.disabled = false;
                                 Swal.fire({
                                     icon: 'error',
                                     title: 'Content Retrieval Error',
@@ -492,10 +502,14 @@ async function handleFormSubmit(event) {
                                     formData.set('articleContent', scrapeData.content);
                                 } else {
                                     const errorData = await scrapeResponse.json().catch(() => ({ message: 'Failed to scrape article content' }));
+                                    removeProcessingIndicator(); // Remove indicator before showing error
+                                    submitButton.disabled = false;
                                     throw new Error(errorData.message || 'Failed to scrape article content');
                                 }
                             } catch (error) {
                                 console.error('Error scraping content:', error);
+                                removeProcessingIndicator(); // Remove indicator before showing error
+                                submitButton.disabled = false;
                                 Swal.fire({
                                     icon: 'error',
                                     title: 'Scraping Error',
@@ -515,10 +529,14 @@ async function handleFormSubmit(event) {
                                 formData.set('articleContent', scrapeData.content);
                             } else {
                                 const errorData = await scrapeResponse.json().catch(() => ({ message: 'Failed to scrape article content' }));
+                                removeProcessingIndicator(); // Remove indicator before showing error
+                                submitButton.disabled = false;
                                 throw new Error(errorData.message || 'Failed to scrape article content');
                             }
                         } catch (error) {
                             console.error('Error scraping content:', error);
+                            removeProcessingIndicator(); // Remove indicator before showing error
+                            submitButton.disabled = false;
                             Swal.fire({
                                 icon: 'error',
                                 title: 'Scraping Error',
@@ -529,10 +547,13 @@ async function handleFormSubmit(event) {
                         }
                     }
                 } else {
+                    removeProcessingIndicator(); // Remove indicator before showing error
+                    submitButton.disabled = false;
                     throw new Error('Failed to fetch article content');
                 }
             } catch (error) {
                 console.error('Error fetching article content:', error);
+                removeProcessingIndicator(); // Remove indicator before showing error
                 alert('Failed to fetch article content. Please enter it manually or try again.');
                 submitButton.disabled = false;
                 return;
@@ -551,6 +572,7 @@ async function handleFormSubmit(event) {
     const requiredFields = ['articleUrl', 'summaryLength', 'summaryVoice', 'summaryType'];
     for (const field of requiredFields) {
         if (!formData.get(field)) {
+            removeProcessingIndicator(); // Remove indicator before showing error
             alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field.`);
             submitButton.disabled = false;
             return;
@@ -565,6 +587,7 @@ async function handleFormSubmit(event) {
 
         if (!response.ok) {
             const errorData = await response.json();
+            removeProcessingIndicator(); // Remove indicator before showing error
             throw new Error(JSON.stringify(errorData));
         }
 
@@ -572,11 +595,11 @@ async function handleFormSubmit(event) {
         displayAnalysisResult(result);
     } catch (error) {
         console.error('Error:', error);
+        removeProcessingIndicator(); // Remove indicator before showing error
         alert('An error occurred while analyzing the article. Please try again.');
     } finally {
         // Remove processing indicator
-        const indicator = document.getElementById('processingIndicator');
-        if (indicator) indicator.remove();
+        removeProcessingIndicator();
         
         submitButton.disabled = false;
     }
@@ -1040,11 +1063,33 @@ function displayLatestArticles(articles) {
         return;
     }
 
+    // Filter out placeholder articles and articles with incomplete data
+    const validArticles = articles.filter(article => {
+        // Check if article has a real title (not "Placeholder" or empty)
+        const hasValidTitle = article.title && 
+                             article.title.trim() !== '' && 
+                             article.title.toLowerCase() !== 'placeholder';
+        
+        // Check if article has a valid URI
+        const hasValidUri = article.uri && article.uri.trim() !== '';
+        
+        // Check if article has a summary
+        const hasSummary = article.summary && article.summary.trim() !== 'No summary available';
+        
+        return hasValidTitle && hasValidUri && hasSummary;
+    });
+
+    if (validArticles.length === 0) {
+        console.log('No valid articles to display after filtering');
+        latestArticlesContainer.innerHTML = '<p>No valid articles found for this topic.</p>';
+        return;
+    }
+
     // Sort articles by submission date, most recent first
-    articles.sort((a, b) => new Date(b.submission_date) - new Date(a.submission_date));
-    console.log(`Sorted ${articles.length} articles by submission date`);
+    validArticles.sort((a, b) => new Date(b.submission_date) - new Date(a.submission_date));
+    console.log(`Sorted ${validArticles.length} valid articles by submission date`);
     
-    articles.forEach(article => {
+    validArticles.forEach(article => {
         const articleElement = document.createElement('div');
         articleElement.className = 'article-card';
         articleElement.innerHTML = `
@@ -1143,6 +1188,8 @@ function loadAvailableModels() {
         .then(response => response.json())
         .then(models => {
             const modelSelect = document.getElementById('modelName');
+            const submitButton = document.querySelector('#researchForm button[type="submit"]');
+            
             modelSelect.innerHTML = '';
             if (models.length === 0) {
                 const option = document.createElement('option');
@@ -1151,6 +1198,12 @@ function loadAvailableModels() {
                 option.selected = true;
                 modelSelect.appendChild(option);
                 modelSelect.disabled = true;
+                
+                // Disable the submit button when no models are available
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    submitButton.title = "Analysis unavailable - no AI models configured";
+                }
             } else {
                 models.forEach(model => {
                     const option = document.createElement('option');
@@ -1159,13 +1212,27 @@ function loadAvailableModels() {
                     modelSelect.appendChild(option);
                 });
                 modelSelect.disabled = false;
+                
+                // Enable the submit button when models are available
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.title = "";
+                }
             }
         })
         .catch(error => {
             console.error('Error loading available models:', error);
             const modelSelect = document.getElementById('modelName');
+            const submitButton = document.querySelector('#researchForm button[type="submit"]');
+            
             modelSelect.innerHTML = '<option value="">Error loading models. Analysis will be skipped.</option>';
             modelSelect.disabled = true;
+            
+            // Disable the submit button on error
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.title = "Analysis unavailable - error loading models";
+            }
         });
 }
 

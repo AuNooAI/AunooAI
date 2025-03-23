@@ -346,6 +346,12 @@ function setUpCustomFields() {
     });
 }
 
+// Add this helper function near other utility functions
+function removeProcessingIndicator() {
+    const indicator = document.getElementById('processingIndicator');
+    if (indicator) indicator.remove();
+}
+
 async function analyzeBulkUrls(requestData) {
     try {
         console.log('Sending request data:', requestData);
@@ -370,16 +376,22 @@ async function analyzeBulkUrls(requestData) {
             console.log('Parsed response data:', data);
         } catch (error) {
             console.error('JSON parse error:', error);
+            // Remove processing indicator on JSON parse error
+            removeProcessingIndicator();
             throw new Error(`Failed to parse response: ${responseText.substring(0, 100)}...`);
         }
 
         if (!response.ok) {
             console.error('Response not OK:', data);
+            // Remove processing indicator on unsuccessful response
+            removeProcessingIndicator();
             throw new Error(data.error || `Server error: ${response.status}`);
         }
 
         if (!data || typeof data !== 'object') {
             console.error('Invalid response data type:', typeof data);
+            // Remove processing indicator on invalid data
+            removeProcessingIndicator();
             throw new Error('Server returned invalid data type');
         }
 
@@ -388,12 +400,16 @@ async function analyzeBulkUrls(requestData) {
         
         if (!results) {
             console.error('No results found in response:', data);
+            // Remove processing indicator when no results are found
+            removeProcessingIndicator();
             throw new Error('Server returned no results array');
         }
 
         return results;
     } catch (error) {
         console.error('Error in analyzeBulkUrls:', error);
+        // Remove processing indicator on any caught error
+        removeProcessingIndicator();
         throw error;
     }
 }
@@ -433,6 +449,8 @@ async function handleFormSubmit(event) {
 
         const topic = document.getElementById('topicSelect').value;
         if (!topic) {
+            // Remove processing indicator when no topic is selected
+            removeProcessingIndicator();
             throw new Error('Please select a topic before analyzing articles');
         }
 
@@ -448,11 +466,15 @@ async function handleFormSubmit(event) {
         }
 
         if (urls.length === 0) {
+            // Remove processing indicator when no URLs are provided
+            removeProcessingIndicator();
             throw new Error('Please enter URLs or upload a file containing URLs.');
         }
 
         // Add URL count validation
         if (!validateUrlCount(urls)) {
+            // Remove processing indicator when too many URLs are provided
+            removeProcessingIndicator();
             throw new Error('Too many URLs provided. Maximum 20 URLs allowed.');
         }
 
@@ -467,9 +489,8 @@ async function handleFormSubmit(event) {
 
         const results = await analyzeBulkUrls(requestData);
         
-        // Remove the processing indicator
-        const indicator = document.getElementById('processingIndicator');
-        if (indicator) indicator.remove();
+        // Remove the processing indicator after successful analysis
+        removeProcessingIndicator();
         
         // Display results in both containers
         if (resultsContainer) {
@@ -484,9 +505,8 @@ async function handleFormSubmit(event) {
     } catch (error) {
         console.error('Error:', error);
         
-        // Remove the processing indicator
-        const indicator = document.getElementById('processingIndicator');
-        if (indicator) indicator.remove();
+        // Remove the processing indicator if it wasn't already removed
+        removeProcessingIndicator();
         
         if (resultsContainer) {
             resultsContainer.innerHTML = `
