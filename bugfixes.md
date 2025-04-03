@@ -155,3 +155,35 @@ The existing database had the schema from `database.py` (with `username` as PRIM
 1. Consider implementing a more robust database migration system
 2. Ensure consistent table definitions across the codebase
 3. Add tests to verify database schema integrity
+
+## 2025-04-03: Fixed Create/Update Topic Button Functionality
+
+### Issue
+The "Create/Update" button in the create_topic.html template was not functioning. When clicked, it did not trigger any action or form submission.
+
+### Root Cause
+The issue was that the form container was using a `<div>` element with an ID of "createTopicForm" instead of a proper HTML `<form>` element. While there was JavaScript code that correctly added an event listener to handle the form submission, a div cannot naturally trigger a submit event like a form element can.
+
+```html
+<!-- Original problematic code -->
+<div id="createTopicForm" class="mt-4">
+    <!-- Form fields -->
+    <button type="submit" class="btn btn-primary mt-3">Create/Update Topic</button>
+</div>
+```
+
+### Fix
+Modified the HTML structure by changing the container from a div to a proper form element:
+
+```html
+<!-- Fixed code -->
+<form id="createTopicForm" class="mt-4">
+    <!-- Form fields -->
+    <button type="submit" class="btn btn-primary mt-3">Create/Update Topic</button>
+</form>
+```
+
+### Impact
+- The Create/Update Topic button now properly triggers the form submission event
+- Users can now successfully create new topics and update existing ones
+- The existing JavaScript event listener works as intended without any modifications
