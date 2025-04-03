@@ -599,7 +599,17 @@ function createTagInput(containerId, inputId) {
         
         const tag = document.createElement('span');
         tag.className = 'tag';
-        tag.innerHTML = `${value}<span class="remove">×</span>`;
+        tag.setAttribute('data-value', value);
+        
+        // Create a text node for the value
+        const textNode = document.createTextNode(value);
+        tag.appendChild(textNode);
+        
+        // Create the remove button as a separate element
+        const removeBtn = document.createElement('span');
+        removeBtn.className = 'remove';
+        removeBtn.textContent = '×';
+        tag.appendChild(removeBtn);
         
         tag.querySelector('.remove').addEventListener('click', function() {
             container.removeChild(tag);
@@ -1092,7 +1102,8 @@ function getTagsFromContainer(containerId) {
     const container = document.getElementById(containerId);
     const tags = [];
     container.querySelectorAll('.tag').forEach(tag => {
-        tags.push(tag.textContent.trim());
+        // Use the data-value attribute instead of textContent
+        tags.push(tag.getAttribute('data-value'));
     });
     return tags;
 }
@@ -1101,7 +1112,8 @@ function getSelectedTags(containerId) {
     const container = document.getElementById(containerId);
     const selectedTags = [];
     container.querySelectorAll('.tag.selected').forEach(tag => {
-        selectedTags.push(tag.textContent.trim());
+        // Use the data-value attribute instead of textContent
+        selectedTags.push(tag.getAttribute('data-value'));
     });
     return selectedTags;
 }

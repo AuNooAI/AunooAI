@@ -167,6 +167,7 @@ class Database:
                     ("fix_article_annotations", self._migrate_article_annotations),
                     ("fix_duplicate_alerts", self._fix_duplicate_alerts),
                     ("add_keyword_article_matches", self._create_keyword_article_matches_table),
+                    ("ensure_completed_onboarding", self._ensure_completed_onboarding),
                 ]
                 
                 # Apply missing migrations
@@ -429,6 +430,35 @@ class Database:
             logger.info("Successfully migrated article_annotations table")
         except Exception as e:
             logger.error(f"Error migrating article_annotations table: {str(e)}")
+            raise
+            
+    def _ensure_completed_onboarding(self, cursor):
+        """Ensure the completed_onboarding column exists in the users table"""
+        try:
+            # First check if the users table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+            if not cursor.fetchone():
+                logger.info("Creating users table with completed_onboarding column")
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        username TEXT PRIMARY KEY,
+                        password_hash TEXT NOT NULL,
+                        force_password_change BOOLEAN DEFAULT 0,
+                        completed_onboarding BOOLEAN DEFAULT 0
+                    )
+                """)
+                return
+                
+            # Check if the column exists
+            cursor.execute("PRAGMA table_info(users)")
+            columns = [col[1] for col in cursor.fetchall()]
+            
+            if 'completed_onboarding' not in columns:
+                logger.info("Adding completed_onboarding column to users table")
+                cursor.execute("ALTER TABLE users ADD COLUMN completed_onboarding BOOLEAN DEFAULT 0")
+                
+        except Exception as e:
+            logger.error(f"Error ensuring completed_onboarding column: {str(e)}")
             raise
 
     def create_database(self, name):

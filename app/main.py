@@ -11,7 +11,7 @@ from app.research import Research
 from app.analytics import Analytics
 from app.report import Report
 from app.analyze_db import AnalyzeDB 
-from config.settings import config
+from app.config.settings import config
 from typing import Optional, List
 from collections import Counter
 from datetime import datetime, timedelta, timezone
