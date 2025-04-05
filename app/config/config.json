@@ -173,50 +173,6 @@
         "Terminator",
         "Unknown"
       ]
-    },
-    {
-      "name": "Cloud Repatriation",
-      "description": "Are cloud workload being brought back inhouse?",
-      "categories": [
-        "Cost Analysis",
-        "Data Security and Privacy",
-        "Data Sovereignty",
-        "Hybrid Cloud",
-        "On-Premises Infrastructure",
-        "Data Migration",
-        "Cloud Service Providers",
-        "Regulatory & Compliance Issues"
-      ],
-      "future_signals": [
-        "Increase in cloud-to-on-premises migr...",
-        "Surge in hybrid cloud models",
-        "Growing data sovereignty issues drive...",
-        "Cloud costs spiral, sparking repatria..."
-      ],
-      "sentiment": [
-        "Positive",
-        "Negative",
-        "Neutral"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
-      ],
-      "driver_types": [
-        "Initiator",
-        "Accelerator",
-        "Catalyst",
-        "Inhibitor",
-        "Blocker"
-      ],
-      "keywords": [
-        "Data sovereignty",
-        "On-premises migration",
-        "Hybrid cloud",
-        "Cloud repatriation"
-      ]
     }
   ],
   "ai_models": [

@@ -40,7 +40,7 @@ def get_last_commit_date() -> Optional[str]:
     """Get the date of the last git commit from environment variable or fallback to git."""
     try:
         # First try to get from environment variable (set during Docker build)
-        last_update = os.environ.get('APP_LAST_UPDATE')
+        last_update = os.environ.get('APP_BUILD_DATE')
         if last_update:
             logger.debug(f"Got last update from environment: {last_update}")
             return last_update
@@ -90,10 +90,18 @@ def get_version() -> Optional[str]:
         
         if os.path.exists(version_path):
             logger.debug(f"Version file found at: {version_path}")
-            with open(version_path, 'r') as f:
-                version = f.read().strip()
-                logger.debug(f"Read version: {version}")
-                return version
+            # Try different encodings to handle potential encoding issues
+            encodings = ['utf-8', 'utf-16', 'ascii']
+            for encoding in encodings:
+                try:
+                    with open(version_path, 'r', encoding=encoding) as f:
+                        version = f.read().strip()
+                        logger.debug(f"Read version using {encoding} encoding: {version}")
+                        return version
+                except UnicodeDecodeError:
+                    logger.warning(f"Failed to read version file with {encoding} encoding")
+                    continue
+            logger.warning("Failed to read version file with any encoding")
         else:
             logger.warning(f"Version file not found at: {version_path}")
             # Try alternate location
@@ -101,10 +109,17 @@ def get_version() -> Optional[str]:
             logger.debug(f"Trying alternate path: {alt_version_path}")
             if os.path.exists(alt_version_path):
                 logger.debug(f"Version file found at alternate path: {alt_version_path}")
-                with open(alt_version_path, 'r') as f:
-                    version = f.read().strip()
-                    logger.debug(f"Read version: {version}")
-                    return version
+                # Try different encodings for alternate path too
+                for encoding in encodings:
+                    try:
+                        with open(alt_version_path, 'r', encoding=encoding) as f:
+                            version = f.read().strip()
+                            logger.debug(f"Read version using {encoding} encoding: {version}")
+                            return version
+                    except UnicodeDecodeError:
+                        logger.warning(f"Failed to read version file with {encoding} encoding")
+                        continue
+                logger.warning("Failed to read version file with any encoding")
             
     except Exception as e:
         logger.error(f"Error reading version: {str(e)}")
@@ -126,6 +141,27 @@ def get_app_info() -> Dict[str, str]:
             start_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             os.environ['APP_START_TIME'] = start_time
         last_update = start_time
+    
+    # Ensure we have values for all fields
+    if not version:
+        version = os.environ.get('APP_VERSION', 'N/A')
+    
+    if not branch:
+        branch = os.environ.get('APP_GIT_BRANCH', 'N/A')
+    
+    if not last_update:
+        last_update = os.environ.get('APP_BUILD_DATE', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    
+    # Clean up version if it contains BOM or other encoding artifacts
+    if version and isinstance(version, str):
+        # Remove BOM characters if present
+        version = version.replace('\ufeff', '').replace('\ufffe', '')
+        # Remove any non-printable characters
+        version = ''.join(c for c in version if c.isprintable())
+        # Trim whitespace
+        version = version.strip()
+        if not version:
+            version = 'N/A'
     
     logger.debug(f"App Info - Version: {version}, Branch: {branch}, Last Update: {last_update}")
     
