@@ -19,13 +19,12 @@ logging.basicConfig(
 )
 
 class BulkResearch:
-    def __init__(self, db):
+    def __init__(self, db, research: Research = None):
         logger.debug("Initializing BulkResearch class")
         logger.debug(f"Input db type: {type(db)}")
         
         try:
             if isinstance(db, Session):
-                # Create a new Database instance without passing the session
                 self.db = Database()
                 self.session = db
             elif isinstance(db, Database):
@@ -34,8 +33,13 @@ class BulkResearch:
             else:
                 raise TypeError(f"Expected Session or Database, got {type(db)}")
             
-            # Create Research instance with the appropriate db object
-            self.research = Research(self.db)
+            # Use provided Research instance or get it from dependencies
+            if research is None:
+                from app.dependencies import get_research
+                self.research = get_research(self.db)
+            else:
+                self.research = research
+                
             logger.debug("BulkResearch initialized successfully")
             
         except Exception as e:
@@ -71,7 +75,7 @@ class BulkResearch:
                 # Fetch article content - use try/except to handle potential database errors
                 try:
                     logger.debug(f"Fetching article content for URL: {url}")
-                    article_content = await self.research.fetch_article_content(url)
+                    article_content = await self.research.fetch_article_content(url, save_with_topic=True)
                     
                     # Log the result of the fetch operation
                     if article_content and article_content.get("content"):
@@ -268,6 +272,9 @@ class BulkResearch:
                 
                 # Extract publication date using ArticleAnalyzer
                 publication_date = self.article_analyzer.extract_publication_date(content)
+                
+                # Note: We're intentionally NOT saving to the database here to avoid topic issues
+                # This is consistent with our fix to fetch_article_content
                 
                 return {
                     "content": content,

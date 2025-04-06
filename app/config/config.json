@@ -173,66 +173,71 @@
         "Terminator",
         "Unknown"
       ]
-    }
-  ],
-  "ai_models": [
-    {
-      "name": "gpt-3.5-turbo",
-      "provider": "openai"
     },
     {
-      "name": "mixtral-8x7b",
-      "provider": "huggingface"
+      "name": "Threat Modeling",
+      "categories": [
+        "Threat Modeling in Finance",
+        "Threat Modeling in Software Engineering",
+        "Threat Modeling in Medical Devices",
+        "Threat Modeling in Regulation",
+        "Threat Modeling in Standards",
+        "Threat Modeling - General"
+      ],
+      "future_signals": [
+        "Will Accelerate",
+        "Not Important",
+        "Will Evolve Gradually",
+        "It Is Very Niche"
+      ],
+      "sentiment": [
+        "Neutral",
+        "Negative",
+        "Positive",
+        "Cautious"
+      ],
+      "time_to_impact": [
+        "Mid-term",
+        "Short-term",
+        "Immediate",
+        "Long-term"
+      ],
+      "driver_types": [
+        "New Product",
+        "Accelerator",
+        "Catalyst",
+        "Delayer",
+        "New Feature"
+      ]
     },
     {
-      "name": "gpt-4o",
-      "provider": "openai"
-    },
-    {
-      "name": "gpt-4o-mini",
-      "provider": "openai"
-    },
-    {
-      "name": "claude-3-7-sonnet-latest",
-      "provider": "anthropic"
-    },
-    {
-      "name": "claude-3-5-sonnet-latest",
-      "provider": "anthropic"
-    },
-    {
-      "name": "gemini-pro",
-      "provider": "google"
-    }
-  ],
-  "providers": [
-    {
-      "name": "newsapi",
-      "display_name": "NewsAPI",
-      "config_type": "api_key",
-      "description": "Access news articles from various sources worldwide",
-      "enabled": true
-    },
-    {
-      "name": "thenewsapi",
-      "display_name": "TheNewsAPI",
-      "config_type": "api_key",
-      "description": "Access news articles from TheNewsAPI service",
-      "enabled": true
-    },
-    {
-      "name": "firecrawl",
-      "display_name": "Firecrawl Scraper",
-      "config_type": "api_key",
-      "description": "Scrape websites for news articles",
-      "enabled": true
-    },
-    {
-      "name": "arxiv",
-      "display_name": "ArXiv",
-      "config_type": "none",
-      "description": "Access scientific papers and research articles",
-      "enabled": true
+      "name": "Embedded Systems",
+      "categories": [
+        "Embedded systems in software engineering",
+        "Embedded system - other"
+      ],
+      "future_signals": [
+        "Embedded Systems will accelerate",
+        "Embedded systems are a geopolitics issue",
+        "Embedded systems will slow down"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Mid-term",
+        "Immediate",
+        "Short-term",
+        "Long-term"
+      ],
+      "driver_types": [
+        "Accelerator",
+        "Catalyst",
+        "Initiator",
+        "Delayer"
+      ]
     }
   ]
 }

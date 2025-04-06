@@ -9,31 +9,86 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="stylesheet" href="/static/css/styles.css">
     <style>
-        /* Override only what's necessary for branding, keeping spacing consistent with global CSS */
-        :root {
-            --primary-color: #FF69B4;
-            --primary-dark: #FF1493;
-            --secondary-color: #32CD32;
-            --secondary-dark: #228B22;
-        }
-
-        /* Ensure navbar styling is consistent with global spacing */
+        /* Navbar layout styles */
         .navbar {
-            padding: var(--spacing-md) 0;
-            margin-bottom: var(--spacing-lg);
+            padding: 0.5rem 0;
+            background-color: #f8f9fa;
         }
-
-        /* Brand-specific styling */
+        
+        .navbar-content {
+            width: 100%;
+            max-width: var(--container-width);
+            margin: 0 auto;
+            padding: 0 var(--spacing-md);
+            display: flex;
+            align-items: center;
+        }
+        
         .navbar-brand {
+            display: flex;
+            align-items: center;
             color: var(--primary-color);
-            font-weight: var(--font-weight-bold);
+            font-weight: bold;
+            white-space: nowrap;
+            margin-right: 1rem;
         }
-
-        .nav-link:hover {
+        
+        .menu-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .menu-items {
+            display: flex;
+            align-items: center;
+            list-style: none;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .menu-item {
+            white-space: nowrap;
+        }
+        
+        .menu-link {
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            color: var(--text-color);
+            text-decoration: none;
+            white-space: nowrap;
+        }
+        
+        .menu-link:hover {
             color: var(--primary-dark);
         }
-
+        
+        .menu-link i {
+            margin-right: 0.5rem;
+        }
+        
+        /* Dropdown styles */
+        .menu-dropdown {
+            position: relative;
+        }
+        
+        .dropdown-menu {
+            margin-top: 0.5rem;
+            border-radius: 8px;
+            border: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        .dropdown-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 16px;
+        }
+        
         .dropdown-item i {
+            margin-right: 0.5rem;
             color: var(--primary-color);
         }
     </style>
@@ -41,34 +96,35 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg">
-        <div class="container">
+    <nav class="navbar">
+        <div class="navbar-content">
+            <!-- Logo and menu items in one row -->
             <a class="navbar-brand" href="/">
                 <img src="{{ url_for('static', path='FNA.png') }}" alt="FNA Logo" height="30" class="d-inline-block align-top">
                 AuNooAI
             </a>
+            
             {% if session.get('user') %}
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav">
-                    <li class="nav-item">
-                        <a class="nav-link" href="/">
+            <div class="menu-container">
+                <ul class="menu-items">
+                    <li class="menu-item">
+                        <a class="menu-link" href="/">
                             <i class="fas fa-home"></i> Operations Center
                         </a>
-                    </li>                    <li class="nav-item">
-                        <a class="nav-link" href="/keyword-alerts">
-                            <i class="fas fa-bell"></i> Trends Dashboard
-                        </a>
                     </li>
-                    <li class="nav-item">
-                        <a class="nav-link" href="#" onclick="resetOnboarding()">
-                            <i class="fas fa-tasks"></i> Setup Agent
+                    
+                    <li class="menu-item menu-dropdown dropdown">
+                        <a class="menu-link dropdown-toggle" href="#" id="intelligenceDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-brain"></i> Intelligence
                         </a>
+                        <ul class="dropdown-menu" aria-labelledby="intelligenceDropdown">
+                            <li><a class="dropdown-item" href="/keyword-alerts"><i class="fas fa-chart-line"></i> Trends</a></li>
+                            <li><a class="dropdown-item" href="/dashboard"><i class="fas fa-newspaper"></i> News Monitoring</a></li>
+                        </ul>
                     </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="researchDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    
+                    <li class="menu-item menu-dropdown dropdown">
+                        <a class="menu-link dropdown-toggle" href="#" id="researchDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-search"></i> Research
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="researchDropdown">
@@ -77,8 +133,9 @@
                             <li><a class="dropdown-item" href="/bulk-research"><i class="fas fa-file-upload"></i> Article Bulk Analyzer</a></li>
                         </ul>
                     </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="analysisDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    
+                    <li class="menu-item menu-dropdown dropdown">
+                        <a class="menu-link dropdown-toggle" href="#" id="analysisDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-chart-bar"></i> Analysis
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="analysisDropdown">
@@ -88,21 +145,23 @@
                             <li><a class="dropdown-item" href="/database-chat"><i class="fas fa-comments"></i> Chat with Auspex</a></li>
                         </ul>
                     </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="configDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    
+                    <li class="menu-item menu-dropdown dropdown">
+                        <a class="menu-link dropdown-toggle" href="#" id="configDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-cog"></i> Settings
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="configDropdown">
+                            <li><a class="dropdown-item" href="/onboarding?redo=true"><i class="fas fa-tasks"></i> Setup Agent</a></li>
+                            <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="/config"><i class="fas fa-sliders-h"></i> App Configuration</a></li>
                             <li><a class="dropdown-item" href="/promptmanager"><i class="fas fa-brain"></i> Prompt Manager</a></li>
                             <li><a class="dropdown-item" href="/create_topic"><i class="fas fa-folder-plus"></i> Scenario Topic Management</a></li>
                             <li><a class="dropdown-item" href="/keyword-monitor"><i class="fas fa-search"></i> Keyword Monitoring</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="/onboarding?redo=true"><i class="fas fa-redo"></i> Setup Agent</a></li>
                         </ul>
                     </li>
-                    <li class="nav-item dropdown">
-                        <a class="nav-link dropdown-toggle" href="#" id="appInfoDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                    
+                    <li class="menu-item menu-dropdown dropdown">
+                        <a class="menu-link dropdown-toggle" href="#" id="appInfoDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-info-circle"></i> App Info
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="appInfoDropdown">
@@ -153,10 +212,9 @@
                             </li>
                         </ul>
                     </li>
-                </ul>
-                <ul class="navbar-nav ms-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="/logout">
+                    
+                    <li class="menu-item">
+                        <a class="menu-link" href="/logout">
                             <i class="fas fa-sign-out-alt"></i> Logout
                         </a>
                     </li>
@@ -173,9 +231,8 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     {% block extra_js %}{% endblock %}
 
-    <!-- Add this near the app info section -->
+    <!-- Debug info section -->
     {% if app_info %}
-        <!-- Debug info -->
         <div class="d-none">
             Debug: App Info Present
             Version: {{ app_info.version }}
@@ -183,16 +240,13 @@
             Last Update: {{ app_info.last_update }}
         </div>
     {% else %}
-        <!-- Debug info -->
         <div class="d-none">
             Debug: No App Info
         </div>
     {% endif %}
 
     <script>
-    // Add this to the base template
     document.addEventListener('DOMContentLoaded', function() {
-        // Only fetch app info if we have the elements to update
         if (document.querySelector('.app-version')) {
             fetch('/api/app-info')
                 .then(response => response.json())
@@ -211,7 +265,6 @@
 
     async function resetOnboarding() {
         try {
-            // Reset the onboarding status in the database
             const response = await fetch('/api/onboarding/reset', {
                 method: 'POST',
                 headers: {
@@ -220,7 +273,6 @@
             });
             
             if (response.ok) {
-                // Redirect to onboarding page
                 window.location.href = '/onboarding';
             } else {
                 const error = await response.json();

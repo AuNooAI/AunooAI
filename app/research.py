@@ -264,7 +264,7 @@ class Research:
                 return False
             return False
 
-    async def fetch_article_content(self, uri: str):
+    async def fetch_article_content(self, uri: str, save_with_topic=False):
         """Fetch article content using Firecrawl or from the database if available."""
         try:
             logger.debug(f"Fetching article content for URI: {uri}")
@@ -334,28 +334,30 @@ class Research:
                     # Extract publication date using ArticleAnalyzer
                     publication_date = self.article_analyzer.extract_publication_date(content)
                     
-                    # Try to save the raw markdown with current topic, but don't fail if it can't be saved
-                    try:
-                        logger.debug(f"Attempting to save raw article for URI: {uri} with topic: {self.current_topic}")
-                        
-                        # First check if we need to create an entry in articles table
-                        cursor = self.db.get_connection().cursor()
-                        cursor.execute("SELECT 1 FROM articles WHERE uri = ?", (uri,))
-                        if not cursor.fetchone():
-                            # Create a placeholder entry in the articles table
-                            cursor.execute("""
-                                INSERT INTO articles (uri, title, news_source, submission_date, topic)
-                                VALUES (?, 'Placeholder', ?, datetime('now'), ?)
-                            """, (uri, self.extract_source(uri), self.current_topic))
-                            logger.debug(f"Created placeholder article for URI: {uri}")
-                        
-                        # Now save the raw article
-                        self.db.save_raw_article(uri, content, self.current_topic)
-                        logger.info(f"Successfully saved raw article with topic: {self.current_topic}")
-                    except Exception as save_error:
-                        logger.error(f"Failed to save raw article to database: {str(save_error)}")
-                        logger.error(f"This is a database error, but we'll continue with analysis using the scraped content")
-                        # Continue anyway - we still have the content, even if we couldn't save it
+                    # Only save with topic if explicitly requested
+                    if save_with_topic:
+                        try:
+                            logger.debug(f"Attempting to save raw article for URI: {uri} with topic: {self.current_topic}")
+                            
+                            # First check if we need to create an entry in articles table
+                            cursor = self.db.get_connection().cursor()
+                            cursor.execute("SELECT 1 FROM articles WHERE uri = ?", (uri,))
+                            if not cursor.fetchone():
+                                # Create a placeholder entry in the articles table
+                                cursor.execute("""
+                                    INSERT INTO articles (uri, title, news_source, submission_date, topic)
+                                    VALUES (?, 'Placeholder', ?, datetime('now'), ?)
+                                """, (uri, self.extract_source(uri), self.current_topic))
+                                logger.debug(f"Created placeholder article for URI: {uri}")
+                            
+                            # Now save the raw article
+                            self.db.save_raw_article(uri, content, self.current_topic)
+                            logger.info(f"Successfully saved raw article with topic: {self.current_topic}")
+                        except Exception as save_error:
+                            logger.error(f"Failed to save raw article to database: {str(save_error)}")
+                            logger.error(f"This is a database error, but we'll continue with analysis using the scraped content")
+                    else:
+                        logger.debug(f"Skipping saving raw article with topic (save_with_topic=False)")
                     
                     return {
                         "content": content,
@@ -492,7 +494,7 @@ class Research:
         
         if not article_text:
             logger.debug("No article text provided, fetching from URI")
-            article_content = await self.fetch_article_content(uri)
+            article_content = await self.fetch_article_content(uri, save_with_topic=True)
             
             # Add fail-fast check here
             if (

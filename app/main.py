@@ -15,7 +15,7 @@ from app.config.settings import config
 from typing import Optional, List
 from collections import Counter
 from datetime import datetime, timedelta, timezone
-from app.dependencies import get_research
+from app.dependencies import get_research, get_analytics, get_report  # Add at top of file
 import logging
 import traceback
 from pydantic import BaseModel, Field
@@ -168,10 +168,6 @@ templates.env.filters["timeago"] = timeago_filter
 
 # Initialize components
 db = Database()
-research = Research(db)
-analytics = Analytics(db)
-report = Report(db)
-report_generator = Report(db)
 
 # Add this line to include the database routes
 app.include_router(database.router)
@@ -479,47 +475,46 @@ async def bulk_research_get(
         "selected_topic": topic or ""
     })
 
-@app.post("/bulk-research", response_class=HTMLResponse)
-async def bulk_research_post(
-    request: Request,
-    session=Depends(verify_session),
-    urlList: str = Form(...),
-    topic: str = Form(...)
-):
-    return templates.TemplateResponse("bulk_research.html", {
-        "request": request,
-        "session": request.session,
-        "prefilled_urls": urlList,
-        "selected_topic": topic
-    })
-
 @app.post("/api/bulk-research")
 async def bulk_research_post(
     data: dict,
     research: Research = Depends(get_research),
     db: Database = Depends(get_database_instance)
 ):
-    urls = data.get('urls', [])
-    summary_type = data.get('summaryType', 'curious_ai')
-    model_name = data.get('modelName', 'gpt-3.5-turbo')
-    summary_length = data.get('summaryLength', '50')
-    summary_voice = data.get('summaryVoice', 'neutral')
-    topic = data.get('topic')  # Get the topic from the request
+    try:
+        # Validate required topic
+        topic = data.get('topic')
+        if not topic:
+            raise HTTPException(status_code=400, detail="Topic is required")
 
-    if not topic:
-        raise HTTPException(status_code=400, detail="Topic is required")
+        # Get model name from request or use first available model
+        model_name = data.get('model_name')
+        if not model_name:
+            available_models = research.get_available_models()
+            if not available_models:
+                raise HTTPException(status_code=400, detail="No AI models available")
+            model_name = available_models[0]['name']
 
-    bulk_research = BulkResearch(db)
-    results = await bulk_research.analyze_bulk_urls(
-        urls=urls,
-        summary_type=summary_type,
-        model_name=model_name,
-        summary_length=summary_length,
-        summary_voice=summary_voice,
-        topic=topic  # Pass the topic to the analysis function
-    )
-
-    return JSONResponse(content=results)
+        bulk_research = BulkResearch(db, research=research)
+        results = await bulk_research.analyze_bulk_urls(
+            urls=data.get("urls", []),
+            summary_type=data.get("summary_type", "curious_ai"),
+            model_name=model_name,
+            summary_length=data.get("summary_length", "medium"),
+            summary_voice=data.get("summary_voice", "neutral"),
+            topic=topic
+        )
+        
+        batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return JSONResponse(content={
+            "batch_id": batch_id, 
+            "results": results
+        })
+        
+    except Exception as e:
+        logger.error(f"Bulk research error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/save-bulk-articles")
 async def save_bulk_articles(
@@ -542,8 +537,9 @@ async def analytics_route(request: Request, session=Depends(verify_session)):
 @app.get("/api/analytics")
 def get_analytics_data(
     timeframe: str = Query(...),
-    category: str = Query(None),  # Make category optional
-    topic: str = Query(...)
+    category: str = Query(None),
+    topic: str = Query(...),
+    analytics: Analytics = Depends(get_analytics)
 ):
     logger.info(f"Received analytics request: timeframe={timeframe}, category={category}, topic={topic}")
     try:
@@ -803,7 +799,10 @@ async def search_articles(
     return JSONResponse(content={"articles": articles, "total_count": total_count, "page": page, "per_page": per_page})
 
 @app.post("/api/generate_report")
-async def generate_report(request: Request):
+async def generate_report(
+    request: Request,
+    report: Report = Depends(get_report)
+):
     try:
         data = await request.json()
         article_ids = data.get('article_ids', [])
@@ -812,8 +811,7 @@ async def generate_report(request: Request):
         logger.info(f"Received article IDs: {article_ids}")
         logger.info(f"Received custom sections: {custom_sections}")
         
-        report_generator = Report(db)
-        content = report_generator.generate_report(article_ids, custom_sections)
+        content = report.generate_report(article_ids, custom_sections)
         html = markdown.markdown(content)
         
         return JSONResponse(content={
@@ -881,7 +879,8 @@ async def get_time_to_impact(topic: Optional[str] = None, research: Research = D
 @app.get("/api/latest_articles")
 async def get_latest_articles(
     topic_name: Optional[str] = None, 
-    limit: Optional[int] = Query(10, ge=1)
+    limit: Optional[int] = Query(10, ge=1),
+    research: Research = Depends(get_research)
 ):
     try:
         logger.info(f"API request for latest articles - topic: {topic_name}, limit: {limit}")
@@ -897,7 +896,10 @@ async def get_latest_articles(
         raise HTTPException(status_code=500, detail="Error fetching latest articles")
 
 @app.get("/api/article")
-async def get_article(uri: str):
+async def get_article(
+    uri: str,
+    research: Research = Depends(get_research)
+):
     try:
         # First try to get the article from the database
         article = db.get_article(uri)
@@ -909,7 +911,7 @@ async def get_article(uri: str):
         # If the article doesn't exist, try to fetch it
         logger.info(f"Article not found in database, attempting to fetch/scrape: {uri}")
         try:
-            # First try to fetch from raw_articles (in case it was scraped but not analyzed)
+            # First try to fetch from raw_articles
             raw_article = research.get_existing_article_content(uri)
             if raw_article:
                 logger.info(f"Found raw article content for {uri}")
@@ -925,7 +927,6 @@ async def get_article(uri: str):
             logger.info(f"No raw content found, attempting to scrape: {uri}")
             scraped_result = await research.scrape_article(uri)
             
-            # Check if there was an error in the scraping process
             if "error" in scraped_result:
                 error_msg = scraped_result.get("error", "Unknown error")
                 logger.error(f"Error scraping article: {error_msg}")
@@ -937,8 +938,7 @@ async def get_article(uri: str):
                         "details": scraped_result.get("content", "")
                     }
                 )
-                
-            # If scraping was successful, return the result
+            
             return JSONResponse(
                 content={
                     "message": "Article scraped successfully but not yet analyzed",
@@ -967,7 +967,10 @@ async def get_article(uri: str):
         )
 
 @app.delete("/api/article")
-async def delete_article(uri: str):
+async def delete_article(
+    uri: str,
+    research: Research = Depends(get_research)
+):
     logger.info(f"Received delete request for article with URI: {uri}")
     try:
         success = research.delete_article(uri)
@@ -1122,18 +1125,18 @@ def startup_event():
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
 
 @app.get("/api/fetch_article_content")
-async def fetch_article_content(uri: str):
-    return await research.fetch_article_content(uri)
+async def fetch_article_content(uri: str, research: Research = Depends(get_research), save: bool = Query(True)):
+    return await research.fetch_article_content(uri, save_with_topic=save)
 
 @app.get("/api/get_existing_article_content")
-async def get_existing_article_content(uri: str):
+async def get_existing_article_content(uri: str, research: Research = Depends(get_research)):
     return research.get_existing_article_content(uri)
 
 @app.get("/api/scrape_article")
-async def scrape_article(uri: str):
-    """
-    Scrape an article URL using Firecrawl and return the content.
-    """
+async def scrape_article(
+    uri: str,
+    research: Research = Depends(get_research)
+):
     try:
         logger.info(f"Received scrape request for URI: {uri}")
         
@@ -1144,7 +1147,6 @@ async def scrape_article(uri: str):
                 content={"error": "Empty URL provided", "message": "Please provide a valid URL"}
             )
             
-        # Validate URI format
         if not uri.startswith(('http://', 'https://')):
             logger.warning(f"Invalid URI format: {uri}")
             return JSONResponse(
@@ -1154,7 +1156,6 @@ async def scrape_article(uri: str):
             
         result = await research.scrape_article(uri)
         
-        # Check if there was an error in the scraping process
         if "error" in result:
             error_msg = result.get("error", "Unknown error")
             logger.error(f"Error scraping article: {error_msg}")
@@ -1180,7 +1181,10 @@ async def fetch_article_content(url: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/driver_types")
-async def get_driver_types(topic: Optional[str] = None, research: Research = Depends(get_research)):
+async def get_driver_types(
+    topic: Optional[str] = None,
+    research: Research = Depends(get_research)
+):
     return await research.get_driver_types(topic)
 
 @app.get("/api/integrated_analysis")
@@ -1480,17 +1484,44 @@ async def create_topic(topic_data: dict):
         else:
             # Create in database
             db.create_topic(topic_data['name'])
+            # Add to config
             config['topics'].append(topic_data)
         
         # Save updated config
-        with open(config_path, 'w+') as f:
-            f.seek(0)
+        with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)
-            f.truncate()
         
-        return {"message": "Topic saved successfully"}
+        # ADD THIS SECTION only - for news_monitoring.json update
+        news_monitoring_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                                           'config', 'news_monitoring.json')
+        try:
+            with open(news_monitoring_path, 'r') as f:
+                news_monitoring = json.load(f)
+                
+            # Add the new topic to news_filters and paper_filters if it doesn't exist
+            topic_name = topic_data['name']
+            
+            if topic_name not in news_monitoring['news_filters']:
+                news_monitoring['news_filters'][topic_name] = f'"{topic_name}"'
+                
+            if topic_name not in news_monitoring['paper_filters']:
+                news_monitoring['paper_filters'][topic_name] = f'"{topic_name}"'
+                
+            # Save the updated configuration
+            with open(news_monitoring_path, 'w') as f:
+                json.dump(news_monitoring, f, indent=2)
+                
+            logger.info(f"Added topic '{topic_name}' to news_monitoring.json")
+            
+        except Exception as e:
+            logger.error(f"Error updating news_monitoring.json: {str(e)}")
+            # Continue without failing if this part encounters issues
+        
+        return {"status": "success", "message": "Topic created successfully"}
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error creating/updating topic: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating/updating topic: {str(e)}")
 
 @app.get("/api/topic/{topic_name}")
 async def get_topic_config(topic_name: str):
@@ -1583,33 +1614,6 @@ async def save_template(template_data: dict = Body(...)):
     except Exception as e:
         logger.error(f"Error saving template: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/generate_report")
-async def generate_report(request: Request):
-    try:
-        data = await request.json()
-        article_ids = data.get('article_ids', [])
-        custom_sections = data.get('custom_sections')  # Don't provide a default here
-        
-        logger.info(f"Received article IDs: {article_ids}")
-        logger.info(f"Received custom sections: {custom_sections}")
-        
-        report_generator = Report(db)
-        content = report_generator.generate_report(article_ids, custom_sections)
-        html = markdown.markdown(content)
-        
-        return JSONResponse(content={
-            "content": content,
-            "html": html
-        })
-        
-    except Exception as e:
-        logger.error(f"Error generating report: {e}")
-        logger.error(f"Request data: {data}")
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e)}
-        )
 
 @app.post("/api/markdown_to_html")
 async def markdown_to_html(data: dict = Body(...)):
@@ -1781,16 +1785,61 @@ async def get_topic_stats(topic_name: str):
         logger.error(f"Error fetching topic stats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/api/topics/{topic_name}")
-async def delete_topic(topic_name: str):
+@app.delete("/api/topic/{topic_id}")
+async def delete_topic(topic_id: str, delete_articles: bool = Body(False)):
     try:
-        success = db.delete_topic(topic_name)
-        if success:
-            return {"message": "Topic deleted successfully"}
-        raise HTTPException(status_code=404, detail="Topic not found")
+        db = Database()
+        if delete_articles:
+            result = db.delete_topic_with_articles(topic_id)
+        else:
+            result = db.delete_topic(topic_id)
+            
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Topic {topic_id} not found")
+            
+        # Remove topic from config
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'config.json')
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+            
+        # Find and remove topic
+        config['topics'] = [topic for topic in config['topics'] if topic['name'] != topic_id]
+        
+        # Save updated config
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        # ADD THIS SECTION only - for news_monitoring.json update
+        news_monitoring_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                                           'config', 'news_monitoring.json')
+        try:
+            with open(news_monitoring_path, 'r') as f:
+                news_monitoring = json.load(f)
+                
+            # Remove the topic from news_filters and paper_filters if it exists
+            if topic_id in news_monitoring['news_filters']:
+                del news_monitoring['news_filters'][topic_id]
+                
+            if topic_id in news_monitoring['paper_filters']:
+                del news_monitoring['paper_filters'][topic_id]
+                
+            # Save the updated configuration
+            with open(news_monitoring_path, 'w') as f:
+                json.dump(news_monitoring, f, indent=2)
+                
+            logger.info(f"Removed topic '{topic_id}' from news_monitoring.json")
+            
+        except Exception as e:
+            logger.error(f"Error updating news_monitoring.json when deleting topic: {str(e)}")
+            # Continue without failing if this part encounters issues
+        
+        return {"success": True, "message": "Topic deleted successfully"}
+        
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error deleting topic: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Error deleting topic: {str(e)}")
 
 @app.get("/database-editor", response_class=HTMLResponse)
 async def database_editor_page(

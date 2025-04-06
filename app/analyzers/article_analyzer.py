@@ -369,17 +369,18 @@ Article text:
                 logger.debug(f"AI extracted date: {ai_extracted_date}")
                 try:
                     parsed_date = datetime.strptime(ai_extracted_date.strip(), '%Y-%m-%d')
-                    return parsed_date.date().isoformat()
+                    # Return with time component to match submission_date format
+                    return parsed_date.strftime('%Y-%m-%dT%H:%M:%S.%f')
                 except ValueError:
                     pass
 
-            # If AI extraction fails, return current date
-            logger.debug(f"Using todays date")
-            return datetime.now(timezone.utc).date().isoformat()
+            # If AI extraction fails, return current date with time
+            logger.debug(f"Using current date and time")
+            return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f')
             
         except Exception as e:
             logger.warning(f"Error extracting publication date: {str(e)}")
-            return datetime.now(timezone.utc).date().isoformat() 
+            return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%f') 
 
     def get_cached_analysis(self, uri, model_name):
         """

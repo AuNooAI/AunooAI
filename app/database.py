@@ -695,6 +695,25 @@ class Database:
                         logger.warning(f"Invalid submission_date format: {article_data['submission_date']}")
                         article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
                 
+                # Also standardize publication_date format 
+                if 'publication_date' in article_data and article_data['publication_date']:
+                    try:
+                        # Check if it's date-only format (like 2025-04-06)
+                        if 'T' not in article_data['publication_date'] and len(article_data['publication_date']) <= 10:
+                            # Keep date-only format as is
+                            pass
+                        else:
+                            # If it has time component, standardize it
+                            date_obj = datetime.fromisoformat(article_data['publication_date'].replace('Z', '+00:00'))
+                            article_data['publication_date'] = date_obj.strftime('%Y-%m-%dT%H:%M:%S.%f')
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Invalid publication_date format: {article_data['publication_date']}")
+                        # Keep as is rather than replacing, as this might be an intentional date-only value
+                elif 'publication_date' not in article_data or not article_data['publication_date']:
+                    # Set a default value when publication_date is empty
+                    article_data['publication_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
+                    logger.warning(f"Empty publication_date detected, setting to now: {article_data['publication_date']}")
+                
                 # Convert tags list to string if necessary
                 tags = article_data.get('tags', [])
                 if isinstance(tags, list):

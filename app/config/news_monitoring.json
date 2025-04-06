@@ -3,12 +3,16 @@
     "AI and Machine Learning": "\"Artificial Intelligence\"",
     "Cloud Computing": "Cloud Services",
     "Test": "Quantum Advantage",
-    "Security Data Fabric": "\"Security Data Fabric\""
+    "Security Data Fabric": "\"Security Data Fabric\"",
+    "Threat Modeling": "\"Threat Modeling\"",
+    "Embedded Systems": "\"Embedded Systems\""
   },
   "paper_filters": {
-    "AI and Machine Learning": "GenAI",
+    "AI and Machine Learning": "LLM",
     "Cloud Computing": "Distributed Systems",
     "Test": "Quantum Advantage",
-    "Security Data Fabric": "\"Security Data\""
+    "Security Data Fabric": "\"Security Data\"",
+    "Threat Modeling": "\"Threat Modeling\"",
+    "Embedded Systems": "\"Embedded Systems\""
   }
 }

@@ -44,3 +44,4 @@ Thumbs.db
 LA_notes
 cache/*
 *.db
+.cursor/

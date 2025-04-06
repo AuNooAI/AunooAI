@@ -954,53 +954,65 @@ function clearForm() {
 }
 
 // Update the displayAnalysisResult function
-function displayAnalysisResult(result) {
+async function displayAnalysisResult(result) {
     const analysisResultsDiv = document.getElementById('analysisResult');
-    if (analysisResultsDiv) {
-        document.getElementById('analysisTitle').value = result.title || '';
-        document.getElementById('analysisSource').value = result.news_source || '';
-        document.getElementById('analysisUrl').value = result.uri || '';
-        document.getElementById('analysisSummary').value = result.summary || '';
-        updateSummaryWordCount(); // Add this line to update the word count
-        document.getElementById('analysisSentiment').value = result.sentiment || '';
-        document.getElementById('analysisSentimentExplanation').value = result.sentiment_explanation || '';
-        document.getElementById('analysisTimeToImpact').value = result.time_to_impact || '';
-        document.getElementById('analysisTimeToImpactExplanation').value = result.time_to_impact_explanation || '';
-        document.getElementById('analysisCategory').value = result.category || '';
-        document.getElementById('analysisFutureSignal').value = result.future_signal || '';
-        document.getElementById('analysisFutureSignalExplanation').value = result.future_signal_explanation || '';
-        document.getElementById('analysisDriverType').value = result.driver_type || '';
-        document.getElementById('analysisDriverTypeExplanation').value = result.driver_type_explanation || '';
-        document.getElementById('analysisPublicationDate').value = result.publication_date || '';
-        
-        // Set submission_date to current date and time by default
-        const now = new Date();
-        const formattedNow = now.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:mm
-        document.getElementById('analysisSubmissionDate').value = formattedNow;
-        
-        // If result has a submission_date, use it instead
-        if (result.submission_date) {
-            const submissionDate = new Date(result.submission_date);
-            const formattedDate = submissionDate.toISOString().slice(0, 16);
-            document.getElementById('analysisSubmissionDate').value = formattedDate;
-        }
-        
-        document.getElementById('analysisTags').value = result.tags ? result.tags.join(', ') : '';
-        
-        // Disable annotations if this is a new article (no uri in database)
-        toggleAnnotationControls(false);
-        if (result.uri) {
-            fetch(`/api/article?uri=${encodeURIComponent(result.uri)}`)
-                .then(response => {
-                    toggleAnnotationControls(response.ok);
-                })
-                .catch(() => toggleAnnotationControls(false));
-        }
-        
-        analysisResultsDiv.style.display = 'block';
-    } else {
+    if (!analysisResultsDiv) {
         console.error('Analysis Result div not found');
+        return;
     }
+
+    // First ensure we have the right topic and refresh dropdowns
+    if (result.topic) {
+        const topicSelect = document.getElementById('topicSelect');
+        if (topicSelect.value !== result.topic) {
+            topicSelect.value = result.topic;
+            // Wait for dropdowns to be refreshed with topic-specific options
+            await refreshDropdownsForTopic(result.topic);
+        }
+    }
+
+    // Now set all the values
+    document.getElementById('analysisTitle').value = result.title || '';
+    document.getElementById('analysisSource').value = result.news_source || '';
+    document.getElementById('analysisUrl').value = result.uri || '';
+    document.getElementById('analysisSummary').value = result.summary || '';
+    updateSummaryWordCount();
+    document.getElementById('analysisSentiment').value = result.sentiment || '';
+    document.getElementById('analysisSentimentExplanation').value = result.sentiment_explanation || '';
+    document.getElementById('analysisTimeToImpact').value = result.time_to_impact || '';
+    document.getElementById('analysisTimeToImpactExplanation').value = result.time_to_impact_explanation || '';
+    document.getElementById('analysisCategory').value = result.category || '';
+    document.getElementById('analysisFutureSignal').value = result.future_signal || '';
+    document.getElementById('analysisFutureSignalExplanation').value = result.future_signal_explanation || '';
+    document.getElementById('analysisDriverType').value = result.driver_type || '';
+    document.getElementById('analysisDriverTypeExplanation').value = result.driver_type_explanation || '';
+    document.getElementById('analysisPublicationDate').value = result.publication_date || '';
+    
+    // Set submission_date to current date and time by default
+    const now = new Date();
+    const formattedNow = now.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:mm
+    document.getElementById('analysisSubmissionDate').value = formattedNow;
+    
+    // If result has a submission_date, use it instead
+    if (result.submission_date) {
+        const submissionDate = new Date(result.submission_date);
+        const formattedDate = submissionDate.toISOString().slice(0, 16);
+        document.getElementById('analysisSubmissionDate').value = formattedDate;
+    }
+    
+    document.getElementById('analysisTags').value = result.tags ? result.tags.join(', ') : '';
+    
+    // Disable annotations if this is a new article (no uri in database)
+    toggleAnnotationControls(false);
+    if (result.uri) {
+        fetch(`/api/article?uri=${encodeURIComponent(result.uri)}`)
+            .then(response => {
+                toggleAnnotationControls(response.ok);
+            })
+            .catch(() => toggleAnnotationControls(false));
+    }
+    
+    analysisResultsDiv.style.display = 'block';
 }
 
 function toggleExpand(elementId) {
