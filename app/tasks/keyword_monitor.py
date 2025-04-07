@@ -274,15 +274,16 @@ class KeywordMonitor:
                                         cursor.execute("""
                                             INSERT INTO articles (
                                                 uri, title, news_source, publication_date,
-                                                summary, topic
-                                            ) VALUES (?, ?, ?, ?, ?, ?)
+                                                summary, topic, analyzed
+                                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
                                         """, (
                                             article_url,
                                             article['title'],
                                             article['source'],
                                             article['published_date'],
                                             article['summary'],
-                                            topic
+                                            topic,
+                                            False  # Explicitly mark as not analyzed
                                         ))
                                     
                                     # Create alert
