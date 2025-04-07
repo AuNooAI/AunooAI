@@ -763,7 +763,8 @@ function collectSelectedArticles() {
                 publication_date: entry.querySelector(`input[id^="pubDate"]`).value.trim(),
                 submission_date: entry.querySelector(`input[id^="subDate"]`).value.trim(),
                 tags: entry.querySelector(`input[id^="tags"]`).value.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
-                topic: document.getElementById('topicSelect').value
+                topic: document.getElementById('topicSelect').value,
+                analyzed: true
             };
             
             // Only add if required fields are present

@@ -143,6 +143,7 @@ class BulkResearch:
                 result["publication_date"] = publication_date
                 result["submission_date"] = datetime.datetime.now().date().isoformat()
                 result["uri"] = url  # Ensure URL is included
+                result["analyzed"] = True  # Add this line to include the analyzed field
                 results.append(result)
                 logger.info(f"Successfully analyzed URL: {url}")
                 
