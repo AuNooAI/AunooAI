@@ -495,12 +495,21 @@ async def bulk_research_post(
                 raise HTTPException(status_code=400, detail="No AI models available")
             model_name = available_models[0]['name']
 
+        # Validate and convert summary_length to integer
+        summary_length = data.get("summary_length", "50")  # Default to 50 words
+        try:
+            summary_length = int(summary_length)
+            if summary_length < 1:
+                raise ValueError("Summary length must be a positive integer")
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid summary length: {str(e)}")
+
         bulk_research = BulkResearch(db, research=research)
         results = await bulk_research.analyze_bulk_urls(
             urls=data.get("urls", []),
             summary_type=data.get("summary_type", "curious_ai"),
             model_name=model_name,
-            summary_length=data.get("summary_length", "medium"),
+            summary_length=summary_length,
             summary_voice=data.get("summary_voice", "neutral"),
             topic=topic
         )

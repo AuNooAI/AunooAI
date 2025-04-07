@@ -526,9 +526,10 @@ async function handleFormSubmit(event) {
 function getSummaryLength() {
     const summaryLengthSelect = document.getElementById('summaryLength');
     if (summaryLengthSelect.value === 'custom') {
-        return document.getElementById('customSummaryLength').value;
+        const customLength = document.getElementById('customSummaryLength').value;
+        return customLength ? parseInt(customLength, 10) : 50;  // Default to 50 if custom value is empty
     }
-    return summaryLengthSelect.value;
+    return parseInt(summaryLengthSelect.value, 10);  // Convert selected value to integer
 }
 
 function getSummaryVoice() {

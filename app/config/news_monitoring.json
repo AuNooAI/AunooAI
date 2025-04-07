@@ -5,7 +5,8 @@
     "Test": "Quantum Advantage",
     "Security Data Fabric": "\"Security Data Fabric\"",
     "Threat Modeling": "\"Threat Modeling\"",
-    "Embedded Systems": "\"Embedded Systems\""
+    "Embedded Systems": "\"Embedded Systems\"",
+    "Cloud Repatriation": "\"Cloud Repatriation\""
   },
   "paper_filters": {
     "AI and Machine Learning": "LLM",
@@ -13,6 +14,7 @@
     "Test": "Quantum Advantage",
     "Security Data Fabric": "\"Security Data\"",
     "Threat Modeling": "\"Threat Modeling\"",
-    "Embedded Systems": "\"Embedded Systems\""
+    "Embedded Systems": "\"Embedded Systems\"",
+    "Cloud Repatriation": "\"Cloud Repatriation\""
   }
 }

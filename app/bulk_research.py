@@ -48,7 +48,7 @@ class BulkResearch:
             raise
 
     async def analyze_bulk_urls(self, urls: List[str], summary_type: str, 
-                                 model_name: str, summary_length: str, 
+                                 model_name: str, summary_length: int, 
                                  summary_voice: str, topic: str) -> List[Dict]:
         results = []
         logger.info(f"Starting analysis of {len(urls)} URLs with topic: {topic}")
@@ -128,7 +128,7 @@ class BulkResearch:
                     title=title,
                     source=self.extract_source(url),
                     uri=url,
-                    summary_length=int(summary_length),
+                    summary_length=summary_length,
                     summary_voice=summary_voice,
                     summary_type=summary_type,
                     categories=self.research.CATEGORIES,
