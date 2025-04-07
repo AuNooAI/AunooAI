@@ -80,63 +80,72 @@ class Database:
             # Enable foreign keys
             cursor.execute("PRAGMA foreign_keys = ON")
             
-            # Create articles table with URI as primary key
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS articles (
-                    uri TEXT PRIMARY KEY,
-                    title TEXT,
-                    news_source TEXT,
-                    publication_date TEXT,
-                    submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
-                    summary TEXT,
-                    category TEXT,
-                    future_signal TEXT,
-                    future_signal_explanation TEXT,
-                    sentiment TEXT,
-                    sentiment_explanation TEXT,
-                    time_to_impact TEXT,
-                    time_to_impact_explanation TEXT,
-                    tags TEXT,
-                    driver_type TEXT,
-                    driver_type_explanation TEXT,
-                    topic TEXT,
-                    analyzed BOOLEAN DEFAULT FALSE
-                )
-            """)
+            # Check if tables already exist to avoid conflicts
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles'")
+            articles_exists = cursor.fetchone() is not None
             
-            # Create raw_articles table for storing original content
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS raw_articles (
-                    uri TEXT PRIMARY KEY,
-                    raw_markdown TEXT,
-                    submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
-                    last_updated TEXT,
-                    topic TEXT,
-                    FOREIGN KEY (uri) REFERENCES articles(uri) ON DELETE CASCADE
-                )
-            """)
+            if not articles_exists:
+                # Create articles table with URI as primary key
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS articles (
+                        uri TEXT PRIMARY KEY,
+                        title TEXT,
+                        news_source TEXT,
+                        publication_date TEXT,
+                        submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
+                        summary TEXT,
+                        category TEXT,
+                        future_signal TEXT,
+                        future_signal_explanation TEXT,
+                        sentiment TEXT,
+                        sentiment_explanation TEXT,
+                        time_to_impact TEXT,
+                        time_to_impact_explanation TEXT,
+                        tags TEXT,
+                        driver_type TEXT,
+                        driver_type_explanation TEXT,
+                        topic TEXT,
+                        analyzed BOOLEAN DEFAULT FALSE
+                    )
+                """)
+                
+                # Create raw_articles table for storing original content
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS raw_articles (
+                        uri TEXT PRIMARY KEY,
+                        raw_markdown TEXT,
+                        submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
+                        last_updated TEXT,
+                        topic TEXT,
+                        FOREIGN KEY (uri) REFERENCES articles(uri) ON DELETE CASCADE
+                    )
+                """)
+                
+                # Create unique index on URI
+                cursor.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_uri 
+                    ON articles(uri)
+                """)
+                
+                # Create keyword alerts table with proper foreign key constraints
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS keyword_alerts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        keyword_id INTEGER NOT NULL,
+                        article_uri TEXT NOT NULL,
+                        detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        is_read INTEGER DEFAULT 0,
+                        FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
+                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
+                        UNIQUE(keyword_id, article_uri)
+                    )
+                """)
+                
+                # Rest of the table creation code...
             
-            # Create unique index on URI
-            cursor.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_uri 
-                ON articles(uri)
-            """)
+            # Run migrations to ensure schema is up to date
+            self.migrate_db()
             
-            # Create keyword alerts table with proper foreign key constraints
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS keyword_alerts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    keyword_id INTEGER NOT NULL,
-                    article_uri TEXT NOT NULL,
-                    detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    is_read INTEGER DEFAULT 0,
-                    FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
-                    FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
-                    UNIQUE(keyword_id, article_uri)
-                )
-            """)
-            
-            # Rest of the table creation code...
             conn.commit()
 
     def migrate_db(self):
@@ -173,14 +182,31 @@ class Database:
                 # Apply missing migrations
                 for name, migrate_func in migrations:
                     if name not in applied:
-                        logger.info(f"Applying migration: {name}")
-                        migrate_func(cursor)
-                        cursor.execute("INSERT INTO migrations (name) VALUES (?)", (name,))
-                        conn.commit()
-                        
+                        try:
+                            logger.info(f"Applying migration: {name}")
+                            migrate_func(cursor)
+                            
+                            # Record successful migration
+                            cursor.execute(
+                                "INSERT INTO migrations (name) VALUES (?)",
+                                (name,)
+                            )
+                            conn.commit()
+                            logger.info(f"Migration {name} applied successfully")
+                        except sqlite3.IntegrityError as e:
+                            logger.warning(f"Integrity error during migration {name}: {str(e)}")
+                            # Continue with next migration despite the error
+                            continue
+                        except Exception as e:
+                            logger.error(f"Error applying migration {name}: {str(e)}")
+                            # Continue with next migration despite the error
+                            continue
+                
+                return True
         except Exception as e:
-            logger.error(f"Error during migration: {str(e)}")
-            raise
+            logger.error(f"Error during database migration: {str(e)}")
+            # Don't raise the exception - allow the application to continue
+            return False
 
     def _migrate_topic(self, cursor):
         # Check if topic column exists in articles table
@@ -543,7 +569,16 @@ class Database:
             
             # Initialize the new database
             self.db_path = db_path
-            self.init_db()
+            
+            try:
+                self.init_db()
+            except sqlite3.IntegrityError as e:
+                logger.warning(f"Integrity error during database initialization: {str(e)}")
+                # Continue despite the integrity error - tables may already exist
+                pass
+            except Exception as e:
+                logger.error(f"Error initializing database: {str(e)}")
+                raise
             
             return {"message": f"Active database set to {name}"}
             
