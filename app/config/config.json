@@ -173,66 +173,95 @@
         "Terminator",
         "Unknown"
       ]
-    }
-  ],
-  "ai_models": [
-    {
-      "name": "gpt-3.5-turbo",
-      "provider": "openai"
     },
     {
-      "name": "mixtral-8x7b",
-      "provider": "huggingface"
+      "name": "AI in Space Exploration",
+      "description": "How AI is being used in the space industry and exploration",
+      "categories": [
+        "AI in Satellite Navigation",
+        "AI in Deep Space Communication",
+        "AI in Extraterrestrial Surface Analysis",
+        "AI in Autonomous Spacecraft Operation",
+        "AI in Payload Management",
+        "AI in Life Support Systems for Astronauts",
+        "AI in Space Weather Forecast",
+        "AI in Orbital and Collision Avoidance Measures"
+      ],
+      "future_signals": [
+        "Autonomous spacecraft become norm",
+        "AI fully automates payload management",
+        "AI undermines human role in space exp...",
+        "AI critical in solving long-term life..."
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "AI in spacecraft navigation",
+        "AI in deep space communication",
+        "AI in space life support systems",
+        "AI in space weather forecast"
+      ]
     },
     {
-      "name": "gpt-4o",
-      "provider": "openai"
-    },
-    {
-      "name": "gpt-4o-mini",
-      "provider": "openai"
-    },
-    {
-      "name": "claude-3-7-sonnet-latest",
-      "provider": "anthropic"
-    },
-    {
-      "name": "claude-3-5-sonnet-latest",
-      "provider": "anthropic"
-    },
-    {
-      "name": "gemini-pro",
-      "provider": "google"
-    }
-  ],
-  "providers": [
-    {
-      "name": "newsapi",
-      "display_name": "NewsAPI",
-      "config_type": "api_key",
-      "description": "Access news articles from various sources worldwide",
-      "enabled": true
-    },
-    {
-      "name": "thenewsapi",
-      "display_name": "TheNewsAPI",
-      "config_type": "api_key",
-      "description": "Access news articles from TheNewsAPI service",
-      "enabled": true
-    },
-    {
-      "name": "firecrawl",
-      "display_name": "Firecrawl Scraper",
-      "config_type": "api_key",
-      "description": "Scrape websites for news articles",
-      "enabled": true
-    },
-    {
-      "name": "arxiv",
-      "display_name": "ArXiv",
-      "config_type": "none",
-      "description": "Access scientific papers and research articles",
-      "enabled": true
+      "name": "AI in the Military and Warfare",
+      "description": "",
+      "categories": [
+        "AI in Tactical Decision-making",
+        "AI in Surveillance & Reconnaissance",
+        "AI in Military Simulation and Training",
+        "Autonomous Weapons",
+        "AI in Cyber Warfare",
+        "AI-powered Defense Systems",
+        "Ethics and Legal Challenges",
+        "AI in Military Infrastructure & Logistics"
+      ],
+      "future_signals": [
+        "AI-powered drones dominate warfare",
+        "Law allows autonomous weapons",
+        "AI replaces human decision-making in ...",
+        "Cyber warfare outpaces conventional w...",
+        "Public outcry bans autonomous weapons"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "AI military tactics",
+        "AI warfare ethics",
+        "Autonomous weapons regulation",
+        "AI in cyber defense"
+      ]
     }
   ]
 }

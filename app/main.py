@@ -1097,7 +1097,7 @@ async def get_active_database():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.on_event("startup")
-def startup_event():
+async def startup_event():
     try:
         # Use the new centralized application initialization
         from app.startup import initialize_application
@@ -1120,6 +1120,21 @@ def startup_event():
             
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
+        raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        logger = logging.getLogger('main')
+        logger.info("Application shutting down...")
+        
+        # Clean up any resources here
+        # For example, close database connections, stop background tasks, etc.
+        
+        logger.info("Application shutdown complete")
+    except Exception as e:
+        logging.error(f"Error during shutdown: {str(e)}", exc_info=True)
+        raise
 
 @app.get("/api/fetch_article_content")
 async def fetch_article_content(uri: str):
