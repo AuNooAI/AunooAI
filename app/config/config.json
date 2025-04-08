@@ -175,51 +175,23 @@
       ]
     },
     {
-      "name": "Threat Modeling",
+      "name": "AI in Space Exploration",
+      "description": "How AI is being used in the space industry and exploration",
       "categories": [
-        "Threat Modeling in Finance",
-        "Threat Modeling in Software Engineering",
-        "Threat Modeling in Medical Devices",
-        "Threat Modeling in Regulation",
-        "Threat Modeling in Standards",
-        "Threat Modeling - General"
+        "AI in Satellite Navigation",
+        "AI in Deep Space Communication",
+        "AI in Extraterrestrial Surface Analysis",
+        "AI in Autonomous Spacecraft Operation",
+        "AI in Payload Management",
+        "AI in Life Support Systems for Astronauts",
+        "AI in Space Weather Forecast",
+        "AI in Orbital and Collision Avoidance Measures"
       ],
       "future_signals": [
-        "Will Accelerate",
-        "Not Important",
-        "Will Evolve Gradually",
-        "It Is Very Niche"
-      ],
-      "sentiment": [
-        "Neutral",
-        "Negative",
-        "Positive",
-        "Cautious"
-      ],
-      "time_to_impact": [
-        "Mid-term",
-        "Short-term",
-        "Immediate",
-        "Long-term"
-      ],
-      "driver_types": [
-        "New Product",
-        "Accelerator",
-        "Catalyst",
-        "Delayer",
-        "New Feature"
-      ]
-    },
-    {
-      "name": "Embedded Systems",
-      "categories": [
-        "Embedded systems in software engineering",
-        "Embedded system - other"
-      ],
-      "future_signals": [
-        "Embedded Systems will accelerate",
-        "Embedded systems are a geopolitics issue",
-        "Embedded systems will slow down"
+        "Autonomous spacecraft become norm",
+        "AI fully automates payload management",
+        "AI undermines human role in space exp...",
+        "AI critical in solving long-term life..."
       ],
       "sentiment": [
         "Positive",
@@ -227,16 +199,68 @@
         "Neutral"
       ],
       "time_to_impact": [
-        "Mid-term",
-        "Immediate",
-        "Short-term",
-        "Long-term"
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
       ],
       "driver_types": [
+        "Initiator",
         "Accelerator",
         "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "AI in spacecraft navigation",
+        "AI in deep space communication",
+        "AI in space life support systems",
+        "AI in space weather forecast"
+      ]
+    },
+    {
+      "name": "AI in the Military and Warfare",
+      "description": "",
+      "categories": [
+        "AI in Tactical Decision-making",
+        "AI in Surveillance & Reconnaissance",
+        "AI in Military Simulation and Training",
+        "Autonomous Weapons",
+        "AI in Cyber Warfare",
+        "AI-powered Defense Systems",
+        "Ethics and Legal Challenges",
+        "AI in Military Infrastructure & Logistics"
+      ],
+      "future_signals": [
+        "AI-powered drones dominate warfare",
+        "Law allows autonomous weapons",
+        "AI replaces human decision-making in ...",
+        "Cyber warfare outpaces conventional w...",
+        "Public outcry bans autonomous weapons"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
         "Initiator",
-        "Delayer"
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "AI military tactics",
+        "AI warfare ethics",
+        "Autonomous weapons regulation",
+        "AI in cyber defense"
       ]
     }
   ]

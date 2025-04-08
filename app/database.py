@@ -80,9 +80,39 @@ class Database:
             # Enable foreign keys
             cursor.execute("PRAGMA foreign_keys = ON")
             
-            # Check if tables already exist to avoid conflicts
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles'")
-            articles_exists = cursor.fetchone() is not None
+            # Create users table with proper schema
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    username TEXT PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    force_password_change BOOLEAN DEFAULT 0,
+                    completed_onboarding BOOLEAN DEFAULT 0
+                )
+            """)
+            
+            # Create articles table with URI as primary key
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS articles (
+                    uri TEXT PRIMARY KEY,
+                    title TEXT,
+                    news_source TEXT,
+                    publication_date TEXT,
+                    submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
+                    summary TEXT,
+                    category TEXT,
+                    future_signal TEXT,
+                    future_signal_explanation TEXT,
+                    sentiment TEXT,
+                    sentiment_explanation TEXT,
+                    time_to_impact TEXT,
+                    time_to_impact_explanation TEXT,
+                    tags TEXT,
+                    driver_type TEXT,
+                    driver_type_explanation TEXT,
+                    topic TEXT,
+                    analyzed BOOLEAN DEFAULT FALSE
+                )
+            """)
             
             if not articles_exists:
                 # Create articles table with URI as primary key
@@ -169,14 +199,7 @@ class Database:
                 
                 # Define migrations
                 migrations = [
-                    ("add_topic_column", self._migrate_topic),
-                    ("add_driver_type", self._migrate_driver_type),
-                    ("add_keyword_monitor_tables", self._migrate_keyword_monitor),
-                    ("add_analyzed_column", self._migrate_analyzed_column),
-                    ("fix_article_annotations", self._migrate_article_annotations),
-                    ("fix_duplicate_alerts", self._fix_duplicate_alerts),
-                    ("add_keyword_article_matches", self._create_keyword_article_matches_table),
-                    ("ensure_completed_onboarding", self._ensure_completed_onboarding),
+                    ("ensure_users_table_schema", self._ensure_users_table_schema)
                 ]
                 
                 # Apply missing migrations
@@ -204,288 +227,51 @@ class Database:
                 
                 return True
         except Exception as e:
-            logger.error(f"Error during database migration: {str(e)}")
-            # Don't raise the exception - allow the application to continue
-            return False
-
-    def _migrate_topic(self, cursor):
-        # Check if topic column exists in articles table
-        cursor.execute("PRAGMA table_info(articles)")
-        columns = [col[1] for col in cursor.fetchall()]
-        
-        if 'topic' not in columns:
-            logger.info("Adding topic column to articles table")
-            cursor.execute("ALTER TABLE articles ADD COLUMN topic TEXT")
-            
-            # Copy topic from raw_articles to articles where possible
-            cursor.execute("""
-                UPDATE articles 
-                SET topic = (
-                    SELECT topic 
-                    FROM raw_articles 
-                    WHERE raw_articles.uri = articles.uri
-                )
-                WHERE EXISTS (
-                    SELECT 1 
-                    FROM raw_articles 
-                    WHERE raw_articles.uri = articles.uri
-                )
-            """)
-
-    def _migrate_driver_type(self, cursor):
-        cursor.execute("""
-        SELECT COUNT(*) FROM pragma_table_info('articles') WHERE name='driver_type'
-        """)
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("""
-            ALTER TABLE articles ADD COLUMN driver_type TEXT
-            """)
-            logger.info("Added driver_type column to articles table")
-
-    def _migrate_keyword_monitor(self, cursor):
-        """Add keyword monitoring related tables"""
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS keyword_groups (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                topic TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS monitored_keywords (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                group_id INTEGER NOT NULL,
-                keyword TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                last_checked TEXT,
-                FOREIGN KEY (group_id) REFERENCES keyword_groups(id) ON DELETE CASCADE,
-                UNIQUE(group_id, keyword)
-            )
-        """)
-        
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS keyword_alerts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                keyword_id INTEGER NOT NULL,
-                article_uri TEXT NOT NULL,
-                detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                is_read INTEGER DEFAULT 0,
-                FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
-                FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
-                UNIQUE(keyword_id, article_uri)
-            )
-        """)
-        
-        # Fix any existing duplicate alerts
-        self._fix_duplicate_alerts(cursor)
-
-    def _fix_duplicate_alerts(self, cursor):
-        """Remove duplicate alerts and ensure the unique constraint exists"""
-        logger = logging.getLogger(__name__)
-        
-        try:
-            # Check if the unique constraint exists
-            cursor.execute("""
-                SELECT sql FROM sqlite_master 
-                WHERE type='table' AND name='keyword_alerts'
-            """)
-            table_def = cursor.fetchone()[0]
-            
-            # If the unique constraint is missing, we need to recreate the table
-            if "UNIQUE(keyword_id, article_uri)" not in table_def:
-                logger.info("Fixing keyword_alerts table: adding unique constraint")
-                
-                # Create a temporary table with the correct schema
-                cursor.execute("""
-                    CREATE TABLE keyword_alerts_temp (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        keyword_id INTEGER NOT NULL,
-                        article_uri TEXT NOT NULL,
-                        detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        is_read INTEGER DEFAULT 0,
-                        FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
-                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
-                        UNIQUE(keyword_id, article_uri)
-                    )
-                """)
-                
-                # Copy data to the temporary table, keeping only one row per keyword_id/article_uri pair
-                cursor.execute("""
-                    INSERT OR IGNORE INTO keyword_alerts_temp (keyword_id, article_uri, detected_at, is_read)
-                    SELECT keyword_id, article_uri, MIN(detected_at), MIN(is_read)
-                    FROM keyword_alerts
-                    GROUP BY keyword_id, article_uri
-                """)
-                
-                # Get the count of rows before and after to report how many duplicates were removed
-                cursor.execute("SELECT COUNT(*) FROM keyword_alerts")
-                before_count = cursor.fetchone()[0]
-                
-                cursor.execute("SELECT COUNT(*) FROM keyword_alerts_temp")
-                after_count = cursor.fetchone()[0]
-                
-                # Drop the original table and rename the temporary one
-                cursor.execute("DROP TABLE keyword_alerts")
-                cursor.execute("ALTER TABLE keyword_alerts_temp RENAME TO keyword_alerts")
-                
-                logger.info(f"Fixed keyword_alerts table: removed {before_count - after_count} duplicate alerts")
-            else:
-                # Even if the constraint exists, we should still remove any duplicates
-                # that might have been created before the constraint was added
-                cursor.execute("""
-                    DELETE FROM keyword_alerts
-                    WHERE id NOT IN (
-                        SELECT MIN(id)
-                        FROM keyword_alerts
-                        GROUP BY keyword_id, article_uri
-                    )
-                """)
-                
-                deleted_count = cursor.rowcount
-                if deleted_count > 0:
-                    logger.info(f"Removed {deleted_count} duplicate alerts")
-            
-            # Create the keyword_article_matches table if it doesn't exist
-            self._create_keyword_article_matches_table(cursor)
-            
-        except Exception as e:
-            logger.error(f"Error fixing duplicate alerts: {str(e)}")
-
-    def _create_keyword_article_matches_table(self, cursor):
-        """Create a table to track which keywords matched which articles"""
-        logger = logging.getLogger(__name__)
-        
-        try:
-            # Check if the table already exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='keyword_article_matches'
-            """)
-            if cursor.fetchone() is None:
-                # Create the table if it doesn't exist
-                cursor.execute("""
-                    CREATE TABLE keyword_article_matches (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        article_uri TEXT NOT NULL,
-                        keyword_ids TEXT NOT NULL,  -- Comma-separated list of keyword IDs
-                        group_id INTEGER NOT NULL,
-                        detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        is_read INTEGER DEFAULT 0,
-                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
-                        FOREIGN KEY (group_id) REFERENCES keyword_groups(id) ON DELETE CASCADE,
-                        UNIQUE(article_uri, group_id)
-                    )
-                """)
-                logger.info("Created keyword_article_matches table")
-                
-                # Populate the table with existing data
-                cursor.execute("""
-                    INSERT INTO keyword_article_matches (
-                        article_uri, keyword_ids, group_id, detected_at, is_read
-                    )
-                    SELECT 
-                        ka.article_uri,
-                        GROUP_CONCAT(ka.keyword_id),
-                        mk.group_id,
-                        MIN(ka.detected_at),
-                        MIN(ka.is_read)
-                    FROM 
-                        keyword_alerts ka
-                    JOIN
-                        monitored_keywords mk ON ka.keyword_id = mk.id
-                    GROUP BY 
-                        ka.article_uri, mk.group_id
-                """)
-                logger.info("Populated keyword_article_matches table with existing data")
-        except Exception as e:
-            logger.error(f"Error creating keyword_article_matches table: {str(e)}")
-
-    def _migrate_analyzed_column(self, cursor):
-        """Add analyzed column to articles table"""
-        cursor.execute("""
-            SELECT COUNT(*) FROM pragma_table_info('articles') 
-            WHERE name='analyzed'
-        """)
-        if cursor.fetchone()[0] == 0:
-            cursor.execute("""
-                ALTER TABLE articles ADD COLUMN analyzed BOOLEAN DEFAULT FALSE
-            """)
-            # Set analyzed=TRUE for existing articles that have been processed
-            cursor.execute("""
-                UPDATE articles 
-                SET analyzed = TRUE 
-                WHERE category IS NOT NULL 
-                AND future_signal IS NOT NULL 
-                AND sentiment IS NOT NULL
-            """)
-            logger.info("Added analyzed column to articles table")
-
-    def _migrate_article_annotations(self, cursor):
-        """Remove unique constraint from article_annotations table"""
-        try:
-            # Drop the existing table if it exists
-            cursor.execute("DROP TABLE IF EXISTS article_annotations")
-            
-            # Create the table with the new schema
-            cursor.execute("""
-                CREATE TABLE article_annotations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    article_uri TEXT NOT NULL,
-                    author TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    is_private BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE
-                )
-            """)
-            
-            # Create the update trigger
-            cursor.execute("""
-                CREATE TRIGGER IF NOT EXISTS update_article_annotations_timestamp 
-                AFTER UPDATE ON article_annotations
-                BEGIN
-                    UPDATE article_annotations 
-                    SET updated_at = CURRENT_TIMESTAMP 
-                    WHERE id = NEW.id;
-                END
-            """)
-            
-            logger.info("Successfully migrated article_annotations table")
-        except Exception as e:
-            logger.error(f"Error migrating article_annotations table: {str(e)}")
+            logger.error(f"Error during migration: {str(e)}")
             raise
             
-    def _ensure_completed_onboarding(self, cursor):
-        """Ensure the completed_onboarding column exists in the users table"""
-        try:
-            # First check if the users table exists
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-            if not cursor.fetchone():
-                logger.info("Creating users table with completed_onboarding column")
+    def _ensure_users_table_schema(self, cursor):
+        """Ensure users table has the correct schema with password_hash column."""
+        # Check if users table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+        if cursor.fetchone():
+            # Check if password_hash column exists
+            cursor.execute("PRAGMA table_info(users)")
+            columns = {row[1] for row in cursor.fetchall()}
+            
+            if 'password_hash' not in columns:
+                logger.info("Adding password_hash column to users table")
+                # Create a temporary table with the correct schema
                 cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS users (
+                    CREATE TABLE users_temp (
                         username TEXT PRIMARY KEY,
                         password_hash TEXT NOT NULL,
                         force_password_change BOOLEAN DEFAULT 0,
                         completed_onboarding BOOLEAN DEFAULT 0
                     )
                 """)
-                return
                 
-            # Check if the column exists
-            cursor.execute("PRAGMA table_info(users)")
-            columns = [col[1] for col in cursor.fetchall()]
-            
-            if 'completed_onboarding' not in columns:
-                logger.info("Adding completed_onboarding column to users table")
-                cursor.execute("ALTER TABLE users ADD COLUMN completed_onboarding BOOLEAN DEFAULT 0")
+                # Copy data from old table to new table
+                cursor.execute("""
+                    INSERT INTO users_temp (username, force_password_change, completed_onboarding)
+                    SELECT username, force_password_change, completed_onboarding FROM users
+                """)
                 
-        except Exception as e:
-            logger.error(f"Error ensuring completed_onboarding column: {str(e)}")
-            raise
+                # Drop the old table
+                cursor.execute("DROP TABLE users")
+                
+                # Rename the new table to the original name
+                cursor.execute("ALTER TABLE users_temp RENAME TO users")
+        else:
+            # Create the users table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE users (
+                    username TEXT PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    force_password_change BOOLEAN DEFAULT 0,
+                    completed_onboarding BOOLEAN DEFAULT 0
+                )
+            """)
 
     def create_database(self, name):
         # Sanitize the database name
@@ -1193,6 +979,26 @@ class Database:
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
+                
+                # First check if the users table exists
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+                if not cursor.fetchone():
+                    logger.error("Users table does not exist")
+                    return None
+                
+                # Check if password_hash column exists
+                cursor.execute("PRAGMA table_info(users)")
+                columns = {row[1] for row in cursor.fetchall()}
+                
+                if 'password_hash' not in columns:
+                    logger.error("password_hash column does not exist in users table")
+                    # Try to fix the schema
+                    self._ensure_users_table_schema(cursor)
+                    conn.commit()
+                    # Return None to indicate the user needs to be recreated
+                    return None
+                
+                # Query the user with the correct schema
                 cursor.execute("""
                     SELECT username, password_hash, force_password_change, completed_onboarding
                     FROM users WHERE username = ?

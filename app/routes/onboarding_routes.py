@@ -479,6 +479,11 @@ async def onboarding_page(
         
     user_data = db.get_user(user)
     
+    # Handle case where user_data is None (database schema issue)
+    if user_data is None:
+        # Redirect to login to recreate the user
+        return RedirectResponse(url="/login?error=db_schema_updated")
+    
     # Allow access if redo=true or if onboarding not completed
     if user_data.get("completed_onboarding") and not redo:
         return RedirectResponse(url="/")
