@@ -48,7 +48,7 @@ class BulkResearch:
             raise
 
     async def analyze_bulk_urls(self, urls: List[str], summary_type: str, 
-                                 model_name: str, summary_length: str, 
+                                 model_name: str, summary_length: int, 
                                  summary_voice: str, topic: str) -> List[Dict]:
         results = []
         logger.info(f"Starting analysis of {len(urls)} URLs with topic: {topic}")
@@ -128,7 +128,7 @@ class BulkResearch:
                     title=title,
                     source=self.extract_source(url),
                     uri=url,
-                    summary_length=int(summary_length),
+                    summary_length=summary_length,
                     summary_voice=summary_voice,
                     summary_type=summary_type,
                     categories=self.research.CATEGORIES,
@@ -188,7 +188,7 @@ class BulkResearch:
                     'title', 'uri', 'news_source', 'summary', 'sentiment', 'time_to_impact',
                     'category', 'future_signal', 'future_signal_explanation', 'publication_date',
                     'sentiment_explanation', 'time_to_impact_explanation', 'tags', 'driver_type',
-                    'driver_type_explanation', 'submission_date', 'topic'
+                    'driver_type_explanation', 'submission_date', 'topic', 'analyzed'
                 ]
                 
                 # Validate required fields
@@ -210,6 +210,10 @@ class BulkResearch:
                         except (ValueError, AttributeError):
                             logger.warning(f"Invalid date format for {date_field}: {article[date_field]}")
                             article[date_field] = datetime.datetime.now().date().isoformat()
+
+                # Before saving, ensure analyzed is set
+                if 'analyzed' not in article:
+                    article['analyzed'] = True  # If it has all required fields, it's analyzed
 
                 # Use the research instance to save the article
                 saved_article = await self.research.save_article(article)

@@ -345,9 +345,9 @@ class Research:
                             if not cursor.fetchone():
                                 # Create a placeholder entry in the articles table
                                 cursor.execute("""
-                                    INSERT INTO articles (uri, title, news_source, submission_date, topic)
-                                    VALUES (?, 'Placeholder', ?, datetime('now'), ?)
-                                """, (uri, self.extract_source(uri), self.current_topic))
+                                    INSERT INTO articles (uri, title, news_source, submission_date, topic, analyzed)
+                                    VALUES (?, 'Placeholder', ?, datetime('now'), ?, ?)
+                                """, (uri, self.extract_source(uri), self.current_topic, False))
                                 logger.debug(f"Created placeholder article for URI: {uri}")
                             
                             # Now save the raw article
