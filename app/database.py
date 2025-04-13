@@ -73,7 +73,7 @@ class Database:
         self.close_connections()
 
     def init_db(self):
-        """Initialize required database tables"""
+        """Initialize the database and create necessary tables if they don't exist."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
@@ -91,6 +91,19 @@ class Database:
             """)
             
             # Create articles table with URI as primary key
+            self.create_articles_table()
+            
+            # Run migrations to ensure schema is up to date
+            self.migrate_db()
+            
+            conn.commit()
+
+    def create_articles_table(self):
+        """Create the articles and related tables."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Create articles table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS articles (
                     uri TEXT PRIMARY KEY,
@@ -114,67 +127,37 @@ class Database:
                 )
             """)
             
-            if not articles_exists:
-                # Create articles table with URI as primary key
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS articles (
-                        uri TEXT PRIMARY KEY,
-                        title TEXT,
-                        news_source TEXT,
-                        publication_date TEXT,
-                        submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
-                        summary TEXT,
-                        category TEXT,
-                        future_signal TEXT,
-                        future_signal_explanation TEXT,
-                        sentiment TEXT,
-                        sentiment_explanation TEXT,
-                        time_to_impact TEXT,
-                        time_to_impact_explanation TEXT,
-                        tags TEXT,
-                        driver_type TEXT,
-                        driver_type_explanation TEXT,
-                        topic TEXT,
-                        analyzed BOOLEAN DEFAULT FALSE
-                    )
-                """)
-                
-                # Create raw_articles table for storing original content
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS raw_articles (
-                        uri TEXT PRIMARY KEY,
-                        raw_markdown TEXT,
-                        submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
-                        last_updated TEXT,
-                        topic TEXT,
-                        FOREIGN KEY (uri) REFERENCES articles(uri) ON DELETE CASCADE
-                    )
-                """)
-                
-                # Create unique index on URI
-                cursor.execute("""
-                    CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_uri 
-                    ON articles(uri)
-                """)
-                
-                # Create keyword alerts table with proper foreign key constraints
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS keyword_alerts (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        keyword_id INTEGER NOT NULL,
-                        article_uri TEXT NOT NULL,
-                        detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        is_read INTEGER DEFAULT 0,
-                        FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
-                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
-                        UNIQUE(keyword_id, article_uri)
-                    )
-                """)
-                
-                # Rest of the table creation code...
+            # Create raw_articles table for storing original content
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS raw_articles (
+                    uri TEXT PRIMARY KEY,
+                    raw_markdown TEXT,
+                    submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
+                    last_updated TEXT,
+                    topic TEXT,
+                    FOREIGN KEY (uri) REFERENCES articles(uri) ON DELETE CASCADE
+                )
+            """)
             
-            # Run migrations to ensure schema is up to date
-            self.migrate_db()
+            # Create unique index on URI
+            cursor.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_uri 
+                ON articles(uri)
+            """)
+            
+            # Create keyword alerts table with proper foreign key constraints
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS keyword_alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    keyword_id INTEGER NOT NULL,
+                    article_uri TEXT NOT NULL,
+                    detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    is_read INTEGER DEFAULT 0,
+                    FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
+                    FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
+                    UNIQUE(keyword_id, article_uri)
+                )
+            """)
             
             conn.commit()
 
@@ -1363,6 +1346,21 @@ class Database:
                 foreign_keys = cursor.fetchall()
                 for fk in foreign_keys:
                     logger.debug(f"  {fk}")
+
+    def table_exists(self, table_name: str) -> bool:
+        """Check if a table exists in the database."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name=?;
+            """, (table_name,))
+            exists = cursor.fetchone() is not None
+            cursor.close()
+            return exists
+        except sqlite3.Error as e:
+            logging.error(f"Error checking if table {table_name} exists: {e}")
+            return False
 
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
