@@ -1,0 +1,267 @@
+{
+  "topics": [
+    {
+      "name": "AI and Machine Learning",
+      "categories": [
+        "AI Warbots",
+        "AI Business",
+        "Releases and Announcements",
+        "Sovereign AI & AI Nationalism",
+        "AI Copyright, Regulation, and Antitrust",
+        "AI at Work and Employment",
+        "AI and Society",
+        "AI Trust, Risk, and Security Management",
+        "AI in Finance",
+        "AI in Journalism",
+        "AI Healthcare",
+        "AI in Education",
+        "AI in Law and the Legal Profession",
+        "AI in Science",
+        "AI in Art and the Media",
+        "AI in Software Development",
+        "AI Ethics",
+        "AI and Robotics",
+        "AI in the Data Center",
+        "AI Carbon Footprint",
+        "The Path to AGI",
+        "Interesting Papers & Articles on Applied AI",
+        "Other"
+      ],
+      "future_signals": [
+        "AI is hype",
+        "AI has plateaued",
+        "AI will evolve gradually",
+        "AI will accelerate",
+        "AI is a bubble"
+      ],
+      "sentiment": [
+        "Hyperbolic",
+        "Positive",
+        "Neutral",
+        "Negative",
+        "Critical"
+      ],
+      "time_to_impact": [
+        "Immediate",
+        "Short-term",
+        "Mid-term",
+        "Long-term"
+      ],
+      "driver_types": [
+        "Accelerator",
+        "Delayer",
+        "Blocker",
+        "Initiator",
+        "Terminator",
+        "Unknown",
+        "Catalyst"
+      ]
+    },
+    {
+      "name": "Cloud Computing",
+      "categories": [
+        "Quantum Cloud Computing",
+        "Cloud Sovereignty & Geo-Political Cloud Computing",
+        "Decentralized Cloud & Web3 Integration",
+        "Cloud-Native 5G and Edge Revolution",
+        "Zero-Trust Cloud Security & Confidential Computing",
+        "Sustainable Cloud & Carbon-Aware Cloud Computing",
+        "Serverless AI & Autonomous Cloud Services",
+        "Composable Infrastructure & Cloud Hyper-Scale Innovation",
+        "Cross-Cloud Networking & Cloud Federation",
+        "AI-Cloud Convergence & Cloud for AGI Development",
+        "Regenerative AI in Cloud Optimization",
+        "Cloud Democratisation & Accessibility Innovations"
+      ],
+      "future_signals": [
+        "Cloud adoption will continue to grow rapidly",
+        "Edge computing will become more mainstream",
+        "Cloud will become the default platform for AI",
+        "Decentralized cloud will emerge as a strong alternative",
+        "Cloud costs will become unsustainable for some businesses"
+      ],
+      "sentiment": [
+        "Optimistic",
+        "Cautious",
+        "Neutral",
+        "Concerned",
+        "Pessimistic"
+      ],
+      "time_to_impact": [
+        "Immediate",
+        "Short-term",
+        "Mid-term",
+        "Long-term"
+      ],
+      "driver_types": [
+        "Catalyst",
+        "Accelerator",
+        "Delayer",
+        "Blocker",
+        "Initiator",
+        "Terminator",
+        "Unknown"
+      ]
+    },
+    {
+      "name": "Competitor Analysis",
+      "categories": [
+        "Competitor 1",
+        "Competitor 2",
+        "Competitor 3"
+      ],
+      "future_signals": [
+        "Hypergrowth",
+        "M&A",
+        "Pivot",
+        "Expansion",
+        "Sales Decline"
+      ],
+      "sentiment": [
+        "Positive",
+        "Neutral",
+        "Negative"
+      ],
+      "time_to_impact": [
+        "Mid-term",
+        "Immediate",
+        "Long-term",
+        "Short-term"
+      ],
+      "driver_types": [
+        "New Feature",
+        "Funding",
+        "New Product",
+        "New Hire",
+        "New Customer",
+        "Third Party Attestation",
+        "Social Proof",
+        "Lost Customer"
+      ]
+    },
+    {
+      "name": "Trend Monitoring",
+      "categories": [
+        "Category 1",
+        "Category 2"
+      ],
+      "future_signals": [
+        "Adoption is rising",
+        "Adoption is declining",
+        "Adoption is stagnating",
+        "Adoption is overhyped"
+      ],
+      "sentiment": [
+        "Optimistic",
+        "Cautious",
+        "Neutral",
+        "Concerned",
+        "Pessimistic"
+      ],
+      "time_to_impact": [
+        "Immediate",
+        "Short-term",
+        "Mid-term",
+        "Long-term"
+      ],
+      "driver_types": [
+        "Catalyst",
+        "Accelerator",
+        "Delayer",
+        "Blocker",
+        "Initiator",
+        "Terminator",
+        "Unknown"
+      ]
+    },
+    {
+      "name": "AI in Space Exploration",
+      "description": "How AI is being used in the space industry and exploration",
+      "categories": [
+        "AI in Satellite Navigation",
+        "AI in Deep Space Communication",
+        "AI in Extraterrestrial Surface Analysis",
+        "AI in Autonomous Spacecraft Operation",
+        "AI in Payload Management",
+        "AI in Life Support Systems for Astronauts",
+        "AI in Space Weather Forecast",
+        "AI in Orbital and Collision Avoidance Measures"
+      ],
+      "future_signals": [
+        "Autonomous spacecraft become norm",
+        "AI fully automates payload management",
+        "AI undermines human role in space exp...",
+        "AI critical in solving long-term life..."
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "AI in spacecraft navigation",
+        "AI in deep space communication",
+        "AI in space life support systems",
+        "AI in space weather forecast"
+      ]
+    },
+    {
+      "name": "AI in the Military and Warfare",
+      "description": "",
+      "categories": [
+        "AI in Tactical Decision-making",
+        "AI in Surveillance & Reconnaissance",
+        "AI in Military Simulation and Training",
+        "Autonomous Weapons",
+        "AI in Cyber Warfare",
+        "AI-powered Defense Systems",
+        "Ethics and Legal Challenges",
+        "AI in Military Infrastructure & Logistics"
+      ],
+      "future_signals": [
+        "AI-powered drones dominate warfare",
+        "Law allows autonomous weapons",
+        "AI replaces human decision-making in ...",
+        "Cyber warfare outpaces conventional w...",
+        "Public outcry bans autonomous weapons"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "AI military tactics",
+        "AI warfare ethics",
+        "Autonomous weapons regulation",
+        "AI in cyber defense"
+      ]
+    }
+  ]
+}

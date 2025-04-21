@@ -1,0 +1,863 @@
+{% extends "base.html" %}
+{% block title %}AuNoo AI - Analytics{% endblock %}
+{% block content %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container-fluid {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    h1, h2, h5 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+        padding: 20px;
+        border: 1px solid var(--primary-color);
+    }
+
+    .form-select {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 15px;
+        border: 1px solid var(--primary-color);
+        border-radius: 4px;
+    }
+
+    .form-select:focus {
+        border-color: var(--primary-dark);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+    }
+
+    #articleCount {
+        color: var(--primary-color);
+    }
+</style>
+
+<div class="container-fluid mt-4">
+    <h2 class="mb-3">Analytics Dashboard</h2>
+    
+    <!-- Add topic and category selection -->
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <label for="topicSelect">Select Topic</label>
+            <select class="form-select" id="topicSelect">
+                <option value="">Select a topic</option>
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label for="categorySelect">Select Category</label>
+            <select class="form-select" id="categorySelect" disabled>
+                <option value="">Select a category</option>
+            </select>
+        </div>
+        <div class="col-md-4">
+            <label for="timeframeSelect">Timeframe</label>
+            <select class="form-select" id="timeframeSelect">
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="180">Last 180 days</option>
+                <option value="365">Last year</option>
+                <option value="all" selected>All time</option>
+            </select>
+        </div>
+    </div>
+
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Total Articles</h5>
+                    <p id="articleCount" class="card-text display-4">0</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <h5>Sentiment Distribution (Pie Chart)</h5>
+                <div id="sentimentDistributionPie"></div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <h5>Sentiment Distribution (Bar Chart)</h5>
+                <div id="sentimentDistributionBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <h5>Time to Impact Distribution (Pie Chart)</h5>
+                <div id="timeToImpactPie"></div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <h5>Time to Impact Distribution (Bar Chart)</h5>
+                <div id="timeToImpactBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <h5>Future Signal Distribution (Pie Chart)</h5>
+                <div id="futureSignalPie"></div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <h5>Future Signal Distribution (Bar Chart)</h5>
+                <div id="futureSignalBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <h5>Sentiment Distribution Across Categories</h5>
+                <div id="sentimentByCategory"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <h5>Future Signal Distribution Across Categories</h5>
+                <div id="futureSignalByCategory"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <h5>Articles Mapped by Future Signal and Sentiment</h5>
+                <div id="articlesBubbleChart"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <h5>Articles Mapped by Future Signal and Time to Impact</h5>
+                <div id="articlesFutureTimeBubbleChart"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <h5>Radar Chart of Articles by Future Signal, Sentiment, and Time to Impact</h5>
+                <div id="radarChart"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <h5>Integrated Analysis: Driver Type, Time Impact, Sentiment, and Future Signal</h5>
+                <div id="integratedAnalysisChart"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // First load topics
+    loadTopics().then(() => {
+        // After topics are loaded, restore saved selections
+        const savedTopic = localStorage.getItem('analyticsTopic');
+        if (savedTopic) {
+            const topicSelect = document.getElementById('topicSelect');
+            topicSelect.value = savedTopic;
+            // Trigger change event to load categories and charts
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+    });
+    
+    // Add event listeners
+    document.getElementById('topicSelect').addEventListener('change', function(event) {
+        localStorage.setItem('analyticsTopic', event.target.value);
+        handleTopicChange(event);
+    });
+    document.getElementById('categorySelect').addEventListener('change', function(event) {
+        localStorage.setItem('analyticsCategory', event.target.value);
+        handleCategoryChange(event);
+    });
+    document.getElementById('timeframeSelect').addEventListener('change', function(event) {
+        localStorage.setItem('analyticsTimeframe', event.target.value);
+        handleTimeframeChange(event);
+    });
+});
+
+let topicOptions = {
+    sentiments: [],
+    futureSignals: [],
+    timeToImpacts: []
+};
+
+function loadTopics() {
+    return fetch('/api/topics')
+        .then(response => response.json())
+        .then(topics => {
+            const topicSelect = document.getElementById('topicSelect');
+            topicSelect.innerHTML = '<option value="">Select a topic</option>';
+            topics.forEach(topic => {
+                const option = document.createElement('option');
+                option.value = topic.name;
+                option.textContent = topic.name;
+                topicSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading topics:', error));
+}
+
+function handleTopicChange(event) {
+    const topicName = event.target.value;
+    const categorySelect = document.getElementById('categorySelect');
+    
+    if (topicName) {
+        // Enable category select and load categories for selected topic
+        categorySelect.disabled = false;
+        loadTopicOptions(topicName).then(() => {
+            loadCategoriesForTopic(topicName);
+            // Update charts with the new topic (without category)
+            updateCharts();
+        });
+    } else {
+        // Disable and clear category select
+        categorySelect.disabled = true;
+        categorySelect.innerHTML = '<option value="">Select a category</option>';
+        // Clear all charts
+        clearCharts();
+    }
+}
+
+async function loadTopicOptions(topicName) {
+    try {
+        const response = await fetch(`/api/topic-options/${encodeURIComponent(topicName)}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const options = await response.json();
+        topicOptions = {
+            sentiments: options.sentiments,
+            futureSignals: options.futureSignals,
+            timeToImpacts: options.timeToImpacts
+        };
+        console.log('Loaded topic options:', topicOptions);
+    } catch (error) {
+        console.error('Error loading topic options:', error);
+    }
+}
+
+function loadCategoriesForTopic(topicName) {
+    fetch(`/api/categories/${encodeURIComponent(topicName)}`)
+        .then(response => response.json())
+        .then(categories => {
+            const categorySelect = document.getElementById('categorySelect');
+            categorySelect.innerHTML = '<option value="">Select a category</option>';
+            categories.forEach(category => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.textContent = category;
+                categorySelect.appendChild(option);
+            });
+
+            // Restore saved category if it exists
+            const savedCategory = localStorage.getItem('analyticsCategory');
+            if (savedCategory) {
+                categorySelect.value = savedCategory;
+                // Update charts with the restored category
+                updateCharts();
+            }
+        })
+        .catch(error => console.error('Error loading categories:', error));
+}
+
+function handleCategoryChange() {
+    updateCharts();
+}
+
+function handleTimeframeChange() {
+    updateCharts();
+}
+
+function updateCharts() {
+    const topic = document.getElementById('topicSelect').value;
+    const category = document.getElementById('categorySelect').value;
+    const timeframe = document.getElementById('timeframeSelect').value;
+
+    // Only fetch and update charts if a topic is selected
+    if (topic) {
+        fetchDataAndUpdateCharts(timeframe, category || '', topic);  // Use empty string if category is not selected
+    }
+}
+
+async function fetchDataAndUpdateCharts(timeframe, category, topic) {
+    try {
+        const response = await fetch(`/api/analytics?timeframe=${timeframe}&category=${category}&topic=${topic}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        
+        // Update your existing chart update functions
+        updateRadarChart(data.radarChartData);
+        updateSentimentDistribution(data.sentimentDistribution);
+        updateTimeToImpactDistribution(data.timeToImpactDistribution);
+        updateFutureSignalDistribution(data.futureSignalDistribution);
+        updateSentimentByCategory(data.sentimentByCategory);
+        updateFutureSignalByCategory(data.futureSignalByCategory);
+        updateArticlesBubbleChart(data.articlesBubbleChart);
+        updateArticlesFutureTimeBubbleChart(data.articlesFutureTimeBubbleChart);
+        updateArticleCount(data.totalArticles);
+        createIntegratedAnalysisChart(data.integratedAnalysis);
+    } catch (error) {
+        console.error('Error fetching analytics data:', error);
+    }
+}
+
+function updateSentimentDistribution(data) {
+    const colors = {
+        'Positive': '#32CD32',  // Lime Green
+        'Neutral': '#9782ad',   // Lilac
+        'Negative': '#f05b06',  // Red Orange
+        'Critical': '#ff0080',  // Fuchsia
+        'Mixed': '#432f70'      // Indigo
+    };
+
+    // Create ordered arrays for labels, values, and colors
+    const orderedLabels = [];
+    const orderedValues = [];
+    const orderedColors = [];
+
+    // Use dynamic sentiments from topicOptions
+    topicOptions.sentiments.forEach(sentiment => {
+        const index = data.labels.indexOf(sentiment);
+        if (index !== -1) {
+            orderedLabels.push(sentiment);
+            orderedValues.push(data.values[index]);
+            orderedColors.push(colors[sentiment] || 'gray');
+        }
+    });
+
+    // Add any remaining sentiments that weren't in our predefined order
+    data.labels.forEach((label, index) => {
+        if (!orderedLabels.includes(label)) {
+            orderedLabels.push(label);
+            orderedValues.push(data.values[index]);
+            orderedColors.push(colors[label] || 'gray');
+        }
+    });
+
+    // Pie Chart
+    Plotly.newPlot('sentimentDistributionPie', [{
+        values: orderedValues,
+        labels: orderedLabels,
+        type: 'pie',
+        marker: {
+            colors: orderedColors
+        }
+    }], {
+        title: 'Sentiment Distribution (Pie Chart)'
+    });
+
+    // Bar Chart
+    Plotly.newPlot('sentimentDistributionBar', [{
+        x: orderedLabels,
+        y: orderedValues,
+        type: 'bar',
+        marker: {
+            color: orderedColors
+        }
+    }], {
+        title: 'Sentiment Distribution (Bar Chart)',
+        xaxis: { title: 'Sentiment' },
+        yaxis: { title: 'Count' }
+    });
+}
+
+function updateTimeToImpactDistribution(data) {
+    console.log('Time Impact Data:', data);  // Debug log
+    
+    // Check if we have the expected data structure
+    if (!data || (!data.timeToImpactDistribution && !data.labels)) {
+        console.warn('No time to impact distribution data available');
+        return;
+    }
+
+    // Handle both possible data formats
+    let processedData;
+    if (data.timeToImpactDistribution) {
+        processedData = Object.entries(data.timeToImpactDistribution)
+            .map(([key, value]) => ({ name: key, value: value }));
+    } else if (data.labels && data.values) {
+        processedData = data.labels.map((label, index) => ({
+            name: label,
+            value: data.values[index]
+        }));
+    } else {
+        console.warn('Unexpected data format:', data);
+        return;
+    }
+
+    // Sort according to predefined order
+    const timeToImpactOrder = ['Immediate', 'Short-term', 'Mid-term', 'Long-term'];
+    processedData.sort((a, b) => 
+        timeToImpactOrder.indexOf(a.name) - timeToImpactOrder.indexOf(b.name)
+    );
+
+    // Update charts with processed data
+    const values = processedData.map(item => item.value);
+    const labels = processedData.map(item => item.name);
+
+    // Update pie chart
+    Plotly.newPlot('timeToImpactPie', [{
+        values: values,
+        labels: labels,
+        type: 'pie'
+    }], {
+        title: 'Time to Impact Distribution'
+    });
+
+    // Update bar chart
+    Plotly.newPlot('timeToImpactBar', [{
+        x: labels,
+        y: values,
+        type: 'bar'
+    }], {
+        title: 'Time to Impact Distribution',
+        xaxis: { title: 'Time to Impact' },
+        yaxis: { title: 'Count' }
+    });
+}
+
+function updateFutureSignalDistribution(data) {
+    console.log('Future Signal Data:', data);  // Debug log
+    
+    // Check if we have the expected data structure
+    if (!data || (!data.futureSignalDistribution && !data.labels)) {
+        console.warn('No future signal distribution data available');
+        return;
+    }
+
+    // Handle both possible data formats
+    let processedData;
+    if (data.futureSignalDistribution) {
+        processedData = Object.entries(data.futureSignalDistribution)
+            .map(([key, value]) => ({ name: key, value: value }));
+    } else if (data.labels && data.values) {
+        processedData = data.labels.map((label, index) => ({
+            name: label,
+            value: data.values[index]
+        }));
+    } else {
+        console.warn('Unexpected data format:', data);
+        return;
+    }
+
+    // Sort according to the order in topicOptions
+    if (topicOptions && topicOptions.futureSignals) {
+        processedData.sort((a, b) => 
+            topicOptions.futureSignals.indexOf(a.name) - 
+            topicOptions.futureSignals.indexOf(b.name)
+        );
+    }
+
+    const values = processedData.map(item => item.value);
+    const labels = processedData.map(item => item.name);
+
+    // Update pie chart
+    Plotly.newPlot('futureSignalPie', [{
+        values: values,
+        labels: labels,
+        type: 'pie'
+    }], {
+        title: 'Future Signal Distribution'
+    });
+
+    // Update bar chart
+    Plotly.newPlot('futureSignalBar', [{
+        x: labels,
+        y: values,
+        type: 'bar'
+    }], {
+        title: 'Future Signal Distribution',
+        xaxis: { title: 'Future Signal' },
+        yaxis: { title: 'Count' }
+    });
+}
+
+function updateSentimentByCategory(data) {
+    const { categories, sentiments, data: chartData } = data;
+    const traces = sentiments.map(sentiment => ({
+        x: categories,
+        y: categories.map(category => chartData[category][sentiment]),
+        name: sentiment,
+        type: 'bar'
+    }));
+
+    const layout = {
+        barmode: 'stack',
+        title: 'Sentiment Distribution Across Categories',
+        xaxis: { title: 'Category', tickangle: -45 },
+        yaxis: { title: 'Number of Articles' },
+        legend: { title: 'Sentiment' }
+    };
+
+    Plotly.newPlot('sentimentByCategory', traces, layout);
+}
+
+function updateFutureSignalByCategory(data) {
+    const { categories, future_signals, data: chartData } = data;
+    const traces = future_signals.map(signal => ({
+        x: categories,
+        y: categories.map(category => chartData[category][signal]),
+        name: signal,
+        type: 'bar'
+    }));
+
+    const layout = {
+        barmode: 'stack',
+        title: 'Future Signal Distribution Across Categories',
+        xaxis: { title: 'Category', tickangle: -45 },
+        yaxis: { title: 'Number of Articles' },
+        legend: { title: 'Future Signal' }
+    };
+
+    Plotly.newPlot('futureSignalByCategory', traces, layout);
+}
+
+function updateArticlesBubbleChart(data) {
+    const colors = {
+        'Positive': '#32CD32',  // Lime Green
+        'Neutral': '#9782ad',   // Lilac
+        'Negative': '#f05b06',  // Red Orange
+        'Critical': '#ff0080',  // Fuchsia
+        'Mixed': '#432f70'      // Indigo
+    };
+
+    const traces = topicOptions.sentiments.map(sentiment => ({
+        x: topicOptions.futureSignals,
+        y: new Array(topicOptions.futureSignals.length).fill(sentiment),
+        mode: 'markers',
+        name: sentiment,
+        marker: {
+            color: colors[sentiment] || 'gray',
+            size: topicOptions.futureSignals.map(signal => {
+                const match = data.find(item => item.future_signal === signal && item.sentiment === sentiment);
+                return match ? Math.sqrt(match.count) * 25 : 0;
+            }),
+            sizemode: 'area',
+            sizeref: 0.1
+        },
+        text: topicOptions.futureSignals.map(signal => {
+            const match = data.find(item => item.future_signal === signal && item.sentiment === sentiment);
+            return match ? `Count: ${match.count}` : 'Count: 0';
+        }),
+        hoverinfo: 'text'
+    }));
+
+    const layout = {
+        title: 'Articles Mapped by Future Signal and Sentiment',
+        xaxis: { title: 'Future Signal', tickangle: -45 },
+        yaxis: { title: 'Sentiment' },
+        showlegend: true
+    };
+
+    Plotly.newPlot('articlesBubbleChart', traces, layout);
+}
+
+function updateArticlesFutureTimeBubbleChart(data) {
+    const colors = {
+        'Immediate': '#FF1493',  // Deep Pink
+        'Short-term': '#f05b06',  // Red Orange
+        'Mid-term': '#32CD32',   // Lime Green
+        'Long-term': '#9782ad'   // Lilac
+    };
+
+    const traces = topicOptions.timeToImpacts.map(timeToImpact => ({
+        x: topicOptions.futureSignals,
+        y: new Array(topicOptions.futureSignals.length).fill(timeToImpact),
+        mode: 'markers',
+        name: timeToImpact,
+        marker: {
+            color: colors[timeToImpact] || 'gray',
+            size: topicOptions.futureSignals.map(signal => {
+                const match = data.find(item => item.future_signal === signal && item.time_to_impact === timeToImpact);
+                return match ? Math.sqrt(match.count) * 25 : 0;
+            }),
+            sizemode: 'area',
+            sizeref: 0.1
+        },
+        text: topicOptions.futureSignals.map(signal => {
+            const match = data.find(item => item.future_signal === signal && item.time_to_impact === timeToImpact);
+            return match ? `Count: ${match.count}` : 'Count: 0';
+        }),
+        hoverinfo: 'text'
+    }));
+
+    const layout = {
+        title: 'Articles Mapped by Future Signal and Time to Impact',
+        xaxis: { title: 'Future Signal', tickangle: -45 },
+        yaxis: { title: 'Time to Impact' },
+        showlegend: true
+    };
+
+    Plotly.newPlot('articlesFutureTimeBubbleChart', traces, layout);
+}
+
+function updateRadarChart(data) {
+    const colors = {
+        'Positive': '#32CD32',  // Lime Green
+        'Neutral': '#9782ad',   // Lilac
+        'Negative': '#f05b06',  // Red Orange
+        'Critical': '#ff0080',  // Fuchsia
+        'Mixed': '#432f70'      // Indigo
+    };
+    const symbols = {
+        'Positive': 'circle',
+        'Neutral': 'square',
+        'Negative': 'diamond',
+        'Critical': 'x'
+    };
+
+    const traces = [];
+
+    // Create data traces
+    topicOptions.futureSignals.forEach(signal => {
+        topicOptions.sentiments.forEach(sentiment => {
+            const signalSentimentData = data.filter(item => 
+                item.future_signal === signal && 
+                item.sentiment === sentiment
+            );
+
+            signalSentimentData.forEach(item => {
+                const baseR = topicOptions.timeToImpacts.indexOf(item.time_to_impact) + 1;
+                const scatter = (Math.random() - 0.5) * 0.8; // Random value between -0.4 and 0.4
+                traces.push({
+                    type: 'scatterpolar',
+                    r: [baseR + scatter],
+                    theta: [signal],
+                    marker: {
+                        color: colors[sentiment] || 'gray',
+                        symbol: symbols[sentiment] || 'circle',
+                        size: 10
+                    },
+                    showlegend: false
+                });
+            });
+        });
+    });
+
+    // Add concentric circles for time-to-impact stages
+    topicOptions.timeToImpacts.forEach((_, index) => {
+        const r = index + 1;
+        traces.push({
+            type: 'scatterpolar',
+            r: Array(topicOptions.futureSignals.length + 1).fill(r),
+            theta: [...topicOptions.futureSignals, topicOptions.futureSignals[0]],
+            mode: 'lines',
+            line: {
+                color: 'lightgray',
+                dash: 'dot'
+            },
+            showlegend: false,
+            hoverinfo: 'none'
+        });
+    });
+
+    // Create legend traces
+    topicOptions.sentiments.forEach(sentiment => {
+        traces.push({
+            type: 'scatterpolar',
+            r: [0],
+            theta: [topicOptions.futureSignals[0]],
+            name: sentiment,
+            marker: {
+                color: colors[sentiment] || 'gray',
+                symbol: symbols[sentiment] || 'circle',
+            },
+            showlegend: true
+        });
+    });
+
+    const layout = {
+        title: 'Radar Chart of Articles by Future Signal, Sentiment, and Time to Impact',
+        polar: {
+            radialaxis: {
+                visible: true,
+                range: [0, topicOptions.timeToImpacts.length + 0.5],
+                tickvals: Array.from({length: topicOptions.timeToImpacts.length}, (_, i) => i + 1),
+                ticktext: topicOptions.timeToImpacts,
+                tickfont: { size: 8 },
+                angle: 90
+            },
+            angularaxis: {
+                tickfont: { size: 10 },
+                rotation: 90,
+                direction: 'clockwise'
+            }
+        },
+        showlegend: true,
+        legend: { 
+            orientation: 'h', 
+            y: -0.2,
+            title: {
+                text: 'Sentiment',
+                side: 'top'
+            }
+        }
+    };
+
+    Plotly.newPlot('radarChart', traces, layout);
+}
+
+function updateArticleCount(count) {
+    document.getElementById('articleCount').textContent = count;
+}
+
+function createIntegratedAnalysisChart(data) {
+    console.log('Creating integrated analysis chart with data:', data);
+    if (!data || !Array.isArray(data) || data.length === 0) {
+        console.error('Invalid or empty data received for integrated analysis chart');
+        document.getElementById('integratedAnalysisChart').innerHTML = 'No data available for the integrated analysis chart.';
+        return;
+    }
+
+    // Check if all required properties are present
+    const requiredProps = ['driver_type', 'time_to_impact', 'sentiment', 'future_signal', 'count'];
+    const hasAllProps = data.every(item => requiredProps.every(prop => prop in item));
+    if (!hasAllProps) {
+        console.error('Data is missing one or more required properties');
+        document.getElementById('integratedAnalysisChart').innerHTML = 'Data is incomplete for the integrated analysis chart.';
+        return;
+    }
+
+    const driverTypes = [...new Set(data.map(item => item.driver_type || 'Unknown'))];
+    const timeToImpacts = [...new Set(data.map(item => item.time_to_impact).filter(Boolean))];
+    const sentiments = [...new Set(data.map(item => item.sentiment).filter(Boolean))];
+    const futureSignals = [...new Set(data.map(item => item.future_signal).filter(Boolean))];
+
+    if (driverTypes.length === 0 || timeToImpacts.length === 0 || sentiments.length === 0 || futureSignals.length === 0) {
+        console.error('One or more dimensions have no valid data');
+        document.getElementById('integratedAnalysisChart').innerHTML = 'Insufficient data for the integrated analysis chart.';
+        return;
+    }
+
+    const traces = [];
+
+    driverTypes.forEach(driver => {
+        timeToImpacts.forEach(time => {
+            const trace = {
+                x: sentiments,
+                y: futureSignals,
+                mode: 'markers',
+                name: `${driver} - ${time}`,
+                marker: {
+                    size: [],
+                    sizemode: 'area',
+                    sizeref: 2 * Math.max(...data.map(item => item.count || 0)) / (40 ** 2),
+                    sizemin: 4
+                },
+                text: [],
+                hoverinfo: 'text'
+            };
+
+            sentiments.forEach(sentiment => {
+                futureSignals.forEach(signal => {
+                    const item = data.find(d => 
+                        d.driver_type === driver && 
+                        d.time_to_impact === time && 
+                        d.sentiment === sentiment && 
+                        d.future_signal === signal
+                    );
+
+                    if (item) {
+                        trace.marker.size.push(item.count || 0);
+                        trace.text.push(`Driver: ${driver}<br>Time: ${time}<br>Sentiment: ${sentiment}<br>Signal: ${signal}<br>Count: ${item.count || 0}`);
+                    } else {
+                        trace.marker.size.push(0);
+                        trace.text.push('');
+                    }
+                });
+            });
+
+            traces.push(trace);
+        });
+    });
+
+    const layout = {
+        title: 'Integrated Analysis',
+        xaxis: { title: 'Sentiment' },
+        yaxis: { title: 'Future Signal' },
+        hovermode: 'closest',
+        showlegend: true,
+        height: 600,
+        width: 1000
+    };
+
+    Plotly.newPlot('integratedAnalysisChart', traces, layout);
+}
+
+// Add this new function to clear all charts
+function clearCharts() {
+    // Clear each chart with empty data
+    Plotly.newPlot('sentimentDistributionPie', [{ values: [], labels: [], type: 'pie' }]);
+    Plotly.newPlot('sentimentDistributionBar', [{ x: [], y: [], type: 'bar' }]);
+    Plotly.newPlot('timeToImpactPie', [{ values: [], labels: [], type: 'pie' }]);
+    Plotly.newPlot('timeToImpactBar', [{ x: [], y: [], type: 'bar' }]);
+    Plotly.newPlot('futureSignalPie', [{ values: [], labels: [], type: 'pie' }]);
+    Plotly.newPlot('futureSignalBar', [{ x: [], y: [], type: 'bar' }]);
+    Plotly.newPlot('sentimentByCategory', [{ x: [], y: [], type: 'bar' }]);
+    Plotly.newPlot('futureSignalByCategory', [{ x: [], y: [], type: 'bar' }]);
+    Plotly.newPlot('articlesBubbleChart', [{ x: [], y: [], mode: 'markers' }]);
+    Plotly.newPlot('articlesFutureTimeBubbleChart', [{ x: [], y: [], mode: 'markers' }]);
+    Plotly.newPlot('radarChart', [{ r: [], theta: [], type: 'scatterpolar' }]);
+    Plotly.newPlot('integratedAnalysisChart', [{ x: [], y: [], mode: 'markers' }]);
+    
+    // Clear article count
+    document.getElementById('articleCount').textContent = '0';
+}
+
+updateCharts();
+</script>
+{% endblock %}

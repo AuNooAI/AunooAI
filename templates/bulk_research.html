@@ -1,0 +1,969 @@
+{% extends "base.html" %}
+{% block title %}AuNoo AI - Bulk Research{% endblock %}
+{% block content %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container-fluid {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    h1, h2, h5 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        margin-bottom: 20px;
+        padding: 20px;
+        border: none;
+    }
+
+    .form-select, .form-control {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 15px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+    }
+
+    .form-select:focus, .form-control:focus {
+        border-color: var(--dark-gray);
+        box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.1);
+    }
+
+    .article-entry {
+        border: 1px solid var(--medium-gray);
+        padding: 15px;
+        margin-bottom: 20px;
+        background-color: #f9f9f9;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .row {
+        display: flex;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+    }
+
+    .col {
+        flex: 1;
+        min-width: 150px;
+        margin-right: 10px;
+    }
+
+    .col:last-child {
+        margin-right: 0;
+    }
+
+    label {
+        font-weight: bold;
+        display: block;
+        margin-bottom: 5px;
+    }
+
+    textarea.form-control {
+        resize: vertical;
+        height: 60px;
+    }
+
+    .processing-indicator {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 30px;
+        margin: 20px 0;
+        text-align: center;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+    
+    .processing-indicator .spinner-border {
+        width: 3rem;
+        height: 3rem;
+    }
+</style>
+<h1>Bulk Research</h1>
+<script type="text/javascript">
+    var PREFILLED_URLS = {{ prefilled_urls|tojson|safe if prefilled_urls else 'null' }};
+    var SELECTED_TOPIC = {{ selected_topic|tojson|safe if selected_topic else 'null' }};
+</script>
+<form id="bulkResearchForm" enctype="multipart/form-data">
+    <!-- Add Topic Selection -->
+    <div class="mb-3">
+        <label for="topicSelect" class="form-label">Select Topic</label>
+        <select class="form-select" id="topicSelect" name="topic" required>
+            <option value="">Select a topic</option>
+        </select>
+    </div>
+    <!-- Configure Multiselect Options-->
+    <div class="mb-3">
+        <label for="urlList" class="form-label">Enter URLs (one per line, maximum 20)</label>
+        <textarea class="form-control" id="urlList" rows="5"></textarea>
+        <div id="urlCountWarning" class="text-danger mt-1" style="display: none;">
+            Maximum 20 URLs allowed. Please reduce the number of URLs.
+        </div>
+    </div>
+    <div class="mb-3">
+        <label for="urlFile" class="form-label">Or upload a file with URLs</label>
+        <input class="form-control" type="file" id="urlFile" accept=".txt">
+    </div>
+    <div class="mb-3">
+        <label for="summaryLength" class="form-label">Summary Length</label>
+        <select class="form-select" id="summaryLength" name="summaryLength" required>
+            <option value="40">40 words</option>
+            <option value="50" selected>50 words</option>
+            <option value="75">75 words</option>
+            <option value="100">100 words</option>
+            <option value="custom">Custom</option>
+        </select>
+        <div id="customSummaryLengthField" class="custom-field mt-2" style="display: none;">
+            <input type="number" class="form-control" id="customSummaryLength" name="customSummaryLength" placeholder="Enter custom summary length">
+        </div>
+    </div>
+    <div class="mb-3">
+        <label for="summaryVoice" class="form-label">Summary Voice</label>
+        <select class="form-select" id="summaryVoice" name="summaryVoice" required>
+            <option value="business_analyst">Business Analyst</option>
+            <option value="industry_analyst">Industry Analyst</option>
+            <option value="tech_journalist">Tech Journalist</option>
+            <option value="investment_advisor">Investment Advisor</option>
+            <option value="principal_security_engineer">Principal Security Engineer</option>
+            <option value="ciso">CISO</option>
+            <option value="custom">Custom</option>
+        </select>
+        <div id="customVoiceField" class="custom-field mt-2" style="display: none;">
+            <input type="text" class="form-control" id="customVoice" name="customVoice" placeholder="Enter custom voice">
+        </div>
+    </div>
+    <div class="mb-3">
+        <label for="summaryType" class="form-label">Summary Type</label>
+        <select class="form-select" id="summaryType" name="summaryType" required>
+            <option value="curious_ai">Curious AI Long</option>
+            <option value="axios">Axios</option>
+        </select>
+    </div>
+    <div class="mb-3">
+        <label for="modelName" class="form-label">AI Model</label>
+        <select class="form-select" id="modelName" name="modelName" required>
+            <!-- This will be populated dynamically -->
+        </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Analyze</button>
+</form>
+
+<!-- Add this results container -->
+<!-- <div id="results" class="mt-4"></div> -->
+
+<!-- Results table -->
+<div id="resultsTable" class="mt-4" style="display: none;">
+    <h2>Analysis Results</h2>
+    <div id="resultsBody">
+        <!-- Example of a single article layout -->
+        <div class="article-entry">
+            <div class="row">
+                <div class="col">
+                    <label for="newsSource">News Source</label>
+                    <input type="text" id="newsSource" class="form-control" value="404media">
+                </div>
+                <div class="col">
+                    <label for="pubDate">Pub. Date</label>
+                    <input type="date" id="pubDate" class="form-control" value="2024-06-11">
+                </div>
+                <div class="col">
+                    <label for="subDate">Sub. Date</label>
+                    <input type="date" id="subDate" class="form-control" value="2024-06-11">
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="title">Title</label>
+                    <input type="text" id="title" class="form-control" value="Northwell">
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="summary">Summary</label>
+                    <textarea id="summary" class="form-control">Summary text here...</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="category">Category</label>
+                    <select id="category" class="form-select">
+                        <!-- Options will be populated dynamically -->
+                    </select>
+                </div>
+                <div class="col">
+                    <label for="timeToImpact">Time to Impact</label>
+                    <select id="timeToImpact" class="form-select">
+                        <option value="Immediate">Immediate</option>
+                        <option value="Short-term">Short-term</option>
+                        <option value="Mid-term">Mid-term</option>
+                        <option value="Long-term">Long-term</option>
+                    </select>
+                </div>
+                <div class="col">
+                    <label for="timeToImpactExplanation">Time to Impact Explanation</label>
+                    <textarea id="timeToImpactExplanation" class="form-control">Explanation text here...</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="sentiment">Sentiment</label>
+                    <input type="text" id="sentiment" class="form-control" value="Positive">
+                </div>
+                <div class="col">
+                    <label for="sentimentExplanation">Sentiment Explanation</label>
+                    <textarea id="sentimentExplanation" class="form-control">Explanation text here...</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="futureSignal">Future Signal</label>
+                    <input type="text" id="futureSignal" class="form-control" value="AI will accelerate">
+                </div>
+                <div class="col">
+                    <label for="futureSignalExplanation">Future Signal Explanation</label>
+                    <textarea id="futureSignalExplanation" class="form-control">Explanation text here...</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="driverType">Driver Type</label>
+                    <input type="text" id="driverType" class="form-control" value="Accelerator">
+                </div>
+                <div class="col">
+                    <label for="driverTypeExplanation">Driver Type Explanation</label>
+                    <textarea id="driverTypeExplanation" class="form-control">Explanation text here...</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="url">URL</label>
+                    <input type="text" id="url" class="form-control" value="http://example.com">
+                </div>
+            </div>
+        </div>
+    </div>
+    <button id="saveAllButton" class="btn btn-primary mt-3">Save All Articles</button>
+</div>
+
+
+
+<script>
+
+
+document.addEventListener('DOMContentLoaded', function() {
+    const urlList = document.getElementById('urlList');
+    if (PREFILLED_URLS) {
+        urlList.value = PREFILLED_URLS;
+    }
+
+    const topicSelect = document.getElementById('topicSelect');
+    if (topicSelect && SELECTED_TOPIC) {
+        const checkTopicInterval = setInterval(() => {
+            if (topicSelect.options.length > 1) {
+                topicSelect.value = SELECTED_TOPIC;
+                clearInterval(checkTopicInterval);
+            }
+        }, 100);
+    }
+
+    loadTopics();
+    loadAvailableModels();
+    setUpCustomFields();
+    document.getElementById('bulkResearchForm').addEventListener('submit', handleFormSubmit);
+    document.getElementById('saveAllButton').addEventListener('click', saveAllArticles);
+});
+
+async function loadTopics() {
+    try {
+        const response = await fetch('/api/topics');
+        const topics = await response.json();
+        const topicSelect = document.getElementById('topicSelect');
+        topicSelect.innerHTML = '<option value="">Select a topic</option>';
+        topics.forEach(topic => {
+            const option = document.createElement('option');
+            option.value = topic.name;
+            option.textContent = topic.name;
+            topicSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading topics:', error);
+    }
+}
+
+function loadAvailableModels() {
+    fetch('/api/available_models')
+        .then(response => response.json())
+        .then(models => {
+            const modelSelect = document.getElementById('modelName');
+            modelSelect.innerHTML = '';
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = `${model.name} (${model.provider})`;
+                modelSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading available models:', error));
+}
+
+function setUpCustomFields() {
+    const summaryLengthSelect = document.getElementById('summaryLength');
+    const customSummaryLengthField = document.getElementById('customSummaryLengthField');
+    summaryLengthSelect.addEventListener('change', function() {
+        customSummaryLengthField.style.display = this.value === 'custom' ? 'block' : 'none';
+    });
+
+    const summaryVoiceSelect = document.getElementById('summaryVoice');
+    const customVoiceField = document.getElementById('customVoiceField');
+    summaryVoiceSelect.addEventListener('change', function() {
+        customVoiceField.style.display = this.value === 'custom' ? 'block' : 'none';
+    });
+}
+
+// Add this helper function near other utility functions
+function removeProcessingIndicator() {
+    const indicator = document.getElementById('processingIndicator');
+    if (indicator) indicator.remove();
+}
+
+async function analyzeBulkUrls(requestData) {
+    try {
+        console.log('Sending request data:', requestData);
+        const response = await fetch('/api/bulk-research', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(requestData)
+        });
+
+        console.log('Response status:', response.status);
+        console.log('Response headers:', Object.fromEntries(response.headers));
+
+        const responseText = await response.text();
+        console.log('Raw response text:', responseText);
+
+        let data;
+        try {
+            data = JSON.parse(responseText);
+            console.log('Parsed response data:', data);
+        } catch (error) {
+            console.error('JSON parse error:', error);
+            // Remove processing indicator on JSON parse error
+            removeProcessingIndicator();
+            throw new Error(`Failed to parse response: ${responseText.substring(0, 100)}...`);
+        }
+
+        if (!response.ok) {
+            console.error('Response not OK:', data);
+            // Remove processing indicator on unsuccessful response
+            removeProcessingIndicator();
+            throw new Error(data.error || `Server error: ${response.status}`);
+        }
+
+        if (!data || typeof data !== 'object') {
+            console.error('Invalid response data type:', typeof data);
+            // Remove processing indicator on invalid data
+            removeProcessingIndicator();
+            throw new Error('Server returned invalid data type');
+        }
+
+        // Check if data is an array (direct results) or has a results property
+        const results = Array.isArray(data) ? data : data.results;
+        
+        if (!results) {
+            console.error('No results found in response:', data);
+            // Remove processing indicator when no results are found
+            removeProcessingIndicator();
+            throw new Error('Server returned no results array');
+        }
+
+        return results;
+    } catch (error) {
+        console.error('Error in analyzeBulkUrls:', error);
+        // Remove processing indicator on any caught error
+        removeProcessingIndicator();
+        throw error;
+    }
+}
+
+async function handleFormSubmit(event) {
+    event.preventDefault();
+    const submitButton = document.querySelector('button[type="submit"]');
+    const resultsContainer = document.getElementById('results');
+    const resultsTable = document.getElementById('resultsTable');
+    
+    try {
+        // Disable submit button and show loading state
+        submitButton.disabled = true;
+        
+        // Create and show a prominent processing indicator
+        const processingIndicator = document.createElement('div');
+        processingIndicator.id = 'processingIndicator';
+        processingIndicator.className = 'processing-indicator';
+        processingIndicator.innerHTML = `
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <h4 class="mt-3">Analyzing articles...</h4>
+            <p>This may take a few moments depending on the number of articles.</p>
+        `;
+        
+        document.getElementById('bulkResearchForm').insertAdjacentElement('afterend', processingIndicator);
+        
+        if (resultsContainer) {
+            resultsContainer.innerHTML = '';
+            resultsContainer.style.display = 'none';
+        }
+        
+        if (resultsTable) {
+            resultsTable.style.display = 'none';
+        }
+
+        const topic = document.getElementById('topicSelect').value;
+        if (!topic) {
+            // Remove processing indicator when no topic is selected
+            removeProcessingIndicator();
+            throw new Error('Please select a topic before analyzing articles');
+        }
+
+        const urlList = document.getElementById('urlList').value;
+        const urlFile = document.getElementById('urlFile').files[0];
+        
+        let urls = [];
+        if (urlList) {
+            urls = urlList.split('\n').filter(url => url.trim() !== '');
+        } else if (urlFile) {
+            const fileContent = await urlFile.text();
+            urls = fileContent.split('\n').filter(url => url.trim() !== '');
+        }
+
+        if (urls.length === 0) {
+            // Remove processing indicator when no URLs are provided
+            removeProcessingIndicator();
+            throw new Error('Please enter URLs or upload a file containing URLs.');
+        }
+
+        // Add URL count validation
+        if (!validateUrlCount(urls)) {
+            // Remove processing indicator when too many URLs are provided
+            removeProcessingIndicator();
+            throw new Error('Too many URLs provided. Maximum 20 URLs allowed.');
+        }
+
+        const requestData = {
+            urls,
+            summaryType: document.getElementById('summaryType').value,
+            modelName: document.getElementById('modelName').value,
+            summaryLength: getSummaryLength(),
+            summaryVoice: getSummaryVoice(),
+            topic
+        };
+
+        const results = await analyzeBulkUrls(requestData);
+        
+        // Remove the processing indicator after successful analysis
+        removeProcessingIndicator();
+        
+        // Display results in both containers
+        if (resultsContainer) {
+            displayResults(results);
+            resultsContainer.style.display = 'block';
+        }
+        if (resultsTable) {
+            displayResultsTable(results);
+            resultsTable.style.display = 'block';
+        }
+        
+    } catch (error) {
+        console.error('Error:', error);
+        
+        // Remove the processing indicator if it wasn't already removed
+        removeProcessingIndicator();
+        
+        if (resultsContainer) {
+            resultsContainer.innerHTML = `
+                <div class="alert alert-danger">
+                    ${error.message}
+                </div>`;
+            resultsContainer.style.display = 'block';
+        }
+        if (resultsTable) {
+            resultsTable.style.display = 'none';
+        }
+    } finally {
+        submitButton.disabled = false;
+    }
+}
+
+function getSummaryLength() {
+    const summaryLengthSelect = document.getElementById('summaryLength');
+    if (summaryLengthSelect.value === 'custom') {
+        const customLength = document.getElementById('customSummaryLength').value;
+        return customLength ? parseInt(customLength, 10) : 50;  // Default to 50 if custom value is empty
+    }
+    return parseInt(summaryLengthSelect.value, 10);  // Convert selected value to integer
+}
+
+function getSummaryVoice() {
+    const summaryVoiceSelect = document.getElementById('summaryVoice');
+    if (summaryVoiceSelect.value === 'custom') {
+        return document.getElementById('customVoice').value;
+    }
+    return summaryVoiceSelect.value;
+}
+
+function displayResults(results) {
+    const resultsContainer = document.getElementById('results');
+    if (!resultsContainer) return;
+
+    if (!Array.isArray(results) || results.length === 0) {
+        resultsContainer.innerHTML = `
+            <div class="alert alert-info">
+                No results to display
+            </div>`;
+        return;
+    }
+
+    const resultsList = document.createElement('div');
+    resultsList.className = 'results-list';
+
+    results.forEach(result => {
+        const resultElement = document.createElement('div');
+        resultElement.className = 'result-item card mb-3';
+        resultElement.innerHTML = `
+            <div class="card-body">
+                <h3 class="card-title">${result.title || 'No title'}</h3>
+                <p class="card-text"><strong>URL:</strong> ${result.uri}</p>
+                <p class="card-text"><strong>Summary:</strong> ${result.summary}</p>
+                <p class="card-text"><strong>Sentiment:</strong> ${result.sentiment}</p>
+                <p class="card-text"><strong>Category:</strong> ${result.category}</p>
+                <p class="card-text"><strong>Future Signal:</strong> ${result.future_signal}</p>
+                <p class="card-text"><strong>Tags:</strong> ${Array.isArray(result.tags) ? result.tags.join(', ') : result.tags || 'No tags'}</p>
+            </div>
+        `;
+        resultsList.appendChild(resultElement);
+    });
+
+    resultsContainer.innerHTML = '';
+    resultsContainer.appendChild(resultsList);
+}
+
+function displayResultsTable(results) {
+    const resultsBody = document.getElementById('resultsBody');
+    if (!resultsBody) return;
+
+    const topic = document.getElementById('topicSelect').value;
+    resultsBody.innerHTML = '';
+    
+    results.forEach((result, index) => {
+        // Format dates to YYYY-MM-DD for input fields
+        const pubDate = result.publication_date ? result.publication_date.split('T')[0] : '';
+        const subDate = result.submission_date ? result.submission_date.split('T')[0] : '';
+        
+        const articleEntry = document.createElement('div');
+        articleEntry.className = 'article-entry';
+        articleEntry.id = `article-${index}`;
+        
+        articleEntry.innerHTML = `
+            <div class="row">
+                <div class="col">
+                    <label for="url${index}">URL</label>
+                    <input type="text" id="url${index}" class="form-control" value="${result.uri || ''}" readonly>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="newsSource${index}">News Source</label>
+                    <input type="text" id="newsSource${index}" class="form-control" value="${result.news_source || ''}">
+                </div>
+                <div class="col">
+                    <label for="pubDate${index}">Pub. Date</label>
+                    <input type="date" id="pubDate${index}" class="form-control" value="${pubDate}">
+                </div>
+                <div class="col">
+                    <label for="subDate${index}">Sub. Date</label>
+                    <input type="date" id="subDate${index}" class="form-control" value="${subDate}">
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="title${index}">Title</label>
+                    <input type="text" id="title${index}" class="form-control" value="${result.title || ''}">
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="summary${index}">Summary</label>
+                    <textarea id="summary${index}" class="form-control">${result.summary || ''}</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="category${index}">Category</label>
+                    <select id="category${index}" class="form-select category-select"></select>
+                </div>
+                <div class="col">
+                    <label for="timeToImpact${index}">Time to Impact</label>
+                    <select id="timeToImpact${index}" class="form-select">
+                        <option value="Immediate">Immediate</option>
+                        <option value="Short-term" ${result.time_to_impact === 'Short-term' ? 'selected' : ''}>Short-term</option>
+                        <option value="Mid-term">Mid-term</option>
+                        <option value="Long-term">Long-term</option>
+                    </select>
+                </div>
+                <div class="col">
+                    <label for="timeToImpactExplanation${index}">Time to Impact Explanation</label>
+                    <textarea id="timeToImpactExplanation${index}" class="form-control">${result.time_to_impact_explanation || ''}</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="sentiment${index}">Sentiment</label>
+                    <select id="sentiment${index}" class="form-select sentiment-select"></select>
+                </div>
+                <div class="col">
+                    <label for="sentimentExplanation${index}">Sentiment Explanation</label>
+                    <textarea id="sentimentExplanation${index}" class="form-control">${result.sentiment_explanation || ''}</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="futureSignal${index}">Future Signal</label>
+                    <select id="futureSignal${index}" class="form-select future-signal-select"></select>
+                </div>
+                <div class="col">
+                    <label for="futureSignalExplanation${index}">Future Signal Explanation</label>
+                    <textarea id="futureSignalExplanation${index}" class="form-control">${result.future_signal_explanation || ''}</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="driverType${index}">Driver Type</label>
+                    <select id="driverType${index}" class="form-select driver-type-select"></select>
+                </div>
+                <div class="col">
+                    <label for="driverTypeExplanation${index}">Driver Type Explanation</label>
+                    <textarea id="driverTypeExplanation${index}" class="form-control">${result.driver_type_explanation || ''}</textarea>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <label for="tags${index}">Tags</label>
+                    <input type="text" id="tags${index}" class="form-control" 
+                           value="${Array.isArray(result.tags) ? result.tags.join(', ') : result.tags || ''}" 
+                           placeholder="Enter tags separated by commas">
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col text-end">
+                    <button type="button" 
+                            class="btn btn-danger" 
+                            onclick="discardArticle(${index})">
+                        Discard Article
+                    </button>
+                </div>
+            </div>
+        `;
+        resultsBody.appendChild(articleEntry);
+        
+        // Populate dropdowns for this entry
+        populateDropdown(`category${index}`, '/api/categories', result.category);
+        populateDropdown(`sentiment${index}`, '/api/sentiments', result.sentiment);
+        populateDropdown(`futureSignal${index}`, '/api/future_signals', result.future_signal);
+        populateDropdown(`driverType${index}`, '/api/driver_types', result.driver_type);
+    });
+}
+
+function discardArticle(index) {
+    if (confirm('Are you sure you want to discard this article?')) {
+        const articleElement = document.getElementById(`article-${index}`);
+        if (articleElement) {
+            articleElement.remove();
+            
+            // If no articles remain, you might want to hide the results table
+            const resultsBody = document.getElementById('resultsBody');
+            if (!resultsBody.children.length) {
+                document.getElementById('resultsTable').style.display = 'none';
+            }
+        }
+    }
+}
+
+function populateDropdown(elementId, apiUrl, selectedValue) {
+    // Get the current topic
+    const topic = document.getElementById('topicSelect').value;
+    const apiUrlWithTopic = topic ? `${apiUrl}?topic=${encodeURIComponent(topic)}` : apiUrl;
+    
+    fetch(apiUrlWithTopic)
+        .then(response => response.json())
+        .then(data => {
+            const select = document.getElementById(elementId);
+            select.innerHTML = '';
+            data.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                if (option === selectedValue) {
+                    optionElement.selected = true;
+                }
+                select.appendChild(optionElement);
+            });
+        })
+        .catch(error => console.error(`Error populating ${elementId}:`, error));
+}
+
+function collectSelectedArticles() {
+    const articles = [];
+    const articleEntries = document.querySelectorAll('.article-entry');
+    
+    articleEntries.forEach((entry, index) => {
+        if (entry.style.display !== 'none') {
+            const article = {
+                uri: entry.querySelector(`input[id^="url"]`).value.trim(),
+                title: entry.querySelector(`input[id^="title"]`).value.trim(),
+                summary: entry.querySelector(`textarea[id^="summary"]`).value.trim(),
+                news_source: entry.querySelector(`input[id^="newsSource"]`).value.trim(),
+                category: entry.querySelector(`select[id^="category"]`).value,
+                time_to_impact: entry.querySelector(`select[id^="timeToImpact"]`).value,
+                time_to_impact_explanation: entry.querySelector(`textarea[id^="timeToImpactExplanation"]`).value.trim(),
+                sentiment: entry.querySelector(`select[id^="sentiment"]`).value,
+                sentiment_explanation: entry.querySelector(`textarea[id^="sentimentExplanation"]`).value.trim(),
+                future_signal: entry.querySelector(`select[id^="futureSignal"]`).value,
+                future_signal_explanation: entry.querySelector(`textarea[id^="futureSignalExplanation"]`).value.trim(),
+                driver_type: entry.querySelector(`select[id^="driverType"]`).value,
+                driver_type_explanation: entry.querySelector(`textarea[id^="driverTypeExplanation"]`).value.trim(),
+                publication_date: entry.querySelector(`input[id^="pubDate"]`).value.trim(),
+                submission_date: entry.querySelector(`input[id^="subDate"]`).value.trim(),
+                tags: entry.querySelector(`input[id^="tags"]`).value.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
+                topic: document.getElementById('topicSelect').value,
+                analyzed: true
+            };
+            
+            // Only add if required fields are present
+            if (article.uri && article.title) {
+                articles.push(article);
+            }
+        }
+    });
+    
+    return articles;
+}
+
+async function saveAllArticles() {
+    const saveButton = document.getElementById('saveAllButton');
+    const articles = collectSelectedArticles();
+    
+    if (articles.length === 0) {
+        alert('No articles to save.');
+        return;
+    }
+    
+    try {
+        saveButton.disabled = true;
+        console.log('Articles to save:', articles); // Debug log
+
+        const response = await fetch('/api/save-bulk-articles', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ articles }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.errors && result.errors.length > 0) {
+            const errorMessage = result.errors.map(error => `${error.uri}: ${error.error}`).join('\n');
+            alert(`Some articles could not be saved:\n${errorMessage}`);
+        }
+        
+        if (result.success && result.success.length > 0) {
+            alert(`${result.success.length} of ${articles.length} article(s) saved successfully!`);
+            
+            // Remove saved articles from display
+            result.success.forEach(savedArticle => {
+                const articleElement = document.querySelector(`.article-entry input[value="${savedArticle.uri}"]`);
+                if (articleElement) {
+                    articleElement.closest('.article-entry').remove();
+                }
+            });
+            
+            // Hide results table if no articles remain
+            if (document.querySelectorAll('.article-entry').length === 0) {
+                document.getElementById('resultsTable').style.display = 'none';
+            }
+        }
+    } catch (error) {
+        console.error('Error saving articles:', error);
+        alert('Error saving articles. Please try again.');
+    } finally {
+        saveButton.disabled = false;
+    }
+}
+
+function displayAxiosSummary(result) {
+    let summary = `<strong>Main Point:</strong> ${result.summary}<br>`;
+    if (result.key_takeaways) {
+        summary += '<strong>Key Takeaways:</strong><ul>';
+        result.key_takeaways.forEach(takeaway => {
+            summary += `<li>${takeaway}</li>`;
+        });
+        summary += '</ul>';
+    }
+    if (result.go_deeper) {
+        summary += `<strong>Go deeper:</strong> ${result.go_deeper}`;
+    }
+    return summary;
+}
+
+function editArticle(url) {
+    // Implement edit functionality
+    console.log('Edit article:', url);
+}
+
+function deleteArticle(url) {
+    // Implement delete functionality
+    console.log('Delete article:', url);
+}
+
+function updateArticleCountLabel(value) {
+    document.getElementById('articleCountLabel').textContent = value;
+}
+
+async function loadDefaultValuesForTopic(topic) {
+    const response = await fetch('/api/config');
+    const config = await response.json();
+    const topicConfig = config.topics.find(t => t.name === topic);
+
+    if (topicConfig) {
+        const categorySelect = document.getElementById('category');
+        categorySelect.innerHTML = topicConfig.categories.map(category => 
+            `<option value="${category}">${category}</option>`
+        ).join('');
+
+        const futureSignalSelect = document.getElementById('futureSignal');
+        futureSignalSelect.innerHTML = topicConfig.future_signals.map(signal => 
+            `<option value="${signal}">${signal}</option>`
+        ).join('');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const topicSelect = document.getElementById('topicSelect');
+    topicSelect.addEventListener('change', function() {
+        loadDefaultValuesForTopic(this.value);
+    });
+});
+
+// Add this function to handle file loading
+function handleFileUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        // Get the textarea
+        const urlList = document.getElementById('urlList');
+        
+        // Split the file content by newlines and clean up empty lines
+        const urls = e.target.result
+            .split(/\r?\n/)
+            .map(url => url.trim())
+            .filter(url => url !== '');
+            
+        // Add URL count validation
+        if (!validateUrlCount(urls)) {
+            urlList.value = urls.join('\n'); // Still show the URLs
+            return;
+        }
+            
+        urlList.value = urls.join('\n');
+        
+        // Optional: Show how many URLs were loaded
+        alert(`Loaded ${urls.length} URLs from file. Please review before analyzing.`);
+    };
+    
+    reader.onerror = function(e) {
+        console.error('Error reading file:', e);
+        alert('Error reading file. Please try again.');
+    };
+    
+    reader.readAsText(file);
+    
+    // Clear the file input so the same file can be loaded again if needed
+    event.target.value = '';
+}
+
+// Add this new function to validate URL count
+function validateUrlCount(urls) {
+    const MAX_URLS = 20;
+    if (urls.length > MAX_URLS) {
+        const warningDiv = document.getElementById('urlCountWarning');
+        warningDiv.style.display = 'block';
+        warningDiv.textContent = `Maximum ${MAX_URLS} URLs allowed. You provided ${urls.length} URLs. Please reduce the number of URLs.`;
+        return false;
+    }
+    document.getElementById('urlCountWarning').style.display = 'none';
+    return true;
+}
+
+// Add topic change handler
+document.addEventListener('DOMContentLoaded', function() {
+    // ... existing code ...
+    
+    // Add topic change handler
+    const topicSelect = document.getElementById('topicSelect');
+    if (topicSelect) {
+        topicSelect.addEventListener('change', function() {
+            const topic = this.value;
+            if (topic) {
+                // Refresh all dropdowns with the new topic
+                const resultsBody = document.getElementById('resultsBody');
+                if (resultsBody) {
+                    const dropdowns = resultsBody.querySelectorAll('select[id^="category"], select[id^="sentiment"], select[id^="futureSignal"], select[id^="driverType"]');
+                    dropdowns.forEach(dropdown => {
+                        const baseUrl = dropdown.id.startsWith('category') ? '/api/categories' :
+                                      dropdown.id.startsWith('sentiment') ? '/api/sentiments' :
+                                      dropdown.id.startsWith('futureSignal') ? '/api/future_signals' :
+                                      '/api/driver_types';
+                        populateDropdown(dropdown.id, baseUrl, dropdown.value);
+                    });
+                }
+            }
+        });
+    }
+});
+</script>
+{% endblock %}

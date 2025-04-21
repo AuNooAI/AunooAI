@@ -1,0 +1,1192 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Podcast Director</h1>
+    
+    <!-- Two-column layout for search and results -->
+    <div class="row">
+        <!-- Left column: Search form -->
+        <div class="col-md-4">
+            <div id="searchForm" class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Search Articles</h5>
+                </div>
+                <div class="card-body">
+                    <form id="articleSearchForm">
+                        <div class="mb-3">
+                            <label for="topicSelect" class="form-label">Topic</label>
+                            <select id="topicSelect" name="topic" class="form-select">
+                                <option value="">Select a topic</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="category" class="form-label">Categories</label>
+                            <select id="category" name="category" class="form-select" multiple disabled>
+                                <!-- Categories will be populated based on selected topic -->
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="futureSignal" class="form-label">Future Signals</label>
+                            <select id="futureSignal" name="future_signal" class="form-select" multiple>
+                                <!-- Options will be populated dynamically -->
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="sentiment" class="form-label">Sentiments</label>
+                            <select id="sentiment" name="sentiment" class="form-select" multiple>
+                                <!-- Options will be populated dynamically -->
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="tags" class="form-label">Tags</label>
+                            <input type="text" id="tags" name="tags" class="form-control" placeholder="Enter tags separated by commas">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="keyword" class="form-label">Keyword</label>
+                            <input type="text" id="keyword" name="keyword" class="form-control" placeholder="Enter keyword">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="dateRange" class="form-label">Date Range</label>
+                            <select id="dateRange" name="dateRange" class="form-select">
+                                <option value="all">All Time</option>
+                                <option value="7">Last 7 Days</option>
+                                <option value="30">Last 30 Days</option>
+                                <option value="90">Last 90 Days</option>
+                                <option value="custom">Custom Range</option>
+                            </select>
+                        </div>
+
+                        <div id="customDateRange" style="display: none;">
+                            <div class="mb-3">
+                                <label for="startDate" class="form-label">Start Date</label>
+                                <input type="date" id="startDate" name="startDate" class="form-control">
+                            </div>
+                            <div class="mb-3">
+                                <label for="endDate" class="form-label">End Date</label>
+                                <input type="date" id="endDate" name="endDate" class="form-control">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="dateType" class="form-label">Date Type</label>
+                            <select id="dateType" name="date_type" class="form-select">
+                                <option value="publication">Publication Date</option>
+                                <option value="submission">Submission Date</option>
+                            </select>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Right column: Search results -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Search Results <span id="totalCount"></span></h5>
+                    <button id="selectAllBtn" class="btn btn-secondary btn-sm">Select All</button>
+                </div>
+                <div id="articleList" class="article-list-container">
+                    <!-- Articles will be displayed here -->
+                </div>
+                <div id="loadingIndicator" class="text-center p-3" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Podcast Configuration Section -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5 class="mb-0">Podcast Configuration</h5>
+        </div>
+        <div class="card-body">
+            <!-- Tabs -->
+            <ul class="nav nav-tabs mb-3" id="podcastTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="podcast-api-tab" data-bs-toggle="tab" data-bs-target="#podcast-api" type="button" role="tab">
+                        Podcast API
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="tts-tab" data-bs-toggle="tab" data-bs-target="#tts" type="button" role="tab">
+                        TTS with Script
+                    </button>
+                </li>
+            </ul>
+
+            <!-- Tab Content -->
+            <div class="tab-content" id="podcastTabsContent">
+                <!-- Podcast API Tab -->
+                <div class="tab-pane fade show active" id="podcast-api" role="tabpanel">
+                    <form id="podcastForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="podcastTitle" class="form-label">Podcast Title</label>
+                                    <input type="text" class="form-control" id="podcastTitle" required>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="podcastMode" class="form-label">Podcast Mode</label>
+                                    <select class="form-control" id="podcastMode" onchange="toggleGuestVoice()">
+                                        <option value="conversation">Conversation (Two hosts)</option>
+                                        <option value="bulletin">Bulletin (One host)</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="hostVoice" class="form-label">Host Voice</label>
+                                    <select class="form-control" id="hostVoice">
+                                        <option value="aw1NgEzBg83R7vgmiJt6">Brian - Deep & Funny</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="mb-3" id="guestVoiceSection">
+                                    <label for="guestVoice" class="form-label">Guest Voice</label>
+                                    <select class="form-control" id="guestVoice">
+                                        <option value="aw1NgEzBg83R7vgmiJt7">Christina - Calming Yoga Instructor</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="durationScale" class="form-label">Duration Scale</label>
+                                    <select class="form-control" id="durationScale">
+                                        <option value="short">Short (< 3 minutes)</option>
+                                        <option value="default" selected>Default (3-7 minutes)</option>
+                                        <option value="long">Long (> 7 minutes)</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="qualityPreset" class="form-label">Quality Preset</label>
+                                    <select class="form-control" id="qualityPreset">
+                                        <option value="standard">Standard (128kbps)</option>
+                                        <option value="high">High (192kbps)</option>
+                                        <option value="ultra">Ultra (192kbps)</option>
+                                        <option value="ultra_lossless">Ultra Lossless (705.6kbps)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Generate Podcast</button>
+                    </form>
+                </div>
+
+                <!-- TTS with Script Tab -->
+                <div class="tab-pane fade" id="tts" role="tabpanel">
+                    <form id="ttsForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="podcastName" class="form-label">Podcast Name</label>
+                                    <input type="text" class="form-control" id="podcastName" required placeholder="Enter the name of your podcast series" value="Aunoo News">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="episodeTitle" class="form-label">Episode Title</label>
+                                    <input type="text" class="form-control" id="episodeTitle" required placeholder="Enter the title for this episode" value="Latest Debate">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="llmModel" class="form-label">Script Generation Model</label>
+                                    <select class="form-control" id="llmModel">
+                                        <option value="gpt-4o">GPT-4 Optimized</option>
+                                        <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet</option>
+                                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="guestTitle" class="form-label">Guest Title</label>
+                                    <select class="form-control" id="guestTitle">
+                                        <option value="chief_futurist">Chief Futurist at Aunoo</option>
+                                        <option value="special_correspondent">Special Correspondent</option>
+                                        <option value="industry_expert">Industry Expert</option>
+                                        <option value="research_analyst">Research Analyst</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="guestName" class="form-label">Guest Name</label>
+                                    <input type="text" class="form-control" id="guestName" required placeholder="Enter the guest's name" value="Auspex">
+                                </div>
+
+                            </div>
+
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Script Template</label>
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <select class="form-control me-2" id="scriptTemplate">
+                                            <option value="default">Default Template</option>
+                                            <option value="custom">Custom Template</option>
+                                        </select>
+                                        <button type="button" class="btn btn-secondary" id="editTemplate">
+                                            Edit Template
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="scriptPreview" class="form-label">Generated Script</label>
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <button type="button" class="btn btn-primary" id="generateScript">
+                                            Generate Script
+                                        </button>
+                                        <button type="button" class="btn btn-secondary" id="editScript">
+                                            Edit Script
+                                        </button>
+                                    </div>
+                                    <div id="scriptEditor" class="border rounded p-3 bg-light" style="min-height: 300px;"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Generate TTS Podcast</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Section -->
+    <div class="card mt-4" id="progressSection" style="display: none;">
+        <div class="card-header">
+            <h5 class="mb-0">Generation Progress</h5>
+        </div>
+        <div class="card-body">
+            <div class="progress mb-3">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+            </div>
+            <div id="progressStatus" class="text-center">Initializing...</div>
+        </div>
+    </div>
+
+    <!-- Result Section -->
+    <div class="card mt-4" id="resultSection" style="display: none;">
+        <div class="card-header">
+            <h5 class="mb-0">Generated Podcast</h5>
+        </div>
+        <div class="card-body">
+            <div class="mb-3">
+                <audio id="podcastPlayer" controls class="w-100"></audio>
+            </div>
+            <div class="mb-3">
+                <h6>Transcript</h6>
+                <div id="transcript" class="border p-3 bg-light"></div>
+            </div>
+            <div class="mb-3">
+                <button class="btn btn-success" onclick="downloadPodcast()">Download Podcast</button>
+                <button class="btn btn-info" onclick="downloadTranscript()">Download Transcript</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Past Podcasts Section -->
+    <div class="card mt-4" id="pastPodcastsSection">
+        <div class="card-header">
+            <h5 class="mb-0">Past Podcasts</h5>
+        </div>
+        <div class="card-body">
+            <div id="pastPodcasts" class="list-group">
+                <!-- Past podcasts will be displayed here -->
+            </div>
+            <div id="noPodcasts" class="text-center text-muted" style="display: none;">
+                <p>No podcasts found</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Script Editor Modal -->
+<div class="modal fade" id="scriptEditorModal" tabindex="-1" aria-labelledby="scriptEditorModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="scriptEditorModalLabel">Edit Script</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <textarea class="form-control" id="scriptEditor" rows="15"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveScript">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Template Editor Modal -->
+<div class="modal fade" id="templateEditorModal" tabindex="-1" aria-labelledby="templateEditorModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="templateEditorModalLabel">Edit Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <textarea class="form-control" id="templateEditor" rows="15"></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveTemplate">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add jQuery first -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<!-- Then add Select2 -->
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+
+<!-- Add Monaco Editor -->
+<script>
+    // Monaco Editor initialization
+    let editor;
+    (function() {
+        // Load Monaco Editor
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs/loader.min.js';
+        script.onload = function() {
+            require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs' }});
+            require(['vs/editor/editor.main'], function() {
+                editor = monaco.editor.create(document.getElementById('scriptEditor'), {
+                    value: '',
+                    language: 'markdown',
+                    theme: 'vs-light',
+                    minimap: { enabled: false },
+                    lineNumbers: 'on',
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true
+                });
+            });
+        };
+        document.head.appendChild(script);
+    })();
+</script>
+
+<script>
+let selectedArticles = [];
+let currentPage = 1;
+let hasMoreArticles = true;
+let isLoading = false;
+let selectedArticleData = {};
+
+// Initialize dropdowns and event listeners
+document.addEventListener('DOMContentLoaded', function() {
+    initializeDropdowns();
+    initializeEventListeners();
+    loadTopics();
+    
+    // Initialize Bootstrap modals
+    const scriptEditorModal = new bootstrap.Modal(document.getElementById('scriptEditorModal'));
+    const templateEditorModal = new bootstrap.Modal(document.getElementById('templateEditorModal'));
+    
+    // Handle script editing
+    document.getElementById('editScript').addEventListener('click', () => {
+        if (editor) {
+            const scriptContent = editor.getValue();
+            document.getElementById('scriptEditor').value = scriptContent;
+            scriptEditorModal.show();
+        }
+    });
+
+    // Handle script saving
+    document.getElementById('saveScript').addEventListener('click', () => {
+        if (editor) {
+            const scriptContent = document.getElementById('scriptEditor').value;
+            editor.setValue(scriptContent);
+            scriptEditorModal.hide();
+        }
+    });
+
+    // Handle template editing
+    document.getElementById('editTemplate').addEventListener('click', async () => {
+        try {
+            const templateName = document.getElementById('scriptTemplate').value;
+            const response = await fetch(`/api/podcast_templates/${templateName}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            document.getElementById('templateEditor').value = data.template;
+            templateEditorModal.show();
+        } catch (error) {
+            console.error('Error loading template:', error);
+            alert('Error loading template. Please try again.');
+        }
+    });
+
+    // Handle template saving
+    document.getElementById('saveTemplate').addEventListener('click', async () => {
+        try {
+            const templateName = document.getElementById('scriptTemplate').value;
+            const templateContent = document.getElementById('templateEditor').value;
+            
+            const response = await fetch('/api/podcast_templates', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    name: templateName,
+                    content: templateContent
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            templateEditorModal.hide();
+            alert('Template saved successfully');
+        } catch (error) {
+            console.error('Error saving template:', error);
+            alert('Error saving template. Please try again.');
+        }
+    });
+});
+
+function initializeDropdowns() {
+    // Initialize Select2 for multiple select dropdowns
+    $('#category').select2({
+        placeholder: "Select categories",
+        allowClear: true,
+        multiple: true,
+        width: '100%'
+    });
+
+    $('#futureSignal').select2({
+        placeholder: "Select future signals",
+        allowClear: true,
+        multiple: true,
+        width: '100%'
+    });
+
+    $('#sentiment').select2({
+        placeholder: "Select sentiments",
+        allowClear: true,
+        multiple: true,
+        width: '100%'
+    });
+
+    // Initialize topic select
+    $('#topicSelect').select2({
+        placeholder: "Select a topic",
+        allowClear: true,
+        width: '100%'
+    }).on('change', function(e) {
+        const topic = $(this).val();
+        const categorySelect = $('#category');
+        
+        // Clear and disable categories if no topic selected
+        if (!topic) {
+            categorySelect.prop('disabled', true)
+                        .val(null)
+                        .trigger('change');
+            return;
+        }
+        
+        // Enable and load categories for selected topic
+        categorySelect.prop('disabled', false);
+        
+        // Load categories for the selected topic
+        fetch(`/api/categories/${encodeURIComponent(topic)}`)
+            .then(response => response.json())
+            .then(categories => {
+                categorySelect.empty();
+                categories.forEach(category => {
+                    categorySelect.append(new Option(category, category, false, false));
+                });
+                categorySelect.trigger('change');
+            })
+            .catch(error => console.error('Error loading categories:', error));
+    });
+
+    // Load initial dropdowns data
+    Promise.all([
+        fetch('/api/future_signals').then(res => res.json()),
+        fetch('/api/sentiments').then(res => res.json())
+    ]).then(([futureSignals, sentiments]) => {
+        const futureSignalSelect = $('#futureSignal');
+        const sentimentSelect = $('#sentiment');
+
+        futureSignals.forEach(signal => {
+            futureSignalSelect.append(new Option(signal, signal, false, false));
+        });
+
+        sentiments.forEach(sentiment => {
+            sentimentSelect.append(new Option(sentiment, sentiment, false, false));
+        });
+
+        // Trigger change to update Select2
+        futureSignalSelect.trigger('change');
+        sentimentSelect.trigger('change');
+    }).catch(error => console.error('Error loading dropdown data:', error));
+}
+
+function initializeEventListeners() {
+    // Form submission
+    document.getElementById('articleSearchForm').addEventListener('submit', handleSearch);
+
+    // Date range toggle
+    document.getElementById('dateRange').addEventListener('change', toggleCustomDateRange);
+
+    // Select all button
+    document.getElementById('selectAllBtn').addEventListener('click', toggleSelectAll);
+
+    // Infinite scroll
+    document.getElementById('articleList').addEventListener('scroll', handleScroll);
+}
+
+async function loadTopics() {
+    try {
+        const response = await fetch('/api/topics');
+        const topics = await response.json();
+        const topicSelect = document.getElementById('topicSelect');
+        
+        topics.forEach(topic => {
+            const option = document.createElement('option');
+            option.value = topic.name;
+            option.textContent = topic.name;
+            topicSelect.appendChild(option);
+        });
+
+        // Initialize Select2 after populating options
+        $(topicSelect).trigger('change');
+    } catch (error) {
+        console.error('Error loading topics:', error);
+    }
+}
+
+function handleSearch(event) {
+    event.preventDefault();
+    currentPage = 1;
+    hasMoreArticles = true;
+    const articleList = document.getElementById('articleList');
+    articleList.innerHTML = '';
+    fetchArticles();
+}
+
+async function fetchArticles() {
+    if (isLoading || !hasMoreArticles) return;
+
+    isLoading = true;
+    document.getElementById('loadingIndicator').style.display = 'block';
+
+    try {
+        const formData = new FormData(document.getElementById('articleSearchForm'));
+        const searchParams = new URLSearchParams(formData);
+        
+        // Add pagination
+        searchParams.append('page', currentPage);
+        searchParams.append('per_page', 20);
+        
+        // Request all necessary fields
+        searchParams.append('include_fields', 'title,summary,url,uri,publication_date,submission_date,category,sentiment,news_source,analyzed,ai_impact,future_signal');
+
+        const response = await fetch(`/api/search_articles?${searchParams}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data && data.articles) {
+            displaySearchResults(data.articles);
+            updateTotalCount(data.total_count || 0);
+            currentPage++;
+            hasMoreArticles = data.articles.length === 20;
+        } else {
+            displaySearchResults([]);
+            updateTotalCount(0);
+            hasMoreArticles = false;
+        }
+    } catch (error) {
+        console.error('Error fetching articles:', error);
+        // Show error message to user
+        const articleList = document.getElementById('articleList');
+        articleList.innerHTML = `
+            <div class="alert alert-danger m-3" role="alert">
+                Error loading articles. Please try again.
+            </div>
+        `;
+        updateTotalCount(0);
+        hasMoreArticles = false;
+    } finally {
+        isLoading = false;
+        document.getElementById('loadingIndicator').style.display = 'none';
+    }
+}
+
+function displaySearchResults(articles) {
+    const container = document.getElementById('articleList');
+    
+    if (!articles || articles.length === 0) {
+        if (currentPage === 1) {
+            container.innerHTML = `
+                <div class="text-center text-muted p-4">
+                    No articles found matching your criteria.
+                </div>
+            `;
+        }
+        return;
+    }
+    
+    articles.forEach(article => {
+        const item = document.createElement('div');
+        item.className = 'article-item p-3 border-bottom';
+        
+        const isSelected = selectedArticles.includes(article.uri);
+        
+        // Store the full article data when displaying
+        if (isSelected && !selectedArticleData[article.uri]) {
+            selectedArticleData[article.uri] = article;
+        }
+        
+        // Create the article display element
+        item.innerHTML = `
+            <div class="d-flex justify-content-between">
+                <div class="flex-grow-1">
+                    <h5 class="mb-2">${article.title || 'Untitled'}</h5>
+                    <div class="mb-2">
+                        <span class="badge bg-primary me-1">${article.sentiment || 'N/A'}</span>
+                        <span class="badge bg-success me-1">${article.category || 'N/A'}</span>
+                        <span class="badge bg-info">${article.future_signal || 'N/A'}</span>
+                    </div>
+                    <p class="mb-2">${article.summary || 'No summary available'}</p>
+                    <small class="text-muted">
+                        Source: ${article.news_source || 'Unknown'} | 
+                        Published: ${article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'Unknown date'}
+                    </small>
+                </div>
+                <div class="ms-3">
+                    <button class="btn btn-sm ${isSelected ? 'btn-danger' : 'btn-primary'}" 
+                            data-article-uri="${article.uri}">
+                        ${isSelected ? 'Remove' : 'Add'}
+                    </button>
+                </div>
+            </div>
+        `;
+
+        // Add click handler after creating the element
+        const button = item.querySelector('button');
+        button.addEventListener('click', () => {
+            toggleArticleSelection(article);
+        });
+        
+        container.appendChild(item);
+    });
+}
+
+function updateTotalCount(count) {
+    document.getElementById('totalCount').textContent = count > 0 ? ` (${count} articles found)` : '';
+}
+
+function toggleArticleSelection(article) {
+    const uri = article.uri;
+    const index = selectedArticles.indexOf(uri);
+    if (index === -1) {
+        selectedArticles.push(uri);
+        selectedArticleData[uri] = article;
+    } else {
+        selectedArticles.splice(index, 1);
+        delete selectedArticleData[uri];
+    }
+
+    // Update all buttons for this article
+    document.querySelectorAll(`button[data-article-uri="${uri}"]`).forEach(button => {
+        const isSelected = selectedArticles.includes(uri);
+        button.className = `btn btn-sm ${isSelected ? 'btn-danger' : 'btn-primary'}`;
+        button.textContent = isSelected ? 'Remove' : 'Add';
+    });
+}
+
+function toggleSelectAll() {
+    const btn = document.getElementById('selectAllBtn');
+    const isSelectAll = btn.textContent === 'Select All';
+    
+    if (isSelectAll) {
+        // Select all visible articles
+        document.querySelectorAll('.article-item').forEach(item => {
+            const uri = item.querySelector('button').dataset.articleUri;
+            if (!selectedArticles.includes(uri)) {
+                selectedArticles.push(uri);
+            }
+        });
+        btn.textContent = 'Deselect All';
+    } else {
+        selectedArticles = [];
+        btn.textContent = 'Select All';
+    }
+    
+    // Refresh display
+    const articleList = document.getElementById('articleList');
+    articleList.innerHTML = '';
+    currentPage = 1;
+    fetchArticles();
+}
+
+function handleScroll(e) {
+    const element = e.target;
+    if (element.scrollHeight - element.scrollTop === element.clientHeight) {
+        fetchArticles();
+    }
+}
+
+function toggleCustomDateRange() {
+    const dateRange = document.getElementById('dateRange');
+    const customDateRange = document.getElementById('customDateRange');
+    customDateRange.style.display = dateRange.value === 'custom' ? 'block' : 'none';
+}
+
+function toggleGuestVoice() {
+    const mode = document.getElementById('podcastMode').value;
+    const guestVoiceSection = document.getElementById('guestVoiceSection');
+    guestVoiceSection.style.display = mode === 'conversation' ? 'block' : 'none';
+}
+
+document.getElementById('podcastForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    if (selectedArticles.length === 0) {
+        alert('Please select at least one article for the podcast.');
+        return;
+    }
+
+    const formData = {
+        title: document.getElementById('podcastTitle').value,
+        mode: document.getElementById('podcastMode').value,
+        host_voice_id: document.getElementById('hostVoice').value,
+        guest_voice_id: document.getElementById('podcastMode').value === 'conversation' ? 
+            document.getElementById('guestVoice').value : null,
+        duration_scale: document.getElementById('durationScale').value,
+        quality_preset: document.getElementById('qualityPreset').value,
+        article_uris: selectedArticles
+    };
+
+    console.log('Submitting podcast creation with data:', formData);
+
+    try {
+        // Show progress section
+        const progressSection = document.getElementById('progressSection');
+        const resultSection = document.getElementById('resultSection');
+        progressSection.style.display = 'block';
+        resultSection.style.display = 'none';
+
+        // Create podcast
+        const response = await fetch('/api/podcast/create', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+
+        const responseText = await response.text();
+        console.log('Raw response:', responseText);
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}, message: ${responseText}`);
+        }
+
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch (e) {
+            console.error('Error parsing response:', e);
+            throw new Error('Invalid JSON response from server');
+        }
+        
+        console.log('Podcast creation response:', result);
+
+        if (!result.podcast_id) {
+            throw new Error('No podcast ID received');
+        }
+        
+        // Start polling for status
+        pollPodcastStatus(result.podcast_id);
+    } catch (error) {
+        console.error('Error creating podcast:', error);
+        document.getElementById('progressStatus').innerHTML = `
+            <div class="alert alert-danger">
+                Error creating podcast: ${error.message}
+            </div>
+        `;
+    }
+});
+
+async function pollPodcastStatus(podcastId) {
+    if (!podcastId) {
+        console.error('No podcast ID provided for status polling');
+        return;
+    }
+
+    const progressBar = document.querySelector('.progress-bar');
+    const progressStatus = document.getElementById('progressStatus');
+    
+    try {
+        const response = await fetch(`/api/podcast/status/${podcastId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Update progress bar
+        const progress = data.progress * 100;
+        progressBar.style.width = `${progress}%`;
+        progressBar.setAttribute('aria-valuenow', progress);
+        
+        switch (data.status) {
+            case 'completed':
+                progressBar.style.width = '100%';
+                progressStatus.innerHTML = '<div class="alert alert-success">Generation completed!</div>';
+                
+                // Show result section
+                document.getElementById('resultSection').style.display = 'block';
+                
+                // Update audio player
+                const audioPlayer = document.getElementById('podcastPlayer');
+                audioPlayer.src = data.audio_url;
+                
+                // Update transcript
+                document.getElementById('transcript').textContent = data.transcript;
+                
+                // Refresh past podcasts
+                loadPastPodcasts();
+                break;
+                
+            case 'failed':
+                progressStatus.innerHTML = `
+                    <div class="alert alert-danger">
+                        Podcast generation failed
+                    </div>
+                `;
+                break;
+                
+            case 'processing':
+            default:
+                progressStatus.innerHTML = `
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div class="mt-2">Processing... ${Math.round(progress)}%</div>
+                    </div>
+                `;
+                // Poll again in 5 seconds
+                setTimeout(() => pollPodcastStatus(podcastId), 5000);
+                break;
+        }
+    } catch (error) {
+        console.error('Error checking podcast status:', error);
+        progressStatus.innerHTML = `
+            <div class="alert alert-danger">
+                Error checking status: ${error.message}
+            </div>
+        `;
+    }
+}
+
+async function loadPastPodcasts() {
+    try {
+        const pastPodcastsContainer = document.getElementById('pastPodcasts');
+        const noPodcastsMessage = document.getElementById('noPodcasts');
+        
+        if (!pastPodcastsContainer || !noPodcastsMessage) {
+            console.error('Required DOM elements not found');
+            return;
+        }
+
+        const response = await fetch('/api/podcast/list');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const podcasts = await response.json();
+        
+        pastPodcastsContainer.innerHTML = '';
+        
+        if (!podcasts || podcasts.length === 0) {
+            noPodcastsMessage.style.display = 'block';
+            return;
+        }
+
+        noPodcastsMessage.style.display = 'none';
+        
+        podcasts.forEach(podcast => {
+            const item = document.createElement('div');
+            item.className = 'list-group-item';
+            item.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <h6 class="mb-1">${podcast.title}</h6>
+                        <p class="mb-1 text-muted">Created: ${new Date(podcast.created_at).toLocaleString()}</p>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-sm btn-primary play-btn">
+                            <i class="fas fa-play"></i> Play
+                        </button>
+                        <button class="btn btn-sm btn-info transcript-btn">
+                            <i class="fas fa-file-alt"></i> Transcript
+                        </button>
+                        <button class="btn btn-sm btn-success download-btn">
+                            <i class="fas fa-download"></i> Download
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            // Add event listeners after creating the element
+            const playBtn = item.querySelector('.play-btn');
+            playBtn.addEventListener('click', () => playPodcast(podcast.audio_url));
+            
+            const transcriptBtn = item.querySelector('.transcript-btn');
+            transcriptBtn.addEventListener('click', () => downloadTranscript(podcast.podcast_id, podcast.title));
+            
+            const downloadBtn = item.querySelector('.download-btn');
+            downloadBtn.addEventListener('click', () => downloadPodcast(podcast.audio_url));
+            
+            pastPodcastsContainer.appendChild(item);
+        });
+    } catch (error) {
+        console.error('Error loading past podcasts:', error);
+        const noPodcastsMessage = document.getElementById('noPodcasts');
+        if (noPodcastsMessage) {
+            noPodcastsMessage.style.display = 'block';
+            noPodcastsMessage.innerHTML = '<p class="text-danger">Error loading podcasts</p>';
+        }
+    }
+}
+
+function playPodcast(audioUrl) {
+    const player = document.getElementById('podcastPlayer');
+    player.src = audioUrl;
+    player.play();
+}
+
+async function downloadTranscript(podcastId, title) {
+    try {
+        const response = await fetch(`/api/podcast/${podcastId}/transcript`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        // Get the blob from the response
+        const blob = await response.blob();
+        
+        // Create a URL for the blob
+        const url = window.URL.createObjectURL(blob);
+        
+        // Create a temporary link and click it
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_transcript.txt`;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Clean up
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error('Error downloading transcript:', error);
+        alert('Error downloading transcript. Please try again.');
+    }
+}
+
+function downloadPodcast(audioUrl) {
+    if (audioUrl) {
+        window.open(audioUrl, '_blank');
+    }
+}
+
+// Handle script generation
+document.getElementById('generateScript').addEventListener('click', async () => {
+    const podcastName = document.getElementById('podcastName').value;
+    const episodeTitle = document.getElementById('episodeTitle').value;
+    const model = document.getElementById('llmModel').value;
+    const guestTitle = document.getElementById('guestTitle').value;
+    const guestName = document.getElementById('guestName').value;
+    const selectedArticles = Object.values(selectedArticleData);
+
+    if (!podcastName || !episodeTitle) {
+        alert('Please enter both podcast name and episode title');
+        return;
+    }
+
+    if (selectedArticles.length === 0) {
+        alert('Please select at least one article');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/generate_podcast_script', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                podcast_name: podcastName,
+                episode_title: episodeTitle,
+                model,
+                guest_title: guestTitle,
+                guest_name: guestName,
+                articles: selectedArticles
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        if (editor) {
+            editor.setValue(data.script);
+        } else {
+            console.error('Editor not initialized');
+            alert('Editor not initialized. Please refresh the page and try again.');
+        }
+    } catch (error) {
+        console.error('Error generating script:', error);
+        alert('Error generating script. Please try again.');
+    }
+});
+
+// Handle TTS podcast generation
+document.getElementById('ttsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    if (!editor) {
+        alert('Editor not initialized. Please refresh the page and try again.');
+        return;
+    }
+
+    const script = editor.getValue();
+    if (!script) {
+        alert('Please generate or enter a script first');
+        return;
+    }
+
+    const guestName = document.getElementById('guestName').value;
+    if (!guestName) {
+        alert('Please enter a guest name');
+        return;
+    }
+
+    const formData = {
+        podcast_name: document.getElementById('podcastName').value,
+        episode_title: document.getElementById('episodeTitle').value,
+        script: script,
+        host_voice_id: "2qfp6zPuviqeCOZIE9RZ", // Fixed Annie voice ID
+        guest_title: document.getElementById('guestTitle').value,
+        guest_name: guestName,
+        model_id: "eleven_multilingual_v2",
+        output_format: "mp3_44100_128",
+        voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            style: 0.0,
+            use_speaker_boost: true,
+            speed: 1.0
+        }
+    };
+
+    try {
+        // Show progress section
+        const progressSection = document.getElementById('progressSection');
+        const resultSection = document.getElementById('resultSection');
+        progressSection.style.display = 'block';
+        resultSection.style.display = 'none';
+
+        // Generate TTS podcast
+        const response = await fetch('/api/generate_tts_podcast', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        // Start polling for status
+        pollPodcastStatus(result.podcast_id);
+    } catch (error) {
+        console.error('Error generating TTS podcast:', error);
+        document.getElementById('progressStatus').innerHTML = `
+            <div class="alert alert-danger">
+                Error generating podcast: ${error.message}
+            </div>
+        `;
+    }
+});
+</script>
+
+<style>
+.article-list-container {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.article-item {
+    transition: background-color 0.2s;
+}
+
+.article-item:hover {
+    background-color: #f8f9fa;
+}
+
+.select2-container {
+    width: 100% !important;
+}
+
+.progress {
+    height: 20px;
+}
+
+#transcript {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.list-group-item {
+    transition: background-color 0.2s;
+}
+
+.list-group-item:hover {
+    background-color: #f8f9fa;
+}
+
+.btn-group .btn {
+    margin-left: 5px;
+}
+
+#noPodcasts {
+    padding: 20px;
+}
+</style>
+{% endblock %}

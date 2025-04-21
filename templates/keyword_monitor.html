@@ -1,0 +1,852 @@
+{% extends "base.html" %}
+
+{% block title %}AuNoo AI - Keyword Monitor{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h1 class="mb-2">Keyword Monitor</h1>
+            <p class="text-muted">Monitor news articles by configuring keyword groups and search terms</p>
+        </div>
+        <div class="d-flex align-items-center gap-3">
+            <div class="d-flex align-items-center">
+                <div class="me-3">
+                    <div class="text-muted small">API Usage Today</div>
+                    <div class="progress" style="width: 150px; height: 5px;" 
+                         data-tooltip="Shows current API usage against daily limit">
+                        <div id="mainRequestProgress" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    <div class="text-end small">
+                        <span id="mainRequestsUsed" class="text-muted">0</span>/<span id="mainRequestLimit">100</span>
+                        <div id="resetTimer" class="text-muted" style="font-size: 0.8rem;"
+                             data-tooltip="Time until API quota resets"></div>
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-success me-2" onclick="showNewGroupModal()"
+                    data-tooltip="Create a new group of keywords to monitor">
+                <i class="fas fa-plus"></i> New Group
+            </button>
+            <button class="btn btn-primary" onclick="showSettingsModal()"
+                    data-tooltip="Configure monitoring settings and intervals">
+                <i class="fas fa-cog"></i> Settings
+            </button>
+        </div>
+    </div>
+
+    {% if not keyword_groups %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle"></i> 
+        Get started by creating a keyword group. Each group can monitor multiple related keywords.
+    </div>
+    {% endif %}
+
+    <div class="row">
+        {% for group in keyword_groups %}
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">{{ group.name }}</h5>
+                        <span class="badge bg-secondary" 
+                              data-tooltip="Topic this group belongs to">
+                            Topic: {{ group.topic }}
+                        </span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        {% if group.keywords %}
+                        <h6 class="mb-2">Monitored Keywords:</h6>
+                        <div class="d-flex gap-2 flex-wrap">
+                            {% for keyword in group.keywords %}
+                            <div class="badge bg-light text-dark border">
+                                {{ keyword.keyword }}
+                                <button class="btn-close ms-2" 
+                                        onclick="deleteKeyword({{ keyword.id }})"
+                                        data-tooltip="Remove this keyword"
+                                        aria-label="Delete keyword"></button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="alert alert-light">
+                            <i class="fas fa-lightbulb"></i>
+                            Add keywords to start monitoring news articles for this group.
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <button class="btn btn-sm btn-outline-primary" 
+                                onclick="showAddKeywordModal({{ group.id }})"
+                                data-tooltip="Add a new keyword to this group">
+                            <i class="fas fa-plus"></i> Add Keyword
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" 
+                                onclick="deleteGroup({{ group.id }})"
+                                data-tooltip="Delete this entire group">
+                            <i class="fas fa-trash"></i> Delete Group
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<!-- New Group Modal -->
+<div class="modal fade" id="newGroupModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">New Keyword Group</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="newGroupForm">
+                    <div class="mb-3">
+                        <label for="groupName" class="form-label">Group Name</label>
+                        <input type="text" class="form-control" id="groupName" required
+                               placeholder="Enter a descriptive name for this group"
+                               data-tooltip="Choose a name that describes what you're monitoring">
+                        <div class="form-text">
+                            <i class="fas fa-info-circle"></i>
+                            Example: "AI Safety News" or "Cloud Computing Updates"
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="topicSelect" class="form-label">Topic</label>
+                        <select class="form-select" id="topicSelect" required
+                                data-tooltip="Select the topic this group belongs to">
+                            <option value="">Select a topic...</option>
+                            {% for topic in topics %}
+                            <option value="{{ topic.name }}">{{ topic.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <div class="form-text">
+                            <i class="fas fa-info-circle"></i>
+                            Select the topic this keyword group will monitor
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="createGroup()">Create Group</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Keyword Modal -->
+<div class="modal fade" id="addKeywordModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add Keyword</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addKeywordForm">
+                    <input type="hidden" id="groupId">
+                    <div class="mb-3">
+                        <label for="keyword" class="form-label">Keyword or Phrase</label>
+                        <input type="text" class="form-control" id="keyword" required
+                               placeholder="Enter keyword or phrase to monitor">
+                        <div class="form-text">
+                            Tips:
+                            <ul class="mb-0">
+                                <li>Use quotes for exact phrases: "artificial intelligence"</li>
+                                <li>Use OR for alternatives: AI OR "artificial intelligence"</li>
+                                <li>Use AND for combinations: AI AND safety</li>
+                            </ul>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="addKeyword()">Add Keyword</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Settings Modal -->
+<div class="modal fade" id="settingsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Keyword Monitor Settings</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="settingsForm">
+                    <div class="mb-4">
+                        <h6>Search Settings</h6>
+                        <div class="form-group">
+                            <label for="searchDateRange">Search Date Range (days)</label>
+                            <input type="number" class="form-control" id="searchDateRange" 
+                                   name="searchDateRange" min="1" max="30" 
+                                   value="{{ search_date_range|default(7) }}">
+                            <small class="text-muted">Number of days to look back when searching for articles (1-30 days)</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <h6>Check Interval</h6>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="checkInterval" 
+                                   name="checkInterval" min="1" value="{{ check_interval|default(15) }}">
+                            <select class="form-select" id="intervalUnit" name="intervalUnit" style="max-width: 150px;">
+                                <option value="60">Minutes</option>
+                                <option value="3600">Hours</option>
+                                <option value="86400">Days</option>
+                            </select>
+                        </div>
+                        <small class="text-muted">How often to check for new articles</small>
+                        <div id="recommendedInterval" class="mt-2 text-info">
+                            <i class="fas fa-info-circle"></i> 
+                            Recommended interval: <span id="recommendedValue"></span>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <h6>API Settings</h6>
+                        <div class="form-group">
+                            <label for="dailyRequestLimit">Daily Request Limit</label>
+                            <input type="number" class="form-control" id="dailyRequestLimit" 
+                                   name="dailyRequestLimit" min="1" value="{{ daily_request_limit|default(100) }}">
+                            <small class="text-muted">Maximum API requests allowed per day (default: 100 for NewsAPI)</small>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <h6>NewsAPI Settings</h6>
+                        <div class="mb-3">
+                            <label class="form-label">Search Fields</label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="searchTitle" name="searchFields" value="title" checked>
+                                <label class="form-check-label">Title</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="searchDescription" name="searchFields" value="description" checked>
+                                <label class="form-check-label">Description</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="searchContent" name="searchFields" value="content" checked>
+                                <label class="form-check-label">Content</label>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Language</label>
+                            <select class="form-select" id="language" name="language">
+                                <option value="en">English</option>
+                                <option value="ar">Arabic</option>
+                                <option value="de">German</option>
+                                <option value="es">Spanish</option>
+                                <option value="fr">French</option>
+                                <option value="he">Hebrew</option>
+                                <option value="it">Italian</option>
+                                <option value="nl">Dutch</option>
+                                <option value="no">Norwegian</option>
+                                <option value="pt">Portuguese</option>
+                                <option value="ru">Russian</option>
+                                <option value="sv">Swedish</option>
+                                <option value="zh">Chinese</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Sort By</label>
+                            <select class="form-select" id="sortBy" name="sortBy">
+                                <option value="publishedAt">Newest First</option>
+                                <option value="relevancy">Most Relevant</option>
+                                <option value="popularity">Most Popular</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">Results Per Search</label>
+                            <input type="number" class="form-control" id="pageSize" 
+                                   name="pageSize" min="1" max="100" value="10">
+                            <small class="text-muted">Maximum 100 results per search</small>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add this CSS -->
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink - match global brand color */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    h1, h5, h6 {
+        color: var(--primary-color);
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+        border-color: var(--primary-dark);
+    }
+
+    .btn-outline-primary {
+        color: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    .btn-outline-primary:hover {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    .btn-success {
+        background-color: var(--secondary-color);
+        border-color: var(--secondary-color);
+    }
+
+    .btn-success:hover {
+        background-color: var(--secondary-dark);
+        border-color: var(--secondary-dark);
+    }
+
+    .progress-bar {
+        background-color: var(--primary-color);
+    }
+
+    .progress-bar.bg-warning {
+        background-color: #ffc107 !important;
+    }
+
+    .progress-bar.bg-danger {
+        background-color: #dc3545 !important;
+    }
+
+    .text-info {
+        color: var(--primary-color) !important;
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+    }
+
+    .form-check-input:checked {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    /* Tooltip styles */
+    [data-tooltip] {
+        position: relative;
+        cursor: help;
+    }
+
+    [data-tooltip]:hover::before {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 8px 12px;
+        background-color: rgba(0, 0, 0, 0.8);
+        color: white;
+        font-size: 0.8rem;
+        border-radius: 6px;
+        white-space: nowrap;
+        z-index: 1000;
+        margin-bottom: 5px;
+    }
+
+    [data-tooltip]:hover::after {
+        content: '';
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 6px solid transparent;
+        border-top-color: rgba(0, 0, 0, 0.8);
+        margin-bottom: -6px;
+    }
+
+    .form-text {
+        font-size: 0.85rem;
+        color: var(--dark-gray);
+        margin-top: 0.25rem;
+    }
+
+    .form-text i {
+        opacity: 0.7;
+        margin-right: 4px;
+    }
+
+    .card {
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .card-header {
+        background-color: rgba(255, 105, 180, 0.05);
+        border-bottom: 1px solid rgba(255, 105, 180, 0.1);
+    }
+
+    .modal-content {
+        border-radius: 8px;
+        border: none;
+    }
+
+    .modal-header {
+        border-bottom: 1px solid rgba(255, 105, 180, 0.1);
+    }
+
+    .modal-footer {
+        border-top: 1px solid rgba(255, 105, 180, 0.1);
+    }
+</style>
+
+<!-- Alert container for messages -->
+<div id="alertMessage" class="alert alert-dismissible fade" role="alert" style="display: none; position: fixed; top: 20px; right: 20px; z-index: 1050; min-width: 300px; max-width: 500px; box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);">
+    <span id="alertText"></span>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function showNewGroupModal() {
+    // Clear the form
+    document.getElementById('groupName').value = '';
+    document.getElementById('topicSelect').selectedIndex = 0;
+    
+    const modal = new bootstrap.Modal(document.getElementById('newGroupModal'));
+    modal.show();
+}
+
+function showAddKeywordModal(groupId) {
+    // Clear the form
+    document.getElementById('keyword').value = '';
+    document.getElementById('groupId').value = groupId;
+    
+    const modal = new bootstrap.Modal(document.getElementById('addKeywordModal'));
+    modal.show();
+}
+
+async function createGroup() {
+    try {
+        const name = document.getElementById('groupName').value.trim();
+        const topic = document.getElementById('topicSelect').value;
+        
+        if (!name || !topic) {
+            throw new Error('Please fill in all fields');
+        }
+        
+        const response = await fetch('/api/keyword-monitor/groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, topic })
+        });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.detail || 'Failed to create group');
+        }
+        
+        window.location.reload();
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert(error.message || 'Failed to create group', 'danger');
+    }
+}
+
+async function addKeyword() {
+    try {
+        const groupId = parseInt(document.getElementById('groupId').value);
+        const keyword = document.getElementById('keyword').value.trim();
+        
+        if (!groupId || !keyword) {
+            throw new Error('Please fill in all fields');
+        }
+        
+        const response = await fetch('/api/keyword-monitor/keywords', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ group_id: groupId, keyword })
+        });
+        
+        if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.detail || 'Failed to add keyword');
+        }
+        
+        window.location.reload();
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert(error.message || 'Failed to add keyword', 'danger');
+    }
+}
+
+async function deleteKeyword(keywordId) {
+    if (!confirm('Are you sure you want to delete this keyword?')) return;
+    
+    try {
+        const response = await fetch(`/api/keyword-monitor/keywords/${keywordId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error('Failed to delete keyword');
+        
+        window.location.reload();
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to delete keyword');
+    }
+}
+
+async function deleteGroup(groupId) {
+    if (!confirm('Are you sure you want to delete this group and all its keywords?')) return;
+    
+    try {
+        const response = await fetch(`/api/keyword-monitor/groups/${groupId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error('Failed to delete group');
+        
+        window.location.reload();
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to delete group');
+    }
+}
+
+function updateResetTimer() {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    
+    const timeUntilReset = tomorrow - now;
+    const hours = Math.floor(timeUntilReset / (1000 * 60 * 60));
+    const minutes = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const resetTimer = document.getElementById('resetTimer');
+    if (resetTimer) {
+        resetTimer.textContent = `Resets in ${hours}h ${minutes}m`;
+    }
+}
+
+function updateRequestCounters(requestsToday, requestLimit) {
+    const mainRequestsUsed = document.getElementById('mainRequestsUsed');
+    const mainRequestLimit = document.getElementById('mainRequestLimit');
+    const mainRequestProgress = document.getElementById('mainRequestProgress');
+    
+    if (mainRequestsUsed) mainRequestsUsed.textContent = requestsToday;
+    if (mainRequestLimit) mainRequestLimit.textContent = requestLimit;
+    if (mainRequestProgress) {
+        const percentage = (requestsToday / requestLimit) * 100;
+        mainRequestProgress.style.width = `${percentage}%`;
+        
+        // Update progress bar color based on usage
+        if (percentage >= 100) {
+            mainRequestProgress.classList.remove('bg-warning');
+            mainRequestProgress.classList.add('bg-danger');
+            // Show warning about rate limit
+            const resetTimer = document.getElementById('resetTimer');
+            if (resetTimer) {
+                resetTimer.classList.add('text-danger');
+            }
+        } else if (percentage >= 80) {
+            mainRequestProgress.classList.remove('bg-danger');
+            mainRequestProgress.classList.add('bg-warning');
+            const resetTimer = document.getElementById('resetTimer');
+            if (resetTimer) {
+                resetTimer.classList.add('text-warning');
+            }
+        } else {
+            mainRequestProgress.classList.remove('bg-warning', 'bg-danger');
+            const resetTimer = document.getElementById('resetTimer');
+            if (resetTimer) {
+                resetTimer.classList.remove('text-warning', 'text-danger');
+            }
+        }
+    }
+    
+    // Update reset timer
+    updateResetTimer();
+}
+
+async function showSettingsModal() {
+    try {
+        const response = await fetch('/api/keyword-monitor/settings');
+        if (response.ok) {
+            const settings = await response.json();
+            
+            // Update both the main counter and settings form
+            updateRequestCounters(settings.requests_today, settings.daily_request_limit);
+            
+            document.getElementById('checkInterval').value = settings.check_interval;
+            document.getElementById('intervalUnit').value = settings.interval_unit;
+            document.getElementById('dailyRequestLimit').value = settings.daily_request_limit;
+            
+            if (settings.total_keywords > 0) {
+                const minutesPerDay = 24 * 60;
+                const requestsPerDay = settings.daily_request_limit;
+                const recommendedMinutes = Math.max(15, Math.ceil(minutesPerDay / (requestsPerDay / settings.total_keywords)));
+                
+                let recommendedValue, recommendedUnit;
+                if (recommendedMinutes >= 1440) {
+                    recommendedValue = Math.ceil(recommendedMinutes / 1440);
+                    recommendedUnit = 86400;
+                } else if (recommendedMinutes >= 60) {
+                    recommendedValue = Math.ceil(recommendedMinutes / 60);
+                    recommendedUnit = 3600;
+                } else {
+                    recommendedValue = recommendedMinutes;
+                    recommendedUnit = 60;
+                }
+                
+                document.getElementById('checkInterval').value = recommendedValue;
+                document.getElementById('intervalUnit').value = recommendedUnit;
+                
+                const unitText = recommendedUnit === 86400 ? 'days' : 
+                               recommendedUnit === 3600 ? 'hours' : 'minutes';
+                document.getElementById('recommendedValue').textContent = 
+                    `${recommendedValue} ${unitText} based on ${settings.total_keywords} keywords and ${requestsPerDay} daily requests`;
+                document.getElementById('recommendedInterval').style.display = 'block';
+            } else {
+                document.getElementById('recommendedInterval').style.display = 'none';
+            }
+            
+            const fields = settings.search_fields.split(',');
+            document.querySelectorAll('[name="searchFields"]').forEach(cb => {
+                cb.checked = fields.includes(cb.value);
+            });
+            
+            document.getElementById('language').value = settings.language;
+            document.getElementById('sortBy').value = settings.sort_by;
+            document.getElementById('pageSize').value = settings.page_size;
+        }
+    } catch (error) {
+        console.error('Error loading settings:', error);
+    }
+    
+    const modal = new bootstrap.Modal(document.getElementById('settingsModal'));
+    modal.show();
+}
+
+document.getElementById('dailyRequestLimit').addEventListener('change', function() {
+    const requestsToday = parseInt(document.getElementById('mainRequestsUsed').textContent);
+    
+    updateRecommendedInterval({
+        total_keywords: parseInt(document.getElementById('recommendedValue').textContent.split(' ')[5]),
+        daily_request_limit: parseInt(this.value)
+    });
+});
+
+function updateRecommendedInterval(settings) {
+    // Add debugging log
+    console.log('Settings received:', settings);
+    
+    if (settings.total_keywords > 0) {
+        const minutesPerDay = 24 * 60;
+        const requestsPerDay = settings.daily_request_limit;
+        const recommendedMinutes = Math.max(15, Math.ceil(minutesPerDay / (requestsPerDay / settings.total_keywords)));
+        
+        // Add debugging logs
+        console.log('Calculation values:', {
+            totalKeywords: settings.total_keywords,
+            requestsPerDay,
+            recommendedMinutes
+        });
+        
+        let recommendedValue, recommendedUnit;
+        if (recommendedMinutes >= 1440) {
+            recommendedValue = Math.ceil(recommendedMinutes / 1440);
+            recommendedUnit = 86400;
+        } else if (recommendedMinutes >= 60) {
+            recommendedValue = Math.ceil(recommendedMinutes / 60);
+            recommendedUnit = 3600;
+        } else {
+            recommendedValue = recommendedMinutes;
+            recommendedUnit = 60;
+        }
+        
+        document.getElementById('checkInterval').value = recommendedValue;
+        document.getElementById('intervalUnit').value = recommendedUnit;
+        
+        const unitText = recommendedUnit === 86400 ? 'days' : 
+                        recommendedUnit === 3600 ? 'hours' : 'minutes';
+                        
+        // Add the actual keyword count to the display for verification
+        const message = `${recommendedValue} ${unitText} based on ${settings.total_keywords} keywords (verified count) and ${requestsPerDay} daily requests`;
+        console.log('Displaying message:', message);
+        document.getElementById('recommendedValue').textContent = message;
+    }
+}
+
+async function saveSettings() {
+    try {
+        const searchFields = Array.from(document.querySelectorAll('[name="searchFields"]:checked'))
+            .map(cb => cb.value)
+            .join(',');
+            
+        const settings = {
+            check_interval: parseInt(document.getElementById('checkInterval').value),
+            interval_unit: parseInt(document.getElementById('intervalUnit').value),
+            daily_request_limit: parseInt(document.getElementById('dailyRequestLimit').value),
+            search_date_range: parseInt(document.getElementById('searchDateRange').value),
+            search_fields: searchFields,
+            language: document.getElementById('language').value,
+            sort_by: document.getElementById('sortBy').value,
+            page_size: parseInt(document.getElementById('pageSize').value)
+        };
+        
+        const response = await fetch('/api/keyword-monitor/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        
+        if (!response.ok) throw new Error('Failed to save settings');
+        window.location.reload();
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Failed to save settings');
+    }
+}
+
+// Update the refreshRequestCount function to handle rate limit messages
+async function refreshRequestCount() {
+    try {
+        const response = await fetch('/api/keyword-monitor/settings');
+        if (response.ok) {
+            const settings = await response.json();
+            
+            // If there's a rate limit error, force count to 100
+            if (settings.last_error && (
+                settings.last_error.includes("Rate limit exceeded") || 
+                settings.last_error.includes("limit reached")
+            )) {
+                updateRequestCounters(100, settings.daily_request_limit);
+            } else {
+                updateRequestCounters(settings.requests_today, settings.daily_request_limit);
+            }
+        }
+    } catch (error) {
+        console.error('Error refreshing request count:', error);
+    }
+}
+
+// Update request count every minute
+setInterval(refreshRequestCount, 60000);
+
+// Initial load
+document.addEventListener('DOMContentLoaded', function() {
+    refreshRequestCount();
+    updateResetTimer();
+    // Update reset timer every minute
+    setInterval(updateResetTimer, 60000);
+    // Update request count every minute
+    setInterval(refreshRequestCount, 60000);
+    verifyKeywordCount();
+});
+
+// Update the check keywords function to handle rate limit
+async function checkKeywords() {
+    const button = event.target.closest('button');
+    const originalHtml = button.innerHTML;
+    
+    try {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+        
+        const response = await fetch('/api/keyword-monitor/check-now', {
+            method: 'POST'
+        });
+        
+        if (response.status === 429) {
+            // Force update counter to show 100 on rate limit
+            updateRequestCounters(100, 100);
+            showAlert('API daily request limit reached. Please try again tomorrow.', 'warning');
+        } else if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.detail || 'Failed to check keywords');
+        } else {
+            window.location.reload();
+        }
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert(error.message || 'Failed to check keywords. Please try again.');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+    }
+}
+
+// Add this function to verify keyword count on page load
+async function verifyKeywordCount() {
+    try {
+        const response = await fetch('/api/keyword-monitor/settings');
+        const settings = await response.json();
+        console.log('Current settings from API:', settings);
+        
+        // Count keywords manually from the DOM
+        const keywordElements = document.querySelectorAll('.badge.bg-light.text-dark.border');
+        const domKeywordCount = keywordElements.length;
+        console.log('Keywords counted in DOM:', domKeywordCount);
+        
+        if (domKeywordCount !== settings.total_keywords) {
+            console.warn('Keyword count mismatch:', {
+                domCount: domKeywordCount,
+                apiCount: settings.total_keywords
+            });
+        }
+    } catch (error) {
+        console.error('Error verifying keyword count:', error);
+    }
+}
+
+// Add this helper function for showing alerts
+function showAlert(message, type = 'danger') {
+    const alert = document.getElementById('alertMessage');
+    if (!alert) return;
+    
+    alert.className = `alert alert-${type} alert-dismissible fade show`;
+    alert.innerHTML = `
+        <span id="alertText">${message}</span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    alert.style.display = 'block';
+    
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        alert.classList.remove('show');
+        setTimeout(() => alert.style.display = 'none', 150);
+    }, 5000);
+}
+</script>
+{% endblock %} 

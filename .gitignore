@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+bin/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Application specific
+.env
+reports/
+app/config/config.json
+app/data/*.db
+
+# IDE and Editor files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+cursor.rules
+
+# OS specific
+.DS_Store
+Thumbs.db
+LA_notes
+cache/*
+*.db
+.cursor/
+
+# FFmpeg executables
+ffmpeg/ffmpeg-master-latest-win64-gpl/bin/*.exe
+ffmpeg/ffmpeg-master-latest-win64-gpl/bin/*.dll
+ffmpeg/ffmpeg-master-latest-win64-gpl/bin/*.bat

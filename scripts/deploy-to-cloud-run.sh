@@ -1,0 +1,438 @@
+#!/bin/bash
+
+# AunooAI GCP Cloud Run Deployment Script
+# --------------------------------------
+# This script automates the deployment of AunooAI to Google Cloud Run.
+# It handles authentication, Docker image building, Cloud Storage setup,
+# and Cloud Run deployment with proper configuration.
+
+set -e  # Exit on error
+
+# Default configuration
+PROJECT_ID="aunooai-project"
+REGION="us-central1"
+TENANT="tenant1"
+ADMIN_PASSWORD="admin"
+PORT="8080"
+USE_SUDO_FOR_DOCKER=false
+MEMORY="4Gi"
+CPU="2"
+MIN_INSTANCES="1"
+MAX_INSTANCES="10"
+CONCURRENCY="80"
+TIMEOUT="600s"
+IMAGE_TAG="latest"
+# LiteLLM configuration
+OPENAI_API_KEY=""
+ANTHROPIC_API_KEY=""
+GOOGLE_API_KEY=""
+LITELLM_CONFIG=""
+# Startup probe configuration
+STARTUP_TIMEOUT="300s"
+STARTUP_PERIOD="10s"
+STARTUP_FAILURE_THRESHOLD="30"
+DISABLE_SSL="false"
+# Object retention configuration
+RETENTION_PERIOD=""
+
+# Check if user has Docker permissions
+if ! docker info &>/dev/null; then
+  if command -v snap &>/dev/null && snap list docker &>/dev/null; then
+    echo "Docker is installed via snap. Using sudo for Docker commands."
+    USE_SUDO_FOR_DOCKER=true
+  elif sudo docker info &>/dev/null; then
+    echo "Docker requires sudo privileges. Will use sudo for Docker commands."
+    USE_SUDO_FOR_DOCKER=true
+  else
+    echo "Error: Docker is not running or you don't have permissions to use it."
+    echo "Please make sure Docker is installed and running, and you have the necessary permissions."
+    exit 1
+  fi
+fi
+
+# Handle sudo execution by preserving the actual user's HOME
+if [ -n "$SUDO_USER" ]; then
+  echo "Running with sudo. Using $SUDO_USER's gcloud configuration..."
+  REAL_USER_HOME=$(eval echo ~$SUDO_USER)
+  export CLOUDSDK_CONFIG="$REAL_USER_HOME/.config/gcloud"
+fi
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+  key="$1"
+  case $key in
+    --project)
+      PROJECT_ID="$2"
+      shift 2
+      ;;
+    --region)
+      REGION="$2"
+      shift 2
+      ;;
+    --tenant)
+      TENANT="$2"
+      shift 2
+      ;;
+    --admin-password)
+      ADMIN_PASSWORD="$2"
+      shift 2
+      ;;
+    --port)
+      PORT="$2"
+      shift 2
+      ;;
+    --memory)
+      MEMORY="$2"
+      shift 2
+      ;;
+    --cpu)
+      CPU="$2"
+      shift 2
+      ;;
+    --min-instances)
+      MIN_INSTANCES="$2"
+      shift 2
+      ;;
+    --max-instances)
+      MAX_INSTANCES="$2"
+      shift 2
+      ;;
+    --concurrency)
+      CONCURRENCY="$2"
+      shift 2
+      ;;
+    --timeout)
+      TIMEOUT="$2"
+      shift 2
+      ;;
+    --image-tag)
+      IMAGE_TAG="$2"
+      shift 2
+      ;;
+    --openai-api-key)
+      OPENAI_API_KEY="$2"
+      shift 2
+      ;;
+    --anthropic-api-key)
+      ANTHROPIC_API_KEY="$2"
+      shift 2
+      ;;
+    --google-api-key)
+      GOOGLE_API_KEY="$2"
+      shift 2
+      ;;
+    --litellm-config)
+      LITELLM_CONFIG="$2"
+      shift 2
+      ;;
+    --startup-timeout)
+      STARTUP_TIMEOUT="$2"
+      shift 2
+      ;;
+    --startup-period)
+      STARTUP_PERIOD="$2"
+      shift 2
+      ;;
+    --startup-failure-threshold)
+      STARTUP_FAILURE_THRESHOLD="$2"
+      shift 2
+      ;;
+    --disable-ssl)
+      DISABLE_SSL="$2"
+      shift 2
+      ;;
+    --retention-period)
+      RETENTION_PERIOD="$2"
+      shift 2
+      ;;
+    --help)
+      echo "Usage: $0 --project PROJECT_ID [OPTIONS]"
+      echo ""
+      echo "Required:"
+      echo "  --project ID         GCP Project ID"
+      echo ""
+      echo "Options:"
+      echo "  --region REGION      GCP Region (default: us-central1)"
+      echo "  --tenant NAME        Tenant name (default: tenant1)"
+      echo "  --admin-password PWD Admin password (default: admin)"
+      echo "  --port PORT          Container port (default: 8080)"
+      echo "  --memory MEMORY      Memory allocation (default: 4Gi)"
+      echo "  --cpu CPU            CPU allocation (default: 2)"
+      echo "  --min-instances N    Minimum instances (default: 1)"
+      echo "  --max-instances N    Maximum instances (default: 10)"
+      echo "  --concurrency N      Concurrency per instance (default: 80)"
+      echo "  --timeout SEC        Request timeout in seconds (default: 600s)"
+      echo "  --image-tag TAG      Docker image tag to use (default: latest)"
+      echo "  --openai-api-key KEY OpenAI API key"
+      echo "  --anthropic-api-key KEY Anthropic API key"
+      echo "  --google-api-key KEY Google API key"
+      echo "  --litellm-config PATH Path to LiteLLM config file"
+      echo "  --startup-timeout SEC Startup probe timeout (default: 300s)"
+      echo "  --startup-period SEC Startup probe period (default: 10s)"
+      echo "  --startup-failure-threshold N Startup probe failure threshold (default: 30)"
+      echo "  --disable-ssl BOOL   Disable SSL redirect (default: false)"
+      echo "  --retention-period PERIOD Object retention period (no default, format: e.g., 30d, 1y, 100y)"
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      echo "Run '$0 --help' for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+# Validate required parameters
+if [ -z "$PROJECT_ID" ]; then
+  echo "Error: --project is required"
+  echo "Run '$0 --help' for usage information"
+  exit 1
+fi
+
+# Display configuration
+echo "=== AunooAI GCP Cloud Run Deployment ==="
+echo "Project ID: $PROJECT_ID"
+echo "Region: $REGION"
+echo "Tenant: $TENANT"
+echo "Admin Password: [REDACTED]"
+echo "Port: $PORT"
+echo "Memory: $MEMORY"
+echo "CPU: $CPU"
+echo "Min Instances: $MIN_INSTANCES"
+echo "Max Instances: $MAX_INSTANCES"
+echo "Concurrency: $CONCURRENCY"
+echo "Timeout: $TIMEOUT"
+echo "Image Tag: $IMAGE_TAG"
+echo "Startup Timeout: $STARTUP_TIMEOUT"
+echo "Startup Period: $STARTUP_PERIOD"
+echo "Startup Failure Threshold: $STARTUP_FAILURE_THRESHOLD"
+echo "Disable SSL: $DISABLE_SSL"
+echo "Retention Period: $RETENTION_PERIOD"
+if [ -n "$OPENAI_API_KEY" ]; then echo "OpenAI API Key: [SET]"; fi
+if [ -n "$ANTHROPIC_API_KEY" ]; then echo "Anthropic API Key: [SET]"; fi
+if [ -n "$GOOGLE_API_KEY" ]; then echo "Google API Key: [SET]"; fi
+if [ -n "$LITELLM_CONFIG" ]; then echo "LiteLLM Config: $LITELLM_CONFIG"; fi
+echo "========================================"
+
+# Ensure gcloud is authenticated
+echo "Checking authentication..."
+if ! gcloud auth list --format="value(account)" 2>/dev/null | grep -q "@"; then
+  echo "You need to authenticate with gcloud first."
+  echo "Run: gcloud auth login"
+  exit 1
+fi
+
+# Configure gcloud
+echo "Configuring gcloud..."
+gcloud config set project $PROJECT_ID
+
+# Enable required APIs
+echo "Enabling required GCP APIs..."
+gcloud services enable artifactregistry.googleapis.com containerregistry.googleapis.com run.googleapis.com storage-api.googleapis.com
+
+# Authenticate Docker for GCR
+echo "Configuring Docker authentication for Google Container Registry..."
+gcloud auth configure-docker gcr.io --quiet
+
+# Ensure the user has required permissions
+echo "Verifying and granting required permissions..."
+EMAIL=$(gcloud auth list --format="value(account)" 2>/dev/null | head -1)
+if [ -n "$EMAIL" ]; then
+  # Grant the user Artifact Registry Writer role if they don't have it
+  gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="user:$EMAIL" \
+    --role="roles/artifactregistry.writer" > /dev/null 2>&1 || true
+    
+  # Also grant the Storage Admin role which is needed for bucket operations
+  gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="user:$EMAIL" \
+    --role="roles/storage.admin" > /dev/null 2>&1 || true
+    
+  # Grant Container Registry Writer role for backward compatibility
+  gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="user:$EMAIL" \
+    --role="roles/containerregistry.ServiceAgent" > /dev/null 2>&1 || true
+fi
+
+# Create a temporary Docker config to force a fresh authentication
+mkdir -p ~/.docker
+cat > ~/.docker/config.json <<EOF
+{
+  "credHelpers": {
+    "gcr.io": "gcloud"
+  }
+}
+EOF
+
+# For older Docker versions, we should also refresh the credential helper
+if [ -f ~/.docker/config.json ]; then
+  if [ "$USE_SUDO_FOR_DOCKER" = true ]; then
+    # If using sudo for Docker, we need to make sure root has the same Docker config
+    sudo mkdir -p /root/.docker
+    sudo cp ~/.docker/config.json /root/.docker/
+    
+    # Get the access token without sudo first, then pass it to sudo docker login
+    ACCESS_TOKEN=$(gcloud auth print-access-token)
+    echo "$ACCESS_TOKEN" | sudo docker login -u oauth2accesstoken --password-stdin https://gcr.io
+  else
+    gcloud auth print-access-token | docker login -u oauth2accesstoken --password-stdin https://gcr.io
+  fi
+fi
+
+# Create Cloud Storage bucket for tenant data
+BUCKET_NAME="${PROJECT_ID}-aunooai-${TENANT}"
+echo "Creating Cloud Storage bucket: $BUCKET_NAME"
+gsutil mb -l $REGION gs://$BUCKET_NAME || echo "Bucket already exists"
+
+# Set object retention policy (default: 30 days)
+echo "Setting object retention policy: $RETENTION_PERIOD"
+if [ -n "$RETENTION_PERIOD" ]; then
+  echo "Setting object retention policy: $RETENTION_PERIOD"
+  gsutil retention set $RETENTION_PERIOD gs://$BUCKET_NAME || echo "Failed to set retention policy, may require manual configuration"
+else
+  echo "No retention policy set. Objects can be deleted at any time but will persist indefinitely until deleted."
+fi
+
+# Build and tag the Docker image using the GCP-specific Dockerfile
+IMAGE_NAME="gcr.io/$PROJECT_ID/aunooai-$TENANT:$IMAGE_TAG"
+echo "Building Docker image: $IMAGE_NAME"
+if [ "$USE_SUDO_FOR_DOCKER" = true ]; then
+  sudo docker build -t $IMAGE_NAME -f Dockerfile.gcp .
+else
+  docker build -t $IMAGE_NAME -f Dockerfile.gcp .
+fi
+
+# Push the image to Google Container Registry
+echo "Pushing image to Google Container Registry..."
+if [ "$USE_SUDO_FOR_DOCKER" = true ]; then
+  # Authenticate Docker with GCR using the current user's access token
+  echo "Using sudo for Docker. Authenticating with GCR..."
+  gcloud auth print-access-token | sudo docker login -u oauth2accesstoken --password-stdin https://gcr.io
+  sudo docker push $IMAGE_NAME
+else
+  docker push $IMAGE_NAME
+fi
+
+# Create a service account for the tenant
+SA_NAME="aunooai-$TENANT-sa"
+SA_EMAIL="$SA_NAME@$PROJECT_ID.iam.gserviceaccount.com"
+
+echo "Creating service account: $SA_NAME"
+gcloud iam service-accounts create $SA_NAME \
+  --display-name="AunooAI $TENANT Service Account" || echo "Service account already exists"
+
+# Grant the service account access to the bucket
+echo "Granting bucket access to service account..."
+gsutil iam ch serviceAccount:$SA_EMAIL:objectAdmin gs://$BUCKET_NAME
+
+# Deploy to Cloud Run
+echo "Deploying to Cloud Run..."
+# Create environment variables string
+ENV_VARS="INSTANCE=$TENANT,ADMIN_PASSWORD=$ADMIN_PASSWORD,STORAGE_BUCKET=$BUCKET_NAME"
+
+# Add LiteLLM environment variables if provided
+if [ -n "$OPENAI_API_KEY" ]; then
+  ENV_VARS="$ENV_VARS,OPENAI_API_KEY=$OPENAI_API_KEY"
+fi
+
+if [ -n "$ANTHROPIC_API_KEY" ]; then
+  ENV_VARS="$ENV_VARS,ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+fi
+
+if [ -n "$GOOGLE_API_KEY" ]; then
+  ENV_VARS="$ENV_VARS,GOOGLE_API_KEY=$GOOGLE_API_KEY"
+fi
+
+if [ -n "$LITELLM_CONFIG" ]; then
+  ENV_VARS="$ENV_VARS,LITELLM_CONFIG=$LITELLM_CONFIG"
+fi
+
+if [ "$DISABLE_SSL" = "true" ]; then
+  ENV_VARS="$ENV_VARS,DISABLE_SSL=true"
+fi
+
+# Comment out the startup probe parameter for now
+# STARTUP_PROBE="--startup-probe=tcp:port=$PORT,initial-delay=5s,timeout=$STARTUP_TIMEOUT,period=$STARTUP_PERIOD,failure-threshold=$STARTUP_FAILURE_THRESHOLD"
+STARTUP_PROBE=""
+
+# Try the newer syntax first for volume mounts
+if gcloud run deploy aunooai-$TENANT \
+  --image $IMAGE_NAME \
+  --platform managed \
+  --region $REGION \
+  --allow-unauthenticated \
+  --set-env-vars="$ENV_VARS" \
+  --service-account $SA_EMAIL \
+  --cpu-boost \
+  --min-instances=$MIN_INSTANCES \
+  --max-instances=$MAX_INSTANCES \
+  --cpu=$CPU \
+  --memory=$MEMORY \
+  --timeout=$TIMEOUT \
+  --concurrency=$CONCURRENCY \
+  --add-volume name=storage,type=cloud-storage,bucket=$BUCKET_NAME \
+  --add-volume-mount volume=storage,mount-path=/app/app/data/$TENANT \
+  $STARTUP_PROBE; then
+  echo "Deployment successful with volume mount using new syntax"
+# If that fails, try the beta syntax with the correct parameters
+elif gcloud beta run deploy aunooai-$TENANT \
+  --image $IMAGE_NAME \
+  --platform managed \
+  --region $REGION \
+  --allow-unauthenticated \
+  --set-env-vars="$ENV_VARS" \
+  --service-account $SA_EMAIL \
+  --cpu-boost \
+  --min-instances=$MIN_INSTANCES \
+  --max-instances=$MAX_INSTANCES \
+  --cpu=$CPU \
+  --memory=$MEMORY \
+  --timeout=$TIMEOUT \
+  --concurrency=$CONCURRENCY \
+  --add-volume name=storage,type=cloud-storage,bucket=$BUCKET_NAME \
+  --add-volume-mount volume=storage,mount-path=/app/app/data/$TENANT \
+  $STARTUP_PROBE; then
+  echo "Deployment successful with volume mount using beta syntax"
+# If both fail, try without volume mounts
+else
+  echo "Attempting deployment without volume mounts..."
+  gcloud run deploy aunooai-$TENANT \
+    --image $IMAGE_NAME \
+    --platform managed \
+    --region $REGION \
+    --allow-unauthenticated \
+    --set-env-vars="$ENV_VARS" \
+    --service-account $SA_EMAIL \
+    --cpu-boost \
+    --min-instances=$MIN_INSTANCES \
+    --max-instances=$MAX_INSTANCES \
+    --cpu=$CPU \
+    --memory=$MEMORY \
+    --timeout=$TIMEOUT \
+    --concurrency=$CONCURRENCY \
+    $STARTUP_PROBE
+  
+  if [ $? -eq 0 ]; then
+    echo "Deployment successful without volume mounts"
+    echo "You may need to add volume mounts manually using the Google Cloud Console"
+  else
+    echo "All deployment attempts failed. Please check the error messages above."
+    exit 1
+  fi
+fi
+
+# Get the deployed service URL
+SERVICE_URL=$(gcloud run services describe aunooai-$TENANT --region $REGION --format="value(status.url)")
+
+echo ""
+echo "=== Deployment Complete ==="
+echo "AunooAI has been successfully deployed to Cloud Run."
+echo "Service URL: $SERVICE_URL"
+echo "Tenant: $TENANT"
+echo "Admin Password: $ADMIN_PASSWORD"
+echo ""
+echo "To access the application, visit: $SERVICE_URL"
+echo "To update the deployment, run this script again with the same parameters."
+echo "To deploy with a specific image tag (e.g., litellm), use: --image-tag litellm"
+echo "To monitor the service, visit: https://console.cloud.google.com/run/detail/$REGION/aunooai-$TENANT/metrics"
+echo "==========================" 

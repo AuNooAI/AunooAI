@@ -1,0 +1,1252 @@
+{% extends "base.html" %}
+
+{% block title %}AuNoo AI - Report{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 20px;
+    }
+
+    .card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        margin-bottom: 20px;
+        padding: 20px;
+        border: none;
+    }
+
+    h1, h2 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .form-label {
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: var(--primary-dark);
+    }
+
+    .form-control, .form-select {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 15px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--dark-gray);
+        box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.1);
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background-color 0.3s;
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        color: #fff;
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+    }
+
+    .btn-secondary {
+        background-color: var(--secondary-color);
+        color: #fff;
+    }
+
+    .btn-secondary:hover {
+        background-color: var(--secondary-dark);
+    }
+
+    .btn-success {
+        background-color: var(--secondary-color);
+        color: #fff;
+    }
+
+    .btn-success:hover {
+        background-color: var(--secondary-dark);
+    }
+
+    .btn-info {
+        background-color: var(--primary-color);
+        color: #fff;
+    }
+
+    .btn-info:hover {
+        background-color: var(--primary-dark);
+    }
+
+    #searchForm, #searchResults, #selectedArticles, #reportContent {
+        margin-bottom: 20px;
+    }
+
+    #articleList {
+        max-height: 500px;
+        overflow-y: auto;
+        border: 1px solid var(--medium-gray);
+        border-radius: 5px;
+        padding: 10px;
+    }
+
+    .article-item {
+        display: flex;
+        padding: 10px;
+        border-bottom: 1px solid var(--medium-gray);
+        margin-bottom: 10px;
+        background-color: white;
+    }
+
+    .article-item:last-child {
+        border-bottom: none;
+    }
+
+    .article-checkbox {
+        margin-right: 15px;
+        align-self: flex-start;
+        margin-top: 5px;
+    }
+
+    .article-details {
+        flex-grow: 1;
+    }
+
+    .article-details h4 {
+        margin-top: 0;
+        margin-bottom: 10px;
+        color: var(--primary-color);
+        font-size: 1.2rem;
+        font-weight: bold;
+    }
+
+    .article-meta {
+        font-size: 0.9em;
+        color: var(--dark-gray);
+        margin-bottom: 5px;
+    }
+
+    .article-dates {
+        font-size: 0.8em;
+        color: var(--dark-gray);
+        margin-bottom: 10px;
+    }
+
+    .article-summary {
+        font-size: 0.9em;
+        margin-bottom: 10px;
+        color: var(--text-color);
+        line-height: 1.4;
+    }
+
+    .article-url {
+        font-size: 0.8em;
+        color: var(--secondary-color);
+        text-decoration: none;
+        display: inline-block;
+    }
+
+    .article-url:hover {
+        text-decoration: underline;
+    }
+
+    .badge {
+        font-size: 0.75rem;
+        padding: 0.25em 0.6em;
+        border-radius: 0.25rem;
+        display: inline-block;
+        font-weight: normal;
+    }
+
+    .bg-success {
+        background-color: #8cca94;
+        color: #1d3b25;
+    }
+
+    .bg-info {
+        background-color: #a8d6ef;
+        color: #174a7c;
+    }
+
+    .bg-primary {
+        background-color: #ffb1d8;
+        color: #8c2c62;
+    }
+
+    .bg-secondary {
+        background-color: #b1dfb1;
+        color: #1d4d26;
+    }
+
+    .bg-warning {
+        background-color: #ffe0b2;
+        color: #805b36;
+    }
+
+    .bg-danger {
+        background-color: #f8c9c9;
+        color: #8c2727;
+    }
+
+    #totalCount {
+        font-weight: bold;
+        margin-left: 10px;
+        color: var(--primary-color);
+    }
+
+    .button-group {
+        display: flex;
+        gap: 10px;
+        margin-top: 15px;
+    }
+
+    .preview-content {
+        padding: 15px;
+        min-height: 300px;
+        max-height: 600px;
+        overflow-y: auto;
+        background-color: white;
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+    }
+
+    #templateEditor {
+        min-height: 300px;
+        font-family: monospace;
+        resize: vertical;
+    }
+
+    .card {
+        height: 100%;
+        min-height: 400px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .card-body {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    #reportDraft {
+        min-height: 300px;
+        font-family: monospace;
+        resize: vertical;
+    }
+
+    .search-section {
+        margin-bottom: 30px;
+    }
+
+    .report-section {
+        display: flex;
+        gap: 20px;
+        margin-top: 30px;
+    }
+
+    .article-list-container {
+        max-height: calc(100vh - 300px);
+        overflow-y: auto;
+        padding: 10px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+        margin-bottom: 0; /* Remove bottom margin */
+    }
+
+    .action-buttons {
+        padding: 15px;
+        background-color: white;
+        border-top: 1px solid var(--medium-gray);
+        display: flex;
+        gap: 10px;
+        justify-content: flex-start;
+    }
+
+    .card {
+        margin-bottom: 20px;
+        height: 100%;
+    }
+
+    #articleList {
+        min-height: 200px;
+    }
+
+    .article-item {
+        padding: 10px;
+        border-bottom: 1px solid var(--medium-gray);
+        background-color: white;
+    }
+
+    .article-item:last-child {
+        border-bottom: none;
+    }
+
+    /* Make buttons more visible */
+    .btn-secondary, .btn-success {
+        font-weight: 500;
+        padding: 8px 16px;
+    }
+
+    .search-results-container {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+    }
+
+    #articleList {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px;
+        margin-bottom: 50px; /* Space for buttons */
+    }
+
+    .article-item {
+        padding: 10px;
+        border-bottom: 1px solid var(--medium-gray);
+        background-color: white;
+    }
+
+    .article-item:last-child {
+        border-bottom: none;
+    }
+
+    /* Ensure proper spacing and alignment */
+    .row {
+        margin-bottom: 30px;
+    }
+
+    .card {
+        margin-bottom: 0;
+    }
+
+    /* Ensure proper spacing */
+    .row {
+        margin-bottom: 30px;
+    }
+
+    /* Make sure the report sections don't overlap */
+    .report-section {
+        margin-top: 40px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Report Writer</h1>
+    
+    <!-- Two-column layout for search and results -->
+    <div class="row">
+        <!-- Left column: Search form -->
+        <div class="col-md-4">
+            <div id="searchForm" class="card">
+                <h2>Search Articles</h2>
+                <form id="articleSearchForm">
+                    <!-- Add Topic Selection -->
+                    <div class="mb-3">
+                        <label for="topicSelect" class="form-label">Topic</label>
+                        <select id="topicSelect" name="topic" class="form-select">
+                            <option value="">Select a topic</option>
+                        </select>
+                    </div>
+
+                    <!-- Update Category Selection -->
+                    <div class="mb-3">
+                        <label for="category" class="form-label">Categories</label>
+                        <select id="category" name="category" class="form-select" multiple disabled>
+                            <!-- Categories will be populated based on selected topic -->
+                        </select>
+                    </div>
+
+                    <!-- Rest of your existing form fields -->
+                    <div class="mb-3">
+                        <label for="futureSignal" class="form-label">Future Signals</label>
+                        <select id="futureSignal" name="future_signal" class="form-select" multiple>
+                            <!-- Options will be populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="sentiment" class="form-label">Sentiments</label>
+                        <select id="sentiment" name="sentiment" class="form-select" multiple>
+                            <!-- Options will be populated dynamically -->
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="tags" class="form-label">Tags</label>
+                        <input type="text" id="tags" name="tags" class="form-control" placeholder="Enter tags separated by commas">
+                    </div>
+                    <div class="mb-3">
+                        <label for="keyword" class="form-label">Keyword</label>
+                        <input type="text" id="keyword" name="keyword" class="form-control" placeholder="Enter keyword">
+                    </div>
+                    <div class="mb-3">
+                        <label for="dateRange" class="form-label">Date Range</label>
+                        <select id="dateRange" name="dateRange" class="form-select">
+                            <option value="all">All Time</option>
+                            <option value="7">Last 7 Days</option>
+                            <option value="30">Last 30 Days</option>
+                            <option value="90">Last 90 Days</option>
+                            <option value="custom">Custom Range</option>
+                        </select>
+                    </div>
+                    <div id="customDateRange" style="display: none;">
+                        <div class="mb-3">
+                            <label for="startDate" class="form-label">Start Date</label>
+                            <input type="date" id="startDate" name="startDate" class="form-control">
+                        </div>
+                        <div class="mb-3">
+                            <label for="endDate" class="form-label">End Date</label>
+                            <input type="date" id="endDate" name="endDate" class="form-control">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="dateType" class="form-label">Date Type</label>
+                        <select id="dateType" name="dateType" class="form-select">
+                            <option value="publication">Publication Date</option>
+                            <option value="submission">Submission Date</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Search</button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Right column: Search results -->
+        <div class="col-md-8">
+            <div class="card">
+                <h2>Search Results <span id="totalCount"></span></h2>
+                <div id="articleList" class="article-list-container"></div>
+                <div id="loadingIndicator" style="display: none;">Loading more articles...</div>
+                <div class="action-buttons">
+                    <button id="selectAllBtn" class="btn btn-secondary">Select All</button>
+                    <button id="generateReportFromSearch" class="btn btn-success">Generate Report</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report editing section -->
+    <div class="row mt-4">
+        <!-- Left column: Template selection and editing -->
+        <div class="col-md-4">
+            <div class="card">
+                <h2>Report Sections</h2>
+                <div id="reportSections" class="mb-3">
+                    <div class="section-list">
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input section-toggle" id="section-title" checked disabled>
+                            <label class="form-check-label" for="section-title">Title (Required)</label>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input section-toggle" id="section-overview">
+                            <label class="form-check-label" for="section-overview">Overview</label>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input section-toggle" id="section-categories" checked disabled>
+                            <label class="form-check-label" for="section-categories">Categories (Required)</label>
+                            <button id="editCategoryTemplate" class="btn btn-sm btn-secondary ms-2">Edit Template</button>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input section-toggle" id="section-analysis">
+                            <label class="form-check-label" for="section-analysis">Analysis</label>
+                        </div>
+                        <div class="form-check">
+                            <input type="checkbox" class="form-check-input section-toggle" id="section-sources">
+                            <label class="form-check-label" for="section-sources">Sources</label>
+                        </div>
+                    </div>
+                </div>
+                <button id="generateReportFromSections" class="btn btn-primary">Generate Report</button>
+            </div>
+        </div>
+
+        <!-- Middle column: Report draft -->
+        <div class="col-md-4">
+            <div class="card">
+                <h2>Report Draft</h2>
+                <textarea id="reportDraft" class="form-control" rows="20"></textarea>
+                <div class="button-group mt-3">
+                    <button id="updatePreview" class="btn btn-primary">Update Preview</button>
+                    <button id="saveReport" class="btn btn-info">Save Report</button>
+                    <button id="downloadReport" class="btn btn-secondary">Download Report</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right column: Preview -->
+        <div class="col-md-4">
+            <div class="card">
+                <h2>Preview</h2>
+                <div id="reportPreview" class="preview-content"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Template Editor Modal -->
+<div class="modal fade" id="templateModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Categories Template</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <textarea id="templateEditor" class="form-control" rows="10"></textarea>
+                <small class="text-muted mt-2 d-block">
+                    Available variables: {category}, {title}, {news_source}, {url}, {summary}, {sentiment}, {time_to_impact}, {future_signal}
+                </small>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveTemplate">Save Template</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Initializing report page...');
+    
+    // Get DOM elements with null checks
+    const elements = {
+        searchForm: document.getElementById('articleSearchForm'),
+        articleList: document.getElementById('articleList'),
+        reportDraft: document.getElementById('reportDraft'),
+        reportPreview: document.getElementById('reportPreview'),
+        updatePreviewBtn: document.getElementById('updatePreview'),
+        dateRange: document.getElementById('dateRange'),
+        customDateRange: document.getElementById('customDateRange'),
+        selectAllBtn: document.getElementById('selectAllBtn'),
+        loadingIndicator: document.getElementById('loadingIndicator'),
+        templateSelect: document.getElementById('templateSelect'),
+        templateSections: document.getElementById('templateSections'),
+        totalCountSpan: document.getElementById('totalCount')
+    };
+
+    // Debug log for element initialization
+    Object.entries(elements).forEach(([key, element]) => {
+        console.log(`Element '${key}' found:`, !!element);
+    });
+
+    // Initialize variables
+    let allArticleIds = [];
+    let currentPage = 1;
+    const articlesPerPage = 10;
+    let isLoading = false;
+    let hasMoreArticles = true;
+
+    // Initialize dropdowns and event listeners only if elements exist
+    initializeEventListeners(elements);
+    initializeDropdowns();
+    initializeTemplateHandling(elements);
+
+    function initializeEventListeners(elements) {
+        if (elements.searchForm) {
+            elements.searchForm.addEventListener('submit', handleSearch);
+        }
+        if (elements.dateRange) {
+            elements.dateRange.addEventListener('change', toggleCustomDateRange);
+        }
+        if (elements.selectAllBtn) {
+            elements.selectAllBtn.addEventListener('click', selectAllArticles);
+        }
+        if (elements.articleList) {
+            elements.articleList.addEventListener('scroll', handleScroll);
+        }
+        if (document.getElementById('generateReportFromSearch')) {
+            document.getElementById('generateReportFromSearch').addEventListener('click', generateReport);
+        }
+        if (document.getElementById('generateReportFromSections')) {
+            document.getElementById('generateReportFromSections').addEventListener('click', generateReport);
+        }
+        
+        // Add topic loading and handling
+        const topicSelect = document.getElementById('topicSelect');
+        if (topicSelect) {
+            loadTopics();
+            topicSelect.addEventListener('change', handleTopicChange);
+        }
+    }
+
+    function initializeDropdowns() {
+        console.log('Initializing dropdowns...');
+        const dropdowns = {
+            'category': '/api/categories',
+            'futureSignal': '/api/future_signals',
+            'sentiment': '/api/sentiments'
+        };
+
+        Object.entries(dropdowns).forEach(([elementId, url]) => {
+            const element = document.getElementById(elementId);
+            if (element) {
+                console.log(`Fetching options for ${elementId} from ${url}`);
+                fetchOptions(url, elementId);
+            } else {
+                console.warn(`Dropdown element '${elementId}' not found`);
+            }
+        });
+    }
+
+    function initializeTemplateHandling(elements) {
+        if (elements.templateSelect) {
+            // Load default template on page load
+            loadTemplate('default');
+            
+            elements.templateSelect.addEventListener('change', async function() {
+                const templateName = this.value;
+                console.log(`Template selected: ${templateName}`);
+                if (templateName === 'custom') {
+                    if (elements.templateSections) {
+                        elements.templateSections.style.display = 'block';
+                    }
+                } else {
+                    await loadTemplate(templateName);
+                }
+            });
+        }
+    }
+
+    async function fetchOptions(url, elementId) {
+        try {
+            console.log(`Fetching options for ${elementId}...`);
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            const data = await response.json();
+            console.log(`Received ${data.length} options for ${elementId}`);
+
+            const select = document.getElementById(elementId);
+            if (!select) {
+                console.error(`Select element ${elementId} not found`);
+                return;
+            }
+
+            // Clear existing options
+            select.innerHTML = '';
+
+            // Add placeholder option
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.textContent = `Select ${elementId}`;
+            select.appendChild(placeholder);
+
+            // Add fetched options
+            data.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                select.appendChild(optionElement);
+            });
+
+            // Initialize Select2 if jQuery and Select2 are available
+            if (window.jQuery && window.jQuery.fn.select2) {
+                try {
+                    $(select).select2({
+                        placeholder: `Select ${elementId}`,
+                        allowClear: true
+                    });
+                } catch (error) {
+                    console.warn(`Select2 initialization failed for ${elementId}:`, error);
+                }
+            }
+        } catch (error) {
+            console.error(`Error fetching ${elementId} options:`, error);
+        }
+    }
+
+    function handleSearch(event) {
+        event.preventDefault();
+        console.log('Handling search...');
+        currentPage = 1;
+        allArticleIds = [];
+        
+        if (elements.articleList) {
+            elements.articleList.innerHTML = '';
+        }
+        
+        hasMoreArticles = true;
+        isLoading = false;
+        
+        if (elements.loadingIndicator) {
+            elements.loadingIndicator.style.display = 'none';
+        }
+        
+        if (elements.totalCountSpan) {
+            elements.totalCountSpan.textContent = '';
+        }
+        
+        fetchArticles();
+    }
+
+    function fetchArticles() {
+        if (isLoading || !hasMoreArticles || !elements.searchForm) {
+            console.log('Skipping fetch:', { isLoading, hasMoreArticles, hasSearchForm: !!elements.searchForm });
+            return;
+        }
+        
+        isLoading = true;
+        if (elements.loadingIndicator) {
+            elements.loadingIndicator.style.display = 'block';
+        }
+
+        const formData = new FormData(elements.searchForm);
+        const searchParams = new URLSearchParams(formData);
+        
+        // Add date type to search parameters
+        const dateType = document.getElementById('dateType').value;
+        searchParams.append('date_type', dateType);
+
+        if (elements.dateRange) {
+            const dateRangeValue = elements.dateRange.value;
+            if (dateRangeValue !== 'custom') {
+                searchParams.delete('startDate');
+                searchParams.delete('endDate');
+            }
+        }
+        
+        searchParams.append('page', currentPage);
+        searchParams.append('per_page', articlesPerPage);
+        
+        // Request all necessary fields
+        searchParams.append('include_fields', 'title,summary,url,uri,publication_date,submission_date,category,sentiment,news_source,analyzed,ai_impact,future_signal');
+
+        console.log('Fetching articles with params:', Object.fromEntries(searchParams));
+
+        fetch(`/api/search_articles?${searchParams}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Received articles:', data);
+                
+                // Preprocess articles to ensure all required fields
+                const processedArticles = data.articles.map(article => {
+                    return {
+                        ...article,
+                        // Set defaults for any missing fields
+                        analyzed: article.analyzed || false,
+                        sentiment: article.sentiment || 'Neutral',
+                        ai_impact: article.ai_impact || null,
+                        future_signal: article.future_signal || null,
+                        // Ensure dates are properly formatted
+                        publication_date: article.publication_date || null,
+                        submission_date: article.submission_date || null
+                    };
+                });
+                
+                displaySearchResults(processedArticles);
+                updateTotalCount(data.total_count || 0);
+                currentPage++;
+                isLoading = false;
+                hasMoreArticles = data.articles.length === articlesPerPage;
+                
+                if (elements.loadingIndicator) {
+                    elements.loadingIndicator.style.display = 'none';
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching articles:', error);
+                isLoading = false;
+                if (elements.loadingIndicator) {
+                    elements.loadingIndicator.style.display = 'none';
+                }
+                // Show error to user
+                if (elements.totalCountSpan) {
+                    elements.totalCountSpan.textContent = ' (Error loading articles)';
+                }
+            });
+    }
+
+    function displaySearchResults(articles) {
+        console.log('Displaying search results:', articles);
+        
+        if (!elements.articleList) {
+            console.error('Article list element not found');
+            return;
+        }
+
+        articles.forEach(article => {
+            const articleElement = document.createElement('div');
+            articleElement.className = 'article-item';
+            
+            // Create checkbox for article selection
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'article-checkbox';
+            checkbox.dataset.uri = article.uri;
+            
+            // Add article to global tracking array
+            if (!allArticleIds.includes(article.uri)) {
+                allArticleIds.push(article.uri);
+            }
+
+            // Create article details container
+            const articleDetails = document.createElement('div');
+            articleDetails.className = 'article-details';
+
+            // Create article title
+            const title = document.createElement('h4');
+            title.textContent = article.title;
+            articleDetails.appendChild(title);
+
+            // Create tags/categories container
+            const tagsContainer = document.createElement('div');
+            tagsContainer.className = 'mb-2';
+
+            // Add tag elements based on the screenshot example
+            if (article.analyzed) {
+                appendTag(tagsContainer, 'Analyzed', 'success');
+            }
+            
+            // AI field tag (e.g., "AI in Software Development")
+            if (article.category && article.category.includes('AI')) {
+                appendTag(tagsContainer, article.category, 'info');
+            } else if (article.category) {
+                appendTag(tagsContainer, article.category, 'info');
+            }
+            
+            // Sentiment tag (e.g., "Neutral")
+            if (article.sentiment) {
+                appendTag(tagsContainer, article.sentiment, 'primary');
+            }
+            
+            // AI impact tag (e.g., "AI will evolve gradually")
+            if (article.ai_impact) {
+                appendTag(tagsContainer, article.ai_impact, 'secondary');
+            } else if (article.future_signal) {
+                // Alternative: use future_signal if ai_impact is not available
+                const impact = article.future_signal.includes('will') ? 
+                    article.future_signal : 
+                    `AI will ${article.future_signal.toLowerCase()}`;
+                appendTag(tagsContainer, impact, 'secondary');
+            }
+
+            articleDetails.appendChild(tagsContainer);
+
+            // Create publication and submission dates
+            const dateInfo = document.createElement('div');
+            dateInfo.className = 'article-dates';
+            
+            let pubDate = article.publication_date ? new Date(article.publication_date).toISOString().split('T')[0] : 'N/A';
+            let subDate = article.submission_date ? new Date(article.submission_date).toISOString().split('T')[0] : 'N/A';
+            
+            dateInfo.innerHTML = `Published: ${pubDate} | Submitted: ${subDate}`;
+            articleDetails.appendChild(dateInfo);
+
+            // Create article summary
+            const summary = document.createElement('div');
+            summary.className = 'article-summary';
+            summary.textContent = article.summary || 'No summary available.';
+            articleDetails.appendChild(summary);
+
+            // Create View Source link
+            const viewSource = document.createElement('a');
+            viewSource.href = article.url || '#';
+            viewSource.className = 'article-url';
+            viewSource.textContent = 'View Source';
+            viewSource.target = '_blank';
+            
+            // Wrap in container for styling
+            const linkContainer = document.createElement('div');
+            linkContainer.appendChild(viewSource);
+            articleDetails.appendChild(linkContainer);
+
+            // Append elements
+            articleElement.appendChild(checkbox);
+            articleElement.appendChild(articleDetails);
+            elements.articleList.appendChild(articleElement);
+        });
+    }
+
+    // Helper function to create tag elements
+    function appendTag(container, text, type) {
+        const tag = document.createElement('span');
+        tag.className = `badge bg-${type} me-2`;
+        tag.textContent = text;
+        container.appendChild(tag);
+    }
+
+    function updateTotalCount(count) {
+        console.log('Updating total count:', count);
+        if (elements.totalCountSpan) {
+            elements.totalCountSpan.textContent = count > 0 ? ` (${count} articles found)` : '';
+        }
+    }
+
+    function handleScroll() {
+        if (articleList.scrollTop + articleList.clientHeight >= articleList.scrollHeight - 5) {
+            fetchArticles();
+        }
+    }
+
+    function selectAllArticles() {
+        const selectAll = selectAllBtn.textContent === 'Select All';
+        const checkboxes = document.querySelectorAll('.article-checkbox');
+        checkboxes.forEach(checkbox => checkbox.checked = selectAll);
+        
+        // Update hidden checkboxes for non-visible articles
+        allArticleIds.forEach(id => {
+            let checkbox = document.querySelector(`.article-checkbox[data-uri="${id}"]`);
+            if (!checkbox) {
+                checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'article-checkbox hidden';
+                checkbox.dataset.uri = id;
+                articleList.appendChild(checkbox);
+            }
+            checkbox.checked = selectAll;
+        });
+        
+        selectAllBtn.textContent = selectAll ? 'Deselect All' : 'Select All';
+    }
+
+    function generateReport() {
+        const selectedArticles = Array.from(document.querySelectorAll('.article-checkbox:checked'))
+            .map(checkbox => checkbox.dataset.uri);
+        
+        console.log('Generate report clicked');
+        console.log('Selected articles:', selectedArticles);
+
+        if (selectedArticles.length === 0) {
+            alert('Please select at least one article for the report.');
+            return;
+        }
+
+        // Get section preferences from checkboxes
+        const customSections = {
+            include_overview: document.getElementById('section-overview')?.checked || false,
+            include_analysis: document.getElementById('section-analysis')?.checked || false,
+            include_sources: document.getElementById('section-sources')?.checked || false,
+            include_categories: true  // Always true as it's required
+        };
+
+        console.log('Custom sections configuration:', customSections);
+
+        const requestData = {
+            article_ids: selectedArticles,
+            custom_sections: customSections
+        };
+
+        console.log('Sending request with data:', JSON.stringify(requestData, null, 2));
+
+        fetch('/api/generate_report', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(requestData)
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Received response:', data);
+            const reportDraft = document.getElementById('reportDraft');
+            if (reportDraft && data.content) {
+                reportDraft.value = data.content;
+                updatePreview();
+            } else {
+                console.error('Missing reportDraft element or content in response');
+            }
+        })
+        .catch(error => {
+            console.error('Error generating report:', error);
+            alert('Error generating report. Check console for details.');
+        });
+    }
+
+    function saveReport() {
+        const reportContent = reportDraft.value;
+        fetch('/api/save_report', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ content: reportContent }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            alert(`Report saved with ID: ${data.report_id}`);
+        })
+        .catch(error => console.error('Error saving report:', error));
+    }
+
+    function downloadReport() {
+        const reportContent = reportDraft.value;
+        const blob = new Blob([reportContent], { type: 'text/markdown' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'report.md';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function updatePreview() {
+        console.log('Updating preview');
+        const reportDraft = document.getElementById('reportDraft');
+        const reportPreview = document.getElementById('reportPreview');
+
+        if (!reportDraft || !reportPreview) {
+            console.error('Required elements for preview not found');
+            return;
+        }
+
+        const markdown = reportDraft.value;
+        
+        fetch('/api/markdown_to_html', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ markdown }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            reportPreview.innerHTML = data.html;
+        })
+        .catch(error => {
+            console.error('Error updating preview:', error);
+            reportPreview.innerHTML = '<p class="error">Error generating preview</p>';
+        });
+    }
+
+    // Add event listener for the update preview button
+    document.getElementById('updatePreview').addEventListener('click', updatePreview);
+
+    function toggleCustomDateRange() {
+        customDateRange.style.display = dateRange.value === 'custom' ? 'block' : 'none';
+    }
+
+    function loadTopics() {
+        fetch('/api/topics')
+            .then(response => response.json())
+            .then(topics => {
+                const topicSelect = document.getElementById('topicSelect');
+                topicSelect.innerHTML = '<option value="">Select a topic</option>';
+                topics.forEach(topic => {
+                    const option = document.createElement('option');
+                    option.value = topic.name;
+                    option.textContent = topic.name;
+                    topicSelect.appendChild(option);
+                });
+            })
+            .catch(error => console.error('Error loading topics:', error));
+    }
+
+    function handleTopicChange(event) {
+        const topicName = event.target.value;
+        const categorySelect = document.getElementById('category');
+        
+        if (topicName) {
+            // Enable category select and load categories for selected topic
+            categorySelect.disabled = false;
+            loadCategoriesForTopic(topicName);
+        } else {
+            // Disable and clear category select
+            categorySelect.disabled = true;
+            categorySelect.innerHTML = '';
+            $(categorySelect).trigger('change'); // If using Select2
+        }
+    }
+
+    function loadCategoriesForTopic(topicName) {
+        fetch(`/api/categories/${encodeURIComponent(topicName)}`)
+            .then(response => response.json())
+            .then(categories => {
+                const categorySelect = document.getElementById('category');
+                categorySelect.innerHTML = '';
+                categories.forEach(category => {
+                    const option = document.createElement('option');
+                    option.value = category;
+                    option.textContent = category;
+                    categorySelect.appendChild(option);
+                });
+                $(categorySelect).trigger('change'); // If using Select2
+            })
+            .catch(error => console.error('Error loading categories:', error));
+    }
+
+    function initializeTemplateEditor() {
+        const templateSelect = document.getElementById('templateSelect');
+        const templateSections = document.getElementById('templateSections');
+
+        templateSelect.addEventListener('change', async function() {
+            const templateName = this.value;
+            if (templateName === 'custom') {
+                templateSections.style.display = 'block';
+                // Reset checkboxes to default state
+                document.querySelectorAll('.section-toggle:not([disabled])').forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+            } else {
+                await loadTemplate(templateName);
+            }
+        });
+
+        // Preview section buttons
+        document.querySelectorAll('.preview-section').forEach(button => {
+            button.addEventListener('click', async function() {
+                const sectionName = this.dataset.section;
+                const content = await loadSectionTemplate(sectionName);
+                showPreviewModal(sectionName, content);
+            });
+        });
+
+        // Save template button
+        document.getElementById('saveTemplate').addEventListener('click', saveTemplate);
+        
+        // Generate report button
+        document.getElementById('generateReportTemplateBtn').addEventListener('click', generateReport);
+    }
+
+    async function loadTemplate(templateName) {
+        console.log(`Loading template: ${templateName}`);
+        try {
+            const response = await fetch(`/api/templates/${templateName}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const data = await response.json();
+            console.log('Template data received:', data);
+
+            const sectionCheckboxes = document.querySelectorAll('.section-toggle:not([disabled])');
+            console.log(`Found ${sectionCheckboxes.length} section checkboxes`);
+
+            sectionCheckboxes.forEach(checkbox => {
+                const sectionName = checkbox.id.replace('section-', '');
+                let shouldCheck = templateName === 'default' || 
+                    (templateName === 'minimal' && ['title', 'categories'].includes(sectionName));
+                
+                console.log(`Setting section ${sectionName} to ${shouldCheck}`);
+                checkbox.checked = shouldCheck;
+            });
+        } catch (error) {
+            console.error('Template loading error:', error);
+            alert('Error loading template. Please try again.');
+        }
+    }
+
+    async function saveTemplate() {
+        const templateName = prompt('Enter template name:');
+        if (!templateName) return;
+
+        const sections = [];
+        document.querySelectorAll('.section-toggle:checked').forEach(checkbox => {
+            sections.push(checkbox.id.replace('section-', ''));
+        });
+
+        try {
+            const response = await fetch('/api/templates/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: templateName,
+                    sections: sections
+                }),
+            });
+            
+            if (response.ok) {
+                alert('Template saved successfully!');
+            }
+        } catch (error) {
+            console.error('Error saving template:', error);
+            alert('Error saving template');
+        }
+    }
+
+    // Template editing functionality
+    const templateModal = new bootstrap.Modal(document.getElementById('templateModal'));
+
+    document.getElementById('editCategoryTemplate').addEventListener('click', async () => {
+        try {
+            const response = await fetch('/api/report_templates');
+            const templates = await response.json();
+            document.getElementById('templateEditor').value = templates.categories;
+            templateModal.show();
+        } catch (error) {
+            console.error('Error loading template:', error);
+            alert('Error loading template');
+        }
+    });
+
+    document.getElementById('saveTemplate').addEventListener('click', async () => {
+        try {
+            const content = document.getElementById('templateEditor').value;
+            const response = await fetch('/api/report_templates/categories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content })
+            });
+            if (!response.ok) throw new Error('Failed to save template');
+            templateModal.hide();
+            alert('Template saved successfully');
+        } catch (error) {
+            console.error('Error saving template:', error);
+            alert('Error saving template');
+        }
+    });
+
+    // Add event listeners when the document is loaded
+    document.addEventListener('DOMContentLoaded', () => {
+        // Listen for both generate report buttons
+        const generateBtn = document.getElementById('generateReportBtn');
+        const generateFromSectionsBtn = document.getElementById('generateReportFromSections');
+        
+        if (generateBtn) {
+            generateBtn.addEventListener('click', generateReport);
+        }
+        
+        if (generateFromSectionsBtn) {
+            generateFromSectionsBtn.addEventListener('click', generateReport);
+        }
+    });
+});
+</script>
+{% endblock %}
+

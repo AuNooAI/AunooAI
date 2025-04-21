@@ -1,0 +1,601 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink - match global brand color */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container {
+        max-width: 1200px; /* Match other pages */
+        padding: 0 20px; /* Horizontal padding only */
+    }
+
+    h1 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .form-control, .form-select {
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        transition: all 0.2s ease;
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.15);
+    }
+
+    .example-list {
+        font-size: 0.875rem;
+        color: var(--dark-gray);
+        margin-top: 0.5rem;
+    }
+
+    .btn-primary {
+        background-color: rgba(255, 105, 180, 0.1);
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        color: var(--primary-color);
+        transition: all 0.2s ease;
+        padding: 8px 16px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+    }
+
+    .btn-danger {
+        background-color: rgba(220, 53, 69, 0.1);
+        border: 1px solid rgba(220, 53, 69, 0.2);
+        color: #dc3545;
+        transition: all 0.2s ease;
+        padding: 8px 16px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .btn-danger:hover {
+        background-color: #dc3545;
+        border-color: #dc3545;
+        color: white;
+        transform: translateY(-1px);
+    }
+
+    .tags-input {
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        border-radius: 8px;
+        padding: 0.75rem;
+        min-height: 100px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: flex-start;
+        background-color: white;
+    }
+
+    .tag {
+        display: inline-flex;
+        align-items: center;
+        background-color: rgba(255, 105, 180, 0.1);
+        color: var(--primary-color);
+        padding: 0.35em 0.8em;
+        border-radius: 12px;
+        font-size: 0.75em;
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .tag .remove {
+        margin-left: 0.5rem;
+        cursor: pointer;
+        opacity: 0.6;
+        transition: opacity 0.2s;
+    }
+
+    .tag .remove:hover {
+        opacity: 1;
+    }
+
+    .tags-input input {
+        border: none;
+        outline: none;
+        padding: 0.2rem;
+        flex-grow: 1;
+        min-width: 150px;
+    }
+
+    .example-value {
+        display: inline-block;
+        padding: 0.35em 0.8em;
+        margin: 0.2rem;
+        background-color: rgba(255, 105, 180, 0.1);
+        color: var(--primary-color);
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        border-radius: 12px;
+        cursor: pointer;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+    }
+
+    .example-value:hover {
+        background-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+    }
+
+    .card {
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border: 1px solid var(--medium-gray);
+        transition: transform 0.2s ease;
+    }
+
+    .card:hover {
+        transform: translateY(-2px);
+    }
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.35em 0.8em;
+        font-size: 0.75em;
+        font-weight: 500;
+        line-height: 1.4;
+        border-radius: 12px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        letter-spacing: 0.02em;
+    }
+
+    .badge.bg-info {
+        background-color: rgba(50, 205, 50, 0.1) !important;
+        color: var(--secondary-color) !important;
+        border: 1px solid rgba(50, 205, 50, 0.2) !important;
+    }
+
+    .badge.bg-secondary {
+        background-color: rgba(108, 117, 125, 0.1) !important;
+        color: #6c757d !important;
+        border: 1px solid rgba(108, 117, 125, 0.2) !important;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Create or Update a Scenario Topic</h1>
+    
+    <form id="createTopicForm" class="mt-4">
+        <div class="mb-3">
+            <label for="existingTopic" class="form-label">Select if you want to edit an existing topic (optional)</label>
+            <select class="form-select" id="existingTopic">
+                <option value="">Select Topic</option>
+                {% for topic in example_topics %}
+                <option value="{{ topic }}">{{ topic }}</option>
+                {% endfor %}
+            </select>
+            <small class="text-muted">Select an existing topic to edit or leave empty to create a new one</small>
+        </div>
+
+        <div id="deleteTopicContainer" class="mb-3" style="display: none;">
+            <button type="button" id="deleteTopicBtn" class="btn btn-danger">Delete Topic</button>
+        </div>
+
+        <div class="mb-3">
+            <label for="topicName" class="form-label">Topic Name</label>
+            <p class="text-muted mb-2">A clear description that could be a question, market, field, or group.</p>
+            <input type="text" class="form-control" id="topicName" required>
+            <small class="text-muted">Example topics: {{ example_topics|join(", ") }}</small>
+        </div>
+
+        <div class="mb-4">
+            <label for="futureSignals" class="form-label">Future Signals</label>
+            <p class="text-muted mb-2">Future Signals are scenarios that suggest potential directions for a topic. For instance, signals for an AI hype model could range from "AI is hype" and "AI is evolving gradually", to "AI is accelerating".</p>
+            <div class="tags-input" id="futureSignalsContainer">
+                <input type="text" id="futureSignalsInput">
+            </div>
+            <small class="text-muted">Type a value and press enter to add each signal. Examples:</small>
+            <div class="example-list">
+                {{ example_signals|join(", ") }}
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label for="categories" class="form-label">Categories</label>
+            <p class="text-muted mb-2">Each topic is broken down into categories, making it easier to organize and analyze data. For example, a topic on AI might include subcategories like AI in Finance or Cloud Quarterly Earnings.</p>
+            <div class="tags-input" id="categoriesContainer">
+                <input type="text" id="categoriesInput">
+            </div>
+            <small class="text-muted">Type a value and press enter to add each category. Examples:</small>
+            <div class="example-list">
+                {{ example_categories|join(", ") }}
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label for="sentiments" class="form-label">Sentiments</label>
+            <p class="text-muted mb-2">AuNoo goes beyond basic positive, neutral, and negative sentiment analysis. It can detect tones such as mocking, critical, hyperbolic, or optimistic, providing a nuanced understanding of public and media sentiment.</p>
+            <div class="tags-input" id="sentimentsContainer">
+                <input type="text" id="sentimentsInput">
+            </div>
+            <small class="text-muted">Type a value and press enter to add each sentiment, or select a common value below:</small>
+            <div class="example-list">
+                {% for sentiment in example_sentiments %}
+                    <span class="example-value" onclick="addExampleValue('sentimentsInput', '{{ sentiment }}')">{{ sentiment }}</span>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label for="timeToImpact" class="form-label">Time to Impact</label>
+            <p class="text-muted mb-2">Time to Impact helps assess when the impact of a trend is expected—immediate, short-term (3–18 months), mid-term (18–60 months), or long-term (5+ years). This allows decision-makers to prioritize their strategies effectively. It is based on the Three Horizon Model.</p>
+            <div class="tags-input" id="timeToImpactContainer">
+                <input type="text" id="timeToImpactInput">
+            </div>
+            <small class="text-muted">Type a value and press enter to add each time to impact value, or select a common value below:</small>
+            <div class="example-list">
+                {% for time in example_time_to_impact %}
+                    <span class="example-value" onclick="addExampleValue('timeToImpactInput', '{{ time }}')">{{ time }}</span>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="mb-4">
+            <label for="driverTypes" class="form-label">Driver Types</label>
+            <p class="text-muted mb-2">AuNoo categorizes data points based on their impact on a topic, using types like:
+                <br>• <strong>Accelerator</strong>: Speeds up the development or impact of a trend.
+                <br>• <strong>Delayer</strong>: Slows down progress.
+                <br>• <strong>Blocker</strong>: Prevents a trend from advancing.
+                <br>• <strong>Catalyst</strong>: Significantly amplifies or transforms the trajectory of a trend.
+            </p>
+            <div class="tags-input" id="driverTypesContainer">
+                <input type="text" id="driverTypesInput">
+            </div>
+            <small class="text-muted">Type a value and press enter to add each driver type, or select a common value below:</small>
+            <div class="example-list">
+                {% for type in example_driver_types %}
+                    <span class="example-value" onclick="addExampleValue('driverTypesInput', '{{ type }}')">{{ type }}</span>
+                {% endfor %}
+            </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary mt-3">Create/Update Topic</button>
+    </form>
+</div>
+
+<script>
+function createTagInput(containerId, inputId) {
+    const container = document.getElementById(containerId);
+    const input = document.getElementById(inputId);
+    const tags = new Set();
+
+    function clearTags() {
+        tags.clear();
+        const existingTags = container.querySelectorAll('.tag');
+        existingTags.forEach(tag => tag.remove());
+    }
+
+    input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            const value = this.value.trim();
+            if (value) {
+                addTag(value);
+                this.value = '';
+            }
+        }
+    });
+
+    // Also add tag when input loses focus
+    input.addEventListener('blur', function() {
+        const value = this.value.trim();
+        if (value) {
+            addTag(value);
+            this.value = '';
+        }
+    });
+
+    function addTag(value) {
+        if (tags.has(value)) return;
+        tags.add(value);
+        
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.innerHTML = `${value}<span class="remove">×</span>`;
+        
+        tag.querySelector('.remove').addEventListener('click', function() {
+            container.removeChild(tag);
+            tags.delete(value);
+        });
+        
+        container.insertBefore(tag, input);
+    }
+
+    return {
+        getTags: () => Array.from(tags),
+        clearTags: () => clearTags()
+    };
+}
+
+const categoriesInput = createTagInput('categoriesContainer', 'categoriesInput');
+const futureSignalsInput = createTagInput('futureSignalsContainer', 'futureSignalsInput');
+const sentimentsInput = createTagInput('sentimentsContainer', 'sentimentsInput');
+const timeToImpactInput = createTagInput('timeToImpactContainer', 'timeToImpactInput');
+const driverTypesInput = createTagInput('driverTypesContainer', 'driverTypesInput');
+
+document.getElementById('createTopicForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = {
+        name: document.getElementById('topicName').value,
+        categories: categoriesInput.getTags(),
+        future_signals: futureSignalsInput.getTags(),
+        sentiment: sentimentsInput.getTags(),
+        time_to_impact: timeToImpactInput.getTags(),
+        driver_types: driverTypesInput.getTags()
+    };
+
+    try {
+        const response = await fetch('/api/create_topic', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to create topic');
+        }
+
+        alert('Topic created successfully!');
+        window.location.href = '/';
+    } catch (error) {
+        alert('Error creating topic: ' + error.message);
+    }
+});
+
+function addExampleValue(inputId, value) {
+    const input = document.getElementById(inputId);
+    if (!input) {
+        console.warn(`Input element not found: ${inputId}`);
+        return;
+    }
+    
+    input.value = value;
+    // Trigger the enter key event to add the tag
+    const event = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        bubbles: true
+    });
+    input.dispatchEvent(event);
+}
+
+document.getElementById('existingTopic').addEventListener('change', async function() {
+    const selectedTopic = this.value;
+    const deleteContainer = document.getElementById('deleteTopicContainer');
+    
+    // Show/hide delete button based on selection
+    deleteContainer.style.display = selectedTopic ? 'block' : 'none';
+    
+    if (!selectedTopic) {
+        // Clear all fields
+        document.getElementById('topicName').value = '';
+        categoriesInput.clearTags();
+        futureSignalsInput.clearTags();
+        sentimentsInput.clearTags();
+        timeToImpactInput.clearTags();
+        driverTypesInput.clearTags();
+        return;
+    }
+    
+    // Fetch topic data
+    const response = await fetch(`/api/topic/${selectedTopic}`);
+    const topicData = await response.json();
+    
+    // Set topic name
+    document.getElementById('topicName').value = topicData.name;
+    
+    // Clear existing tags first
+    categoriesInput.clearTags();
+    futureSignalsInput.clearTags();
+    sentimentsInput.clearTags();
+    timeToImpactInput.clearTags();
+    driverTypesInput.clearTags();
+    
+    // Add tags for each field
+    topicData.categories.forEach(cat => {
+        document.getElementById('categoriesInput').value = cat;
+        document.getElementById('categoriesInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+    });
+    
+    topicData.future_signals.forEach(signal => {
+        document.getElementById('futureSignalsInput').value = signal;
+        document.getElementById('futureSignalsInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+    });
+    
+    topicData.sentiment.forEach(sent => {
+        document.getElementById('sentimentsInput').value = sent;
+        document.getElementById('sentimentsInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+    });
+    
+    topicData.time_to_impact.forEach(time => {
+        document.getElementById('timeToImpactInput').value = time;
+        document.getElementById('timeToImpactInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+    });
+    
+    topicData.driver_types.forEach(driver => {
+        document.getElementById('driverTypesInput').value = driver;
+        document.getElementById('driverTypesInput').dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter'}));
+    });
+});
+
+// Update the delete button handler to use the correct endpoint
+document.getElementById('deleteTopicBtn').addEventListener('click', async function() {
+    const topicName = document.getElementById('existingTopic').value;
+    if (!topicName) return;
+    
+    if (!confirm(`Are you sure you want to delete the topic "${topicName}"?`)) {
+        return;
+    }
+    
+    const deleteArticles = confirm(`Do you want to delete all associated articles for topic "${topicName}" from the database?`);
+    
+    try {
+        const response = await fetch(`/api/topic/${encodeURIComponent(topicName)}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                delete_articles: deleteArticles
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to delete topic');
+        }
+
+        alert('Topic deleted successfully!');
+        window.location.href = '/';
+    } catch (error) {
+        alert('Error deleting topic: ' + error.message);
+    }
+});
+
+// Update the loadTopicData function
+async function loadTopicData(topicName) {
+    try {
+        const response = await fetch(`/api/topic/${encodeURIComponent(topicName)}`);
+        if (!response.ok) {
+            throw new Error('Failed to load topic data');
+        }
+        const topicData = await response.json();
+        
+        // Set topic name
+        const topicNameInput = document.getElementById('topicName');
+        if (topicNameInput) {
+            topicNameInput.value = topicName;
+        }
+
+        // Set news query
+        const newsQueryInput = document.getElementById('newsQuery');
+        if (newsQueryInput && topicData.news_query) {
+            newsQueryInput.value = topicData.news_query;
+        }
+
+        // Set paper query
+        const paperQueryInput = document.getElementById('paperQuery');
+        if (paperQueryInput && topicData.paper_query) {
+            paperQueryInput.value = topicData.paper_query;
+        }
+
+        // Show delete button
+        const deleteContainer = document.getElementById('deleteTopicContainer');
+        if (deleteContainer) {
+            deleteContainer.style.display = 'block';
+        }
+
+        // Handle categories
+        if (topicData.categories) {
+            topicData.categories.forEach(cat => {
+                addExampleValue('categoriesInput', cat);
+            });
+        }
+
+        // Handle future signals
+        if (topicData.future_signals) {
+            topicData.future_signals.forEach(signal => {
+                addExampleValue('futureSignalsInput', signal);
+            });
+        }
+
+        // Handle sentiments
+        if (topicData.sentiment) {
+            topicData.sentiment.forEach(sent => {
+                addExampleValue('sentimentsInput', sent);
+            });
+        }
+
+        // Handle time to impact
+        if (topicData.time_to_impact) {
+            topicData.time_to_impact.forEach(time => {
+                addExampleValue('timeToImpactInput', time);
+            });
+        }
+
+        // Handle driver types
+        if (topicData.driver_types) {
+            topicData.driver_types.forEach(driver => {
+                addExampleValue('driverTypesInput', driver);
+            });
+        }
+
+    } catch (error) {
+        console.error('Error loading topic data:', error);
+        alert('Error loading topic data: ' + error.message);
+    }
+}
+
+// Update the DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', function() {
+    // Get topic from URL if it exists
+    const urlParams = new URLSearchParams(window.location.search);
+    const topicName = urlParams.get('topic');
+    
+    if (topicName) {
+        // Clear all existing tags first
+        const tagInputs = ['categoriesInput', 'futureSignalsInput', 'sentimentsInput', 
+                          'timeToImpactInput', 'driverTypesInput'];
+        
+        tagInputs.forEach(inputId => {
+            const input = document.getElementById(inputId);
+            if (input) {
+                const container = input.closest('.tags-input');
+                if (container) {
+                    const existingTags = container.querySelectorAll('.tag');
+                    existingTags.forEach(tag => tag.remove());
+                }
+            }
+        });
+
+        // Set the selected topic in the dropdown
+        const topicSelect = document.getElementById('existingTopic');
+        if (topicSelect) {
+            topicSelect.value = topicName;
+            // Show delete button
+            const deleteContainer = document.getElementById('deleteTopicContainer');
+            if (deleteContainer) {
+                deleteContainer.style.display = 'block';
+            }
+            // Load the topic data
+            loadTopicData(topicName);
+        }
+    }
+});
+</script>
+{% endblock %} 

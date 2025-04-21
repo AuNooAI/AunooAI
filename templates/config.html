@@ -1,0 +1,1834 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1 class="mb-4">Configuration</h1>
+
+    <!-- Add tab navigation -->
+    <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="providers-tab" data-bs-toggle="tab" data-bs-target="#providers" type="button" role="tab">
+                <i class="fas fa-plug"></i> Providers
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="ai-models-tab" data-bs-toggle="tab" data-bs-target="#ai-models" type="button" role="tab">
+                <i class="fas fa-robot"></i> AI Models
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="database-tab" data-bs-toggle="tab" data-bs-target="#database" type="button" role="tab">
+                <i class="fas fa-database"></i> Database
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="security-tab" data-bs-toggle="tab" data-bs-target="#security" type="button" role="tab">
+                <i class="fas fa-lock"></i> Security
+            </button>
+        </li>
+    </ul>
+
+    <!-- Tab content -->
+    <div class="tab-content" id="configTabContent">
+        <!-- Database Management Tab -->
+        <div class="tab-pane fade show active" id="database" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>Database Management</h2>
+                    <p class="text-muted mb-4">Manage your databases and configure active database settings.</p>
+                    
+                    <div class="config-item">
+                        <h3>Active Database</h3>
+                        <div class="form-group">
+                            <select id="active-database" class="form-select"
+                                    data-tooltip="Select the database you want to use">
+                                <option value="">Select active database</option>
+                            </select>
+                            <small class="form-text text-muted">The currently active database for storing articles and analysis</small>
+                        </div>
+                    </div>
+
+                    <div class="config-item">
+                        <h3>Available Databases</h3>
+                        <ul id="database-list">
+                            <!-- Database list will be populated dynamically -->
+                        </ul>
+                    </div>
+
+                    <div class="config-item">
+                        <h3>New Database</h3>
+                        <form id="create-database-form">
+                            <div class="form-group">
+                                <input type="text" id="database-name" 
+                                       placeholder="Enter database name" required
+                                       class="form-control"
+                                       data-tooltip="Enter a name for the new database">
+                                <small class="form-text text-muted">Create a new database for a different set of articles</small>
+                            </div>
+                            <button type="submit" class="mt-2">
+                                <i class="fas fa-plus"></i> Create Database
+                            </button>
+                        </form>
+                    </div>
+
+                    <div class="config-item">
+                        <h3>Database Operations</h3>
+                        <p class="text-muted small mb-3">Manage your database backups and maintenance.</p>
+                        <div class="database-operations">
+                            <button id="backup-database" onclick="backupDatabase()"
+                                    data-tooltip="Create a backup of the current database">
+                                <i class="fas fa-save"></i> Backup
+                            </button>
+                            <button id="download-database" onclick="showDownloadDialog()"
+                                    data-tooltip="Download a database file">
+                                <i class="fas fa-download"></i> Download
+                            </button>
+                            <button id="reset-database" class="danger" onclick="resetDatabase()"
+                                    data-tooltip="WARNING: This will delete all data">
+                                <i class="fas fa-trash"></i> Reset
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="config-item">
+                        <h3>Merge from Backup</h3>
+                        <p class="text-muted small mb-3">Import articles and settings from a backup database.</p>
+                        <button id="merge-database" onclick="showMergeDialog()"
+                                data-tooltip="Merge articles and settings from a backup">
+                            <i class="fas fa-code-merge"></i> Merge Backup
+                        </button>
+                    </div>
+                </div>
+                <div class="right-panel">
+                    <h2>Database Information</h2>
+                    <p class="text-muted mb-4">Current database statistics and details.</p>
+                    <div id="database-info" class="info-panel">
+                        <div class="info-group">
+                            <div class="info-item">
+                                <span class="info-label">Database Name:</span>
+                                <span class="info-value" id="db-name">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Size:</span>
+                                <span class="info-value" id="db-size">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Total Articles:</span>
+                                <span class="info-value" id="total-articles">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Last Entry:</span>
+                                <span class="info-value" id="last-entry">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">First Entry:</span>
+                                <span class="info-value" id="first-entry">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Total Topics:</span>
+                                <span class="info-value" id="total-topics">Loading...</span>
+                            </div>
+                        </div>
+                        
+                        <h3 class="mt-4">Database Tables</h3>
+                        <div class="table-info">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Table Name</th>
+                                        <th>Row Count</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="table-info">
+                                    <tr>
+                                        <td colspan="2">Loading...</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Models Tab -->
+        <div class="tab-pane fade" id="ai-models" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>AI Model Configuration</h2>
+                    <p class="text-muted mb-4">Configure API keys for different AI models used for analysis.</p>
+                    
+                    <form id="add-model-form">
+                        <div class="form-group">
+                            <label for="model-name" class="form-label">AI Model</label>
+                            <select id="model-name" required class="form-select"
+                                    data-tooltip="Select the AI model you want to configure">
+                                <option value="">Select a model</option>
+                                {% for model in models %}
+                                    <option value="{{ model.name }}" data-provider="{{ model.provider }}">
+                                        {{ model.name }} ({{ model.provider }})
+                                    </option>
+                                {% endfor %}
+                            </select>
+                            <small class="form-text text-muted">Choose an AI model to add or update its API key</small>
+                        </div>
+
+                        <div class="form-group mt-3">
+                            <label for="api-key" class="form-label">API Key</label>
+                            <input type="text" id="api-key" placeholder="Enter API key" required 
+                                   class="form-control"
+                                   data-tooltip="Enter your API key from the model provider">
+                            <small class="form-text text-muted">Find your API key in your model provider's dashboard</small>
+                        </div>
+
+                        <button type="submit" class="mt-3">
+                            <i class="fas fa-plus"></i> Add Model
+                        </button>
+                    </form>
+                    
+                    <div class="config-item mt-4">
+                        <h3>Environment Management</h3>
+                        <p class="text-muted small mb-3">Reload environment variables without restarting the server.</p>
+                        <div class="environment-operations">
+                            <button id="reload-environment-ai" onclick="reloadEnvironment()"
+                                    data-tooltip="Reload API keys and configuration from the .env file">
+                                <i class="fas fa-sync"></i> Reload Environment
+                            </button>
+                            <span id="reload-status-ai" class="ms-2"></span>
+                        </div>
+                        <small class="form-text text-muted mt-2">Use this to refresh AI model API keys after making changes to the .env file</small>
+                    </div>
+                </div>
+                <div class="right-panel">
+                    <h2>Available Models</h2>
+                    <p class="text-muted mb-4">Currently configured AI models and their status.</p>
+                    <ul id="model-list" class="model-list">
+                        <!-- Will be populated dynamically -->
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Providers Tab -->
+        <div class="tab-pane fade" id="providers" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>Article Provider Configuration</h2>
+                    <p class="text-muted mb-4">Configure API keys for different news and article providers.</p>
+                    
+                    <form id="provider-config-form">
+                        <div class="form-group">
+                            <label for="provider-name" class="form-label">Provider</label>
+                            <select id="provider-name" required class="form-select" 
+                                    data-tooltip="Select the news provider you want to configure">
+                                <option value="">Select a provider</option>
+                            </select>
+                            <small class="form-text text-muted">Choose a provider to add or update its API key</small>
+                        </div>
+
+                        <div class="form-group mt-3">
+                            <label for="provider-key" class="form-label">API Key</label>
+                            <input type="text" id="provider-key" placeholder="Enter API key" required 
+                                   class="form-control"
+                                   data-tooltip="Enter the API key from your provider account">
+                            <small class="form-text text-muted">You can find your API key in your provider's dashboard</small>
+                        </div>
+
+                        <button type="submit" class="mt-3">
+                            <i class="fas fa-plus"></i> Add Provider
+                        </button>
+                    </form>
+                    
+                    <div class="config-item mt-4">
+                        <h3>Environment Management</h3>
+                        <p class="text-muted small mb-3">Reload environment variables without restarting the server.</p>
+                        <div class="environment-operations">
+                            <button id="reload-environment" onclick="reloadEnvironment()"
+                                    data-tooltip="Reload API keys and configuration from the .env file">
+                                <i class="fas fa-sync"></i> Reload Environment
+                            </button>
+                            <span id="reload-status" class="ms-2"></span>
+                        </div>
+                        <small class="form-text text-muted mt-2">Use this to refresh API keys after making changes to the .env file</small>
+                    </div>
+                </div>
+                <div class="right-panel">
+                    <h2>Available Providers</h2>
+                    <p class="text-muted mb-4">Currently configured news and article providers.</p>
+                    <ul id="provider-list" class="provider-list">
+                        <!-- Will be populated dynamically -->
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security Tab -->
+        <div class="tab-pane fade" id="security" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>Change Password</h2>
+                    <p class="text-muted mb-4">Update your account password. Make sure to use a strong password.</p>
+                    
+                    <form id="change-password-form">
+                        <div class="form-group">
+                            <label for="current-password" class="form-label">Current Password</label>
+                            <input type="password" id="current-password" 
+                                   placeholder="Enter current password" required
+                                   class="form-control"
+                                   data-tooltip="Enter your current password">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="new-password" class="form-label">New Password</label>
+                            <input type="password" id="new-password" 
+                                   placeholder="Enter new password" required
+                                   class="form-control"
+                                   data-tooltip="Enter a strong password that meets the requirements">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="confirm-password" class="form-label">Confirm Password</label>
+                            <input type="password" id="confirm-password" 
+                                   placeholder="Confirm new password" required
+                                   class="form-control"
+                                   data-tooltip="Re-enter your new password">
+                        </div>
+
+                        <button type="submit" class="mt-3">
+                            <i class="fas fa-key"></i> Update Password
+                        </button>
+                    </form>
+                </div>
+                <div class="right-panel">
+                    <h2>Password Requirements</h2>
+                    <p class="text-muted mb-4">Your password must meet the following requirements:</p>
+                    <ul class="requirements-list">
+                        <li class="requirement-item">
+                            <i class="fas fa-check-circle text-success"></i>
+                            At least 8 characters long
+                        </li>
+                        <li class="requirement-item">
+                            <i class="fas fa-check-circle text-success"></i>
+                            Must contain at least one uppercase letter
+                        </li>
+                        <li class="requirement-item">
+                            <i class="fas fa-check-circle text-success"></i>
+                            Must contain at least one number
+                        </li>
+                        <li class="requirement-item">
+                            <i class="fas fa-check-circle text-success"></i>
+                            Must contain at least one special character
+                        </li>
+                    </ul>
+                    <div class="alert alert-info mt-4">
+                        <i class="fas fa-info-circle"></i>
+                        For maximum security, use a unique password that you don't use elsewhere.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add the download dialog -->
+<div id="downloadDialog" class="modal" style="display: none;">
+    <div class="modal-content">
+        <h3>Select Database to Download</h3>
+        <select id="download-database-select">
+            <!-- Will be populated dynamically -->
+        </select>
+        <div class="modal-buttons">
+            <button onclick="downloadSelectedDatabase()">Download</button>
+            <button onclick="closeDownloadDialog()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Update the merge dialog template -->
+<template id="merge-dialog-template">
+    <div class="modal fade" tabindex="-1" role="dialog">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Merge Database</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-4">
+                        <h6>From Backup</h6>
+                        <select id="backup-select" class="form-select">
+                            <option value="">Select a backup...</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <h6>Or Upload File</h6>
+                        <input type="file" 
+                               id="database-upload" 
+                               class="form-control" 
+                               accept=".db,.sqlite,.sqlite3"
+                               aria-label="Upload database file">
+                        <small class="form-text text-muted mt-2">Select a SQLite database file to merge</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="mergeFromBackup()">Merge</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Add an alert container -->
+<div class="alert-container position-fixed top-0 end-0 p-3" style="z-index: 1100;"></div>
+
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink - match global brand color */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+        --light-bg: #ffffff;
+    }
+
+    h1 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    h2 {
+        color: var(--primary-color);
+        border-bottom: 1px solid rgba(255, 105, 180, 0.2);
+        padding-bottom: 10px;
+    }
+
+    h3 {
+        color: var(--dark-gray);
+    }
+
+    .left-panel, .right-panel {
+        background-color: var(--light-bg);
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        border: 1px solid var(--medium-gray);
+    }
+
+    button {
+        background-color: rgba(255, 105, 180, 0.1);
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        color: var(--primary-color);
+        transition: all 0.2s ease;
+        padding: 8px 16px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        font-weight: 500;
+    }
+
+    button:hover {
+        background-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+    }
+
+    .database-operations button#backup-database {
+        background-color: rgba(50, 205, 50, 0.1);
+        border: 1px solid rgba(50, 205, 50, 0.2);
+        color: var(--secondary-color);
+    }
+
+    .database-operations button#backup-database:hover {
+        background-color: var(--secondary-color);
+        color: white;
+    }
+
+    .database-operations button#download-database {
+        background-color: rgba(255, 105, 180, 0.1);
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        color: var(--primary-color);
+    }
+
+    .database-operations button#download-database:hover {
+        background-color: var(--primary-color);
+        color: white;
+    }
+
+    .database-operations button#reset-database,
+    .danger {
+        background-color: rgba(220, 53, 69, 0.1) !important;
+        border: 1px solid rgba(220, 53, 69, 0.2) !important;
+        color: #dc3545 !important;
+    }
+
+    .database-operations button#reset-database:hover,
+    .danger:hover {
+        background-color: #dc3545 !important;
+        color: white !important;
+    }
+
+    input, select {
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        border-radius: 20px;
+        padding: 0.5rem 1rem;
+        transition: all 0.2s ease;
+        font-size: 0.9rem;
+    }
+
+    input:focus, select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.15);
+        outline: none;
+    }
+
+    .status-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.35em 0.8em;
+        font-size: 0.75em;
+        font-weight: 500;
+        line-height: 1.4;
+        border-radius: 20px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .status-badge.configured {
+        background-color: rgba(50, 205, 50, 0.1);
+        color: var(--secondary-color);
+        border: 1px solid rgba(50, 205, 50, 0.2);
+    }
+
+    .status-badge.not-configured {
+        background-color: rgba(220, 53, 69, 0.1);
+        color: #dc3545;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+    }
+
+    #database-list li, #model-list li, #provider-list li {
+        background-color: var(--light-gray);
+        border: 1px solid var(--medium-gray);
+        border-radius: 20px;
+        transition: transform 0.2s ease;
+        padding: 12px 20px;
+    }
+
+    #database-list li:hover, #model-list li:hover, #provider-list li:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    .modal-content {
+        border-radius: 20px;
+        border: none;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    .info-item {
+        border-left: 4px solid rgba(255, 105, 180, 0.2);
+        border-radius: 15px;
+    }
+
+    .info-value {
+        color: var(--primary-color);
+    }
+
+    /* Add these layout styles back while keeping the new visual styling */
+    .config-layout {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        margin-top: 20px;
+    }
+
+    .left-panel, .right-panel {
+        flex: 1;
+        min-width: 300px;
+        padding: 20px;
+    }
+
+    .config-item {
+        margin-bottom: 20px;
+    }
+
+    #database-list, #model-list, #provider-list {
+        padding-left: 0;
+        list-style-type: none;
+    }
+
+    #database-list li, #model-list li, #provider-list li {
+        margin-bottom: 10px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px;
+    }
+
+    #create-database-form, #add-model-form, #provider-config-form {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .database-operations {
+        display: flex;
+        gap: 10px;
+        margin-top: 10px;
+    }
+
+    .database-operations button {
+        flex: 1;
+    }
+
+    /* Modal styles */
+    .modal-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1040;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(0, 0, 0, 0.5);
+    }
+
+    .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 1045;
+        width: 100%;
+        height: 100%;
+        overflow-x: hidden;
+        overflow-y: auto;
+        outline: 0;
+    }
+
+    .modal-dialog {
+        position: relative;
+        width: auto;
+        margin: 1.75rem auto;
+        pointer-events: auto;
+        max-width: 600px;
+    }
+
+    .modal.fade .modal-dialog {
+        transition: transform 0.3s ease-out;
+        transform: translate(0, -50px);
+    }
+
+    .modal.show .modal-dialog {
+        transform: translate(0, 0);
+    }
+
+    .modal-content {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        background-color: #fff;
+        border-radius: 0.3rem;
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        outline: 0;
+    }
+
+    .modal-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        padding: 1rem;
+        border-bottom: 1px solid #dee2e6;
+        border-top-left-radius: calc(0.3rem - 1px);
+        border-top-right-radius: calc(0.3rem - 1px);
+    }
+
+    .modal-body {
+        position: relative;
+        flex: 1 1 auto;
+        padding: 1rem;
+    }
+
+    .modal-footer {
+        display: flex;
+        justify-content: flex-end;
+        padding: 0.75rem;
+        border-top: 1px solid #dee2e6;
+        gap: 0.5rem;
+    }
+
+    /* Ensure the modal and its contents are clickable */
+    .modal, 
+    .modal-dialog,
+    .modal-content,
+    .modal-header,
+    .modal-body,
+    .modal-footer {
+        pointer-events: auto;
+    }
+
+    .info-panel {
+        background: var(--light-bg);
+        padding: 20px;
+        border-radius: 8px;
+    }
+
+    .info-group {
+        display: grid;
+        gap: 15px;
+    }
+
+    .info-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px;
+        background: white;
+        border-radius: 6px;
+    }
+
+    .info-label {
+        font-weight: 600;
+        color: var(--dark-gray);
+    }
+
+    .info-value {
+        font-family: monospace;
+    }
+
+    .table-info {
+        margin-top: 15px;
+        background: white;
+        border-radius: 6px;
+        padding: 10px;
+    }
+
+    .table-info table {
+        margin-bottom: 0;
+    }
+
+    /* Tab styles */
+    .nav-tabs {
+        border-bottom: 2px solid var(--medium-gray);
+        margin-bottom: 25px;
+        gap: 4px;
+    }
+
+    .nav-tabs .nav-link {
+        border: none;
+        color: var(--dark-gray);
+        padding: 12px 24px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 12px 12px 0 0;
+        background-color: var(--light-gray);
+        margin-bottom: -2px;
+        transition: all 0.2s ease;
+    }
+
+    .nav-tabs .nav-link:hover {
+        background-color: rgba(255, 105, 180, 0.05);
+        color: var(--primary-color);
+    }
+
+    .nav-tabs .nav-link.active {
+        color: var(--primary-color);
+        background-color: white;
+        border: 2px solid var(--medium-gray);
+        border-bottom: 2px solid white;
+        font-weight: 600;
+    }
+
+    .nav-tabs .nav-link i {
+        font-size: 1.1em;
+        opacity: 0.7;
+    }
+
+    .nav-tabs .nav-link.active i {
+        opacity: 1;
+    }
+
+    .tab-content {
+        background: white;
+        border: 2px solid var(--medium-gray);
+        border-radius: 0 12px 12px 12px;
+        padding: 25px;
+        margin-top: -2px;
+    }
+
+    @media (max-width: 768px) {
+        .nav-tabs {
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+    }
+
+    /* Add tooltip styles */
+    [data-tooltip] {
+        position: relative;
+    }
+
+    [data-tooltip]:hover::before {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 8px 12px;
+        background-color: rgba(0, 0, 0, 0.8);
+        color: white;
+        font-size: 0.8rem;
+        border-radius: 6px;
+        white-space: nowrap;
+        z-index: 1000;
+        margin-bottom: 5px;
+    }
+
+    [data-tooltip]:hover::after {
+        content: '';
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 6px solid transparent;
+        border-top-color: rgba(0, 0, 0, 0.8);
+        margin-bottom: -6px;
+    }
+
+    .form-text {
+        font-size: 0.85rem;
+        color: var(--dark-gray);
+        margin-top: 0.25rem;
+        opacity: 0.8;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .form-label {
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+        color: var(--dark-gray);
+    }
+
+    /* Info icon for additional help */
+    .info-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background-color: rgba(255, 105, 180, 0.1);
+        color: var(--primary-color);
+        font-size: 12px;
+        margin-left: 6px;
+        cursor: help;
+    }
+
+    /* Status indicator styles */
+    .status-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.85rem;
+    }
+
+    .status-indicator::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+
+    .status-indicator.active::before {
+        background-color: #28a745;
+    }
+
+    .status-indicator.inactive::before {
+        background-color: #dc3545;
+    }
+</style>
+
+<script>
+    // JavaScript functions related to database and model management
+    let activeDatabase = '';
+
+    // Function to load existing databases
+    function loadDatabases() {
+        return fetch('/api/databases')
+            .then(response => response.json())
+            .then(data => {
+                const databaseList = document.getElementById('database-list');
+                const activeSelect = document.getElementById('active-database');
+                
+                // Clear existing options
+                databaseList.innerHTML = '';
+                activeSelect.innerHTML = '<option value="">Select active database</option>';
+                
+                data.forEach(db => {
+                    // Add to list
+                    const li = document.createElement('li');
+                    li.className = 'database-item';
+                    li.innerHTML = `
+                        <span class="database-name">${db.name}</span>
+                        <button class="btn-icon delete-database" 
+                                onclick="deleteDatabase('${db.id}')"
+                                data-tooltip="Delete this database">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    `;
+                    databaseList.appendChild(li);
+                    
+                    // Add to select
+                    const option = document.createElement('option');
+                    option.value = db.id;
+                    option.textContent = db.name;
+                    activeSelect.appendChild(option);
+                });
+                
+                // Set current active database
+                return fetch('/api/active-database')
+                    .then(response => response.json())
+                    .then(activeData => {
+                        if (activeData.name) {
+                            activeSelect.value = activeData.name;
+                        }
+                    });
+            });
+    }
+
+    // Function to create a new database
+    document.getElementById('create-database-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        let databaseName = document.getElementById('database-name').value.trim();
+        
+        if (!databaseName) {
+            showAlert('Database name cannot be empty', 'danger');
+            return;
+        }
+        
+        // Remove .db extension if user included it
+        if (databaseName.endsWith('.db')) {
+            databaseName = databaseName.slice(0, -3);
+        }
+        
+        try {
+            setDatabaseInfoLoading(true);
+            
+            // Create database
+            const createResponse = await fetch('/api/databases', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: databaseName }),
+            });
+
+            if (!createResponse.ok) {
+                const error = await createResponse.json();
+                throw new Error(error.detail || 'Failed to create database');
+            }
+
+            const data = await createResponse.json();
+            console.log('Database created:', data);
+            
+            // Clear input
+            document.getElementById('database-name').value = '';
+            
+            // Set as active database with retry
+            let retries = 3;
+            while (retries > 0) {
+                try {
+                    const activeResponse = await fetch('/api/active-database', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ name: data.id }), // Use full name with .db extension
+                    });
+                    
+                    if (!activeResponse.ok) {
+                        const error = await activeResponse.json();
+                        throw new Error(error.detail || 'Failed to set active database');
+                    }
+                    
+                    const activeData = await activeResponse.json();
+                    console.log('Active database set:', activeData);
+                    break; // Success, exit retry loop
+                    
+                } catch (error) {
+                    retries--;
+                    if (retries === 0) throw error;
+                    await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1s between retries
+                }
+            }
+            
+            // Refresh UI
+            await loadDatabases();
+            await loadDatabaseInfo();
+            
+            showAlert(`Successfully created database: ${data.name}`, 'success');
+        } catch (error) {
+            console.error('Error:', error);
+            showAlert(error.message, 'danger');
+        } finally {
+            setDatabaseInfoLoading(false);
+        }
+    });
+
+    // Function to select active database
+    document.getElementById('active-database').addEventListener('change', async function(e) {
+        const databaseName = e.target.value;
+        try {
+            setDatabaseInfoLoading(true);
+            
+            const response = await fetch('/api/active-database', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ name: databaseName }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to set active database');
+            }
+
+            const data = await response.json();
+            console.log('Active database set:', data);
+            
+            // Add a small delay before loading the new database info
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Wait for database info to update
+            await loadDatabaseInfo();
+            await loadDatabases();
+            
+            showAlert(`Successfully switched to database: ${databaseName}`, 'success');
+        } catch (error) {
+            console.error('Error setting active database:', error);
+            showAlert(`Failed to switch database: ${error.message}`, 'danger');
+            loadDatabases(); // Refresh list to ensure correct selection
+        } finally {
+            setDatabaseInfoLoading(false);
+        }
+    });
+
+    // Add loading state handler
+    function setDatabaseInfoLoading(isLoading) {
+        const loadingText = 'Loading...';
+        if (isLoading) {
+            document.getElementById('db-name').textContent = loadingText;
+            document.getElementById('db-size').textContent = loadingText;
+            document.getElementById('total-articles').textContent = loadingText;
+            document.getElementById('last-entry').textContent = loadingText;
+            document.getElementById('first-entry').textContent = loadingText;
+            document.getElementById('total-topics').textContent = loadingText;
+            document.getElementById('table-info').innerHTML = 
+                '<tr><td colspan="2">Loading table information...</td></tr>';
+        }
+    }
+
+    // Update loadDatabaseInfo to use async/await and add error handling
+    async function loadDatabaseInfo() {
+        try {
+            const response = await fetch('/api/database-info');
+            if (!response.ok) {
+                throw new Error('Failed to load database info');
+            }
+            
+            const data = await response.json();
+            console.log('Loaded database info:', data); // Debug log
+            
+            // Update basic info
+            document.getElementById('db-name').textContent = data.name || 'N/A';  // Use full name with .db
+            document.getElementById('db-size').textContent = formatFileSize(data.size);
+            document.getElementById('total-articles').textContent = 
+                (data.total_articles || 0).toLocaleString();
+            document.getElementById('last-entry').textContent = formatDate(data.last_entry);
+            document.getElementById('first-entry').textContent = formatDate(data.first_entry);
+            document.getElementById('total-topics').textContent = 
+                (data.total_topics || 0).toLocaleString();
+            
+            // Update table information
+            const tableBody = document.getElementById('table-info');
+            if (data.tables && data.tables.length > 0) {
+                tableBody.innerHTML = data.tables
+                    .map(table => `
+                        <tr>
+                            <td>${table.name}</td>
+                            <td>${table.rows.toLocaleString()}</td>
+                        </tr>
+                    `)
+                    .join('');
+            } else {
+                tableBody.innerHTML = '<tr><td colspan="2">No tables found</td></tr>';
+            }
+        } catch (error) {
+            console.error('Error loading database info:', error);
+            document.getElementById('database-info').innerHTML = 
+                '<div class="alert alert-danger">Error loading database information</div>';
+            throw error; // Re-throw to handle in calling function
+        }
+    }
+
+    // Helper function to format file size
+    function formatFileSize(bytes) {
+        if (!bytes) return 'N/A';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let size = bytes;
+        let unitIndex = 0;
+        while (size >= 1024 && unitIndex < units.length - 1) {
+            size /= 1024;
+            unitIndex++;
+        }
+        return `${size.toFixed(2)} ${units[unitIndex]}`;
+    }
+
+    // Helper function to format date
+    function formatDate(dateString) {
+        if (!dateString) return 'N/A';
+        return new Date(dateString).toLocaleString();
+    }
+
+    // Function to delete a database
+    async function deleteDatabase(dbName) {
+        if (!confirm(`Are you sure you want to delete database "${dbName}"? This cannot be undone.`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/databases/${dbName}`, {
+                method: 'DELETE',
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to delete database');
+            }
+            
+            // Refresh the database lists
+            await loadDatabases();
+            showAlert(`Successfully deleted database: ${dbName}`, 'success');
+        } catch (error) {
+            console.error('Error deleting database:', error);
+            showAlert(error.message, 'danger');
+        }
+    }
+
+    // Load active database information
+    fetch('/api/active-database')
+        .then(response => response.json())
+        .then(data => {
+            activeDatabase = data.name;
+            loadDatabases();
+            loadDatabaseInfo();
+        });
+
+    // Function to load AI models from ai_config.json
+    function loadAIModels() {
+        fetch('/api/ai_models_config')
+            .then(response => response.json())
+            .then(data => {
+                const modelSelect = document.getElementById('model-name');
+                modelSelect.innerHTML = '<option value="">Select a model</option>';
+                data.ai_models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = `${model.name} (${model.provider})`;
+                    option.dataset.provider = model.provider;  // Set the data-provider attribute
+                    modelSelect.appendChild(option);
+                });
+            })
+            .catch(error => console.error('Error loading AI models:', error));
+    }
+
+    // Function to load available models
+    function loadAvailableModels() {
+        fetch('/api/ai_models')
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(models => {
+                const modelList = document.getElementById('model-list');
+                modelList.innerHTML = '';
+                if (models.length === 0) {
+                    modelList.innerHTML = '<li>No models configured.</li>';
+                } else {
+                    models.forEach(model => {
+                        const li = document.createElement('li');
+                        li.textContent = `${model.name} (${model.provider})`;
+                        const deleteButton = document.createElement('button');
+                        deleteButton.textContent = 'Remove';
+                        deleteButton.onclick = () => removeModel(model.name, model.provider);
+                        li.appendChild(deleteButton);
+                        modelList.appendChild(li);
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error loading available models:', error);
+                const modelList = document.getElementById('model-list');
+                modelList.innerHTML = '<li>Error loading models. Please try again later.</li>';
+            });
+    }
+
+    document.getElementById('add-model-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        console.log('Form submission started');
+        const modelSelect = document.getElementById('model-name');
+        const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+        const modelName = selectedOption.value;
+        const provider = selectedOption.dataset.provider;
+        const apiKey = document.getElementById('api-key').value;
+        
+        console.log('Selected option:', selectedOption);
+        console.log('Model Name:', modelName);
+        console.log('Provider:', provider);
+        console.log('API Key length:', apiKey.length);
+        
+        if (!modelName || !provider || !apiKey) {
+            alert('Please fill in all required fields');
+            return;
+        }
+        
+        console.log('Sending request to add model:', { model_name: modelName, provider: provider });
+        
+        fetch('/config/add_model', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model_name: modelName,
+                provider: provider,
+                api_key: apiKey
+            })
+        })
+        .then(response => {
+            console.log('Response status:', response.status);
+            return response.json().then(data => ({status: response.status, body: data}));
+        })
+        .then(({status, body}) => {
+            console.log('Response body:', body);
+            if (status === 422) {
+                throw new Error(body.error || 'Missing required fields');
+            } else if (status === 400) {
+                throw new Error(body.error || 'Invalid model configuration');
+            } else if (status !== 200) {
+                throw new Error(body.error || 'Unknown server error');
+            }
+            if (body.error) {
+                throw new Error(body.error);
+            }
+            console.log('Model added successfully:', body.message);
+            alert(body.message);
+            loadAvailableModels();
+        })
+        .catch(error => {
+            console.error('Error adding model:', error);
+            alert('Error adding model: ' + error.message);
+        });
+    });
+
+    function removeModel(modelName, provider) {
+        if (confirm(`Are you sure you want to remove the model "${modelName}"?`)) {
+            fetch('/config/remove_model', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model_name: modelName,
+                    provider: provider
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Model removed:', data);
+                loadAvailableModels();  // Refresh the list of available models
+            })
+            .catch(error => {
+                console.error('Error removing model:', error);
+                alert('Error removing model. Please try again.');
+            });
+        }
+    }
+
+    // Load AI models and available models when the page loads
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('DOMContentLoaded event fired');  // Debug log
+        loadAIModels();
+        loadAvailableModels();
+    });
+
+    // Consolidated DOMContentLoaded event listener at the bottom
+    document.addEventListener('DOMContentLoaded', function() {
+        // Load all configurations
+        loadAIModels();
+        loadAvailableModels();
+        loadProviderOptions();
+        loadAvailableProviders();
+    });
+
+    // Add this function to reload the configuration after key changes
+    async function reloadConfiguration() {
+        await loadAIModels();
+        await loadAvailableModels();
+        await loadProviderOptions();
+        await loadAvailableProviders();
+    }
+
+    // Update the provider config form submission handler
+    document.getElementById('provider-config-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const providerName = document.getElementById('provider-name').value;
+        const key = document.getElementById('provider-key').value;
+        
+        if (!providerName || !key) {
+            alert('Please select a provider and enter an API key');
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/config/${providerName}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ api_key: key })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.detail || `Failed to save ${providerName} key`);
+            }
+            
+            alert(`${providerName} key saved successfully`);
+            document.getElementById('provider-key').value = '';
+            
+            // Reload the configuration after saving
+            await reloadConfiguration();
+            
+        } catch (error) {
+            console.error(`Error saving ${providerName} key:`, error);
+            alert(`Error saving ${providerName} key: ${error.message}`);
+        }
+    });
+
+    // Update loadAvailableProviders with the correct URL
+    async function loadAvailableProviders() {
+        try {
+            const response = await fetch('/api/providers');
+            const data = await response.json();
+            const providerList = document.getElementById('provider-list');
+            providerList.innerHTML = '';
+            
+            for (const provider of data.providers.filter(p => p.config_type === 'api_key')) {
+                const configResponse = await fetch(`/config/${provider.name}`);
+                const configData = await configResponse.json();
+                
+                const li = document.createElement('li');
+                li.innerHTML = `
+                    ${provider.display_name}
+                    <span class="status-badge ${configData.configured ? 'configured' : 'not-configured'}">
+                        ${configData.configured ? 'Configured' : 'Not Configured'}
+                    </span>
+                    ${configData.configured ? 
+                        `<button onclick="removeProviderConfig('${provider.name}')">Remove</button>` : 
+                        ''}
+                `;
+                providerList.appendChild(li);
+            }
+        } catch (error) {
+            console.error('Error loading providers:', error);
+            document.getElementById('provider-list').innerHTML = 
+                '<li>Error loading providers. Please try again later.</li>';
+        }
+    }
+
+    // Update removeProviderConfig to match removeModel pattern
+    async function removeProviderConfig(providerName) {
+        if (confirm(`Are you sure you want to remove the ${providerName} key?`)) {
+            try {
+                const response = await fetch(`/config/${providerName}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to remove ${providerName} key`);
+                }
+                
+                await loadAvailableProviders();
+            } catch (error) {
+                console.error(`Error removing ${providerName} key:`, error);
+                alert(`Error removing ${providerName} key: ${error.message}`);
+            }
+        }
+    }
+
+    // Add this function to load providers from provider_config.json
+    async function loadProviderOptions() {
+        try {
+            const response = await fetch('/api/providers');
+            const data = await response.json();
+            const providerSelect = document.getElementById('provider-name');
+            providerSelect.innerHTML = '<option value="">Select a provider</option>';
+            
+            data.providers
+                .filter(provider => provider.config_type === 'api_key')  // Only show providers needing API key
+                .forEach(provider => {
+                const option = document.createElement('option');
+                option.value = provider.name;
+                option.textContent = provider.display_name;
+                option.dataset.configType = provider.config_type;
+                providerSelect.appendChild(option);
+            });
+        } catch (error) {
+            console.error('Error loading providers:', error);
+        }
+    }
+
+    // Add password change functionality
+    document.getElementById('change-password-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const currentPassword = document.getElementById('current-password').value;
+        const newPassword = document.getElementById('new-password').value;
+        const confirmPassword = document.getElementById('confirm-password').value;
+        
+        if (newPassword !== confirmPassword) {
+            alert('New passwords do not match');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/change-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    current_password: currentPassword,
+                    new_password: newPassword
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.detail || 'Failed to change password');
+            }
+            
+            alert('Password changed successfully');
+            document.getElementById('change-password-form').reset();
+            
+        } catch (error) {
+            console.error('Error changing password:', error);
+            alert(`Error changing password: ${error.message}`);
+        }
+    });
+
+    // Function to backup the database
+    function backupDatabase() {
+        if (confirm('Do you want to create a backup of the current database?')) {
+            fetch('/api/databases/backup', {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                loadDatabases();  // Refresh the database list
+            })
+            .catch(error => {
+                console.error('Error backing up database:', error);
+                alert('Error backing up database. Please try again.');
+            });
+        }
+    }
+
+    // Function to reset the database
+    function resetDatabase() {
+        if (confirm('WARNING: This will delete all articles, tags, and reports from the database. This action cannot be undone. Are you sure you want to proceed?')) {
+            if (confirm('Last chance: Are you absolutely sure? All data will be permanently deleted.')) {
+                fetch('/api/databases/reset', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    alert(data.message);
+                    loadDatabaseInfo();  // Refresh the database info
+                })
+                .catch(error => {
+                    console.error('Error resetting database:', error);
+                    alert('Error resetting database. Please try again.');
+                });
+            }
+        }
+    }
+
+    // Add this to handle tab persistence
+    document.addEventListener('DOMContentLoaded', function() {
+        // Get active tab from localStorage if it exists
+        const activeTab = localStorage.getItem('configActiveTab');
+        if (activeTab) {
+            const tab = new bootstrap.Tab(document.querySelector(`#configTabs button[data-bs-target="${activeTab}"]`));
+            tab.show();
+        }
+
+        // Store active tab in localStorage when changed
+        document.querySelectorAll('#configTabs button').forEach(button => {
+            button.addEventListener('shown.bs.tab', function(e) {
+                localStorage.setItem('configActiveTab', e.target.dataset.bsTarget);
+            });
+        });
+    });
+
+    // Add this function with the other database functions
+    function showDownloadDialog() {
+        const dialog = document.getElementById('downloadDialog');
+        const select = document.getElementById('download-database-select');
+        
+        // Clear and populate the select
+        select.innerHTML = '';
+        fetch('/api/databases')
+            .then(response => response.json())
+            .then(databases => {
+                databases.forEach(db => {
+                    const option = document.createElement('option');
+                    option.value = db.name;
+                    option.textContent = db.name;
+                    select.appendChild(option);
+                });
+                dialog.style.display = 'block';
+            })
+            .catch(error => {
+                console.error('Error loading databases:', error);
+                alert('Error loading databases. Please try again.');
+            });
+    }
+
+    function closeDownloadDialog() {
+        document.getElementById('downloadDialog').style.display = 'none';
+    }
+
+    function downloadSelectedDatabase() {
+        const select = document.getElementById('download-database-select');
+        const dbName = select.value;
+        
+        if (!dbName) {
+            alert('Please select a database');
+            return;
+        }
+
+        // Show loading state
+        const downloadButton = document.querySelector('#downloadDialog button');
+        downloadButton.disabled = true;
+        downloadButton.textContent = 'Downloading...';
+
+        fetch(`/api/databases/download/${encodeURIComponent(dbName)}`)
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.detail || 'Failed to download database');
+                    });
+                }
+                return response.blob();
+            })
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = dbName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+                closeDownloadDialog();
+            })
+            .catch(error => {
+                console.error('Error downloading database:', error);
+                alert(`Error downloading database: ${error.message}`);
+            })
+            .finally(() => {
+                // Reset button state
+                downloadButton.disabled = false;
+                downloadButton.textContent = 'Download';
+            });
+    }
+
+    // Update the existing downloadDatabase function to use the dialog
+    function downloadDatabase() {
+        showDownloadDialog();
+    }
+
+    // Add tooltips to all elements with data-tooltip attribute
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add info icons to form labels
+        const labels = document.querySelectorAll('.form-label');
+        labels.forEach(label => {
+            if (label.dataset.info) {
+                const infoIcon = document.createElement('span');
+                infoIcon.className = 'info-icon';
+                infoIcon.innerHTML = '<i class="fas fa-info"></i>';
+                infoIcon.dataset.tooltip = label.dataset.info;
+                label.appendChild(infoIcon);
+            }
+        });
+    });
+
+    // Update showMergeDialog function
+    async function showMergeDialog() {
+        try {
+            // Create modal from template
+            const template = document.getElementById('merge-dialog-template');
+            const modalContainer = template.content.cloneNode(true);
+            document.body.appendChild(modalContainer);
+
+            // Get the modal element - use the one we just added
+            const modalElement = document.body.querySelector('.modal:last-child');
+            
+            // Create backdrop
+            const backdrop = document.createElement('div');
+            backdrop.className = 'modal-backdrop fade show';
+            document.body.appendChild(backdrop);
+
+            // Initialize Bootstrap modal
+            const modal = new bootstrap.Modal(modalElement);
+            
+            // Initialize tabs
+            const tabs = modalElement.querySelectorAll('[data-bs-toggle="tab"]');
+            tabs.forEach(tab => {
+                new bootstrap.Tab(tab);
+            });
+
+            // Get backup select element
+            const select = modalElement.querySelector('#backup-select');
+            select.innerHTML = '<option value="">Loading backups...</option>';
+            
+            try {
+                const response = await fetch('/api/backups');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch backups');
+                }
+                
+                const backups = await response.json();
+                console.log('Loaded backups:', backups); // Debug log
+                
+                // Populate backup select
+                select.innerHTML = '<option value="">Select a backup...</option>';
+                if (backups && backups.length > 0) {
+                    backups.forEach(backup => {
+                        const option = document.createElement('option');
+                        option.value = backup.name;
+                        option.textContent = `${backup.name} (${backup.size}) - ${backup.date}`;
+                        select.appendChild(option);
+                    });
+                    select.disabled = false;
+                } else {
+                    select.innerHTML = '<option value="">No backups available</option>';
+                    select.disabled = true;
+                }
+            } catch (error) {
+                console.error('Error loading backups:', error);
+                select.innerHTML = '<option value="">Error loading backups</option>';
+                select.disabled = true;
+                showAlert('Failed to load backup list: ' + error.message, 'danger');
+            }
+
+            // Add cleanup handler
+            modalElement.addEventListener('hidden.bs.modal', () => {
+                modal.dispose();
+                modalElement.remove();
+                backdrop.remove();
+            });
+
+            // Show modal
+            modal.show();
+            
+        } catch (error) {
+            console.error('Error showing modal:', error);
+            showAlert('Failed to show merge dialog: ' + error.message, 'danger');
+        }
+    }
+
+    // Update mergeFromBackup function
+    async function mergeFromBackup() {
+        const modalElement = document.querySelector('.modal');
+        if (!modalElement) {
+            console.error('Modal element not found');
+            return;
+        }
+        
+        const formData = new FormData();
+        const mergeButton = modalElement.querySelector('.modal-footer .btn-primary');
+        
+        // Check for uploaded file first - use the correct selector
+        const fileInput = document.querySelector('#database-upload');  // Changed from modalElement.querySelector
+        const uploadFile = fileInput?.files[0];
+        console.log('File input element:', fileInput);
+        console.log('File selected:', uploadFile);
+        
+        let hasValidInput = false;
+        
+        if (uploadFile) {
+            formData.append('uploaded_file', uploadFile);
+            hasValidInput = true;
+            console.log('Added file to form data:', uploadFile.name);
+        } else {
+            // If no file, check for backup selection
+            const backupSelect = modalElement.querySelector('#backup-select');
+            const selectedBackup = backupSelect?.value;
+            console.log('Selected backup:', selectedBackup);
+            
+            if (selectedBackup && selectedBackup !== '') {
+                formData.append('backup_name', selectedBackup);
+                hasValidInput = true;
+                console.log('Added backup name to form data:', selectedBackup);
+            } else {
+                console.log('No backup selected');
+            }
+        }
+        
+        if (!hasValidInput) {
+            showAlert('Please select a backup or upload a file', 'warning');
+            return;
+        }
+        
+        try {
+            if (mergeButton) {
+                mergeButton.disabled = true;
+                mergeButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Merging...';
+            }
+            
+            console.log('Sending merge request with form data:', Array.from(formData.entries()));
+            
+            const response = await fetch('/api/merge_backup', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText);
+            }
+            
+            const result = await response.json();
+            showAlert(result.message || 'Successfully merged database', 'success');
+            
+            // Close modal and refresh
+            const modal = bootstrap.Modal.getInstance(modalElement);
+            if (modal) modal.hide();
+            location.reload();
+            
+        } catch (error) {
+            console.error('Error merging backup:', error);
+            showAlert('Failed to merge backup: ' + error.message, 'danger');
+        } finally {
+            if (mergeButton) {
+                mergeButton.disabled = false;
+                mergeButton.innerHTML = 'Merge';
+            }
+        }
+    }
+
+    // Add showAlert function if not already defined
+    if (typeof showAlert === 'undefined') {
+        function showAlert(message, type = 'info') {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            
+            const alertContainer = document.querySelector('.alert-container') || document.body;
+            alertContainer.appendChild(alertDiv);
+            
+            // Auto-dismiss after 5 seconds
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+    }
+
+    // Function to reload environment variables (updated to handle multiple status elements)
+    function reloadEnvironment() {
+        const statusElements = [
+            document.getElementById('reload-status'),
+            document.getElementById('reload-status-ai')
+        ];
+        
+        // Update all status elements
+        statusElements.forEach(el => {
+            if (el) el.innerHTML = '<span class="text-info">Reloading...</span>';
+        });
+        
+        fetch('/api/reload_environment', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.message) {
+                // Get available keys
+                const availableKeys = Object.entries(data.keys_available || {})
+                    .filter(([_, isAvailable]) => isAvailable)
+                    .map(([provider]) => provider);
+                
+                const successMessage = `<span class="text-success">Environment reloaded successfully! Keys available: ${availableKeys.join(', ')}</span>`;
+                
+                // Update all status elements
+                statusElements.forEach(el => {
+                    if (el) el.innerHTML = successMessage;
+                });
+                
+                // Refresh the provider lists after reload
+                setTimeout(() => {
+                    loadProviders();
+                    loadAIModels();
+                    
+                    // Clear all status elements
+                    statusElements.forEach(el => {
+                        if (el) el.innerHTML = '';
+                    });
+                }, 3000);
+            }
+        })
+        .catch(error => {
+            const errorMessage = `<span class="text-danger">Error: ${error.message}</span>`;
+            
+            // Update all status elements
+            statusElements.forEach(el => {
+                if (el) el.innerHTML = errorMessage;
+            });
+            
+            setTimeout(() => {
+                // Clear all status elements
+                statusElements.forEach(el => {
+                    if (el) el.innerHTML = '';
+                });
+            }, 3000);
+        });
+    }
+</script>{% endblock %}
+

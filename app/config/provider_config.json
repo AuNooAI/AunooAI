@@ -1,0 +1,44 @@
+{
+  "providers": [
+    {
+      "name": "newsapi",
+      "display_name": "NewsAPI",
+      "config_type": "api_key",
+      "description": "Access news articles from various sources worldwide",
+      "enabled": true
+    },
+    {
+      "name": "thenewsapi",
+      "display_name": "TheNewsAPI",
+      "config_type": "api_key",
+      "description": "Access news articles from TheNewsAPI service",
+      "enabled": true
+    },
+    {
+      "name": "firecrawl",
+      "display_name": "Firecrawl Scraper",
+      "config_type": "api_key",
+      "description": "Scrape websites for news articles",
+      "enabled": true
+    },
+    {
+      "name": "arxiv",
+      "display_name": "ArXiv",
+      "config_type": "none",
+      "description": "Access scientific papers and research articles",
+      "enabled": true
+    },
+    {
+      "name": "elevenlabs",
+      "display_name": "ElevenLabs",
+      "description": "AI Voice Generation and Podcast Creation",
+      "api_key_required": true,
+      "api_key_name": "ELEVENLABS_API_KEY",
+      "api_key_description": "Your ElevenLabs API key",
+      "api_key_placeholder": "Enter your ElevenLabs API key",
+      "api_key_validation": "^sk_[a-zA-Z0-9]{32,}$",
+      "api_key_validation_message": "Invalid ElevenLabs API key format",
+      "api_key_help": "Get your API key from https://elevenlabs.io/account/api-key"
+    }
+  ]
+} 

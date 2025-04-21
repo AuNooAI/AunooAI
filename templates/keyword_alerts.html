@@ -1,0 +1,1351 @@
+{% extends "base.html" %}
+
+{% block title %}AuNoo AI - Trend Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+        --border-color: #dee2e6;
+        --box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+    }
+
+    h2, h5, h6 {
+        color: var(--primary-color);
+    }
+
+/* Specific styles for keyword alerts page */
+.article-reference {
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 24px !important;
+    height: 24px !important;
+    border-radius: 50% !important;
+    background-color: var(--light-gray) !important;
+    border: 1px solid var(--border-color) !important;
+    color: var(--text-color) !important;
+    text-decoration: none !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+}
+
+.article-reference:hover {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+}
+
+.article-reference.selected {
+    background-color: var(--primary-color) !important;
+    color: white !important;
+    border-color: var(--primary-color) !important;
+}
+
+.sparkline-container {
+    position: relative;
+    margin-right: 10px;
+    background-color: #fff;
+    border: 1px solid var(--border-color);
+    width: 120px;
+    height: 40px;
+    padding: 5px;
+}
+
+.sparkline-container canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.keyword-labels {
+    display: none;
+    position: absolute;
+    top: -30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    padding: 4px;
+    border-radius: 4px;
+    box-shadow: var(--box-shadow);
+    white-space: nowrap;
+    z-index: 1000;
+    min-width: max-content;
+}
+
+.article-reference:hover .keyword-labels {
+    display: block;
+}
+
+.keyword-labels .badge {
+    font-size: 0.75rem;
+    margin: 0 2px;
+    padding: 3px 6px;
+    display: inline-block;
+}
+
+.keyword-labels:after {
+    content: '';
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid white;
+}
+
+/* Alert message styling */
+#alertMessage {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1050;
+    min-width: 300px;
+    max-width: 500px;
+    box-shadow: var(--box-shadow);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div>
+            <h2 class="mb-3">Trends Dashboard</h2>
+            <div class="d-flex flex-column gap-2">
+                <div class="d-flex align-items-center gap-3">
+                    <span class="text-muted">
+                        <i class="fas fa-clock"></i> Last search: {{ last_check_time|default('Never', true) }}
+                    </span>
+                    {% if last_error %}
+                        <span class="text-danger">
+                            <i class="fas fa-exclamation-circle"></i> {{ last_error }}
+                        </span>
+                    {% endif %}
+                </div>
+                <div class="d-flex align-items-center gap-3">
+                    <span class="text-muted">
+                        <i class="fas fa-sync"></i> Polling every {{ display_interval }}
+                    </span>
+                    <span class="text-muted">
+                        <i class="fas fa-hourglass-half"></i> 
+                        {% if not is_enabled %}
+                            Polling disabled
+                        {% elif next_check_time %}
+                            {% set next_check = next_check_time|datetime %}
+                            {% set current_time = now|datetime %}
+                            {% if next_check <= current_time %}
+                                Checking soon...
+                            {% else %}
+                                {{ next_check_time|timeago }}
+                            {% endif %}
+                        {% else %}
+                            Checking soon...
+                        {% endif %}
+                    </span>
+                    <span class="text-muted" id="resetTimer" style="font-size: 0.9rem;">
+                        <i class="fas fa-refresh"></i> Loading reset time...
+                    </span>
+                </div>
+                <div class="d-flex align-items-center gap-3 mt-1">
+                    <div class="form-check form-switch">
+                        <input class="form-check-input" type="checkbox" id="pollingToggle" 
+                               {% if is_enabled %}checked{% endif %}
+                               onchange="togglePolling(this.checked)">
+                        <label class="form-check-label" for="pollingToggle">
+                            Auto-polling {{ 'enabled' if is_enabled else 'disabled' }}
+                        </label>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="checkKeywords()">
+                        <i class="fas fa-sync"></i> Check Now
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div>
+            <a href="/keyword-monitor" class="btn btn-primary">
+                <i class="fas fa-cog"></i> Manage Keywords
+            </a>
+        </div>
+    </div>
+
+    <!-- Replace the existing trend chart section with this -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">EMERGING TRENDS OVERVIEW</h5>
+                <div>
+                    <button class="btn btn-outline-danger btn-sm me-2" id="bulkDeleteBtn" style="display: none;">
+                        <i class="fas fa-trash"></i> Delete Selected (<span id="deleteCount">0</span>)
+                    </button>
+                    <button class="btn btn-outline-primary btn-sm me-2" id="bulkAnalyzeBtn" style="display: none;">
+                        <i class="fas fa-microscope"></i> Analyze Selected (<span id="selectedCount">0</span>)
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="exportAlerts()">
+                        <i class="fas fa-file-export"></i> Export
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead>
+                        <tr>
+                            <th>Status</th>
+                            <th>Emerging Trend</th>
+                            <th>References</th>
+                            <th style="width: 200px;">Growth</th>
+                            <th>Size</th>
+                            <th>Tags</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for group in groups %}
+                        <tr data-topic="{{ group.topic }}" data-total-count="{{ group.total_count }}">
+                            <td>
+                                <span class="badge bg-{{ status_colors[group.growth_status] }}">
+                                    {{ group.growth_status }}
+                                </span>
+                            </td>
+                            <td>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <strong>{{ group.name }}</strong>
+                                        <p class="text-muted small mb-0">{{ group.topic }}</p>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="d-flex gap-1">
+                                    {% if group.alerts %}
+                                        {% for alert in group.alerts[:3] %}
+                                        <span class="article-reference"
+                                              data-url="{{ alert.article.url }}"
+                                              data-title="{{ alert.article.title }}"
+                                              data-summary="{{ alert.article.summary }}"
+                                              data-topic="{{ group.topic }}"
+                                              data-group-id="{{ group.id }}"
+                                              onclick="toggleArticleSelection(this)"
+                                              title="{{ alert.article.title }}">
+                                            {{ loop.index }}
+                                        </span>
+                                        {% if alert.matched_keyword %}
+                                            <span class="badge bg-info ms-1">
+                                                <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
+                                            </span>
+                                        {% endif %}
+                                        {% if alert.matched_keywords %}
+                                            {% for keyword in alert.matched_keywords %}
+                                                {% if keyword and keyword != alert.matched_keyword %}
+                                                <span class="badge bg-info ms-1">
+                                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                                </span>
+                                                {% endif %}
+                                            {% endfor %}
+                                        {% endif %}
+                                        {% endfor %}
+                                    {% else %}
+                                        <span class="text-muted">No recent references</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="sparkline-container" style="width: 120px; height: 40px;">
+                                        <canvas id="sparkline-{{ group.id }}" 
+                                                width="120" 
+                                                height="40" 
+                                                style="width: 120px; height: 40px;"></canvas>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge bg-primary">{{ group.unread_count }} alerts</span>
+                            </td>
+                            <td>
+                                {% for keyword in group.keywords[:3] %}
+                                <span class="badge bg-info">
+                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                </span>
+                                {% endfor %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-secondary" title="Hide trend">
+                                    <i class="fas fa-eye-slash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% if groups %}
+        <div class="row">
+            {% for group in groups %}
+            <div class="col-12 mb-4">
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center gap-3">
+                                <div>
+                                    <h5 class="mb-0">{{ group.name }}</h5>
+                                    <div class="text-muted small">
+                                        Topic: <span class="badge bg-secondary">{{ group.topic }}</span>
+                                        {% if group.keywords %}
+                                            <span class="ms-2">Monitoring: 
+                                                {% for keyword in group.keywords %}
+                                                <span class="badge bg-info">
+                                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                                </span>
+                                                {% endfor %}
+                                            </span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input show-read-toggle" 
+                                           type="checkbox" 
+                                           id="showReadToggle_{{ group.id }}"
+                                           data-topic="{{ group.topic }}"
+                                           data-group-id="{{ group.id }}">
+                                    <label class="form-check-label" for="showReadToggle_{{ group.id }}">
+                                        Show read articles (<span class="total-count">{{ group.total_count }}</span> total)
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2 align-items-center" data-group-id="{{ group.id }}">
+                                <button class="btn btn-outline-primary btn-sm bulk-analyze-btn" 
+                                        data-topic="{{ group.topic }}"
+                                        data-group-id="{{ group.id }}"
+                                        onclick="analyzeBulkArticles('{{ group.topic }}', '{{ group.id }}')"
+                                        style="display: none;">
+                                    <i class="fas fa-microscope"></i> 
+                                    Analyze Selected (<span class="selected-count">0</span>)
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm bulk-delete-btn"
+                                        data-topic="{{ group.topic }}"
+                                        data-group-id="{{ group.id }}"
+                                        onclick="bulkDeleteArticles('{{ group.topic }}', '{{ group.id }}')"
+                                        style="display: none;">
+                                    <i class="fas fa-trash"></i>
+                                    Delete Selected (<span class="delete-count">0</span>)
+                                </button>
+                                <span class="badge bg-primary">{{ group.unread_count }} alerts</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {% if group.alerts %}
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                                <tr>
+                                    <th style="width: 80px">Status</th>
+                                    <th>Article</th>
+                                    <th style="width: 150px">Source</th>
+                                    <th style="width: 150px">Detected</th>
+                                    <th style="width: 150px">Tags</th>
+                                    <th style="width: 250px">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for alert in group.alerts %}
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            <span class="badge bg-primary">New</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-column" style="max-width: 600px;">
+                                            <div class="mb-1">
+                                                <div class="d-flex gap-2 align-items-center">
+                                                    <span class="article-reference"
+                                                          data-url="{{ alert.article.url }}"
+                                                          data-title="{{ alert.article.title }}"
+                                                          data-summary="{{ alert.article.summary }}"
+                                                          data-topic="{{ group.topic }}"
+                                                          data-group-id="{{ group.id }}"
+                                                          onclick="toggleArticleSelection(this)"
+                                                          title="{{ alert.article.title }}">
+                                                        {{ loop.index }}
+                                                    </span>
+                                                    <a href="{{ alert.article.url }}" target="_blank">{{ alert.article.title }}</a>
+                                                </div>
+                                                <p class="text-muted mb-0 small">{{ alert.article.summary }}</p>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="small">
+                                            <div class="fw-bold">{{ alert.article.source }}</div>
+                                            <div class="text-muted">
+                                                {{ alert.article.publication_date|datetime }}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="small">
+                                            <div>{{ alert.detected_at|timeago }}</div>
+                                            <div class="text-muted">
+                                                {{ alert.detected_at|datetime }}
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div>
+                                            {% if alert.matched_keyword %}
+                                                <span class="badge bg-info ms-1">
+                                                    <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
+                                                </span>
+                                            {% endif %}
+                                            {% if alert.matched_keywords %}
+                                                {% for keyword in alert.matched_keywords %}
+                                                    {% if keyword and keyword != alert.matched_keyword %}
+                                                    <span class="badge bg-info ms-1">
+                                                        <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                                    </span>
+                                                    {% endif %}
+                                                {% endfor %}
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-column gap-2">
+                                            <div class="d-flex gap-2">
+                                                <button class="btn btn-sm btn-outline-success" 
+                                                        onclick="markAsRead('{{ alert.id }}')"
+                                                        data-topic="{{ group.topic }}"
+                                                        data-group-id="{{ group.id }}"
+                                                        title="Mark as read">
+                                                    <i class="fas fa-check"></i>
+                                                </button>
+                                                <a href="/research?url={{ alert.article.url|urlencode }}&topic={{ group.topic|urlencode }}" 
+                                                   class="btn btn-sm btn-outline-primary"
+                                                   title="Analyze article">
+                                                    <i class="fas fa-microscope"></i>
+                                                </a>
+                                            </div>
+                                            <div class="d-flex gap-2">
+                                                <a href="https://12ft.io/{{ alert.article.url }}" 
+                                                   class="btn btn-sm btn-outline-secondary"
+                                                   title="Bypass Paywall with 12ft.io" 
+                                                   target="_blank">
+                                                    <i class="fas fa-unlock"></i>
+                                                </a>
+                                                <a href="https://archive.is/{{ alert.article.url }}" 
+                                                   class="btn btn-sm btn-outline-secondary"
+                                                   title="View archived version" 
+                                                   target="_blank">
+                                                    <i class="fas fa-archive"></i>
+                                                </a>
+                                            </div>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="card mb-4">
+                        <div class="card-body">
+                            <div class="alert alert-info mb-0">
+                                <i class="fas fa-info-circle"></i> No new alerts for this group
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    {% else %}
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle"></i> No unread alerts found.
+        <a href="/keyword-monitor" class="alert-link">Set up keyword monitoring</a> to get notified about relevant articles.
+    </div>
+    {% endif %}
+</div>
+
+<!-- Add this at the top of the page for error messages -->
+<div id="alertMessage" class="alert alert-danger alert-dismissible fade" role="alert" style="display: none;">
+    <span id="alertText"></span>
+    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+
+<script>
+// At the top of the script section, change the storage structure
+const selectedArticles = {
+    byTopic: {},  // Store by topic for bulk operations
+    byGroup: {}   // Store by group for UI updates
+};
+
+function generateTopicId(topic) {
+    return `bulkAnalyzeBtn_${topic.replace(/[^a-zA-Z0-9]/g, '_')}`;
+}
+
+let selectedArticlesByTopic = {};
+
+function drawSparkline(canvas, data) {
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 2;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // Find min and max values
+    const maxValue = Math.max(...data.counts, 1);  // At least 1 to avoid division by zero
+    
+    // Calculate scales
+    const xScale = (width - 2 * padding) / (data.counts.length - 1);
+    const yScale = (height - 2 * padding) / maxValue;
+    
+    // Draw grid lines
+    ctx.strokeStyle = '#f0f0f0';
+    ctx.lineWidth = 0.5;
+    
+    // Horizontal grid lines (3 lines)
+    for (let i = 1; i <= 3; i++) {
+        const y = height - (i * (height - 2 * padding) / 3);
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+    }
+    
+    // Draw the sparkline
+    ctx.strokeStyle = '#0d6efd';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    
+    // Move to first point
+    ctx.moveTo(
+        padding,
+        height - padding - (data.counts[0] * yScale)
+    );
+    
+    // Draw lines to subsequent points
+    for (let i = 1; i < data.counts.length; i++) {
+        ctx.lineTo(
+            i * xScale + padding,
+            height - padding - (data.counts[i] * yScale)
+        );
+    }
+    ctx.stroke();
+    
+    // Draw points
+    ctx.fillStyle = '#0d6efd';
+    data.counts.forEach((value, i) => {
+        ctx.beginPath();
+        ctx.arc(
+            i * xScale + padding,
+            height - padding - (value * yScale),
+            2,
+            0,
+            2 * Math.PI
+        );
+        ctx.fill();
+    });
+    
+    // Add value labels
+    ctx.fillStyle = '#666';
+    ctx.font = '8px Arial';
+    ctx.textAlign = 'center';
+    data.counts.forEach((value, i) => {
+        if (value > 0) {  // Only show non-zero values
+            ctx.fillText(
+                value.toString(),
+                i * xScale + padding,
+                height - padding - (value * yScale) - 5
+            );
+        }
+    });
+}
+
+async function loadTrendChart() {
+    try {
+        const response = await fetch('/api/keyword-monitor/trends');
+        if (!response.ok) throw new Error('Failed to fetch trend data');
+        
+        const data = await response.json();
+        
+        Object.entries(data).forEach(([groupId, groupData]) => {
+            const canvas = document.getElementById(`sparkline-${groupId}`);
+            if (!canvas) return;
+            
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            
+            drawSparkline(canvas, groupData);
+        });
+    } catch (error) {
+        console.error('Error loading trend charts:', error);
+    }
+}
+
+// Load charts when page loads and refresh every 5 minutes
+document.addEventListener('DOMContentLoaded', () => {
+    loadTrendChart();
+    setInterval(loadTrendChart, 5 * 60 * 1000);
+});
+
+async function markAsRead(alertId) {
+    try {
+        const response = await fetch(`/api/keyword-monitor/alerts/${alertId}/read`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) throw new Error('Failed to mark alert as read');
+        
+        const alertElement = document.querySelector(`[onclick*="${alertId}"]`);
+        if (!alertElement) throw new Error('Alert element not found');
+        
+        const topic = alertElement.dataset.topic;
+        const groupId = alertElement.dataset.groupId;
+        
+        if (!topic || !groupId) {
+            console.error('Missing topic or groupId:', { topic, groupId });
+            throw new Error('Missing required data attributes');
+        }
+        
+        // Update the status badge count
+        const groupCard = alertElement.closest('.card');
+        const statusBadge = groupCard.querySelector('.badge.bg-primary');
+        const currentCount = parseInt(statusBadge.textContent);
+        if (!isNaN(currentCount)) {
+            const newCount = Math.max(0, currentCount - 1);
+            statusBadge.textContent = `${newCount} alerts`;
+        }
+        
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (!toggle) throw new Error('Toggle element not found');
+        
+        // Refresh with current toggle state
+        await refreshGroupArticles(topic, groupId, toggle.checked);
+        
+        showAlert('Alert marked as read', 'success');
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to mark alert as read', 'danger');
+    }
+}
+
+function showAlert(message, type = 'danger') {
+    let alert = document.getElementById('alertMessage');
+    if (!alert) {
+        // Create alert element if it doesn't exist
+        alert = document.createElement('div');
+        alert.id = 'alertMessage';
+        alert.className = 'alert alert-dismissible fade';
+        alert.setAttribute('role', 'alert');
+        alert.style.position = 'fixed';
+        alert.style.top = '20px';
+        alert.style.right = '20px';
+        alert.style.zIndex = '1050';
+        alert.style.minWidth = '300px';
+        alert.style.maxWidth = '500px';
+        alert.style.boxShadow = '0 0.5rem 1rem rgba(0, 0, 0, 0.15)';
+        
+        document.body.appendChild(alert);
+    }
+
+    // Update alert content
+    alert.className = `alert alert-${type} alert-dismissible fade show`;
+    alert.innerHTML = `
+        <span id="alertText">${message}</span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    alert.style.display = 'block';
+    
+    // Clear any existing timeout
+    if (alert.timeoutId) {
+        clearTimeout(alert.timeoutId);
+    }
+    
+    // Auto-dismiss after 5 seconds
+    alert.timeoutId = setTimeout(() => {
+        alert.classList.remove('show');
+        setTimeout(() => {
+            alert.style.display = 'none';
+        }, 150); // Match the fade transition time
+    }, 5000);
+    
+    // Add click handler for manual dismissal
+    const closeButton = alert.querySelector('.btn-close');
+    if (closeButton) {
+        closeButton.onclick = () => {
+            alert.classList.remove('show');
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 150);
+        };
+    }
+}
+
+async function checkKeywords() {
+    const button = event.target.closest('button');
+    const originalHtml = button.innerHTML;
+    
+    try {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
+        
+        const response = await fetch('/api/keyword-monitor/check-now', {
+            method: 'POST'
+        });
+        
+        if (response.status === 429) {
+            showAlert('API daily request limit reached. Please try again tomorrow.', 'warning');
+            return;
+        }
+        
+        if (!response.ok) {
+            throw new Error('Failed to check keywords');
+        }
+        
+        // Reload the page to show all new alerts
+        window.location.reload();
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to check keywords. Please try again.', 'danger');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+    }
+}
+
+// Update the DOMContentLoaded event listener to be simpler
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize toggles
+    document.querySelectorAll('.show-read-toggle').forEach(toggle => {
+        const topic = toggle.dataset.topic;
+        const groupId = toggle.dataset.groupId;
+        
+        if (!topic || !groupId) {
+            console.error('Toggle missing required data attributes');
+            return;
+        }
+        
+        const savedState = localStorage.getItem(`showReadArticles_${groupId}`);
+        toggle.checked = savedState === 'true' || false;
+        
+        toggle.addEventListener('change', async function() {
+            console.log(`Toggle changed for group ${groupId} (${topic}): ${this.checked}`);
+            localStorage.setItem(`showReadArticles_${groupId}`, this.checked);
+            await refreshGroupArticles(topic, groupId, this.checked);
+        });
+    });
+
+    // Initialize reset timer
+    updateResetTimer();
+    setInterval(updateResetTimer, 60000);
+});
+
+// Add custom date formatting
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+}
+
+function timeAgo(dateStr) {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const seconds = Math.floor((now - date) / 1000);
+    
+    let interval = Math.floor(seconds / 31536000);
+    if (interval > 1) return interval + ' years ago';
+    
+    interval = Math.floor(seconds / 2592000);
+    if (interval > 1) return interval + ' months ago';
+    
+    interval = Math.floor(seconds / 86400);
+    if (interval > 1) return interval + ' days ago';
+    
+    interval = Math.floor(seconds / 3600);
+    if (interval > 1) return interval + ' hours ago';
+    
+    interval = Math.floor(seconds / 60);
+    if (interval > 1) return interval + ' minutes ago';
+    
+    return Math.floor(seconds) + ' seconds ago';
+}
+
+// Add Jinja filters
+document.addEventListener('DOMContentLoaded', function() {
+    const dates = document.querySelectorAll('[data-date]');
+    dates.forEach(el => {
+        const dateStr = el.dataset.date;
+        if (el.classList.contains('timeago')) {
+            el.textContent = timeAgo(dateStr);
+        } else {
+            el.textContent = formatDate(dateStr);
+        }
+    });
+});
+
+async function togglePolling(enabled) {
+    try {
+        const response = await fetch('/api/keyword-monitor/toggle-polling', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ enabled })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to toggle polling');
+        }
+        
+        // Update the label text
+        const label = document.querySelector('label[for="pollingToggle"]');
+        if (label) {
+            label.textContent = `Auto-polling ${enabled ? 'enabled' : 'disabled'}`;
+        }
+        
+        // Update the monitoring badge color
+        const monitoringBadge = document.querySelector('.badge');
+        if (monitoringBadge && monitoringBadge.textContent.trim() === 'Real time monitoring') {
+            monitoringBadge.className = `badge ${enabled ? 'bg-success' : 'bg-danger'} me-2`;
+        }
+        
+        // Update the next check time display
+        const nextCheckSpan = document.querySelector('span.text-muted i.fa-hourglass-half')?.parentElement;
+        if (nextCheckSpan) {
+            const now = new Date();
+            const nextCheck = new Date(now.getTime() + (enabled ? 15 * 60 * 1000 : 0)); // 15 minutes from now if enabled
+            
+            if (enabled) {
+                nextCheckSpan.innerHTML = `
+                    <i class="fas fa-hourglass-half"></i> 
+                    Next check: <span class="timeago" data-date="${nextCheck.toISOString()}">
+                        ${timeAgo(nextCheck)}
+                    </span>
+                `;
+            } else {
+                nextCheckSpan.innerHTML = `<i class="fas fa-hourglass-half"></i> Polling disabled`;
+            }
+        }
+        
+        showAlert(`Auto-polling ${enabled ? 'enabled' : 'disabled'}`, 'success');
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to toggle polling');
+        // Revert the toggle if there was an error
+        const toggle = document.getElementById('pollingToggle');
+        if (toggle) {
+            toggle.checked = !enabled;
+        }
+    }
+}
+
+function updateResetTimer() {
+    const now = new Date();
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    
+    const timeUntilReset = tomorrow - now;
+    const hours = Math.floor(timeUntilReset / (1000 * 60 * 60));
+    const minutes = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const resetTimer = document.getElementById('resetTimer');
+    if (resetTimer) {
+        resetTimer.innerHTML = `<i class="fas fa-refresh"></i> API resets in ${hours}h ${minutes}m`;
+        
+        // Update color based on API usage status
+        if (resetTimer.dataset.status === 'danger') {
+            resetTimer.classList.add('text-danger');
+        } else if (resetTimer.dataset.status === 'warning') {
+            resetTimer.classList.add('text-warning');
+        } else {
+            resetTimer.classList.remove('text-danger', 'text-warning');
+        }
+    }
+}
+
+// Update the existing DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', function() {
+    // Existing code...
+    
+    // Add reset timer update
+    updateResetTimer();
+    setInterval(updateResetTimer, 60000);
+    
+    // Check API status and update reset timer color
+    fetch('/api/keyword-monitor/settings')
+        .then(response => response.json())
+        .then(settings => {
+            const resetTimer = document.getElementById('resetTimer');
+            if (resetTimer) {
+                const percentage = (settings.requests_today / settings.daily_request_limit) * 100;
+                if (percentage >= 100) {
+                    resetTimer.dataset.status = 'danger';
+                } else if (percentage >= 80) {
+                    resetTimer.dataset.status = 'warning';
+                } else {
+                    resetTimer.dataset.status = 'normal';
+                }
+                updateResetTimer();
+            }
+        })
+        .catch(error => console.error('Error checking API status:', error));
+});
+
+async function exportAlerts() {
+    try {
+        const response = await fetch('/api/keyword-monitor/export-alerts');
+        if (!response.ok) throw new Error('Failed to export alerts');
+        
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const timestamp = new Date().toISOString().split('T')[0];
+        a.href = url;
+        a.download = `keyword_alerts_${timestamp}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+        
+        showAlert('Alerts exported successfully!', 'success');
+    } catch (error) {
+        console.error('Error exporting alerts:', error);
+        showAlert('Failed to export alerts. Please try again.', 'danger');
+    }
+}
+
+function toggleArticleSelection(element) {
+    const articleData = {
+        url: element.dataset.url,
+        title: element.dataset.title,
+        summary: element.dataset.summary,
+        topic: element.dataset.topic,
+        groupId: element.dataset.groupId
+    };
+    
+    // Initialize storage if needed
+    if (!selectedArticles.byTopic[articleData.topic]) {
+        selectedArticles.byTopic[articleData.topic] = [];
+    }
+    if (!selectedArticles.byGroup[articleData.groupId]) {
+        selectedArticles.byGroup[articleData.groupId] = [];
+    }
+    
+    element.classList.toggle('selected');
+    
+    if (element.classList.contains('selected')) {
+        // Add to both topic and group arrays if not already present
+        if (!selectedArticles.byTopic[articleData.topic].some(article => article.url === articleData.url)) {
+            selectedArticles.byTopic[articleData.topic].push(articleData);
+        }
+        if (!selectedArticles.byGroup[articleData.groupId].some(article => article.url === articleData.url)) {
+            selectedArticles.byGroup[articleData.groupId].push(articleData);
+        }
+    } else {
+        // Remove from both arrays
+        selectedArticles.byTopic[articleData.topic] = selectedArticles.byTopic[articleData.topic]
+            .filter(article => article.url !== articleData.url);
+        selectedArticles.byGroup[articleData.groupId] = selectedArticles.byGroup[articleData.groupId]
+            .filter(article => article.url !== articleData.url);
+    }
+    
+    updateBulkButtons(articleData.topic, articleData.groupId);
+}
+
+function updateBulkButtons(topic, groupId) {
+    const groupArticles = selectedArticles.byGroup[groupId] || [];
+    const buttonContainer = document.querySelector(`.d-flex[data-group-id="${groupId}"]`);
+    if (!buttonContainer) return;
+    
+    // Update analyze button for this specific group
+    const bulkAnalyzeBtn = buttonContainer.querySelector('.bulk-analyze-btn');
+    if (bulkAnalyzeBtn) {
+        if (groupArticles.length > 0) {
+            bulkAnalyzeBtn.style.display = 'inline-block';
+            const selectedCount = bulkAnalyzeBtn.querySelector('.selected-count');
+            if (selectedCount) {
+                selectedCount.textContent = groupArticles.length;
+            }
+        } else {
+            bulkAnalyzeBtn.style.display = 'none';
+        }
+    }
+    
+    // Update delete button for this specific group
+    const bulkDeleteBtn = buttonContainer.querySelector('.bulk-delete-btn');
+    if (bulkDeleteBtn) {
+        if (groupArticles.length > 0) {
+            bulkDeleteBtn.style.display = 'inline-block';
+            const deleteCount = bulkDeleteBtn.querySelector('.delete-count');
+            if (deleteCount) {
+                deleteCount.textContent = groupArticles.length;
+            }
+        } else {
+            bulkDeleteBtn.style.display = 'none';
+        }
+    }
+}
+
+function analyzeBulkArticles(topic, groupId) {
+    const articles = selectedArticles.byGroup[groupId] || [];
+    if (articles.length === 0) {
+        showAlert('No articles selected for analysis', 'warning');
+        return;
+    }
+    
+    const urls = articles.map(article => article.url).join('\n');
+    const params = new URLSearchParams({
+        urlList: urls,
+        topic: topic
+    });
+    
+    window.location.href = `/bulk-research?${params.toString()}`;
+}
+
+async function bulkDeleteArticles(topic, groupId) {
+    const articles = selectedArticles.byGroup[groupId] || [];
+    
+    if (articles.length === 0) {
+        showAlert('No articles selected for deletion', 'warning');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete ${articles.length} selected articles from this group?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/bulk_delete_articles', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                uris: articles.map(article => article.url)
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to delete articles');
+        }
+        
+        const result = await response.json();
+        showAlert(`Successfully deleted ${result.deleted_count} articles`, 'success');
+        
+        // Clear selections
+        selectedArticles.byGroup[groupId] = [];
+        selectedArticles.byTopic[topic] = [];
+        
+        // Update UI elements safely with null checks
+        const headerBadge = document.querySelector(`a[href="#${groupId}"] .badge, [data-topic="${topic}"] .badge.bg-primary`);
+        if (headerBadge) {
+            headerBadge.textContent = '0 alerts';
+        }
+        
+        const trendBadge = document.querySelector(`tr[data-topic="${topic}"] td:nth-child(5) .badge.bg-primary`);
+        if (trendBadge) {
+            trendBadge.textContent = '0 alerts';
+        }
+        
+        // Safely get the toggle element
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (toggle) {
+            const totalSpan = toggle.closest('label')?.querySelector('.total-count');
+            if (totalSpan) {
+                totalSpan.textContent = '0';
+            }
+            
+            // Refresh the group's content
+            await refreshGroupArticles(topic, groupId, toggle.checked || false);
+        }
+        
+        // Update the group content area
+        const groupContainer = document.querySelector(`[data-group-id="${groupId}"]`);
+        if (groupContainer) {
+            const tableBody = groupContainer.closest('.card')?.querySelector('tbody');
+            if (tableBody) {
+                if (tableBody.children.length === 0) {
+                    tableBody.innerHTML = `
+                        <tr>
+                            <td colspan="6">
+                                <div class="alert alert-info mb-0">
+                                    <i class="fas fa-info-circle"></i> No new alerts for this group
+                                </div>
+                            </td>
+                        </tr>
+                    `;
+                }
+            }
+        }
+
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to delete articles. Please try again.', 'danger');
+    }
+}
+
+// Update refreshGroupArticles to use passed showRead parameter
+async function refreshGroupArticles(topic, groupId, showRead = false) {
+    try {
+        console.log(`Refreshing articles for group ${groupId} (${topic}), showRead: ${showRead}`);
+        
+        const response = await fetch(`/api/keyword-monitor/alerts/${encodeURIComponent(topic)}?show_read=${showRead}&group_id=${groupId}`);
+        
+        if (!response.ok) {
+            throw new Error('Failed to fetch alerts');
+        }
+        
+        const data = await response.json();
+        
+        // Debug: Log the data structure
+        console.log('API Response:', data);
+        if (data.alerts && data.alerts.length > 0) {
+            console.log('First alert:', data.alerts[0]);
+            console.log('matched_keywords type:', Array.isArray(data.alerts[0].matched_keywords) ? 'array' : typeof data.alerts[0].matched_keywords);
+        }
+        
+        // Update the card selector to find by group-id
+        const card = document.querySelector(`.card .d-flex[data-group-id="${groupId}"]`).closest('.card');
+        if (!card) {
+            console.error(`Card not found for group ${groupId} (${topic})`);
+            return;
+        }
+        
+        updateGroupAlerts(card, data, groupId);
+        
+    } catch (error) {
+        console.error('Error refreshing articles:', error);
+        showAlert('Failed to refresh articles', 'danger');
+    }
+}
+
+// Update updateGroupAlerts to handle the card element directly
+function updateGroupAlerts(card, data, groupId) {
+    const tableBody = card.querySelector('tbody');
+    if (!tableBody) {
+        console.error('Table body not found');
+        return;
+    }
+    
+    // Update count in the group panel
+    const alertCountBadge = card.querySelector('.badge.bg-primary');
+    if (alertCountBadge) {
+        alertCountBadge.textContent = `${data.unread_count} alerts`;
+    }
+    
+    // Update count in trend dashboard (but not the status badge)
+    const trendRow = document.querySelector(`tr[data-topic="${data.topic}"]`);
+    if (trendRow) {
+        // Find the size column badge specifically (not the status badge)
+        const trendCountBadge = trendRow.querySelector('td:nth-child(5) .badge.bg-primary');
+        if (trendCountBadge) {
+            trendCountBadge.textContent = `${data.unread_count} alerts`;
+        }
+    }
+    
+    // Generate alerts HTML
+    let html = '';
+    for (const alert of data.alerts) {
+        // Process keywords for this alert
+        let keywordBadges = '';
+        if (alert.matched_keyword) {
+            keywordBadges += `<span class="badge bg-info">
+                <i class="fas fa-tag me-1"></i>${alert.matched_keyword}
+            </span>`;
+        }
+        
+        // Process additional keywords if available
+        if (alert.matched_keywords && Array.isArray(alert.matched_keywords)) {
+            alert.matched_keywords.forEach(keyword => {
+                if (keyword && keyword !== alert.matched_keyword) {
+                    keywordBadges += `<span class="badge bg-info ms-1">
+                        <i class="fas fa-tag me-1"></i>${keyword}
+                    </span>`;
+                }
+            });
+        }
+        
+        html += `
+            <tr class="${alert.is_read ? 'text-muted bg-light' : ''}">
+                <td>
+                    <div class="d-flex align-items-center">
+                        ${alert.is_read ? 
+                            '<span class="badge bg-secondary">Read</span>' : 
+                            '<span class="badge bg-primary">New</span>'}
+                    </div>
+                </td>
+                <td>
+                    <div class="d-flex flex-column" style="max-width: 600px;">
+                        <div class="mb-1">
+                            <div class="d-flex gap-2 align-items-center">
+                                <span class="article-reference"
+                                      data-url="${alert.article.url}"
+                                      data-title="${alert.article.title}"
+                                      data-summary="${alert.article.summary}"
+                                      data-topic="${data.topic}"
+                                      data-group-id="${groupId}"
+                                      onclick="toggleArticleSelection(this)"
+                                      title="${alert.article.title}">
+                                    ${alert.id}
+                                </span>
+                                <a href="${alert.article.url}" target="_blank">${alert.article.title}</a>
+                            </div>
+                            <p class="text-muted mb-0 small">${alert.article.summary}</p>
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div class="small">
+                        <div class="fw-bold">${alert.article.source}</div>
+                        <div class="text-muted">
+                            ${new Date(alert.article.publication_date).toLocaleString()}
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div class="small">
+                        <div>${timeAgo(alert.detected_at)}</div>
+                        <div class="text-muted">
+                            ${new Date(alert.detected_at).toLocaleString()}
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div>
+                        ${keywordBadges}
+                    </div>
+                </td>
+                <td>
+                    <div class="d-flex flex-column gap-2">
+                        <div class="d-flex gap-2">
+                            ${!alert.is_read ? 
+                                `<button class="btn btn-sm btn-outline-success" 
+                                         onclick="markAsRead('${alert.id}')"
+                                         data-topic="${data.topic}"
+                                         data-group-id="${groupId}"
+                                         title="Mark as read">
+                                    <i class="fas fa-check"></i>
+                                </button>` : 
+                                `<button class="btn btn-sm btn-outline-secondary" 
+                                         onclick="markAsUnread('${alert.id}')"
+                                         title="Mark as unread">
+                                    <i class="fas fa-undo"></i>
+                                </button>`}
+                            <a href="/research?url=${encodeURIComponent(alert.article.url)}&topic=${encodeURIComponent(data.topic)}" 
+                               class="btn btn-sm btn-outline-primary"
+                               title="Analyze article">
+                                <i class="fas fa-microscope"></i>
+                            </a>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <a href="https://12ft.io/${alert.article.url}" 
+                               class="btn btn-sm btn-outline-secondary"
+                               title="Bypass Paywall with 12ft.io" 
+                               target="_blank">
+                                <i class="fas fa-unlock"></i>
+                            </a>
+                            <a href="https://archive.is/${alert.article.url}" 
+                               class="btn btn-sm btn-outline-secondary"
+                               title="View archived version" 
+                               target="_blank">
+                                <i class="fas fa-archive"></i>
+                            </a>
+                        </div>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }
+    
+    tableBody.innerHTML = html;
+    
+    // Update the total count in toggle label
+    const totalCount = card.querySelector('.total-count');
+    if (totalCount) {
+        totalCount.textContent = data.total_count;
+    }
+    
+    // Update bulk action buttons
+    updateBulkButtons(data.topic, groupId);
+}
+
+// Update markAsUnread to pass the correct showRead state
+async function markAsUnread(alertId) {
+    try {
+        const response = await fetch(`/api/keyword-monitor/alerts/${alertId}/unread`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) throw new Error('Failed to mark alert as unread');
+        
+        const alertElement = document.querySelector(`[onclick*="${alertId}"]`);
+        const groupElement = alertElement.closest('.card');
+        const buttonContainer = groupElement.querySelector('.d-flex[data-group-id]');
+        const topic = alertElement.dataset.topic;
+        const groupId = buttonContainer.dataset.groupId;
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        
+        await refreshGroupArticles(topic, groupId, toggle.checked);
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to mark alert as unread', 'danger');
+    }
+}
+
+async function fixDuplicateAlerts() {
+    const button = event.target.closest('button');
+    const originalHtml = button.innerHTML;
+    
+    try {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fixing...';
+        
+        const response = await fetch('/api/keyword-monitor/fix-duplicate-alerts', {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to fix duplicate alerts');
+        }
+        
+        const result = await response.json();
+        showAlert(`${result.message}`, 'success');
+        
+        // Reload the page to show the updated alerts
+        setTimeout(() => {
+            window.location.reload();
+        }, 2000);
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to fix duplicate alerts. Please try again.', 'danger');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+    }
+}
+</script>
+{% endblock %} 

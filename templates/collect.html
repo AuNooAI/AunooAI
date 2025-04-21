@@ -1,0 +1,1679 @@
+{% extends "base.html" %}
+{% block title %}AuNoo AI - Article Collection{% endblock %}
+{% block content %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    h1, h2, h5, h6 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+        border: none;
+        height: 100%;
+    }
+
+    .card-header {
+        background-color: #fff;
+        border-bottom: 1px solid var(--medium-gray);
+        padding: 1rem 1.25rem;
+    }
+
+    .card-header h5 {
+        color: var(--text-color);
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .card-body {
+        padding: 1.25rem;
+        max-height: calc(100vh - 200px);  /* Adjust height based on header size */
+        overflow-y: auto;
+        position: relative;
+    }
+
+    .card-title {
+        color: var(--primary-color);
+        font-size: 1.25rem;
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+
+    .article-card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        margin-bottom: 15px;
+        border: 1px solid var(--medium-gray);
+        transition: transform 0.2s ease;
+        position: relative;
+        padding-bottom: 60px;  /* Increased space for buttons */
+    }
+
+    .article-card:hover {
+        transform: translateY(-2px);
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        color: #fff;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: flex-start;
+        padding: 8px 16px;
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+        border-color: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .form-control, .form-select {
+        border: 1px solid var(--medium-gray);
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+    }
+
+    .btn-danger {
+        background-color: #dc3545;
+        border-color: #dc3545;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background-color: #c82333;
+        border-color: #bd2130;
+    }
+
+    .btn-sm {
+        margin-right: 5px;
+    }
+
+    /* Add these styles to your existing CSS */
+    .article-container {
+        max-height: calc(100vh - 250px);  /* Adjust based on your header/footer size */
+        overflow-y: auto;
+        padding-right: 10px;
+        scrollbar-width: thin;
+        scrollbar-color: var(--primary-color) var(--light-gray);
+    }
+
+    .article-container::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .article-container::-webkit-scrollbar-track {
+        background: var(--light-gray);
+        border-radius: 3px;
+    }
+
+    .article-container::-webkit-scrollbar-thumb {
+        background-color: var(--primary-color);
+        border-radius: 3px;
+    }
+
+    .article-summary {
+        max-height: 150px;
+        overflow-y: auto;
+        margin-bottom: 15px;
+        padding-right: 10px;
+    }
+
+    .article-meta {
+        font-size: 0.9rem;
+        color: var(--dark-gray);
+        display: flex;
+        gap: 15px;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .source-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        background-color: var(--light-gray);
+        color: var(--dark-gray);
+    }
+
+    .article-actions {
+        position: absolute;
+        bottom: 10px;
+        left: 15px;
+        right: 15px;
+        display: flex;
+        gap: 10px;
+        padding-top: 10px;
+        background-color: #fff;  /* Ensure buttons are on white background */
+        border-top: 1px solid #eee;
+    }
+
+    .btn-group-sm > .btn {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
+    }
+
+    /* Update button styles to match index.html */
+    .btn {
+        border-radius: 25px;
+        padding: 10px 20px;
+        font-weight: 500;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        font-size: 0.9rem;
+        transition: all 0.2s ease;
+    }
+
+    /* Adjust size for small buttons */
+    .btn-sm {
+        padding: 6px 12px;
+        font-size: 0.8rem;
+    }
+
+    /* Style primary buttons */
+    .btn-outline-primary {
+        background-color: rgba(13, 110, 253, 0.1);
+        border: 1px solid rgba(13, 110, 253, 0.2);
+        color: #0d6efd;
+    }
+
+    .btn-outline-primary:hover {
+        background-color: #0d6efd;
+        border-color: #0d6efd;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Style success buttons */
+    .btn-outline-success {
+        background-color: rgba(40, 167, 69, 0.1);
+        border: 1px solid rgba(40, 167, 69, 0.2);
+        color: #28a745;
+    }
+
+    .btn-outline-success:hover {
+        background-color: #28a745;
+        border-color: #28a745;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Style secondary buttons */
+    .btn-outline-secondary {
+        background-color: rgba(108, 117, 125, 0.1);
+        border: 1px solid rgba(108, 117, 125, 0.2);
+        color: #6c757d;
+    }
+
+    .btn-outline-secondary:hover {
+        background-color: #6c757d;
+        border-color: #6c757d;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Style link buttons */
+    .btn-link {
+        color: #0d6efd;
+        text-decoration: none;
+        padding: 6px 12px;
+        background: none;
+        border: none;
+    }
+
+    .btn-link:hover {
+        color: #0a58ca;
+        background-color: rgba(255, 105, 180, 0.1);
+        border-radius: 25px;
+        transform: translateY(-1px);
+        text-decoration: none;
+    }
+
+    /* Style button groups */
+    .d-flex.gap-2 .btn {
+        flex: 1;
+        text-align: center;
+        justify-content: center;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Add subtle hover effect for all buttons */
+    .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Ensure icons are properly aligned */
+    .btn i {
+        font-size: 0.9em;
+        margin-right: 0.3em;
+        opacity: 0.8;
+    }
+</style>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css">
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+<div class="container mt-4">
+    <h2 class="mb-3">Article Collection</h2>
+    
+    <div class="row">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fas fa-search"></i> Search Articles
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form id="searchForm">
+                        <!-- Topic Selection -->
+                        <div class="mb-3">
+                            <label for="topicSelect" class="form-label">Topic</label>
+                            <select class="form-select" id="topicSelect" required>
+                                <option value="">Select a topic</option>
+                            </select>
+                        </div>
+
+                        <!-- Source Selection -->
+                        <div class="mb-3">
+                            <label for="sourceSelect" class="form-label">Source</label>
+                            <select class="form-select" id="sourceSelect" required>
+                                <option value="">Select a source</option>
+                            </select>
+                        </div>
+
+                        <!-- NewsAPI Options -->
+                        <div id="newsapiOptions" style="display: none;">
+                            <!-- Sort By -->
+                            <div class="mb-3">
+                                <label for="sortBy" class="form-label">Sort By</label>
+                                <select class="form-select" id="sortBy">
+                                    <option value="relevancy">Relevancy</option>
+                                    <option value="publishedAt">Published Date</option>
+                                    <option value="popularity">Popularity</option>
+                                </select>
+                            </div>
+
+                            <!-- Search In -->
+                            <div class="mb-3">
+                                <label class="form-label">Search In</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="title" id="searchInTitle" checked>
+                                    <label class="form-check-label" for="searchInTitle">Title</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="description" id="searchInDesc" checked>
+                                    <label class="form-check-label" for="searchInDesc">Description</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="content" id="searchInContent">
+                                    <label class="form-check-label" for="searchInContent">Content</label>
+                                </div>
+                            </div>
+
+                            <!-- Advanced Options -->
+                            <div class="mb-3">
+                                <button class="btn btn-sm btn-outline-secondary w-100" type="button" 
+                                        data-bs-toggle="collapse" data-bs-target="#advancedOptions">
+                                    Advanced Options ▼
+                                </button>
+                                <div id="advancedOptions" class="collapse mt-2">
+                                    <!-- Domain Filters -->
+                                    <div class="mb-3">
+                                        <label for="newsDomains" class="form-label">Include Domains (max 20)</label>
+                                        <div class="input-group mb-2">
+                                            <input type="text" class="form-control" id="newDomain" 
+                                                   placeholder="e.g., techcrunch.com">
+                                            <button class="btn btn-outline-secondary" type="button" 
+                                                    onclick="addDomain(false)" id="addDomainBtn">Add</button>
+                                        </div>
+                                        <select class="form-select" id="newsDomains" multiple size="5">
+                                        </select>
+                                        <button class="btn btn-sm btn-outline-danger mt-1" type="button" 
+                                                onclick="removeDomain(false)">Remove Selected</button>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="excludedDomains" class="form-label">Exclude Domains (max 20)</label>
+                                        <div class="input-group mb-2">
+                                            <input type="text" class="form-control" id="newExcludedDomain" 
+                                                   placeholder="e.g., example.com">
+                                            <button class="btn btn-outline-secondary" type="button" 
+                                                    onclick="addDomain(true)" id="addExcludedDomainBtn">Add</button>
+                                        </div>
+                                        <select class="form-select" id="excludedDomains" multiple size="5">
+                                        </select>
+                                        <button class="btn btn-sm btn-outline-danger mt-1" type="button" 
+                                                onclick="removeDomain(true)">Remove Selected</button>
+                                    </div>
+
+                                    <!-- Language Selection -->
+                                    <div class="mb-3">
+                                        <label for="language" class="form-label">Language</label>
+                                        <select class="form-select" id="language">
+                                            <option value="en">English</option>
+                                            <option value="fr">French</option>
+                                            <option value="de">German</option>
+                                            <option value="es">Spanish</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- TheNewsAPI Options -->
+                        <div id="thenewsapiOptions" style="display: none;">
+                            <!-- Sort By -->
+                            <div class="mb-3">
+                                <label for="thenewsapiSortBy" class="form-label">Sort By</label>
+                                <select class="form-select" id="thenewsapiSortBy">
+                                    <option value="relevancy">Relevancy</option>
+                                    <option value="published_at">Published Date</option>
+                                </select>
+                            </div>
+
+                            <!-- Categories -->
+                            <div class="mb-3">
+                                <label for="thenewsapiCategories" class="form-label">Categories</label>
+                                <div class="dropdown">
+                                    <button class="btn btn-outline-secondary dropdown-toggle w-100" type="button" id="categoryDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                                        Select Categories
+                                    </button>
+                                    <ul class="dropdown-menu w-100" id="thenewsapiCategories">
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="general" id="categoryGeneral">
+                                                <label class="form-check-label" for="categoryGeneral">General</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="science" id="categoryScience">
+                                                <label class="form-check-label" for="categoryScience">Science</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="sports" id="categorySports">
+                                                <label class="form-check-label" for="categorySports">Sports</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="business" id="categoryBusiness">
+                                                <label class="form-check-label" for="categoryBusiness">Business</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="health" id="categoryHealth">
+                                                <label class="form-check-label" for="categoryHealth">Health</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="entertainment" id="categoryEntertainment">
+                                                <label class="form-check-label" for="categoryEntertainment">Entertainment</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="tech" id="categoryTech">
+                                                <label class="form-check-label" for="categoryTech">Technology</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="politics" id="categoryPolitics">
+                                                <label class="form-check-label" for="categoryPolitics">Politics</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="food" id="categoryFood">
+                                                <label class="form-check-label" for="categoryFood">Food</label>
+                                            </div>
+                                        </li>
+                                        <li>
+                                            <div class="dropdown-item">
+                                                <input class="form-check-input me-2" type="checkbox" value="travel" id="categoryTravel">
+                                                <label class="form-check-label" for="categoryTravel">Travel</label>
+                                            </div>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <!-- Search Fields -->
+                            <div class="mb-3">
+                                <label class="form-label">Search In</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="title" id="thenewsapiSearchTitle" checked>
+                                    <label class="form-check-label" for="thenewsapiSearchTitle">Title</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="description" id="thenewsapiSearchDescription" checked>
+                                    <label class="form-check-label" for="thenewsapiSearchDescription">Description</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="keywords" id="thenewsapiSearchKeywords">
+                                    <label class="form-check-label" for="thenewsapiSearchKeywords">Keywords</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="main_text" id="thenewsapiSearchMainText" checked>
+                                    <label class="form-check-label" for="thenewsapiSearchMainText">Main Text</label>
+                                </div>
+                            </div>
+
+                            <!-- Advanced Options -->
+                            <div class="mb-3">
+                                <button class="btn btn-sm btn-outline-secondary w-100" type="button" 
+                                        data-bs-toggle="collapse" data-bs-target="#thenewsapiAdvancedOptions">
+                                    Advanced Options ▼
+                                </button>
+                                <div id="thenewsapiAdvancedOptions" class="collapse mt-2">
+                                    <!-- Locale Selection -->
+                                    <div class="mb-3">
+                                        <label for="thenewsapiLocale" class="form-label">Country</label>
+                                        <select class="form-select" id="thenewsapiLocale">
+                                            <option value="">All Countries</option>
+                                            <option value="us">United States</option>
+                                            <option value="gb">United Kingdom</option>
+                                            <option value="ca">Canada</option>
+                                            <option value="au">Australia</option>
+                                            <option value="de">Germany</option>
+                                            <option value="fr">France</option>
+                                            <option value="in">India</option>
+                                            <option value="jp">Japan</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Exclude Categories -->
+                                    <div class="mb-3">
+                                        <label for="thenewsapiExcludeCategories" class="form-label">Exclude Categories</label>
+                                        <select class="form-select" id="thenewsapiExcludeCategories" multiple>
+                                            <option value="general">General</option>
+                                            <option value="science">Science</option>
+                                            <option value="sports">Sports</option>
+                                            <option value="business">Business</option>
+                                            <option value="health">Health</option>
+                                            <option value="entertainment">Entertainment</option>
+                                            <option value="tech">Technology</option>
+                                            <option value="politics">Politics</option>
+                                            <option value="food">Food</option>
+                                            <option value="travel">Travel</option>
+                                        </select>
+                                        <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple categories</small>
+                                    </div>
+
+                                    <!-- Domain Filters -->
+                                    <div class="mb-3">
+                                        <label for="thenewsapiDomains" class="form-label">Include Domains</label>
+                                        <div class="input-group mb-2">
+                                            <input type="text" class="form-control" id="thenewsapiNewDomain" 
+                                                   placeholder="e.g., techcrunch.com">
+                                            <button class="btn btn-outline-secondary" type="button" 
+                                                    onclick="addThenewsapiDomain(false)">Add</button>
+                                        </div>
+                                        <select class="form-select" id="thenewsapiDomains" multiple size="5">
+                                        </select>
+                                        <button class="btn btn-sm btn-outline-danger mt-1" type="button" 
+                                                onclick="removeThenewsapiDomain(false)">Remove Selected</button>
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="thenewsapiExcludedDomains" class="form-label">Exclude Domains</label>
+                                        <div class="input-group mb-2">
+                                            <input type="text" class="form-control" id="thenewsapiNewExcludedDomain" 
+                                                   placeholder="e.g., example.com">
+                                            <button class="btn btn-outline-secondary" type="button" 
+                                                    onclick="addThenewsapiDomain(true)">Add</button>
+                                        </div>
+                                        <select class="form-select" id="thenewsapiExcludedDomains" multiple size="5">
+                                        </select>
+                                        <button class="btn btn-sm btn-outline-danger mt-1" type="button" 
+                                                onclick="removeThenewsapiDomain(true)">Remove Selected</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- arXiv Options -->
+                        <div id="arxivOptions" style="display: none;">
+                            <!-- Sort By -->
+                            <div class="mb-3">
+                                <label for="arxivSortBy" class="form-label">Sort By</label>
+                                <select class="form-select" id="arxivSortBy">
+                                    <option value="relevance">Relevance</option>
+                                    <option value="lastUpdatedDate">Last Updated</option>
+                                    <option value="submittedDate">Submission Date</option>
+                                </select>
+                            </div>
+
+                            <!-- Search Fields -->
+                            <div class="mb-3">
+                                <label class="form-label">Search In</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="title" id="arxivSearchTitle" checked>
+                                    <label class="form-check-label" for="arxivSearchTitle">Title</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="abstract" id="arxivSearchAbstract" checked>
+                                    <label class="form-check-label" for="arxivSearchAbstract">Abstract</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="author" id="arxivSearchAuthor">
+                                    <label class="form-check-label" for="arxivSearchAuthor">Author</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="comments" id="arxivSearchComments">
+                                    <label class="form-check-label" for="arxivSearchComments">Comments</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" value="journal_ref" id="arxivSearchJournal">
+                                    <label class="form-check-label" for="arxivSearchJournal">Journal Reference</label>
+                                </div>
+                            </div>
+
+                            <!-- Advanced Options -->
+                            <div class="mb-3">
+                                <button class="btn btn-sm btn-outline-secondary w-100" type="button" 
+                                        data-bs-toggle="collapse" data-bs-target="#arxivAdvancedOptions">
+                                    Advanced Options ▼
+                                </button>
+                                <div id="arxivAdvancedOptions" class="collapse mt-2">
+                                    <!-- Category Selection -->
+                                    <div class="mb-3">
+                                        <label for="arxivPrimaryCategory" class="form-label">Primary Category</label>
+                                        <select class="form-select" id="arxivPrimaryCategory">
+                                            <option value="">All Categories</option>
+                                            <optgroup label="Computer Science">
+                                                <option value="cs.AI">Artificial Intelligence</option>
+                                                <option value="cs.CL">Computation and Language</option>
+                                                <option value="cs.LG">Machine Learning</option>
+                                                <option value="cs.CV">Computer Vision</option>
+                                                <option value="cs.NE">Neural and Evolutionary Computing</option>
+                                            </optgroup>
+                                            <optgroup label="Physics">
+                                                <option value="physics.gen-ph">General Physics</option>
+                                                <option value="physics.comp-ph">Computational Physics</option>
+                                            </optgroup>
+                                            <optgroup label="Mathematics">
+                                                <option value="math.NA">Numerical Analysis</option>
+                                                <option value="math.ST">Statistics Theory</option>
+                                            </optgroup>
+                                            <optgroup label="Statistics">
+                                                <option value="stat.ML">Machine Learning</option>
+                                                <option value="stat.TH">Statistics Theory</option>
+                                            </optgroup>
+                                        </select>
+                                    </div>
+
+                                    <!-- Secondary Categories -->
+                                    <div class="mb-3">
+                                        <label for="arxivSecondaryCategories" class="form-label">Include Secondary Categories</label>
+                                        <select class="form-select" id="arxivSecondaryCategories" multiple size="5">
+                                            <optgroup label="Computer Science">
+                                                <option value="cs.AI">Artificial Intelligence</option>
+                                                <option value="cs.CL">Computation and Language</option>
+                                                <option value="cs.LG">Machine Learning</option>
+                                                <option value="cs.CV">Computer Vision</option>
+                                                <option value="cs.NE">Neural and Evolutionary Computing</option>
+                                            </optgroup>
+                                            <optgroup label="Physics">
+                                                <option value="physics.gen-ph">General Physics</option>
+                                                <option value="physics.comp-ph">Computational Physics</option>
+                                            </optgroup>
+                                            <optgroup label="Mathematics">
+                                                <option value="math.NA">Numerical Analysis</option>
+                                                <option value="math.ST">Statistics Theory</option>
+                                            </optgroup>
+                                            <optgroup label="Statistics">
+                                                <option value="stat.ML">Machine Learning</option>
+                                                <option value="stat.TH">Statistics Theory</option>
+                                            </optgroup>
+                                        </select>
+                                    </div>
+
+                                    <!-- ID List Search -->
+                                    <div class="mb-3">
+                                        <label for="arxivIdList" class="form-label">Search by arXiv IDs</label>
+                                        <textarea class="form-control" id="arxivIdList" rows="3" 
+                                                  placeholder="Enter arXiv IDs (one per line)"></textarea>
+                                        <div class="form-text">
+                                            Example: 2307.12345
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Max Results -->
+                        <div class="mb-3">
+                            <label for="maxResults" class="form-label">Max Results</label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" id="maxResults" value="10" min="1" max="100">
+                                <div class="input-group-text">
+                                    <input class="form-check-input mt-0" type="checkbox" id="unlimitedResults">
+                                    <label class="form-check-label ms-2" for="unlimitedResults">Unlimited</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Date Range -->
+                        <div class="mb-3">
+                            <label class="form-label">Date Range</label>
+                            <div class="input-group">
+                                <input type="date" class="form-control" id="startDate" 
+                                       max="{{ today_date }}" 
+                                       onchange="updateEndDateMin(this.value)">
+                                <span class="input-group-text">to</span>
+                                <input type="date" class="form-control" id="endDate" 
+                                       max="{{ today_date }}">
+                            </div>
+                            <div class="mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary me-1" onclick="setDateRange('today')">Today</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary me-1" onclick="setDateRange('week')">Last Week</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary me-1" onclick="setDateRange('month')">Last Month</button>
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDateRange('year')">Last Year</button>
+                            </div>
+                        </div>
+
+                        <!-- Search Query and Tips -->
+                        <div class="mb-3">
+                            <label for="queryInput" class="form-label">Search Query</label>
+                            <input type="text" class="form-control" id="queryInput" required>
+                            <div class="form-text">
+                                <strong>Search Tips:</strong>
+                                <ul class="mb-1">
+                                    <li>Use quotes for exact phrases: "artificial intelligence"</li>
+                                    <li>Use + for required words: +bitcoin</li>
+                                    <li>Use - to exclude words: -cryptocurrency</li>
+                                    <li>Use AND/OR/NOT: crypto AND (ethereum OR litecoin) NOT bitcoin</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Search Button -->
+                        <button type="submit" class="btn btn-primary">Search</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list"></i> Search Results
+                        </h5>
+                        <span id="resultCount" class="text-muted"></span>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="searchResults" class="mt-4"></div>
+                    <div id="pagination" class="mt-3 mb-4"></div>
+                    <div id="selectedArticles" class="mt-3">
+                        <button id="bulkAnalyzeBtn" class="btn btn-primary" style="display: none;">
+                            <i class="fas fa-microscope"></i> Analyze Selected Articles (<span id="selectedCount">0</span>)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Article Template -->
+<script type="text/template" id="articleTemplate">
+    <div class="article-card mb-3 p-3 border rounded">
+        <div class="d-flex justify-content-between align-items-start">
+            <div class="form-check flex-grow-1">
+                <input class="form-check-input article-checkbox" 
+                       type="checkbox" 
+                       value="${escapeHtml(article.url)}" 
+                       onchange="toggleArticleSelection(this)">
+                <label class="form-check-label w-100">
+                    <h5 class="mb-2">${escapeHtml(article.title)}</h5>
+                    <div class="article-metadata mb-2">
+                        <small class="text-muted">
+                            <span class="me-2"><i class="fas fa-newspaper"></i> ${formatSourceName(article)}</span>
+                            <span class="me-2"><i class="fas fa-calendar"></i> ${formatDate(article.published_date)}</span>
+                            <span><i class="fas fa-user"></i> ${formatAuthors(article.authors, article.source, article)}</span>
+                        </small>
+                    </div>
+                </label>
+            </div>
+        </div>
+        
+        <div class="article-content">
+            <p class="article-summary mb-2">${article.summary}</p>
+        </div>
+
+        <!-- 2x2 Button Grid -->
+        <div class="d-flex flex-column gap-2 mt-2">
+            <div class="d-flex gap-2">
+                <a href="${article.url}" target="_blank" 
+                   class="btn btn-sm btn-outline-primary"
+                   title="View source">
+                    <i class="fas fa-external-link-alt"></i> View
+                </a>
+                <button class="btn btn-sm btn-outline-success" 
+                        onclick="analyzeArticle('${article.url}')"
+                        title="Analyze article">
+                    <i class="fas fa-microscope"></i> Analyze
+                </button>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="https://12ft.io/${article.url}" 
+                   class="btn btn-sm btn-outline-secondary"
+                   title="Bypass Paywall with 12ft.io" 
+                   target="_blank">
+                    <i class="fas fa-unlock"></i> Bypass
+                </a>
+                <a href="https://archive.is/${article.url}" 
+                   class="btn btn-sm btn-outline-secondary"
+                   title="Check the Internet Archive" 
+                   target="_blank">
+                    <i class="fas fa-archive"></i> Archive.is
+                </a>
+            </div>
+        </div>
+
+        <!-- Preview image button only -->
+        <div class="d-flex gap-2 mt-2">
+            ${article.raw_data.url_to_image ? 
+                `<button class="btn btn-sm btn-link preview-image" type="button" 
+                         data-image-url="${article.raw_data.url_to_image}">
+                    <i class="fas fa-image"></i> Preview Image
+                </button>` : ''
+            }
+        </div>
+    </div>
+</script>
+
+<script>
+let selectedArticles = [];
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize the page
+    console.log('Initializing page...'); // Debug log
+    
+    // Add error handling for missing elements
+    const requiredElements = ['sourceSelect', 'topicSelect', 'searchForm'];
+    requiredElements.forEach(elementId => {
+        const element = document.getElementById(elementId);
+        if (!element) {
+            console.error(`Required element not found: ${elementId}`);
+        }
+    });
+
+    // Load data and set up event listeners
+    loadSources();
+    loadTopics();
+    
+    const searchForm = document.getElementById('searchForm');
+    if (searchForm) {
+        searchForm.addEventListener('submit', handleSearch);
+    }
+    
+    const sourceSelect = document.getElementById('sourceSelect');
+    if (sourceSelect) {
+        sourceSelect.addEventListener('change', function(e) {
+            const source = e.target.value;
+            const newsapiOptions = document.getElementById('newsapiOptions');
+            const arxivOptions = document.getElementById('arxivOptions');
+            const thenewsapiOptions = document.getElementById('thenewsapiOptions');
+            
+            newsapiOptions.style.display = source === 'newsapi' ? 'block' : 'none';
+            arxivOptions.style.display = source === 'arxiv' ? 'block' : 'none';
+            thenewsapiOptions.style.display = source === 'thenewsapi' ? 'block' : 'none';
+            
+            // Set default dates based on selected source
+            if (source) {
+                setDefaultDatesForSource(source);
+            }
+            
+            loadStoredArticles();
+        });
+    }
+    
+    const topicSelect = document.getElementById('topicSelect');
+    if (topicSelect) {
+        topicSelect.addEventListener('change', loadStoredArticles);
+    }
+
+    // Add listeners for content toggle and image preview
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('preview-image')) {
+            previewImage(e.target.dataset.imageUrl);
+        }
+    });
+    
+    // Add listener for unlimited results checkbox
+    const unlimitedCheckbox = document.getElementById('unlimitedResults');
+    const maxResultsInput = document.getElementById('maxResults');
+    
+    unlimitedCheckbox.addEventListener('change', function() {
+        maxResultsInput.disabled = this.checked;
+        if (this.checked) {
+            currentPage = 1;
+            fetchArticles();
+        }
+    });
+
+    // Set default dates when arXiv is selected
+    if (sourceSelect) {
+        sourceSelect.addEventListener('change', function(e) {
+            if (e.target.value === 'arxiv') {
+                setDefaultDates();
+            }
+        });
+    }
+});
+
+function loadSources() {
+    console.log('Loading sources...'); // Debug log
+    fetch('/api/available_sources')
+        .then(response => {
+            console.log('Sources response status:', response.status); // Debug log
+            if (!response.ok) {
+                throw new Error('Failed to load sources');
+            }
+            return response.json();
+        })
+        .then(sources => {
+            console.log('Available sources:', sources); // Debug log
+            const sourceSelect = document.getElementById('sourceSelect');
+            sourceSelect.innerHTML = '<option value="">Select a source</option>';
+            sources.forEach(source => {
+                const option = document.createElement('option');
+                option.value = source;
+                option.textContent = source.charAt(0).toUpperCase() + source.slice(1);
+                sourceSelect.appendChild(option);
+            });
+        })
+        .catch(error => {
+            console.error('Error loading sources:', error);
+            const sourceSelect = document.getElementById('sourceSelect');
+            sourceSelect.innerHTML = '<option value="">Error loading sources</option>';
+        });
+}
+
+function loadTopics() {
+    fetch('/api/topics')
+        .then(response => response.json())
+        .then(topics => {
+            const topicSelect = document.getElementById('topicSelect');
+            topics.forEach(topic => {
+                const option = document.createElement('option');
+                option.value = topic.name;
+                option.textContent = topic.name;
+                topicSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading topics:', error));
+}
+
+// Add pagination handling
+let currentPage = 1;
+let allArticles = [];
+
+// Add this helper function near the top of your script section
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Update handleSearch function
+async function handleSearch(event) {
+    event.preventDefault();
+    currentPage = 1;
+    
+    const searchParams = new URLSearchParams({
+        source: document.getElementById('sourceSelect').value,
+        topic: document.getElementById('topicSelect').value,
+        query: document.getElementById('queryInput').value,
+        page: currentPage,
+        max_results: document.getElementById('unlimitedResults').checked ? 100 : document.getElementById('maxResults').value
+    });
+
+    // Add date range parameters
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    if (startDate) searchParams.append('start_date', startDate);
+    if (endDate) searchParams.append('end_date', endDate);
+
+    // Add source-specific parameters
+    const source = document.getElementById('sourceSelect').value;
+    if (source === 'newsapi') {
+        getNewsAPIParams(searchParams);
+    } else if (source === 'arxiv') {
+        getArxivParams(searchParams);
+    } else if (source === 'thenewsapi') {
+        getTheNewsAPIParams(searchParams);
+    }
+
+    try {
+        console.log('Searching with params:', searchParams.toString());
+        const response = await fetch(`/api/collect_articles?${searchParams.toString()}`);
+        if (!response.ok) {
+            throw new Error(`Search failed: ${response.status} ${response.statusText}`);
+        }
+        const data = await response.json();
+        console.log('Search results:', data);
+        
+        if (currentPage === 1) {
+            allArticles = [];
+        }
+        allArticles = allArticles.concat(data.articles);
+        
+        displayResults(data);
+    } catch (error) {
+        console.error('Error searching articles:', error);
+        const resultsDiv = document.getElementById('searchResults');
+        if (resultsDiv) {
+            resultsDiv.innerHTML = `<div class="alert alert-danger">Error searching articles: ${error.message}</div>`;
+        }
+    }
+}
+
+function displayResults(data) {
+    const resultsDiv = document.getElementById('searchResults');
+    if (!resultsDiv) return;
+    
+    if (currentPage === 1) {
+        resultsDiv.innerHTML = '';
+    }
+    
+    // Add a check to ensure we have articles
+    if (!data.articles || !Array.isArray(data.articles)) {
+        console.error('No articles found in response:', data);
+        resultsDiv.innerHTML = '<p class="text-muted">No articles found</p>';
+        return;
+    }
+    
+    // Update result count
+    const resultCount = document.getElementById('resultCount');
+    if (resultCount) {
+        resultCount.textContent = `Found ${data.article_count || data.articles.length} results`;
+    }
+    
+    data.articles.forEach(article => {
+        const articleElement = displayArticle(article);
+        resultsDiv.appendChild(articleElement);
+    });
+    
+    // Add pagination controls
+    addPaginationControls(data.article_count || data.articles.length);
+    
+    // Update bulk analyze button visibility
+    updateBulkAnalysisButton();
+}
+
+function displayArticle(article) {
+    const articleElement = document.createElement('div');
+    articleElement.className = 'article-card mb-3 p-3 border rounded';
+    
+    // Header with checkbox
+    const header = document.createElement('div');
+    header.className = 'd-flex justify-content-between align-items-start';
+    header.innerHTML = `
+        <div class="form-check flex-grow-1">
+            <input class="form-check-input article-checkbox" 
+                   type="checkbox" 
+                   value="${escapeHtml(article.url)}" 
+                   onchange="toggleArticleSelection(this)">
+            <label class="form-check-label w-100">
+                <h5 class="mb-2">${escapeHtml(article.title)}</h5>
+                <div class="article-metadata mb-2">
+                    <small class="text-muted">
+                        <span class="me-2"><i class="fas fa-newspaper"></i> ${formatSourceName(article)}</span>
+                        <span class="me-2"><i class="fas fa-calendar"></i> ${formatDate(article.published_date)}</span>
+                        <span><i class="fas fa-user"></i> ${formatAuthors(article.authors, article.source, article)}</span>
+                    </small>
+                </div>
+            </label>
+        </div>
+    `;
+    articleElement.appendChild(header);
+
+    // Content
+    const content = document.createElement('div');
+    content.className = 'article-content';
+    content.innerHTML = `
+        <p class="article-summary mb-2">${article.summary}</p>
+    `;
+    articleElement.appendChild(content);
+
+    // 2x2 Button Grid
+    const buttonGrid = document.createElement('div');
+    buttonGrid.className = 'd-flex flex-column gap-2 mt-2';
+    buttonGrid.innerHTML = `
+        <div class="d-flex gap-2">
+            <a href="${article.url}" target="_blank" 
+               class="btn btn-sm btn-outline-primary"
+               title="View source">
+                <i class="fas fa-external-link-alt"></i> View
+            </a>
+            <button class="btn btn-sm btn-outline-success" 
+                    onclick="analyzeArticle('${article.url}')"
+                    title="Analyze article">
+                <i class="fas fa-microscope"></i> Analyze
+            </button>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="https://12ft.io/${article.url}" 
+               class="btn btn-sm btn-outline-secondary"
+               title="Bypass Paywall with 12ft.io" 
+               target="_blank">
+                <i class="fas fa-unlock"></i> Bypass
+            </a>
+            <a href="https://archive.is/${article.url}" 
+               class="btn btn-sm btn-outline-secondary"
+               title="Check the Internet Archive" 
+               target="_blank">
+                <i class="fas fa-archive"></i> Archive.is
+            </a>
+        </div>
+    `;
+    articleElement.appendChild(buttonGrid);
+
+    // Show only Preview image button if available
+    const extraButtons = document.createElement('div');
+    extraButtons.className = 'd-flex gap-2 mt-2';
+    extraButtons.innerHTML = `
+        ${article.raw_data.url_to_image ? 
+            `<button class="btn btn-sm btn-link preview-image" type="button" 
+                     data-image-url="${article.raw_data.url_to_image}">
+                <i class="fas fa-image"></i> Preview Image
+            </button>` : ''
+        }
+    `;
+    articleElement.appendChild(extraButtons);
+
+    return articleElement;
+}
+
+function addPaginationControls(totalResults) {
+    const paginationDiv = document.getElementById('pagination');
+    if (!paginationDiv) return;
+    
+    const maxResults = document.getElementById('unlimitedResults').checked ? 100 : 
+                      parseInt(document.getElementById('maxResults').value);
+    const totalPages = Math.ceil(totalResults / maxResults);
+    
+    paginationDiv.innerHTML = '';
+    
+    if (totalPages <= 1) return;
+    
+    const nav = document.createElement('nav');
+    nav.setAttribute('aria-label', 'Search results pagination');
+    
+    const ul = document.createElement('ul');
+    ul.className = 'pagination justify-content-center';
+    
+    // Previous button
+    const prevLi = document.createElement('li');
+    prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+    const prevBtn = document.createElement('button');
+    prevBtn.className = 'page-link';
+    prevBtn.textContent = 'Previous';
+    prevBtn.onclick = () => loadPage(currentPage - 1);
+    prevLi.appendChild(prevBtn);
+    ul.appendChild(prevLi);
+    
+    // Page numbers
+    for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= currentPage - 2 && i <= currentPage + 2)) {
+            const li = document.createElement('li');
+            li.className = `page-item ${i === currentPage ? 'active' : ''}`;
+            const btn = document.createElement('button');
+            btn.className = 'page-link';
+            btn.textContent = i;
+            btn.onclick = () => loadPage(i);
+            li.appendChild(btn);
+            ul.appendChild(li);
+        } else if (i === currentPage - 3 || i === currentPage + 3) {
+            const li = document.createElement('li');
+            li.className = 'page-item disabled';
+            const span = document.createElement('span');
+            span.className = 'page-link';
+            span.textContent = '...';
+            li.appendChild(span);
+            ul.appendChild(li);
+        }
+    }
+    
+    // Next button
+    const nextLi = document.createElement('li');
+    nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'page-link';
+    nextBtn.textContent = 'Next';
+    nextBtn.onclick = () => loadPage(currentPage + 1);
+    nextLi.appendChild(nextBtn);
+    ul.appendChild(nextLi);
+    
+    nav.appendChild(ul);
+    paginationDiv.appendChild(nav);
+}
+
+async function loadPage(page) {
+    currentPage = page;
+    await handleSearch(new Event('submit'));
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'Unknown Date';
+    try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    } catch (e) {
+        console.error('Error formatting date:', e);
+        return 'Invalid Date';
+    }
+}
+
+// Update the formatAuthors function
+function formatAuthors(authors, source, article) {
+    if (!authors || !authors.length) {
+        return 'Unknown Author';
+    }
+    if (authors.length === 1) return escapeHtml(authors[0]);
+    return `${escapeHtml(authors[0])} +${authors.length - 1}`;
+}
+
+function previewImage(imageUrl) {
+    // First check if the image exists
+    fetch(imageUrl, { method: 'HEAD' })
+        .then(response => {
+            if (!response.ok) throw new Error('Image not found');
+            
+            const modal = document.createElement('div');
+            modal.className = 'modal fade';
+            modal.innerHTML = `
+                <div class="modal-dialog modal-lg">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Image Preview</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body text-center">
+                            <img src="${imageUrl}" 
+                                 class="img-fluid" 
+                                 alt="Article image"
+                                 onerror="this.onerror=null; this.src='/static/images/image-not-found.png';">
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            const modalInstance = new bootstrap.Modal(modal);
+            modalInstance.show();
+            modal.addEventListener('hidden.bs.modal', () => modal.remove());
+        })
+        .catch(error => {
+            console.error('Image preview error:', error);
+            alert('Image not available or could not be loaded.');
+        });
+}
+
+function updateBulkAnalysisButton() {
+    const bulkAnalyzeBtn = document.getElementById('bulkAnalyzeBtn');
+    const selectedCount = document.getElementById('selectedCount');
+    
+    if (selectedArticles.length > 0) {
+        bulkAnalyzeBtn.style.display = 'block';
+        selectedCount.textContent = selectedArticles.length;
+        bulkAnalyzeBtn.onclick = analyzeBulkArticles;
+    } else {
+        bulkAnalyzeBtn.style.display = 'none';
+    }
+}
+
+async function analyzeBulkArticles() {
+    if (selectedArticles.length === 0) {
+        alert('Please select at least one article to analyze');
+        return;
+    }
+
+    const topic = document.getElementById('topicSelect').value;
+    if (!topic) {
+        alert('Please select a topic before analyzing articles');
+        return;
+    }
+
+    const urls = selectedArticles.map(article => article.url).join('\n');
+    const params = new URLSearchParams({
+        urlList: urls,
+        topic: topic
+    });
+    
+    window.location.href = `/bulk-research?${params.toString()}`;
+}
+
+// Add function to load stored articles when page loads
+function loadStoredArticles() {
+    const storedArticles = getStoredArticles();
+    const currentSource = document.getElementById('sourceSelect').value;
+    const currentTopic = document.getElementById('topicSelect').value;
+    
+    if (currentSource && currentTopic) {
+        const relevantArticles = Object.values(storedArticles).filter(article => 
+            article.source === currentSource && 
+            article.topic === currentTopic && 
+            article.status === 'collected'
+        );
+        
+        if (relevantArticles.length > 0) {
+            displayResults({
+                source: currentSource,
+                topic: currentTopic,
+                articles: relevantArticles,
+                article_count: relevantArticles.length
+            });
+        }
+    }
+}
+
+// Store collected articles in localStorage
+function storeCollectedArticles(articles, source, topic) {
+    const storedArticles = getStoredArticles();
+    
+    // Add new articles, avoiding duplicates
+    articles.forEach(article => {
+        const key = `${source}_${article.url}`;
+        if (!storedArticles.hasOwnProperty(key)) {
+            storedArticles[key] = {
+                ...article,
+                source,
+                topic,
+                status: 'collected'  // possible statuses: collected, analyzed, discarded
+            };
+        }
+    });
+    
+    localStorage.setItem('collectedArticles', JSON.stringify(storedArticles));
+}
+
+// Get stored articles
+function getStoredArticles() {
+    const stored = localStorage.getItem('collectedArticles');
+    return stored ? JSON.parse(stored) : {};
+}
+
+// Update article status
+function updateArticleStatus(url, source, status) {
+    const storedArticles = getStoredArticles();
+    const key = `${source}_${url}`;
+    if (storedArticles[key]) {
+        storedArticles[key].status = status;
+        localStorage.setItem('collectedArticles', JSON.stringify(storedArticles));
+    }
+}
+
+// Date handling functions
+function updateEndDateMin(startDate) {
+    const endDateInput = document.getElementById('endDate');
+    endDateInput.min = startDate;
+    if (endDateInput.value && endDateInput.value < startDate) {
+        endDateInput.value = startDate;
+    }
+}
+
+function setDateRange(range) {
+    const startDate = document.getElementById('startDate');
+    const endDate = document.getElementById('endDate');
+    const today = new Date();
+    let start = new Date();
+
+    switch(range) {
+        case 'today':
+            start = today;
+            break;
+        case 'week':
+            start.setDate(today.getDate() - 7);
+            break;
+        case 'month':
+            start.setDate(today.getDate() - 30);  // Changed from 30 days to exactly 30 days
+            break;
+        case 'year':
+            start.setFullYear(today.getFullYear() - 1);
+            break;
+    }
+
+    startDate.value = start.toISOString().split('T')[0];
+    endDate.value = today.toISOString().split('T')[0];
+}
+
+// Add this function to set default dates based on source
+function setDefaultDatesForSource(source) {
+    const startDate = document.getElementById('startDate');
+    const endDate = document.getElementById('endDate');
+    const today = new Date();
+    let start = new Date();
+
+    if (source === 'newsapi') {
+        // For NewsAPI, default to last 30 days
+        start.setDate(today.getDate() - 30);
+    } else if (source === 'arxiv') {
+        // For arXiv, default to last year
+        start.setFullYear(today.getFullYear() - 1);
+    } else {
+        // For other sources, default to last month
+        start.setDate(today.getDate() - 30);
+    }
+
+    startDate.value = start.toISOString().split('T')[0];
+    endDate.value = today.toISOString().split('T')[0];
+}
+
+// Add these functions to your existing JavaScript
+function addDomain(isExcluded) {
+    const selectId = isExcluded ? 'excludedDomains' : 'newsDomains';
+    const select = document.getElementById(selectId);
+    
+    if (select.options.length >= 20) {
+        alert('Maximum 20 domains allowed');
+        return;
+    }
+    
+    const inputId = isExcluded ? 'newExcludedDomain' : 'newDomain';
+    const input = document.getElementById(inputId);
+    const domain = input.value.trim().toLowerCase();
+    
+    if (domain && !Array.from(select.options).some(opt => opt.value === domain)) {
+        select.add(new Option(domain, domain));
+        input.value = '';
+        saveDomains();
+    }
+}
+
+function removeDomain(isExcluded) {
+    const selectId = isExcluded ? 'excludedDomains' : 'newsDomains';
+    const select = document.getElementById(selectId);
+    Array.from(select.selectedOptions)
+        .forEach(option => option.remove());
+    saveDomains();
+}
+
+function saveDomains() {
+    const domains = Array.from(document.getElementById('newsDomains').options)
+        .map(opt => opt.value);
+    const excludedDomains = Array.from(document.getElementById('excludedDomains').options)
+        .map(opt => opt.value);
+    
+    localStorage.setItem('newsapiDomains', JSON.stringify({
+        include: domains,
+        exclude: excludedDomains
+    }));
+}
+
+function loadSavedDomains() {
+    const saved = localStorage.getItem('newsapiDomains');
+    if (saved) {
+        const { include, exclude } = JSON.parse(saved);
+        const domainsSelect = document.getElementById('newsDomains');
+        const excludedSelect = document.getElementById('excludedDomains');
+        
+        domainsSelect.innerHTML = '';
+        excludedSelect.innerHTML = '';
+        
+        include.forEach(domain => domainsSelect.add(new Option(domain, domain)));
+        exclude.forEach(domain => excludedSelect.add(new Option(domain, domain)));
+    }
+}
+
+// Update the handleSearch function to include the new parameters
+function getNewsAPIParams(searchParams) {
+    const searchIn = Array.from(document.querySelectorAll('#newsapiOptions input[type="checkbox"]:checked'))
+        .map(cb => cb.value);
+    if (searchIn.length > 0) {
+        searchParams.append('search_in', searchIn.join(','));
+    }
+
+    const domains = Array.from(document.getElementById('newsDomains').options)
+        .map(opt => opt.value);
+    if (domains.length > 0) {
+        searchParams.append('domains', domains.join(','));
+    }
+
+    const excludedDomains = Array.from(document.getElementById('excludedDomains').options)
+        .map(opt => opt.value);
+    if (excludedDomains.length > 0) {
+        searchParams.append('exclude_domains', excludedDomains.join(','));
+    }
+}
+
+function toggleArticleSelection(checkbox) {
+    // Get the article data from the checkbox's data attributes
+    const articleData = {
+        url: checkbox.value,
+        title: checkbox.closest('.article-card').querySelector('h5').textContent,
+        summary: checkbox.closest('.article-card').querySelector('.article-summary').textContent,
+        topic: document.getElementById('topicSelect').value
+    };
+    
+    console.log('Toggle article:', articleData); // Debug log
+    
+    if (checkbox.checked) {
+        // Add article to selection if not already present
+        if (!selectedArticles.some(article => article.url === articleData.url)) {
+            selectedArticles.push(articleData);
+        }
+    } else {
+        // Remove article from selection
+        selectedArticles = selectedArticles.filter(article => article.url !== articleData.url);
+    }
+    
+    console.log('Selected articles:', selectedArticles); // Debug log
+    updateBulkAnalysisButton();
+}
+
+// arXiv-specific functions
+function getArxivParams(searchParams) {
+    // Get sort option
+    const sortBy = document.getElementById('arxivSortBy').value;
+    if (sortBy) {
+        searchParams.append('sort_by', sortBy);
+    }
+
+    // Get search fields
+    const searchFields = Array.from(document.querySelectorAll('#arxivOptions input[type="checkbox"]:checked'))
+        .map(cb => cb.value);
+    if (searchFields.length > 0) {
+        searchParams.append('search_fields', searchFields.join(','));
+    }
+
+    // Get primary category
+    const primaryCategory = document.getElementById('arxivPrimaryCategory').value;
+    if (primaryCategory) {
+        searchParams.append('primary_category', primaryCategory);
+    }
+
+    // Get secondary categories
+    const secondaryCategories = Array.from(document.getElementById('arxivSecondaryCategories').selectedOptions)
+        .map(opt => opt.value);
+    if (secondaryCategories.length > 0) {
+        searchParams.append('secondary_categories', secondaryCategories.join(','));
+    }
+
+    // Get arXiv IDs
+    const idList = document.getElementById('arxivIdList').value.trim();
+    if (idList) {
+        const ids = idList.split('\n')
+            .map(id => id.trim())
+            .filter(id => id);
+        if (ids.length > 0) {
+            searchParams.append('id_list', ids.join(','));
+        }
+    }
+}
+
+// Add this function after the existing functions
+function analyzeArticle(url) {
+    const topic = document.getElementById('topicSelect').value;
+    if (!topic) {
+        alert('Please select a topic before analyzing the article');
+        return;
+    }
+
+    // Redirect to research page with URL and topic parameters
+    const params = new URLSearchParams({
+        url: url,
+        topic: topic
+    });
+    
+    window.location.href = `/research?${params.toString()}`;
+}
+
+function setDefaultDates() {
+    const today = new Date();
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(today.getFullYear() - 1);  // Changed from 30 days to 1 year
+    
+    const startDate = document.getElementById('startDate');
+    const endDate = document.getElementById('endDate');
+    
+    if (startDate && endDate) {
+        startDate.value = oneYearAgo.toISOString().split('T')[0];
+        endDate.value = today.toISOString().split('T')[0];
+        
+        // Also update the min/max attributes
+        startDate.max = today.toISOString().split('T')[0];
+        endDate.max = today.toISOString().split('T')[0];
+        endDate.min = startDate.value;
+    }
+}
+
+function getTheNewsAPIParams(searchParams) {
+    // Add TheNewsAPI specific parameters
+    const source = document.getElementById('sourceSelect').value;
+    if (source !== 'thenewsapi') return;
+
+    // Add language parameter
+    const language = document.getElementById('language')?.value;
+    if (language) {
+        searchParams.append('language', language);
+    }
+
+    // Add sort parameter
+    const sortBy = document.getElementById('thenewsapiSortBy')?.value;
+    if (sortBy) {
+        searchParams.append('sort_by', sortBy);
+    }
+
+    // Add categories if available
+    const categories = Array.from(document.querySelectorAll('#thenewsapiCategories input[type="checkbox"]:checked'))
+        .map(cb => cb.value);
+    if (categories.length > 0) {
+        searchParams.append('categories', categories.join(','));
+    }
+
+    // Add search fields
+    const searchFields = Array.from(document.querySelectorAll('#thenewsapiSearchFields input[type="checkbox"]:checked'))
+        .map(cb => cb.value);
+    if (searchFields.length > 0) {
+        searchParams.append('search_fields', searchFields.join(','));
+    }
+
+    // Add domains if available
+    const domains = document.getElementById('domains')?.value.trim();
+    if (domains) {
+        searchParams.append('domains', domains);
+    }
+
+    // Add exclude domains if available
+    const excludeDomains = document.getElementById('excludeDomains')?.value.trim();
+    if (excludeDomains) {
+        searchParams.append('exclude_domains', excludeDomains);
+    }
+
+    // Add locale if available
+    const locale = document.getElementById('thenewsapiLocale')?.value;
+    if (locale) {
+        searchParams.append('locale', locale);
+    }
+}
+
+function formatSourceName(article) {
+    if (article.source === 'thenewsapi') {
+        return article.raw_data?.source || 'TheNewsAPI';
+    }
+    return article.source || article.raw_data?.source?.name || 'Unknown Source';
+}
+
+// Function to select active database
+document.getElementById('active-database').addEventListener('change', function(e) {
+    const databaseName = e.target.value;
+    fetch('/api/active-database', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name: databaseName }),
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Active database set:', data);
+        activeDatabase = databaseName;
+        // Refresh both database info and database list
+        loadDatabaseInfo();
+        loadDatabases();
+        // Show success message
+        showAlert(`Successfully switched to database: ${databaseName}`, 'success');
+    })
+    .catch(error => {
+        console.error('Error setting active database:', error);
+        showAlert(`Failed to switch database: ${error.message}`, 'danger');
+        // Refresh database list to ensure correct selection is shown
+        loadDatabases();
+    });
+});
+</script>
+{% endblock %} 

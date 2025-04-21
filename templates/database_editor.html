@@ -1,0 +1,1852 @@
+{% extends "base.html" %}
+{% block title %}AuNoo AI - Database Editor{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    h2, h5, h6 {
+        color: var(--primary-color);
+    }
+
+    .editor-panel {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+        padding: 20px;
+    }
+
+    .filter-panel {
+        background-color: var(--light-gray);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+
+    .filter-row {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .date-section {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 20px;
+    }
+
+    .date-buttons {
+        display: flex;
+        gap: 10px;
+    }
+
+    .date-buttons button {
+        height: 36px; /* Adjust the height */
+        padding: 5px 10px; /* Adjust the padding */
+    }
+
+    .date-inputs {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+    }
+
+    .form-control, .form-select {
+        width: 100%;
+        padding: 8px;
+        margin-bottom: 15px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-dark);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        color: #fff;
+        transition: background-color 0.3s ease-in-out;
+        height: 36px; /* Adjust the height */
+        padding: 5px 10px; /* Adjust the padding */
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+        border-color: var(--primary-dark);
+    }
+
+    .btn-secondary {
+        background-color: var(--medium-gray);
+        border-color: var(--medium-gray);
+        color: var(--dark-gray);
+    }
+
+    .btn-secondary:hover {
+        background-color: var(--dark-gray);
+        border-color: var(--dark-gray);
+        color: #fff;
+    }
+
+    .table-responsive {
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    }
+
+    .table thead th {
+        background: var(--light-gray);
+        color: var(--dark-gray);
+        font-weight: 600;
+        border-bottom: 2px solid var(--medium-gray);
+    }
+
+    .table tbody td {
+        padding: 12px 15px;
+        border-color: var(--light-gray);
+    }
+
+    .table tbody tr:hover {
+        background-color: var(--light-gray);
+    }
+
+    .pagination-container {
+        background-color: #f8f9fa;
+        padding: 10px 15px;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .pagination-info {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .pagination-nav {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .pagination-nav button {
+        min-width: 80px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .page-numbers {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        margin: 0 10px;
+        color: #666;
+    }
+
+    .panel-header {
+        border-bottom: 1px solid #e9ecef;
+        margin-bottom: 1rem;
+        padding-bottom: 1rem;
+    }
+
+    .panel-header h6 {
+        margin: 0;
+        font-weight: 600;
+        color: var(--primary-color);
+    }
+
+    .table th {
+        background-color: #f8f9fa;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .table td {
+        vertical-align: middle;
+    }
+
+    .article-checkbox {
+        cursor: pointer;
+    }
+
+    .badge {
+        font-size: 0.875rem;
+        padding: 0.4em 0.8em;
+    }
+
+    .badge.bg-success {
+        background-color: var(--secondary-color) !important;
+    }
+
+    .modal-header {
+        border-bottom: 2px solid var(--primary-color);
+    }
+
+    .modal-header .modal-title {
+        color: var(--primary-color);
+    }
+
+    .card-body {
+        border-top: 1px solid var(--light-gray);
+    }
+
+    .form-check-input:checked {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    .btn-outline-primary {
+        color: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    .btn-outline-primary:hover {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        color: white;
+    }
+
+    .btn-outline-secondary:hover {
+        background-color: var(--dark-gray);
+        border-color: var(--dark-gray);
+    }
+
+    .alert {
+        border-left: 4px solid var(--primary-color);
+    }
+
+    .alert-success {
+        border-left-color: var(--secondary-color);
+    }
+
+    .alert-danger {
+        border-left-color: #dc3545;
+    }
+
+    .alert-warning {
+        border-left-color: #ffc107;
+    }
+
+    .select2-container--default .select2-results__option--highlighted[aria-selected] {
+        background-color: var(--primary-color);
+    }
+
+    .select2-container--default .select2-selection--multiple .select2-selection__choice {
+        background-color: var(--light-gray);
+        border: 1px solid var(--medium-gray);
+    }
+
+    .select2-container--default.select2-container--focus .select2-selection--multiple {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+    }
+</style>
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-3">Database Editor</h2>
+    
+    <!-- Topic Selection -->
+    <div class="editor-panel">
+        <div class="form-group mb-4">
+            <label for="topicSelect">Select Topic:</label>
+            <select class="form-select" id="topicSelect">
+                <option value="">Select a topic</option>
+                {% for topic in topics %}
+                <option value="{{ topic.name }}" 
+                        {% if selected_topic and selected_topic == topic.name %}selected{% endif %}>
+                    {{ topic.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- Topic Stats -->
+        <div id="topicStats" class="mb-4">
+            <!-- Stats will be populated by JavaScript -->
+        </div>
+    </div>
+
+    <!-- Filters Panel -->
+    <div class="editor-panel" id="filtersPanel" style="display: none;">
+        <h5>Filters</h5>
+        <div class="filter-panel">
+            <h6 class="mb-3">FILTERS</h6>
+            
+            <!-- Top row of filters -->
+            <div class="filter-row">
+                <div class="form-group">
+                    <label>Categories</label>
+                    <select class="form-select select2-multiple" id="categoryFilter" multiple="multiple">
+                        <option value="">All Categories</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Sentiment</label>
+                    <select class="form-select select2-multiple" id="sentimentFilter" multiple="multiple">
+                        <option value="">All Sentiments</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Future Signal</label>
+                    <select class="form-select select2-multiple" id="futureSignalFilter" multiple="multiple">
+                        <option value="">All Future Signals</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Time to Impact</label>
+                    <select class="form-select select2-multiple" id="timeImpactFilter" multiple="multiple">
+                        <option value="">All Time to Impact</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Driver Type</label>
+                    <select class="form-select select2-multiple" id="driverTypeFilter" multiple="multiple">
+                        <option value="">All Driver Types</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Analysis Status</label>
+                    <select class="form-select select2-multiple" id="analyzedFilter" multiple="multiple">
+                        <option value="true">Analyzed</option>
+                        <option value="false">Not Analyzed</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Date Range section -->
+            <div class="date-section">
+                <label>Date Range</label>
+                <div class="date-buttons">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDateRange('today')">1 Day</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDateRange('week')">7 Days</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDateRange('month')">30 Days</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDateRange('quarter')">90 Days</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDateRange('year')">365 Days</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="setDateRange('all')">All</button>
+                </div>
+                <div class="date-inputs">
+                    <label>From:</label>
+                    <input type="date" class="form-control" id="dateFrom" max="{{ today_date }}" onchange="updateEndDateMin(this.value)">
+                    <label>To:</label>
+                    <input type="date" class="form-control" id="dateTo" max="{{ today_date }}">
+                </div>
+            </div>
+
+            <!-- Search section -->
+            <div class="search-section">
+                <div class="input-group">
+                    <input type="text" id="searchInput" class="form-control" placeholder="Search titles and summaries...">
+                    <button class="btn btn-primary" id="searchButton">Search</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Articles Panel -->
+    <div class="editor-panel">
+        <!-- Header with bulk delete button -->
+        <div class="panel-header d-flex justify-content-between align-items-center mb-3">
+            <h6>ARTICLES</h6>
+            <button id="bulkDeleteBtn" 
+                    class="btn btn-danger" 
+                    onclick="bulkDeleteArticles()" 
+                    disabled>
+                Delete Selected (0)
+            </button>
+        </div>
+
+        <!-- Single pagination container -->
+        <div class="pagination-container">
+            <div class="pagination-info">
+                <span>Showing</span>
+                <strong><span id="startCount">0</span>-<span id="endCount">0</span></strong>
+                <span>of</span>
+                <strong><span id="totalCount">0</span></strong>
+                <span>articles</span>
+                <span class="page-numbers">
+                    <span>Page</span>
+                    <strong><span id="currentPage">1</span></strong>
+                    <span>of</span>
+                    <strong><span id="totalPages">1</span></strong>
+                </span>
+            </div>
+            <div class="pagination-nav">
+                <button id="prevPage" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-chevron-left me-1"></i>Previous
+                </button>
+                <button id="nextPage" class="btn btn-sm btn-outline-secondary">
+                    Next<i class="fas fa-chevron-right ms-1"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Articles table -->
+        <div id="articleList" class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="selectAllCheckbox"></th>
+                        <th>Title</th>
+                        <th>Publication Date</th>
+                        <th>Category</th>
+                        <th>Sentiment</th>
+                        <th>Future Signal</th>
+                        <th>Time to Impact</th>
+                        <th>Driver Type</th>
+                        <th>Analyzed</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="articleTableBody">
+                    <!-- Articles will be inserted here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Add Analysis Result Panel -->
+    <div class="editor-panel" id="analysisResult" style="display: none;">
+        <div class="panel-header">
+            <h6>EDIT ARTICLE</h6>
+        </div>
+        <div class="analysis-result">
+            <div class="mb-3">
+                <label class="form-label">Title</label>
+                <input type="text" id="analysisTitle" class="form-control">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Source</label>
+                <input type="text" id="analysisSource" class="form-control">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">URL</label>
+                <input type="url" id="analysisUrl" class="form-control" readonly>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Summary <span id="summaryWordCount">(0 words)</span></label>
+                <textarea class="form-control" id="analysisSummary" rows="3"></textarea>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Category</label>
+                        <select id="analysisCategory" class="form-select"></select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sentiment</label>
+                        <select id="analysisSentiment" class="form-select"></select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sentiment Explanation</label>
+                        <textarea id="analysisSentimentExplanation" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Future Signal</label>
+                        <select id="analysisFutureSignal" class="form-select"></select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Future Signal Explanation</label>
+                        <textarea id="analysisFutureSignalExplanation" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Time to Impact</label>
+                        <select id="analysisTimeToImpact" class="form-select"></select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Time to Impact Explanation</label>
+                        <textarea id="analysisTimeToImpactExplanation" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Driver Type</label>
+                        <select id="analysisDriverType" class="form-select"></select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Driver Type Explanation</label>
+                        <textarea id="analysisDriverTypeExplanation" class="form-control" rows="2"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Publication Date</label>
+                        <input type="date" id="analysisPublicationDate" class="form-control">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Submission Date</label>
+                        <input type="datetime-local" id="analysisSubmissionDate" class="form-control">
+                    </div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Tags</label>
+                <input type="text" id="analysisTags" class="form-control" placeholder="Enter tags separated by commas">
+            </div>
+            <div class="mb-3 border-top pt-3">
+                <h6>Annotations</h6>
+                <div id="annotationsList" class="mb-3">
+                    <!-- Annotations will be loaded here -->
+                </div>
+                
+                <div class="card">
+                    <div class="card-body">
+                        <textarea id="newAnnotation" class="form-control mb-2" rows="3" 
+                                  placeholder="Add your analysis or comments..."></textarea>
+                        <div class="form-check mb-2">
+                            <input class="form-check-input" type="checkbox" id="annotationPrivate">
+                            <label class="form-check-label" for="annotationPrivate">
+                                Private note (not included in analysis)
+                            </label>
+                        </div>
+                        <button class="btn btn-primary" onclick="saveAnnotation()">
+                            Add Annotation
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="button-group">
+                <button onclick="saveArticle()" class="btn btn-primary">Save Changes</button>
+                <button onclick="clearForm()" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Article</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editForm">
+                    <div class="mb-3">
+                        <label class="form-label">Title</label>
+                        <input type="text" class="form-control" id="editTitle">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Category</label>
+                        <input type="text" class="form-control" id="editCategory">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Sentiment</label>
+                        <select class="form-select" id="editSentiment">
+                            <option value="Positive">Positive</option>
+                            <option value="Neutral">Neutral</option>
+                            <option value="Negative">Negative</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Future Signal</label>
+                        <select class="form-select" id="editFutureSignal">
+                            <option value="Strong">Strong</option>
+                            <option value="Moderate">Moderate</option>
+                            <option value="Weak">Weak</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Time to Impact</label>
+                        <select class="form-select" id="editTimeImpact">
+                            <option value="Short-term">Short-term</option>
+                            <option value="Medium-term">Medium-term</option>
+                            <option value="Long-term">Long-term</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="saveArticleChanges">Save changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+let currentTopic = '';
+let currentPage = 1;
+const itemsPerPage = 10;
+let allArticles = [];
+let filteredArticles = [];
+let selectedArticlesForDeletion = new Set();
+
+// Topic selection handler
+document.getElementById('topicSelect').addEventListener('change', handleTopicChange);
+
+async function handleTopicChange(event) {
+    const topicName = event.target.value;
+    const filtersPanel = document.getElementById('filtersPanel');
+    
+    if (!topicName) {
+        filtersPanel.style.display = 'none';
+        allArticles = [];
+        filteredArticles = [];
+        document.getElementById('topicStats').innerHTML = '';
+        document.getElementById('articleTableBody').innerHTML = '';
+        return;
+    }
+
+    filtersPanel.style.display = 'block';
+    await refreshDropdownsForTopic(topicName);
+    
+    // Set default date range and fetch articles
+    await setDateRange('week');
+}
+
+async function refreshDropdownsForTopic(topicName) {
+    try {
+        console.log('Refreshing dropdowns for topic:', topicName);
+        if (!topicName) {
+            console.warn('No topic name provided to refreshDropdownsForTopic');
+            return;
+        }
+
+        // Add topic parameter to the API calls
+        const responses = await Promise.all([
+            fetch(`/api/categories?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/future_signals?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/sentiments?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/time_to_impact?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/driver_types?topic=${encodeURIComponent(topicName)}`)
+        ]);
+
+        // Check if any response is not ok
+        for (let i = 0; i < responses.length; i++) {
+            if (!responses[i].ok) {
+                console.error(`Error fetching data for endpoint ${i}:`, responses[i].statusText);
+                continue;
+            }
+        }
+
+        const [categories, futureSignals, sentiments, timeToImpact, driverTypes] = await Promise.all(
+            responses.map(response => response.json())
+        );
+
+        console.log('Received updated values for topic:', topicName);
+        
+        // Update each dropdown with new values
+        updateDropdownOptions('analysisCategory', categories);
+        updateDropdownOptions('analysisFutureSignal', futureSignals);
+        updateDropdownOptions('analysisSentiment', sentiments);
+        updateDropdownOptions('analysisTimeToImpact', timeToImpact);
+        updateDropdownOptions('analysisDriverType', driverTypes);
+    } catch (error) {
+        console.error('Error refreshing dropdowns:', error);
+    }
+}
+
+function updateDropdownOptions(dropdownId, options) {
+    const dropdown = document.getElementById(dropdownId);
+    if (dropdown) {
+        dropdown.innerHTML = '';
+        if (!Array.isArray(options) || options.length === 0) {
+            console.warn(`No options received for ${dropdownId}`);
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = 'No options available';
+            dropdown.appendChild(defaultOption);
+            return;
+        }
+        
+        options.forEach(option => {
+            if (option) {  // Only add non-null/undefined options
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                dropdown.appendChild(optionElement);
+            }
+        });
+    } else {
+        console.error(`Dropdown element not found: ${dropdownId}`);
+    }
+}
+
+async function fetchArticlesForTopic(topicName) {
+    try {
+        const dateFrom = document.getElementById('dateFrom').value;
+        const dateTo = document.getElementById('dateTo').value;
+        
+        const params = new URLSearchParams({
+            start_date: dateFrom,
+            end_date: dateTo,
+            limit: 1000
+        });
+        
+        const response = await fetch(`/api/topics/${encodeURIComponent(topicName)}/articles?${params}`);
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+        const data = await response.json();
+        allArticles = data.articles;
+        
+        // Store current filter values before applying them
+        const currentFilters = {
+            categories: $('#categoryFilter').val() || [],
+            sentiments: $('#sentimentFilter').val() || [],
+            futureSignals: $('#futureSignalFilter').val() || [],
+            timeImpacts: $('#timeImpactFilter').val() || [],
+            driverTypes: $('#driverTypeFilter').val() || [],
+            analyzed: $('#analyzedFilter').val() || []
+        };
+
+        // Apply filters to new articles
+        filteredArticles = allArticles;
+        if (Object.values(currentFilters).some(arr => arr.length > 0)) {
+            applyFilters();
+        } else {
+            displayArticles();
+            updatePaginationInfo();
+        }
+        
+        console.log(`Loaded ${allArticles.length} articles`);
+    } catch (error) {
+        console.error('Error loading articles:', error);
+        alert('Error loading articles');
+    }
+}
+
+function initializeFilters() {
+    const filters = {
+        search: document.getElementById('searchInput').value,
+        categories: Array.from(document.getElementById('categoryFilter').selectedOptions).map(opt => opt.value).filter(v => v),
+        sentiments: Array.from(document.getElementById('sentimentFilter').selectedOptions).map(opt => opt.value).filter(v => v),
+        futureSignals: Array.from(document.getElementById('futureSignalFilter').selectedOptions).map(opt => opt.value).filter(v => v),
+        timeImpacts: Array.from(document.getElementById('timeImpactFilter').selectedOptions).map(opt => opt.value).filter(v => v),
+        driverTypes: Array.from(document.getElementById('driverTypeFilter').selectedOptions).map(opt => opt.value).filter(v => v),
+        analyzed: Array.from(document.getElementById('analyzedFilter').selectedOptions).map(opt => opt.value).filter(v => v),
+        dateFrom: document.getElementById('dateFrom').value,
+        dateTo: document.getElementById('dateTo').value
+    };
+    return filters;
+}
+
+function applyFilters() {
+    console.log('All articles before filtering:', allArticles.length);
+    
+    const filters = {
+        search: document.getElementById('searchInput')?.value?.toLowerCase() || '',
+        categories: Array.from($('#categoryFilter').val() || []),
+        sentiments: Array.from($('#sentimentFilter').val() || []),
+        futureSignals: Array.from($('#futureSignalFilter').val() || []),
+        timeImpacts: Array.from($('#timeImpactFilter').val() || []),
+        driverTypes: Array.from($('#driverTypeFilter').val() || []),
+        analyzed: Array.from($('#analyzedFilter').val() || [])
+    };
+    
+    console.log('Applying filters:', filters);
+    
+    filteredArticles = allArticles.filter(article => {
+        // Debug logging for analyzed status
+        console.log('Article:', {
+            title: article.title,
+            analyzed: article.analyzed,
+            analyzedFilter: filters.analyzed
+        });
+        
+        // Search filter
+        const matchesSearch = !filters.search || 
+            article.title?.toLowerCase().includes(filters.search) ||
+            article.summary?.toLowerCase().includes(filters.search);
+            
+        // Category filter    
+        const matchesCategory = !filters.categories.length || 
+            (article.category && filters.categories.includes(article.category));
+            
+        // Sentiment filter    
+        const matchesSentiment = !filters.sentiments.length || 
+            (article.sentiment && filters.sentiments.includes(article.sentiment));
+            
+        // Future signal filter    
+        const matchesFutureSignal = !filters.futureSignals.length || 
+            (article.future_signal && filters.futureSignals.includes(article.future_signal));
+            
+        // Time impact filter    
+        const matchesTimeImpact = !filters.timeImpacts.length || 
+            (article.time_to_impact && filters.timeImpacts.includes(article.time_to_impact));
+            
+        // Driver type filter    
+        const matchesDriverType = !filters.driverTypes.length || 
+            (article.driver_type && filters.driverTypes.includes(article.driver_type));
+            
+        // Analyzed status filter - handle both number and string representations
+        const matchesAnalyzed = !filters.analyzed.length || 
+            filters.analyzed.includes((article.analyzed ? 'true' : 'false')) || 
+            filters.analyzed.includes(article.analyzed?.toString());
+
+        // Debug logging for filter results
+        const filterResults = {
+            matchesSearch,
+            matchesCategory,
+            matchesSentiment,
+            matchesFutureSignal,
+            matchesTimeImpact,
+            matchesDriverType,
+            matchesAnalyzed,
+            analyzedValue: article.analyzed,
+            analyzedFilter: filters.analyzed
+        };
+        console.log('Filter results for article:', article.title, filterResults);
+
+        return matchesSearch && matchesCategory && matchesSentiment && 
+               matchesFutureSignal && matchesTimeImpact && matchesDriverType &&
+               matchesAnalyzed;
+    });
+
+    console.log('Filtered articles:', filteredArticles.length);
+    console.log('Applied filters:', filters);
+
+    currentPage = 1;
+    displayArticles();
+    updatePaginationInfo();
+}
+
+// Update displayArticles to handle empty filteredArticles
+function displayArticles() {
+    const tableBody = document.getElementById('articleTableBody');
+    if (!tableBody) return;
+    
+    tableBody.innerHTML = '';
+    
+    if (!filteredArticles || filteredArticles.length === 0) {
+        tableBody.innerHTML = `
+            <tr>
+                <td colspan="100%" class="text-center">
+                    No articles match the current filters
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const displayedArticles = filteredArticles.slice(startIndex, endIndex);
+    
+    displayedArticles.forEach(article => {
+        const row = document.createElement('tr');
+        const articleUri = article.uri ? encodeURIComponent(article.uri) : '';
+        
+        row.innerHTML = `
+            <td>
+                <input type="checkbox" 
+                       class="article-checkbox" 
+                       value="${articleUri}"
+                       ${selectedArticlesForDeletion.has(articleUri) ? 'checked' : ''}>
+            </td>
+            <td>${escapeHTML(article.title || '')}</td>
+            <td>${formatDate(article.publication_date)}</td>
+            <td>${escapeHTML(article.category || '')}</td>
+            <td>${escapeHTML(article.sentiment || '')}</td>
+            <td>${escapeHTML(article.future_signal || '')}</td>
+            <td>${escapeHTML(article.time_to_impact || '')}</td>
+            <td>${escapeHTML(article.driver_type || '')}</td>
+            <td><span class="badge ${article.analyzed ? 'bg-success' : 'bg-secondary'}">${article.analyzed ? 'Yes' : 'No'}</span></td>
+            <td>
+                ${articleUri ? `
+                    <button class="btn btn-sm btn-primary" onclick="editArticle('${articleUri}')">Edit</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteArticle('${articleUri}')">Delete</button>
+                ` : '<span class="text-muted">No URI</span>'}
+            </td>
+        `;
+        tableBody.appendChild(row);
+    });
+
+    // Add event listeners for checkboxes
+    document.querySelectorAll('.article-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            if (this.checked) {
+                selectedArticlesForDeletion.add(this.value);
+            } else {
+                selectedArticlesForDeletion.delete(this.value);
+            }
+            updateBulkDeleteButton();
+        });
+    });
+}
+
+// Update the document.ready function
+$(document).ready(function() {
+    $('.select2-multiple').select2({
+        placeholder: "Select options",
+        allowClear: true,
+        width: '100%'
+    }).on('change', function() {
+        applyFilters();
+    });
+
+    // Initialize the analyzed filter
+    $('#analyzedFilter').select2({
+        placeholder: "Select analysis status",
+        allowClear: true,
+        width: '100%'
+    }).on('change', function() {
+        applyFilters();
+    });
+
+    $('#searchInput').on('input', debounce(() => applyFilters(), 300));
+});
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+function updatePagination() {
+    updatePaginationInfo();
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'N/A';
+    try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return 'Invalid Date';
+        return date.toLocaleDateString();
+    } catch (e) {
+        return 'Invalid Date';
+    }
+}
+
+// Add article edit/delete handlers
+document.getElementById('articleTableBody').addEventListener('click', async function(e) {
+    if (!currentTopic) return;
+    
+    if (e.target.classList.contains('edit-article')) {
+        const uri = e.target.dataset.uri;
+        window.location.href = `/research?uri=${encodeURIComponent(uri)}`;
+    } else if (e.target.classList.contains('delete-article')) {
+        if (!confirm('Are you sure you want to delete this article?')) return;
+        
+        const uri = e.target.dataset.uri;
+        try {
+            const response = await fetch(`/api/article?uri=${encodeURIComponent(uri)}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                e.target.closest('tr').remove();
+                // Refresh topic stats after deletion
+                loadTopicData(currentTopic);
+            } else {
+                const error = await response.json();
+                alert(`Failed to delete article: ${error.detail || 'Unknown error'}`);
+            }
+        } catch (error) {
+            console.error('Error deleting article:', error);
+            alert('Error deleting article');
+        }
+    }
+});
+
+function populateDropdowns() {
+    populateDropdown('categoryFilter', '/api/categories');
+    populateDropdown('futureSignalFilter', '/api/future_signals');
+    populateDropdown('sentimentFilter', '/api/sentiments');
+    populateDropdown('timeImpactFilter', '/api/time_to_impact');
+    populateDropdown('driverTypeFilter', '/api/driver_types');
+}
+
+async function populateDropdown(elementId, apiUrl) {
+    try {
+        const response = await fetch(apiUrl);
+        const data = await response.json();
+        const select = document.getElementById(elementId);
+        select.innerHTML = ''; // Clear existing options
+        
+        // Add placeholder option
+        const placeholder = document.createElement('option');
+        placeholder.value = "";
+        placeholder.textContent = `All ${elementId.replace('Filter', '')}`;
+        select.appendChild(placeholder);
+        
+        data.forEach(item => {
+            const option = document.createElement('option');
+            option.value = item;
+            option.textContent = item;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error(`Error populating ${elementId}:`, error);
+    }
+}
+
+function setupDateFilter() {
+    const dateFrom = document.getElementById('dateFrom');
+    const dateTo = document.getElementById('dateTo');
+
+    if (dateFrom && dateTo) {
+        dateFrom.addEventListener('change', () => applyFilters());
+        dateTo.addEventListener('change', () => applyFilters());
+    }
+}
+
+// Update the DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize variables
+    const articleTableBody = document.getElementById('articleTableBody');
+    const prevPageBtn = document.getElementById('prevPage');
+    const nextPageBtn = document.getElementById('nextPage');
+
+    // Only set up event listeners if elements exist
+    if (prevPageBtn && nextPageBtn) {
+        prevPageBtn.addEventListener('click', () => {
+            if (currentPage > 1) {
+                currentPage--;
+                displayArticles();
+                updatePaginationInfo();
+            }
+        });
+
+        nextPageBtn.addEventListener('click', () => {
+            const totalPages = Math.ceil(filteredArticles.length / itemsPerPage);
+            if (currentPage < totalPages) {
+                currentPage++;
+                displayArticles();
+                updatePaginationInfo();
+            }
+        });
+    }
+
+    // Initialize dropdowns with API data
+    fetchOptions('/api/categories', 'category');
+    fetchOptions('/api/future_signals', 'futureSignal');
+    fetchOptions('/api/sentiments', 'sentiment');
+    fetchOptions('/api/time_to_impact', 'timeImpact');
+    fetchOptions('/api/driver_types', 'driverType');
+
+    // Initialize select2 for multiple select dropdowns
+    $('.select2-multiple').select2({
+        placeholder: 'Select options',
+        allowClear: true,
+        width: '100%'
+    });
+
+    // Set up filter event listeners
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.addEventListener('input', debounce(() => applyFilters(), 300));
+    }
+
+    // Set up date filter
+    setupDateFilter();
+
+    // Initial load of articles
+    applyFilters();
+
+    // Get topic from URL if it exists
+    const urlParams = new URLSearchParams(window.location.search);
+    const topicName = urlParams.get('topic');
+    
+    if (topicName) {
+        // Set the selected topic in the dropdown
+        const topicSelect = document.getElementById('topicSelect');
+        if (topicSelect) {
+            topicSelect.value = topicName;
+            // Trigger the change event to load the topic data
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+    }
+
+    // Add topic change handler if not already present
+    const topicSelect = document.getElementById('topicSelect');
+    if (topicSelect) {
+        topicSelect.addEventListener('change', async function() {
+            const selectedTopic = this.value;
+            if (selectedTopic) {
+                await fetchArticles(selectedTopic);
+                // Also refresh the dropdowns
+                refreshDropdownsForTopic(selectedTopic);
+            }
+        });
+    }
+
+    // Add select all functionality
+    const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function() {
+            const checkboxes = document.querySelectorAll('.article-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = this.checked;
+                if (this.checked) {
+                    selectedArticlesForDeletion.add(checkbox.value);
+                } else {
+                    selectedArticlesForDeletion.delete(checkbox.value);
+                }
+            });
+            updateBulkDeleteButton();
+        });
+    }
+});
+
+// Add some styling for multiple select
+document.addEventListener('DOMContentLoaded', function() {
+    const multiSelects = document.querySelectorAll('select[multiple]');
+    multiSelects.forEach(select => {
+        select.style.height = '120px'; // Show multiple options
+    });
+});
+
+async function fetchOptions(apiUrl, elementId) {
+    try {
+        const response = await fetch(apiUrl);
+        if (!response.ok) throw new Error('Network response was not ok');
+        const data = await response.json();
+        
+        const select = document.getElementById(`${elementId}Filter`);
+        select.innerHTML = `<option value="">All ${elementId}s</option>`;
+        
+        data.forEach(option => {
+            const optElement = document.createElement('option');
+            optElement.value = option;
+            optElement.textContent = option;
+            select.appendChild(optElement);
+        });
+    } catch (error) {
+        console.error(`Error fetching ${elementId} options:`, error);
+    }
+}
+
+function updatePaginationInfo() {
+    const startCountEl = document.getElementById('startCount');
+    const endCountEl = document.getElementById('endCount');
+    const totalCountEl = document.getElementById('totalCount');
+    const currentPageEl = document.getElementById('currentPage');
+    const totalPagesEl = document.getElementById('totalPages');
+    const prevButton = document.getElementById('prevPage');
+    const nextButton = document.getElementById('nextPage');
+
+    if (!startCountEl || !endCountEl || !totalCountEl || 
+        !currentPageEl || !totalPagesEl || !prevButton || !nextButton) {
+        console.warn('Some pagination elements not found, creating them...');
+        
+        // Create pagination container if it doesn't exist
+        let paginationContainer = document.querySelector('.pagination-container');
+        if (!paginationContainer) {
+            paginationContainer = document.createElement('div');
+            paginationContainer.className = 'pagination-container d-flex justify-content-between align-items-center mb-3';
+            const articleList = document.getElementById('articleList');
+            if (articleList) {
+                articleList.parentNode.insertBefore(paginationContainer, articleList);
+            }
+        }
+
+        // Create pagination info if it doesn't exist
+        if (!startCountEl || !endCountEl || !totalCountEl) {
+            const paginationInfo = document.createElement('div');
+            paginationInfo.className = 'pagination-info';
+            paginationInfo.innerHTML = `
+                <span>Showing</span>
+                <strong><span id="startCount">0</span>-<span id="endCount">0</span></strong>
+                <span>of</span>
+                <strong><span id="totalCount">0</span></strong>
+                <span>articles</span>
+                <span class="page-numbers">
+                    <span>Page</span>
+                    <strong><span id="currentPage">1</span></strong>
+                    <span>of</span>
+                    <strong><span id="totalPages">1</span></strong>
+                </span>
+            `;
+            paginationContainer.appendChild(paginationInfo);
+        }
+
+        // Create navigation buttons if they don't exist
+        if (!prevButton || !nextButton) {
+            const paginationNav = document.createElement('div');
+            paginationNav.className = 'pagination-nav';
+            paginationNav.innerHTML = `
+                <button id="prevPage" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-chevron-left me-1"></i>Previous
+                </button>
+                <button id="nextPage" class="btn btn-sm btn-outline-secondary">
+                    Next<i class="fas fa-chevron-right ms-1"></i>
+                </button>
+            `;
+            paginationContainer.appendChild(paginationNav);
+
+            // Add event listeners to new buttons
+            document.getElementById('prevPage')?.addEventListener('click', () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    displayArticles();
+                    updatePaginationInfo();
+                }
+            });
+
+            document.getElementById('nextPage')?.addEventListener('click', () => {
+                const totalPages = Math.ceil(filteredArticles.length / itemsPerPage);
+                if (currentPage < totalPages) {
+                    currentPage++;
+                    displayArticles();
+                    updatePaginationInfo();
+                }
+            });
+        }
+
+        // Get the newly created elements
+        startCountEl = document.getElementById('startCount');
+        endCountEl = document.getElementById('endCount');
+        totalCountEl = document.getElementById('totalCount');
+        currentPageEl = document.getElementById('currentPage');
+        totalPagesEl = document.getElementById('totalPages');
+        prevButton = document.getElementById('prevPage');
+        nextButton = document.getElementById('nextPage');
+    }
+
+    const start = (currentPage - 1) * itemsPerPage + 1;
+    const end = Math.min(currentPage * itemsPerPage, filteredArticles.length);
+    const total = filteredArticles.length;
+    const totalPages = Math.ceil(total / itemsPerPage);
+
+    // Update the display
+    if (startCountEl) startCountEl.textContent = total ? start : 0;
+    if (endCountEl) endCountEl.textContent = total ? end : 0;
+    if (totalCountEl) totalCountEl.textContent = total;
+    if (currentPageEl) currentPageEl.textContent = currentPage;
+    if (totalPagesEl) totalPagesEl.textContent = totalPages;
+
+    // Update button states
+    if (prevButton) prevButton.disabled = currentPage === 1;
+    if (nextButton) nextButton.disabled = currentPage === totalPages || total === 0;
+}
+
+function updateEndDateMin(startDate) {
+    const endDateInput = document.getElementById('dateTo');
+    endDateInput.min = startDate;
+    if (endDateInput.value && endDateInput.value < startDate) {
+        endDateInput.value = startDate;
+    }
+}
+
+async function setDateRange(range) {
+    const today = new Date();
+    const startDate = document.getElementById('dateFrom');
+    const endDate = document.getElementById('dateTo');
+    
+    // Always set end date to today
+    endDate.value = today.toISOString().split('T')[0];
+    
+    let start = new Date(today);
+    
+    switch(range) {
+        case 'today':
+            start = today;
+            break;
+        case 'week':
+            start.setDate(today.getDate() - 7);
+            break;
+        case 'month':
+            start.setDate(today.getDate() - 30);
+            break;
+        case 'quarter':
+            start.setDate(today.getDate() - 90);
+            break;
+        case 'year':
+            start.setDate(today.getDate() - 365);
+            break;
+        case 'all':
+            start = new Date('2000-01-01');
+            break;
+    }
+    
+    startDate.value = start.toISOString().split('T')[0];
+    
+    // Get the current topic and fetch new articles with date range
+    const topicName = document.getElementById('topicSelect').value;
+    if (topicName) {
+        await fetchArticlesForTopic(topicName);
+    }
+}
+
+// Add date input change handlers
+$(document).ready(function() {
+    // ... existing Select2 initialization ...
+
+    // Add date input change handlers
+    $('#dateFrom, #dateTo').on('change', async function() {
+        const topicName = document.getElementById('topicSelect').value;
+        if (topicName) {
+            await fetchArticlesForTopic(topicName);
+        }
+    });
+});
+
+async function editArticle(uri) {
+    if (!uri) {
+        console.error('No URI provided for article editing');
+        alert('Cannot edit article: No URI provided');
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/article?uri=${uri}`);
+        if (response.status === 404) {
+            throw new Error('Article not found');
+        }
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const article = await response.json();
+        if (!article) {
+            throw new Error('No article data received');
+        }
+        
+        // First refresh the dropdowns for the article's topic
+        await refreshDropdownsForTopic(article.topic);
+        
+        // Then display the article data
+        displayAnalysisResult(article);
+        
+        // Show the analysis result panel
+        const analysisResultDiv = document.getElementById('analysisResult');
+        analysisResultDiv.style.display = 'block';
+        analysisResultDiv.scrollIntoView({ behavior: 'smooth' });
+
+        // Load annotations for this article
+        await loadAnnotations(uri);
+    } catch (error) {
+        console.error('Error editing article:', error);
+        alert(`Error editing article: ${error.message}`);
+    }
+}
+
+async function deleteArticle(uri) {
+    if (confirm('Are you sure you want to delete this article?')) {
+        try {
+            // Decode the URI first in case it's already encoded, then encode it once
+            const decodedUri = decodeURIComponent(uri);
+            const response = await fetch(`/api/article?uri=${encodeURIComponent(decodedUri)}`, { 
+                method: 'DELETE' 
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to delete article');
+            }
+            
+            const result = await response.json();
+            console.log('Delete result:', result);
+            alert('Article deleted successfully');
+            
+            // Refresh the articles list
+            const topicSelect = document.getElementById('topicSelect');
+            await fetchArticles(topicSelect.value);
+        } catch (error) {
+            console.error('Error deleting article:', error);
+            alert(`Error deleting article: ${error.message}`);
+        }
+    }
+}
+
+function displayAnalysisResult(result) {
+    const analysisResultDiv = document.getElementById('analysisResult');
+    if (analysisResultDiv) {
+        document.getElementById('analysisTitle').value = result.title || '';
+        document.getElementById('analysisSource').value = result.news_source || '';
+        document.getElementById('analysisUrl').value = result.uri || '';
+        document.getElementById('analysisSummary').value = result.summary || '';
+        document.getElementById('analysisSentiment').value = result.sentiment || '';
+        document.getElementById('analysisSentimentExplanation').value = result.sentiment_explanation || '';
+        document.getElementById('analysisTimeToImpact').value = result.time_to_impact || '';
+        document.getElementById('analysisTimeToImpactExplanation').value = result.time_to_impact_explanation || '';
+        document.getElementById('analysisCategory').value = result.category || '';
+        document.getElementById('analysisFutureSignal').value = result.future_signal || '';
+        document.getElementById('analysisFutureSignalExplanation').value = result.future_signal_explanation || '';
+        document.getElementById('analysisDriverType').value = result.driver_type || '';
+        document.getElementById('analysisDriverTypeExplanation').value = result.driver_type_explanation || '';
+        
+        // Handle dates
+        if (result.publication_date) {
+            document.getElementById('analysisPublicationDate').value = result.publication_date.split('T')[0];
+        }
+        if (result.submission_date) {
+            document.getElementById('analysisSubmissionDate').value = result.submission_date.slice(0, 16);
+        }
+        
+        // Handle tags
+        document.getElementById('analysisTags').value = Array.isArray(result.tags) ? result.tags.join(', ') : result.tags || '';
+        
+        updateSummaryWordCount();
+    }
+}
+
+function clearForm() {
+    const inputs = document.querySelectorAll('#analysisResult input, #analysisResult textarea, #analysisResult select');
+    inputs.forEach(input => {
+        input.value = '';
+    });
+    document.getElementById('analysisResult').style.display = 'none';
+}
+
+async function saveArticle() {
+    const articleData = {
+        title: document.getElementById('analysisTitle').value,
+        news_source: document.getElementById('analysisSource').value,
+        uri: document.getElementById('analysisUrl').value,
+        publication_date: document.getElementById('analysisPublicationDate').value,
+        summary: document.getElementById('analysisSummary').value,
+        category: document.getElementById('analysisCategory').value,
+        future_signal: document.getElementById('analysisFutureSignal').value,
+        future_signal_explanation: document.getElementById('analysisFutureSignalExplanation').value,
+        sentiment: document.getElementById('analysisSentiment').value,
+        sentiment_explanation: document.getElementById('analysisSentimentExplanation').value,
+        time_to_impact: document.getElementById('analysisTimeToImpact').value,
+        time_to_impact_explanation: document.getElementById('analysisTimeToImpactExplanation').value,
+        tags: document.getElementById('analysisTags').value.split(',').map(tag => tag.trim()),
+        driver_type: document.getElementById('analysisDriverType').value,
+        driver_type_explanation: document.getElementById('analysisDriverTypeExplanation').value,
+        submission_date: document.getElementById('analysisSubmissionDate').value,
+        topic: document.getElementById('topicSelect').value
+    };
+
+    try {
+        const response = await fetch('/api/save_article', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(articleData),
+        });
+
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
+        }
+
+        const result = await response.json();
+        console.log('Success:', result);
+        alert('Article saved successfully!');
+        
+        // Clear the form first
+        clearForm();
+        
+        // Then refresh the articles list
+        if (articleData.topic) {
+            await fetchArticles(articleData.topic);
+        } else {
+            console.warn('No topic selected for refresh');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error saving article. Please try again.');
+    }
+}
+
+function updateSummaryWordCount() {
+    const summary = document.getElementById('analysisSummary').value;
+    const wordCount = summary.trim().split(/\s+/).length;
+    document.getElementById('summaryWordCount').textContent = `(${wordCount} words)`;
+}
+
+// Add event listener for summary textarea
+document.addEventListener('DOMContentLoaded', function() {
+    const summaryTextarea = document.getElementById('analysisSummary');
+    if (summaryTextarea) {
+        summaryTextarea.addEventListener('input', updateSummaryWordCount);
+    }
+});
+
+// Add a helper function to safely escape HTML
+function escapeHTML(str) {
+    if (!str) return '';
+    return str.replace(/[&<>"']/g, 
+        tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag] || tag)
+    );
+}
+
+async function fetchArticles(topicName) {
+    if (!topicName) {
+        console.warn('No topic name provided for fetching articles');
+        return;
+    }
+
+    try {
+        // Show loading state
+        const tableBody = document.querySelector('#articlesTable tbody');
+        if (tableBody) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="100%" class="text-center">
+                        <i class="fas fa-spinner fa-spin me-2"></i>
+                        Loading articles...
+                    </td>
+                </tr>
+            `;
+        }
+
+        const dateFrom = document.getElementById('dateFrom')?.value || '';
+        const dateTo = document.getElementById('dateTo')?.value || '';
+        
+        const params = new URLSearchParams({
+            start_date: dateFrom,
+            end_date: dateTo,
+            limit: 1000
+        });
+        
+        const response = await fetch(`/api/topics/${encodeURIComponent(topicName)}/articles?${params}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        allArticles = data.articles || [];
+        filteredArticles = allArticles;
+        
+        // Apply any existing filters
+        applyFilters();
+        
+        // Display the articles
+        currentPage = 1;
+        displayArticles();
+        updatePaginationInfo();
+        
+        console.log(`Loaded ${allArticles.length} articles for topic ${topicName}`);
+    } catch (error) {
+        console.error('Error fetching articles:', error);
+        // Show error state in table
+        const tableBody = document.querySelector('#articlesTable tbody');
+        if (tableBody) {
+            tableBody.innerHTML = `
+                <tr>
+                    <td colspan="100%" class="text-center text-danger">
+                        <i class="fas fa-exclamation-circle me-2"></i>
+                        Error loading articles: ${error.message}
+                    </td>
+                </tr>
+            `;
+        }
+    }
+}
+
+// Add this function to handle bulk deletion
+async function bulkDeleteArticles() {
+    if (selectedArticlesForDeletion.size === 0) {
+        alert('Please select at least one article to delete');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to delete ${selectedArticlesForDeletion.size} articles?`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/bulk_delete_articles', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                uris: Array.from(selectedArticlesForDeletion)
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        alert(`Successfully deleted ${result.deleted_count} articles`);
+        
+        // Clear selection and refresh the list
+        selectedArticlesForDeletion.clear();
+        updateBulkDeleteButton();
+        const topicSelect = document.getElementById('topicSelect');
+        await fetchArticles(topicSelect.value);
+    } catch (error) {
+        console.error('Error deleting articles:', error);
+        alert(`Error deleting articles: ${error.message}`);
+    }
+}
+
+// Add this function to update the bulk delete button state
+function updateBulkDeleteButton() {
+    const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+    if (bulkDeleteBtn) {
+        bulkDeleteBtn.textContent = `Delete Selected (${selectedArticlesForDeletion.size})`;
+        bulkDeleteBtn.disabled = selectedArticlesForDeletion.size === 0;
+    }
+}
+
+// Add these functions to handle annotations
+async function loadAnnotations(articleUri) {
+    console.log('Loading annotations for article:', articleUri); // Debug log
+    
+    try {
+        // Double encode the URI to match FastAPI's handling
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        console.log('Encoded URI for loading:', doubleEncodedUri); // Debug log
+        
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`);
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Load response error:', response.status, errorData); // Debug log
+            throw new Error(errorData.detail || 'Failed to load annotations');
+        }
+        
+        const annotations = await response.json();
+        console.log('Loaded annotations:', annotations); // Debug log
+        
+        const container = document.getElementById('annotationsList');
+        if (!container) {
+            console.error('Annotations container not found');
+            return;
+        }
+        
+        if (!Array.isArray(annotations)) {
+            console.error('Annotations is not an array:', annotations);
+            throw new Error('Invalid annotations data received');
+        }
+        
+        container.innerHTML = annotations.map(annotation => `
+            <div class="card mb-2" data-annotation-id="${annotation.id}">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <small class="text-muted">
+                                ${annotation.author} · ${new Date(annotation.created_at).toLocaleString()}
+                                ${annotation.is_private ? ' · <span class="badge bg-secondary">Private</span>' : ''}
+                            </small>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-outline-primary" 
+                                    onclick="editAnnotation(${annotation.id})">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" 
+                                    onclick="deleteAnnotation(${annotation.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="annotation-content" data-raw-content="${encodeURIComponent(annotation.content)}">
+                        ${marked.parse(annotation.content)}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+        
+        console.log('Annotations rendered successfully'); // Debug log
+    } catch (error) {
+        console.error('Error loading annotations:', error);
+        showAlert('Failed to load annotations: ' + error.message, 'danger');
+    }
+}
+
+async function saveAnnotation() {
+    const content = document.getElementById('newAnnotation').value.trim();
+    const isPrivate = document.getElementById('annotationPrivate').checked;
+    const articleUri = document.getElementById('analysisUrl').value;
+    
+    console.log('Saving annotation:', { content, isPrivate, articleUri }); // Debug log
+    
+    if (!content) {
+        showAlert('Please enter annotation content', 'warning');
+        return;
+    }
+    
+    try {
+        // Double encode the URI to match FastAPI's handling
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        console.log('Encoded URI:', doubleEncodedUri); // Debug log
+        
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('Save response error:', response.status, errorData); // Debug log
+            throw new Error(errorData.detail || 'Failed to save annotation');
+        }
+        
+        const result = await response.json();
+        console.log('Save result:', result); // Debug log
+        
+        // Clear the form
+        document.getElementById('newAnnotation').value = '';
+        document.getElementById('annotationPrivate').checked = false;
+        
+        // Reload annotations using the original articleUri
+        await loadAnnotations(articleUri);
+        showAlert('Annotation saved successfully', 'success');
+    } catch (error) {
+        console.error('Error saving annotation:', error);
+        showAlert('Failed to save annotation: ' + error.message, 'danger');
+    }
+}
+
+// Add these functions after the existing annotation functions
+async function editAnnotation(annotationId) {
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        const contentDiv = annotationCard.querySelector('.annotation-content');
+        const currentContent = contentDiv.getAttribute('data-raw-content');
+        const isPrivate = annotationCard.querySelector('.badge.bg-secondary') !== null;
+        
+        // Create edit form
+        const originalHtml = annotationCard.innerHTML;
+        annotationCard.innerHTML = `
+            <div class="card-body">
+                <textarea class="form-control mb-2" rows="3">${currentContent}</textarea>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="editPrivate_${annotationId}" ${isPrivate ? 'checked' : ''}>
+                    <label class="form-check-label" for="editPrivate_${annotationId}">
+                        Private note
+                    </label>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-primary" onclick="saveEditedAnnotation(${annotationId}, '${originalHtml}')">
+                        Save
+                    </button>
+                    <button class="btn btn-sm btn-secondary" onclick="cancelEdit(${annotationId}, '${originalHtml}')">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error setting up annotation edit:', error);
+        showAlert('Failed to set up annotation edit', 'danger');
+    }
+}
+
+async function saveEditedAnnotation(annotationId, originalHtml) {
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        const content = annotationCard.querySelector('textarea').value;
+        const isPrivate = annotationCard.querySelector('input[type="checkbox"]').checked;
+
+        const response = await fetch(`/api/articles/${encodeURIComponent(articleUri)}/annotations/${annotationId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to update annotation');
+
+        // Reload all annotations to show the update
+        await loadAnnotations(articleUri);
+        showAlert('Annotation updated successfully', 'success');
+    } catch (error) {
+        console.error('Error saving annotation edit:', error);
+        showAlert('Failed to save annotation edit', 'danger');
+        // Restore original content on error
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        annotationCard.innerHTML = originalHtml;
+    }
+}
+
+function cancelEdit(annotationId, originalHtml) {
+    const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+    annotationCard.innerHTML = originalHtml;
+}
+
+async function deleteAnnotation(annotationId) {
+    if (!confirm('Are you sure you want to delete this annotation?')) {
+        return;
+    }
+
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const response = await fetch(
+            `/api/articles/${encodeURIComponent(articleUri)}/annotations/${annotationId}`, 
+            { method: 'DELETE' }
+        );
+
+        if (!response.ok) throw new Error('Failed to delete annotation');
+
+        // Reload annotations to reflect the deletion
+        await loadAnnotations(articleUri);
+        showAlert('Annotation deleted successfully', 'success');
+    } catch (error) {
+        console.error('Error deleting annotation:', error);
+        showAlert('Failed to delete annotation', 'danger');
+    }
+}
+
+// Add this function near the top of your script section
+function showAlert(message, type = 'info') {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    alertDiv.style.top = '20px';
+    alertDiv.style.right = '20px';
+    alertDiv.style.zIndex = '9999';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    document.body.appendChild(alertDiv);
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(() => {
+        alertDiv.remove();
+    }, 5000);
+}
+</script>
+{% endblock %} 

@@ -1,0 +1,1504 @@
+{% extends "base.html" %}
+{% block title %}AuNoo AI - Research{% endblock %}
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;  /* Hot Pink */
+        --primary-dark: #FF1493;   /* Deep Pink */
+        --secondary-color: #32CD32;  /* Lime Green */
+        --secondary-dark: #228B22;   /* Forest Green */
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+    }
+
+    body {
+        background-color: var(--light-gray);
+        color: var(--text-color);
+    }
+
+    .container {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 0 20px;
+    }
+
+    h1, h2, h5, h6 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .research-form, .analysis-result {
+        margin-bottom: 20px;
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        border: none;
+    }
+
+    h2 {
+        color: var(--primary-color);
+        margin-bottom: 20px;
+    }
+
+    .form-label {
+        color: var(--text-color);
+        font-weight: bold;
+    }
+
+    .form-control, .form-select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+        margin-bottom: 10px;
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--dark-gray);
+        box-shadow: 0 0 0 0.2rem rgba(0, 0, 0, 0.1);
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background-color 0.3s;
+    }
+
+    .btn-primary {
+        background-color: var(--primary-color);
+        color: #fff;
+    }
+
+    .btn-primary:hover {
+        background-color: var(--primary-dark);
+    }
+
+    .btn-secondary {
+        background-color: var(--secondary-color);
+        color: #fff;
+    }
+
+    .btn-secondary:hover {
+        background-color: var(--secondary-dark);
+    }
+
+    .custom-field {
+        display: none;
+        margin-top: 10px;
+    }
+
+    .expandable-content {
+        max-height: 100px;
+        overflow: hidden;
+        transition: max-height 0.3s ease-out;
+    }
+
+    .expandable-content.expanded {
+        max-height: 1000px;
+    }
+
+    .expand-btn {
+        cursor: pointer;
+        color: var(--primary-color);
+        text-decoration: underline;
+        font-size: 0.9em;
+    }
+
+    #analysisResult {
+        display: none;
+    }
+
+    #analysisResult button {
+        margin-right: 10px;
+        margin-top: 10px;
+    }
+
+    .card {
+        margin-bottom: 20px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        border: none;
+    }
+
+    .card-title {
+        font-size: 1.25rem;
+        font-weight: bold;
+        color: var(--primary-color);
+    }
+
+    .card-subtitle {
+        font-size: 1rem;
+        color: var(--dark-gray);
+    }
+
+    .btn-sm {
+        margin-right: 5px;
+    }
+
+    #latestArticles {
+        margin-top: 20px;
+    }
+
+    .article-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        border: 1px solid var(--medium-gray);
+        padding: 15px;
+        margin-bottom: 15px;
+        border-radius: 5px;
+        background-color: #fff;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+
+    .article-content {
+        flex: 1;
+    }
+
+    .article-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .article-actions button {
+        padding: 5px 10px;
+        background-color: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+    }
+
+    .article-actions button:hover {
+        background-color: var(--primary-dark);
+    }
+
+    #analysisResults {
+        display: none;
+        margin-top: 20px;
+        padding: 15px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 5px;
+        background-color: #fff;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .modal {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: #fff;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        z-index: 1000;
+        border: none;
+    }
+
+    .modal p {
+        margin-bottom: 10px;
+    }
+
+    .modal button {
+        margin-right: 10px;
+    }
+
+    #topicSelector {
+        margin-bottom: 20px;
+    }
+
+    #researchContent {
+        display: none;
+    }
+
+    .processing-indicator {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 30px;
+        margin: 20px 0;
+        text-align: center;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+    
+    .processing-indicator .spinner-border {
+        width: 3rem;
+        height: 3rem;
+    }
+</style>
+<link href="https://cdn.jsdelivr.net/npm/marked/lib/marked.min.css" rel="stylesheet">
+{% endblock %}
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-3">Research</h2>
+    
+    <div id="topicSelector" class="mb-4">
+        <div class="mb-3">
+            <label for="topicSelect" class="form-label">Select Topic</label>
+            <select id="topicSelect" class="form-select">
+                <option value="">Select a topic</option>
+                <!-- Topics will be populated dynamically -->
+            </select>
+        </div>
+    </div>
+
+    <div id="researchContent">
+        <div class="row">
+            <div class="col-md-6">
+                <h2 class="mb-4">Research</h2>
+                <form class="research-form" id="researchForm" onsubmit="handleFormSubmit(event)">
+                    <div class="mb-3">
+                        <label for="articleUrl" class="form-label">Article URL</label>
+                        <input type="url" class="form-control" id="articleUrl" name="articleUrl" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="articleContent" class="form-label">Article Content (optional)</label>
+                        <textarea class="form-control" id="articleContent" name="articleContent" rows="5"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="summaryLength" class="form-label">Summary Length</label>
+                        <select class="form-select" id="summaryLength" name="summaryLength" required>
+                            <option value="40">40 words</option>
+                            <option value="50" selected>50 words</option>
+                            <option value="75">75 words</option>
+                            <option value="100">100 words</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <div id="customSummaryLengthField" class="custom-field mt-2" style="display: none;">
+                            <input type="number" class="form-control" id="customSummaryLength" name="customSummaryLength" placeholder="Enter custom summary length">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="summaryVoice" class="form-label">Summary Voice</label>
+                        <select class="form-select" id="summaryVoice" name="summaryVoice" required>
+                            <option value="business_analyst">Business Analyst</option>
+                            <option value="industry_analyst">Industry Analyst</option>
+                            <option value="tech_journalist">Tech Journalist</option>
+                            <option value="investment_advisor">Investment Advisor</option>
+                            <option value="principal_security_engineer">Principal Security Engineer</option>
+                            <option value="ciso">CISO</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <div id="customVoiceField" class="custom-field">
+                            <input type="text" class="form-control mt-2" id="customVoice" name="custom_voice" placeholder="Enter custom voice">
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="summaryType" class="form-label">Summary Type</label>
+                        <select class="form-select" id="summaryType" name="summaryType" required>
+                            <option value="curious_ai_long">Curious AI Long</option>
+                            <option value="curious_ai_short">Curious AI Short</option>
+                            <option value="axios">Axios</option>
+                            <option value="brief">Brief</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="modelName" class="form-label">AI Model</label>
+                        <select class="form-select" id="modelName" name="modelName" required>
+                            <!-- Options will be populated dynamically -->
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Analyze Article</button>
+                </form>
+            </div>
+            <div class="col-md-6">
+                <h2 class="mb-4">Analysis Result</h2>
+                <div class="analysis-result" id="analysisResult">
+                    <p><strong>Title:</strong> <input type="text" id="analysisTitle" class="form-control"></p>
+                    <p><strong>Source:</strong> <input type="text" id="analysisSource" class="form-control"></p>
+                    <p><strong>URL:</strong> <input type="url" id="analysisUrl" class="form-control"></p>
+                    <div class="mb-3">
+                        <label for="analysisSummary" class="form-label">Summary <span id="summaryWordCount">(0 words)</span></label>
+                        <textarea class="form-control" id="analysisSummary" rows="3"></textarea>
+                    </div>
+                    <p><strong>Sentiment:</strong> <select id="analysisSentiment" class="form-select"></select></p>
+                    <p><strong>Sentiment Explanation:</strong> <textarea id="analysisSentimentExplanation" class="form-control" rows="2"></textarea></p>
+                    <p><strong>Time to Impact:</strong> <select id="analysisTimeToImpact" class="form-select"></select></p>
+                    <p><strong>Time to Impact Explanation:</strong> <textarea id="analysisTimeToImpactExplanation" class="form-control" rows="2"></textarea></p>
+                    <p><strong>Category:</strong> <select id="analysisCategory" class="form-select"></select></p>
+                    <p><strong>Future Signal:</strong> <select id="analysisFutureSignal" class="form-select"></select></p>
+                    <p><strong>Future Signal Explanation:</strong> <textarea id="analysisFutureSignalExplanation" class="form-control" rows="2"></textarea></p>
+                    <p><strong>Driver Type:</strong> <select id="analysisDriverType" class="form-select"></select></p>
+                    <p><strong>Driver Type Explanation:</strong> <textarea id="analysisDriverTypeExplanation" class="form-control" rows="2"></textarea></p>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="analysisPublicationDate" class="form-label">Publication Date:</label>
+                                <input type="date" id="analysisPublicationDate" class="form-control">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="analysisSubmissionDate" class="form-label">Submission Date:</label>
+                                <input type="datetime-local" id="analysisSubmissionDate" class="form-control">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Tags</label>
+                        <input type="text" id="analysisTags" class="form-control" placeholder="Enter tags separated by commas">
+                    </div>
+                    <div class="mb-3 border-top pt-3">
+                        <h6>Annotations</h6>
+                        <div id="annotationsList" class="mb-3">
+                            <!-- Annotations will be loaded here -->
+                        </div>
+                        
+                        <div class="card">
+                            <div class="card-body">
+                                <textarea id="newAnnotation" class="form-control mb-2" rows="3" 
+                                          placeholder="Add your analysis or comments..."></textarea>
+                                <div class="form-check mb-2">
+                                    <input class="form-check-input" type="checkbox" id="annotationPrivate">
+                                    <label class="form-check-label" for="annotationPrivate">
+                                        Private note (not included in analysis)
+                                    </label>
+                                </div>
+                                <button class="btn btn-primary" onclick="saveAnnotation()">
+                                    Add Annotation
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <button onclick="saveArticle()" class="btn btn-primary">Save</button>
+                    <button onclick="clearForm()" class="btn btn-secondary">Clear</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <div class="col-12">
+                <h2>Latest Articles for Selected Topic</h2>
+                <div id="latestArticles">
+                    <!-- Latest articles will be displayed here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add this near the top of your body tag -->
+<div id="modalContainer" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000;">
+    <div id="modalContent" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: white; padding: 20px; border-radius: 5px;">
+        <p>This article already exists in the database. What would you like to do?</p>
+        <button id="useExisting">Use existing version</button>
+        <button id="fetchNew">Fetch new version</button>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+// Add this helper function near other utility functions
+function removeProcessingIndicator() {
+    const indicator = document.getElementById('processingIndicator');
+    if (indicator) indicator.remove();
+}
+
+async function handleFormSubmit(event) {
+    event.preventDefault();
+    console.log('Form submission started');
+
+    const submitButton = event.target.querySelector('button[type="submit"]');
+    if (submitButton.disabled) return;
+    submitButton.disabled = true;
+
+    // Add processing indicator
+    const processingIndicator = document.createElement('div');
+    processingIndicator.id = 'processingIndicator';
+    processingIndicator.className = 'processing-indicator';
+    processingIndicator.innerHTML = `
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <h4 class="mt-3">Analyzing article...</h4>
+        <p>Please wait while we process your request.</p>
+    `;
+    
+    // Insert after the form
+    document.getElementById('researchForm').insertAdjacentElement('afterend', processingIndicator);
+
+    const form = event.target;
+    const formData = new FormData(form);
+
+    // Get topic from URL parameters or select element
+    const urlParams = new URLSearchParams(window.location.search);
+    const topic = urlParams.get('topic') || document.getElementById('topicSelect').value;
+    formData.append('selectedTopic', topic);  // Make sure to append the topic
+    
+    const modelName = document.getElementById('modelName').value;
+    formData.append('modelName', modelName);
+
+    // Fetch article content if not provided
+    const articleContent = formData.get('articleContent');
+    if (!articleContent) {
+        const articleUrl = formData.get('articleUrl');
+        if (articleUrl) {
+            try {
+                const response = await fetch(`/api/fetch_article_content?uri=${encodeURIComponent(articleUrl)}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Fetch article content response:', data);
+
+                    if (data.exists) {
+                        console.log('Article exists, showing modal');
+                        const userChoice = await new Promise((resolve) => {
+                            const modal = document.getElementById('modalContainer');
+                            modal.style.display = 'block';
+                            
+                            document.getElementById('useExisting').onclick = () => {
+                                modal.style.display = 'none';
+                                resolve('existing');
+                            };
+                            document.getElementById('fetchNew').onclick = () => {
+                                modal.style.display = 'none';
+                                resolve('new');
+                            };
+                        });
+
+                        console.log('User choice:', userChoice);
+
+                        if (userChoice === 'existing') {
+                            try {
+                                const existingContent = await fetch(`/api/get_existing_article_content?uri=${encodeURIComponent(articleUrl)}`);
+                                if (existingContent.ok) {
+                                    const existingData = await existingContent.json();
+                                    document.getElementById('articleContent').value = existingData.content;
+                                    formData.set('articleContent', existingData.content);
+                                } else {
+                                    const errorData = await existingContent.json().catch(() => ({ message: 'Failed to fetch existing article content' }));
+                                    removeProcessingIndicator(); // Remove indicator before showing error
+                                    submitButton.disabled = false;
+                                    throw new Error(errorData.message || 'Failed to fetch existing article content');
+                                }
+                            } catch (error) {
+                                console.error('Error fetching existing content:', error);
+                                removeProcessingIndicator(); // Remove indicator before showing error
+                                submitButton.disabled = false;
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Content Retrieval Error',
+                                    text: `Unable to retrieve existing article content: ${error.message}`,
+                                    footer: 'Try using the scrape option instead'
+                                });
+                                return;
+                            }
+                        } else {
+                            // Fetch new version
+                            try {
+                                const scrapeResponse = await fetch(`/api/scrape_article?uri=${encodeURIComponent(articleUrl)}`);
+                                if (scrapeResponse.ok) {
+                                    const scrapeData = await scrapeResponse.json();
+                                    document.getElementById('articleContent').value = scrapeData.content;
+                                    formData.set('articleContent', scrapeData.content);
+                                } else {
+                                    const errorData = await scrapeResponse.json().catch(() => ({ message: 'Failed to scrape article content' }));
+                                    removeProcessingIndicator(); // Remove indicator before showing error
+                                    submitButton.disabled = false;
+                                    throw new Error(errorData.message || 'Failed to scrape article content');
+                                }
+                            } catch (error) {
+                                console.error('Error scraping content:', error);
+                                removeProcessingIndicator(); // Remove indicator before showing error
+                                submitButton.disabled = false;
+                                Swal.fire({
+                                    icon: 'error',
+                                    title: 'Scraping Error',
+                                    text: `Unable to scrape article content: ${error.message}`,
+                                    footer: 'Check if the URL is correct and accessible'
+                                });
+                                return;
+                            }
+                        }
+                    } else {
+                        // Article doesn't exist, fetch it
+                        try {
+                            const scrapeResponse = await fetch(`/api/scrape_article?uri=${encodeURIComponent(articleUrl)}`);
+                            if (scrapeResponse.ok) {
+                                const scrapeData = await scrapeResponse.json();
+                                document.getElementById('articleContent').value = scrapeData.content;
+                                formData.set('articleContent', scrapeData.content);
+                            } else {
+                                const errorData = await scrapeResponse.json().catch(() => ({ message: 'Failed to scrape article content' }));
+                                removeProcessingIndicator(); // Remove indicator before showing error
+                                submitButton.disabled = false;
+                                throw new Error(errorData.message || 'Failed to scrape article content');
+                            }
+                        } catch (error) {
+                            console.error('Error scraping content:', error);
+                            removeProcessingIndicator(); // Remove indicator before showing error
+                            submitButton.disabled = false;
+                            Swal.fire({
+                                icon: 'error',
+                                title: 'Scraping Error',
+                                text: `Unable to scrape article content: ${error.message}`,
+                                footer: 'Check if the URL is correct and accessible'
+                            });
+                            return;
+                        }
+                    }
+                } else {
+                    removeProcessingIndicator(); // Remove indicator before showing error
+                    submitButton.disabled = false;
+                    throw new Error('Failed to fetch article content');
+                }
+            } catch (error) {
+                console.error('Error fetching article content:', error);
+                removeProcessingIndicator(); // Remove indicator before showing error
+                alert('Failed to fetch article content. Please enter it manually or try again.');
+                submitButton.disabled = false;
+                return;
+            }
+        }
+    }
+
+    // Handle custom summary length
+    const summaryLengthSelect = document.getElementById('summaryLength');
+    if (summaryLengthSelect.value === 'custom') {
+        const customLength = document.getElementById('customSummaryLength').value;
+        formData.set('summaryLength', customLength);
+    }
+
+    // Ensure all required fields are present
+    const requiredFields = ['articleUrl', 'summaryLength', 'summaryVoice', 'summaryType'];
+    for (const field of requiredFields) {
+        if (!formData.get(field)) {
+            removeProcessingIndicator(); // Remove indicator before showing error
+            alert(`Please fill in the ${field.replace(/([A-Z])/g, ' $1').toLowerCase()} field.`);
+            submitButton.disabled = false;
+            return;
+        }
+    }
+
+    try {
+        const response = await fetch('/research', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            removeProcessingIndicator(); // Remove indicator before showing error
+            throw new Error(JSON.stringify(errorData));
+        }
+
+        const result = await response.json();
+        displayAnalysisResult(result);
+    } catch (error) {
+        console.error('Error:', error);
+        removeProcessingIndicator(); // Remove indicator before showing error
+        alert('An error occurred while analyzing the article. Please try again.');
+    } finally {
+        // Remove processing indicator
+        removeProcessingIndicator();
+        
+        submitButton.disabled = false;
+    }
+}
+
+// Update the editArticle function
+async function editArticle(uri) {
+    try {
+        const response = await fetch(`/api/article?uri=${encodeURIComponent(uri)}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const article = await response.json();
+        
+        // Display the article in the Analysis Results section
+        displayAnalysisResult(article);
+        
+        // Switch to the Analysis Result tab
+        switchToAnalysisResultTab();
+    } catch (error) {
+        console.error('Error editing article:', error);
+        alert('Error editing article. Please try again.');
+    }
+}
+
+function switchToAnalysisResultTab() {
+    console.log("Attempting to switch to Analysis Result tab");
+    const analysisResultDiv = document.getElementById('analysisResult');
+    if (analysisResultDiv) {
+        analysisResultDiv.style.display = 'block';
+        // Scroll to the analysis result
+        analysisResultDiv.scrollIntoView({ behavior: 'smooth' });
+        console.log("Switched to Analysis Result tab");
+    } else {
+        console.error("Analysis Result div not found");
+    }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Get URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const articleUrl = urlParams.get('url');
+    const urlTopic = urlParams.get('topic');
+
+    // Initialize the page
+    initializeResearchPage();
+    
+    // Load topics and set the selected topic from URL
+    loadTopics().then(() => {
+        const topicSelect = document.getElementById('topicSelect');
+        if (urlTopic && topicSelect) {
+            topicSelect.value = urlTopic;
+            // Show research content and trigger topic change handlers
+            document.getElementById('researchContent').style.display = 'block';
+            // Manually trigger change event to update dependent fields
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+        
+        if (articleUrl) {
+            document.getElementById('articleUrl').value = articleUrl;
+        }
+    });
+});
+
+// Update the loadTopics function to properly handle URL topic
+async function loadTopics() {
+    try {
+        const response = await fetch('/api/topics');
+        const topics = await response.json();
+        const topicSelect = document.getElementById('topicSelect');
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlTopic = urlParams.get('topic');
+        
+        topicSelect.innerHTML = '<option value="">Select a topic</option>';
+        topics.forEach(topic => {
+            const option = document.createElement('option');
+            option.value = topic.name;
+            option.textContent = topic.name;
+            if (urlTopic && topic.name === urlTopic) {
+                option.selected = true;
+            }
+            topicSelect.appendChild(option);
+        });
+
+        // Trigger change event if topic was set
+        if (urlTopic) {
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+    } catch (error) {
+        console.error('Error loading topics:', error);
+    }
+}
+
+function initializeResearchPage() {
+    // Add event listeners
+    const form = document.getElementById('researchForm');
+    if (form) {
+        form.addEventListener('submit', handleFormSubmit);
+    }
+
+    // Get topic from URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const topicFromUrl = urlParams.get('topic');
+    
+    if (topicFromUrl) {
+        // Wait for topics to load before setting the value
+        loadTopics().then(() => {
+            const topicSelect = document.getElementById('topicSelect');
+            if (topicSelect) {
+                topicSelect.value = topicFromUrl;
+                // Only populate dropdowns after topic is set
+                populateDropdowns();
+            }
+        });
+    } else {
+        // If no topic in URL, just set up the dropdowns normally
+        populateDropdowns();
+    }
+
+    setupCustomFields();
+
+    const topicSelect = document.getElementById('topicSelect');
+    topicSelect.addEventListener('change', handleTopicChange);
+}
+
+function handleTopicChange(event) {
+    const topicName = event.target.value;
+    console.log('Topic changed to:', topicName);
+    if (topicName) {
+        document.getElementById('researchContent').style.display = 'block';
+        fetchLatestArticles(topicName);
+        refreshDropdownsForTopic(topicName);
+    } else {
+        document.getElementById('researchContent').style.display = 'none';
+    }
+}
+
+async function refreshDropdownsForTopic(topicName) {
+    try {
+        console.log('Refreshing dropdowns for topic:', topicName);
+        if (!topicName) {
+            console.warn('No topic name provided to refreshDropdownsForTopic');
+            return;
+        }
+
+        // Add topic parameter to the API calls
+        const responses = await Promise.all([
+            fetch(`/api/categories?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/future_signals?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/sentiments?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/time_to_impact?topic=${encodeURIComponent(topicName)}`),
+            fetch(`/api/driver_types?topic=${encodeURIComponent(topicName)}`)
+        ]);
+
+        // Check if any response is not ok
+        for (let i = 0; i < responses.length; i++) {
+            if (!responses[i].ok) {
+                console.error(`Error fetching data for endpoint ${i}:`, responses[i].statusText);
+                continue;
+            }
+        }
+
+        const [categories, futureSignals, sentiments, timeToImpact, driverTypes] = await Promise.all(
+            responses.map(response => response.json())
+        );
+
+        console.log('Received updated values for topic:', topicName);
+        console.log('Categories:', categories);
+        console.log('Future Signals:', futureSignals);
+        console.log('Sentiments:', sentiments);
+        console.log('Time to Impact:', timeToImpact);
+        console.log('Driver Types:', driverTypes);
+
+        // Update each dropdown with new values
+        updateDropdownOptions('analysisCategory', categories);
+        updateDropdownOptions('analysisFutureSignal', futureSignals);
+        updateDropdownOptions('analysisSentiment', sentiments);
+        updateDropdownOptions('analysisTimeToImpact', timeToImpact);
+        updateDropdownOptions('analysisDriverType', driverTypes);
+    } catch (error) {
+        console.error('Error refreshing dropdowns:', error);
+    }
+}
+
+function updateDropdownOptions(dropdownId, options) {
+    const dropdown = document.getElementById(dropdownId);
+    if (dropdown) {
+        dropdown.innerHTML = '';
+        if (!Array.isArray(options) || options.length === 0) {
+            console.warn(`No options received for ${dropdownId}`);
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = 'No options available';
+            dropdown.appendChild(defaultOption);
+            return;
+        }
+        
+        options.forEach(option => {
+            if (option) {  // Only add non-null/undefined options
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                dropdown.appendChild(optionElement);
+            }
+        });
+    } else {
+        console.error(`Dropdown element not found: ${dropdownId}`);
+    }
+}
+
+function populateDropdowns() {
+    const currentTopic = document.getElementById('topicSelect').value;
+    if (currentTopic) {
+        console.log('Populating dropdowns for topic:', currentTopic);
+        refreshDropdownsForTopic(currentTopic);
+    } else {
+        console.warn('No topic selected for populateDropdowns');
+    }
+}
+
+function setupCustomFields() {
+    handleNewOption('analysisCategory', 'newCategory');
+    handleNewOption('analysisFutureSignal', 'newFutureSignal');
+    handleNewOption('analysisSentiment', 'newSentiment');
+    handleNewOption('analysisTimeToImpact', 'newTimeToImpact');
+}
+
+function populateDropdown(dropdownId, apiUrl) {
+    fetch(apiUrl)
+        .then(response => response.json())
+        .then(data => {
+            const dropdown = document.getElementById(dropdownId);
+            dropdown.innerHTML = '';  // Clear existing options
+            
+            data.forEach(option => {
+                const optionElement = document.createElement('option');
+                optionElement.value = option;
+                optionElement.textContent = option;
+                dropdown.appendChild(optionElement);
+            });
+        })
+        .catch(error => console.error('Error populating dropdown:', error));
+}
+
+function handleNewOption(selectId, newInputId) {
+    const select = document.getElementById(selectId);
+    const newInput = document.getElementById(newInputId);
+    if (select && newInput) {
+        select.addEventListener('change', function() {
+            if (this.value === 'New' || this.value === 'Other') {
+                newInput.style.display = 'block';
+            } else {
+                newInput.style.display = 'none';
+            }
+        });
+    }
+}
+
+function saveArticle() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlTopic = urlParams.get('topic');
+    const selectedTopic = document.getElementById('topicSelect').value;
+    const topic = urlTopic || selectedTopic;
+
+    if (!topic) {
+        alert('Please select a topic before saving the article');
+        document.getElementById('topicSelect').focus();
+        return;
+    }
+
+    // Get and validate submission date
+    const submissionDate = document.getElementById('analysisSubmissionDate').value;
+    if (!submissionDate) {
+        setDefaultSubmissionDate();
+    }
+
+    // Handle tags - convert to array of strings
+    const tagsString = document.getElementById('analysisTags').value;
+    const tags = tagsString ? tagsString.split(',').map(tag => tag.trim()).filter(tag => tag) : [];
+    
+    const articleData = {
+        title: document.getElementById('analysisTitle').value.trim(),
+        news_source: document.getElementById('analysisSource').value.trim(),
+        uri: document.getElementById('analysisUrl').value.trim(),
+        publication_date: document.getElementById('analysisPublicationDate').value,
+        summary: document.getElementById('analysisSummary').value.trim(),
+        category: document.getElementById('analysisCategory').value,
+        future_signal: document.getElementById('analysisFutureSignal').value,
+        future_signal_explanation: document.getElementById('analysisFutureSignalExplanation').value.trim(),
+        sentiment: document.getElementById('analysisSentiment').value,
+        sentiment_explanation: document.getElementById('analysisSentimentExplanation').value.trim(),
+        time_to_impact: document.getElementById('analysisTimeToImpact').value,
+        time_to_impact_explanation: document.getElementById('analysisTimeToImpactExplanation').value.trim(),
+        tags: tags, // Send as array
+        driver_type: document.getElementById('analysisDriverType').value,
+        driver_type_explanation: document.getElementById('analysisDriverTypeExplanation').value.trim(),
+        submission_date: document.getElementById('analysisSubmissionDate').value,
+        topic: topic
+    };
+
+    // Validate required fields
+    const requiredFields = ['title', 'uri', 'summary', 'topic'];
+    const missingFields = requiredFields.filter(field => !articleData[field]);
+    
+    if (missingFields.length > 0) {
+        alert(`Please fill in required fields: ${missingFields.join(', ')}`);
+        return;
+    }
+
+    console.log('Sending article data:', articleData);
+
+    fetch('/api/save_article', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(articleData),
+    })
+    .then(async response => {
+        const responseData = await response.json();
+        
+        if (!response.ok) {
+            console.error('Server error:', responseData);
+            if (responseData.detail && Array.isArray(responseData.detail)) {
+                throw new Error(responseData.detail[0]); // Get first error message
+            } else if (responseData.detail) {
+                throw new Error(responseData.detail);
+            } else {
+                throw new Error('Failed to save article');
+            }
+        }
+        toggleAnnotationControls(true);
+        return responseData;
+    })
+    .then(data => {
+        console.log('Success:', data);
+        alert('Article saved successfully!');
+        fetchLatestArticles(topic);
+    })
+    .catch((error) => {
+        console.error('Error:', error);
+        alert(`Error saving article: ${error.message}`);
+    });
+}
+
+function clearForm() {
+    const inputs = document.querySelectorAll('#analysisResult input, #analysisResult textarea, #analysisResult select, #researchForm textarea, #researchForm input');
+    inputs.forEach(input => {
+        input.value = '';
+    });
+    document.getElementById('analysisResult').style.display = 'none';
+}
+
+// Update the displayAnalysisResult function
+async function displayAnalysisResult(result) {
+    const analysisResultsDiv = document.getElementById('analysisResult');
+    if (!analysisResultsDiv) {
+        console.error('Analysis Result div not found');
+        return;
+    }
+
+    // First ensure we have the right topic and refresh dropdowns
+    if (result.topic) {
+        const topicSelect = document.getElementById('topicSelect');
+        if (topicSelect.value !== result.topic) {
+            topicSelect.value = result.topic;
+            // Wait for dropdowns to be refreshed with topic-specific options
+            await refreshDropdownsForTopic(result.topic);
+        }
+    }
+
+    // Now set all the values
+    document.getElementById('analysisTitle').value = result.title || '';
+    document.getElementById('analysisSource').value = result.news_source || '';
+    document.getElementById('analysisUrl').value = result.uri || '';
+    document.getElementById('analysisSummary').value = result.summary || '';
+    updateSummaryWordCount();
+    document.getElementById('analysisSentiment').value = result.sentiment || '';
+    document.getElementById('analysisSentimentExplanation').value = result.sentiment_explanation || '';
+    document.getElementById('analysisTimeToImpact').value = result.time_to_impact || '';
+    document.getElementById('analysisTimeToImpactExplanation').value = result.time_to_impact_explanation || '';
+    document.getElementById('analysisCategory').value = result.category || '';
+    document.getElementById('analysisFutureSignal').value = result.future_signal || '';
+    document.getElementById('analysisFutureSignalExplanation').value = result.future_signal_explanation || '';
+    document.getElementById('analysisDriverType').value = result.driver_type || '';
+    document.getElementById('analysisDriverTypeExplanation').value = result.driver_type_explanation || '';
+    document.getElementById('analysisPublicationDate').value = result.publication_date || '';
+    
+    // Set submission_date to current date and time by default
+    const now = new Date();
+    const formattedNow = now.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:mm
+    document.getElementById('analysisSubmissionDate').value = formattedNow;
+    
+    // If result has a submission_date, use it instead
+    if (result.submission_date) {
+        const submissionDate = new Date(result.submission_date);
+        const formattedDate = submissionDate.toISOString().slice(0, 16);
+        document.getElementById('analysisSubmissionDate').value = formattedDate;
+    }
+    
+    document.getElementById('analysisTags').value = result.tags ? result.tags.join(', ') : '';
+    
+    // Disable annotations if this is a new article (no uri in database)
+    toggleAnnotationControls(false);
+    if (result.uri) {
+        fetch(`/api/article?uri=${encodeURIComponent(result.uri)}`)
+            .then(response => {
+                toggleAnnotationControls(response.ok);
+            })
+            .catch(() => toggleAnnotationControls(false));
+    }
+    
+    analysisResultsDiv.style.display = 'block';
+}
+
+function toggleExpand(elementId) {
+    const element = document.getElementById(elementId);
+    element.classList.toggle('expanded');
+    const btn = element.nextElementSibling;
+    btn.textContent = element.classList.contains('expanded') ? 'Show less' : 'Show more';
+}
+
+function escapeHTML(str) {
+    if (str === undefined || str === null) {
+        return '';
+    }
+    return str.toString().replace(/[&<>'"]/g, 
+        tag => ({
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            "'": '&#39;',
+            '"': '&quot;'
+        }[tag] || tag)
+    );
+}
+
+async function fetchLatestArticles(topicName) {
+    console.log(`Fetching latest articles for topic: ${topicName} with limit: 10`);
+    try {
+        const response = await fetch(`/api/latest_articles?topic_name=${encodeURIComponent(topicName)}&limit=10`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const articles = await response.json();
+        console.log(`Received ${articles.length} articles from API`);
+        if (Array.isArray(articles) && articles.length > 0) {
+            displayLatestArticles(articles);
+        } else {
+            console.log('No articles found or invalid response format');
+            document.getElementById('latestArticles').innerHTML = '<p>No recent articles found for this topic.</p>';
+        }
+    } catch (error) {
+        console.error('Error fetching latest articles:', error);
+        document.getElementById('latestArticles').innerHTML = 
+            '<p class="text-danger">Error loading recent articles. Please try again later.</p>';
+    }
+}
+
+function displayLatestArticles(articles) {
+    console.log(`Displaying ${articles.length} articles`);
+    const latestArticlesContainer = document.getElementById('latestArticles');
+    if (!latestArticlesContainer) {
+        console.error('Latest articles container not found');
+        return;
+    }
+
+    latestArticlesContainer.innerHTML = '';
+
+    if (!articles || articles.length === 0) {
+        console.log('No articles to display');
+        latestArticlesContainer.innerHTML = '<p>No recent articles found for this topic.</p>';
+        return;
+    }
+
+    // Filter out placeholder articles and articles with incomplete data
+    const validArticles = articles.filter(article => {
+        // Check if article has a real title (not "Placeholder" or empty)
+        const hasValidTitle = article.title && 
+                             article.title.trim() !== '' && 
+                             article.title.toLowerCase() !== 'placeholder';
+        
+        // Check if article has a valid URI
+        const hasValidUri = article.uri && article.uri.trim() !== '';
+        
+        // Check if article has a summary
+        const hasSummary = article.summary && article.summary.trim() !== 'No summary available';
+        
+        return hasValidTitle && hasValidUri && hasSummary;
+    });
+
+    if (validArticles.length === 0) {
+        console.log('No valid articles to display after filtering');
+        latestArticlesContainer.innerHTML = '<p>No valid articles found for this topic.</p>';
+        return;
+    }
+
+    // Sort articles by submission date, most recent first
+    validArticles.sort((a, b) => new Date(b.submission_date) - new Date(a.submission_date));
+    console.log(`Sorted ${validArticles.length} valid articles by submission date`);
+    
+    validArticles.forEach(article => {
+        const articleElement = document.createElement('div');
+        articleElement.className = 'article-card';
+        articleElement.innerHTML = `
+            <div class="article-content">
+                <h5 class="card-title">${escapeHTML(article.title || 'No Title')}</h5>
+                <h6 class="card-subtitle mb-2 text-muted">Source: ${escapeHTML(article.news_source || 'Unknown')}</h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <p class="card-text"><strong>Publication Date:</strong> ${formatDate(article.publication_date)}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p class="card-text"><strong>Submission Date:</strong> ${formatDate(article.submission_date)}</p>
+                    </div>
+                </div>
+                <p class="card-text"><strong>Summary:</strong> ${escapeHTML(article.summary || 'No summary available')}</p>
+            </div>
+            <div class="article-actions">
+                <button onclick="editArticle('${escapeHTML(article.uri)}')">Edit</button>
+                <button onclick="deleteArticle('${escapeHTML(article.uri)}')">Delete</button>
+            </div>
+        `;
+        latestArticlesContainer.appendChild(articleElement);
+    });
+}
+
+async function deleteArticle(uri) {
+    if (confirm('Are you sure you want to delete this article?')) {
+        try {
+            const response = await fetch(`/api/article?uri=${encodeURIComponent(uri)}`, { method: 'DELETE' });
+            if (!response.ok) {
+                throw new Error('Failed to delete article');
+            }
+            const result = await response.json();
+            console.log('Delete result:', result);
+            alert('Article deleted successfully');
+            
+            // Get the current topic before refreshing
+            const urlParams = new URLSearchParams(window.location.search);
+            const currentTopic = urlParams.get('topic') || document.getElementById('topicSelect').value;
+            
+            // Reload the articles list with the current topic
+            await fetchLatestArticles(currentTopic);
+        } catch (error) {
+            console.error('Error deleting article:', error);
+            alert('Error deleting article');
+        }
+    }
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'Unknown';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    const options = { year: 'numeric', month: 'long', day: 'numeric' };
+    return date.toLocaleDateString(undefined, options);
+}
+
+// Add event listener for summary length dropdown
+const summaryLengthSelect = document.getElementById('summaryLength');
+const customSummaryLengthField = document.getElementById('customSummaryLengthField');
+
+summaryLengthSelect.addEventListener('change', function() {
+    if (this.value === 'custom') {
+        customSummaryLengthField.style.display = 'block';
+    } else {
+        customSummaryLengthField.style.display = 'none';
+    }
+});
+
+function countWords(str) {
+    return str.trim().split(/\s+/).length;
+}
+
+function updateSummaryWordCount() {
+    const summary = document.getElementById('analysisSummary').value;
+    const wordCount = countWords(summary);
+    document.getElementById('summaryWordCount').textContent = `(${wordCount} words)`;
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Add event listener for summary textarea
+    const summaryTextarea = document.getElementById('analysisSummary');
+    summaryTextarea.addEventListener('input', updateSummaryWordCount);
+});
+
+// Add this function to set the current date and time when the form is loaded
+function setDefaultSubmissionDate() {
+    const now = new Date();
+    const formattedNow = now.toISOString().slice(0, 16); // Format: YYYY-MM-DDTHH:mm
+    document.getElementById('analysisSubmissionDate').value = formattedNow;
+}
+
+// Add this function to load available models
+function loadAvailableModels() {
+    fetch('/api/available_models')
+        .then(response => response.json())
+        .then(models => {
+            const modelSelect = document.getElementById('modelName');
+            const submitButton = document.querySelector('#researchForm button[type="submit"]');
+            
+            modelSelect.innerHTML = '';
+            if (models.length === 0) {
+                const option = document.createElement('option');
+                option.value = "";
+                option.textContent = "No models available";
+                option.selected = true;
+                modelSelect.appendChild(option);
+                modelSelect.disabled = true;
+                
+                // Disable the submit button when no models are available
+                if (submitButton) {
+                    submitButton.disabled = true;
+                    submitButton.title = "Analysis unavailable - no AI models configured";
+                }
+            } else {
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = `${model.name} (${model.provider})`;
+                    modelSelect.appendChild(option);
+                });
+                modelSelect.disabled = false;
+                
+                // Enable the submit button when models are available
+                if (submitButton) {
+                    submitButton.disabled = false;
+                    submitButton.title = "";
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error loading available models:', error);
+            const modelSelect = document.getElementById('modelName');
+            const submitButton = document.querySelector('#researchForm button[type="submit"]');
+            
+            modelSelect.innerHTML = '<option value="">Error loading models. Analysis will be skipped.</option>';
+            modelSelect.disabled = true;
+            
+            // Disable the submit button on error
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.title = "Analysis unavailable - error loading models";
+            }
+        });
+}
+
+// Call this function when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadAvailableModels();
+    // ... (other existing DOMContentLoaded code)
+});
+
+// Call this function when the page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // ... (existing code)
+    setDefaultSubmissionDate();
+    
+    // Remove the following section
+    /*
+    // Fetch AI models
+    fetch('/api/ai_models')
+        .then(response => response.json())
+        .then(models => {
+            const modelSelect = document.getElementById('modelName');
+            modelSelect.innerHTML = '';
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = `${model.name} (${model.provider})`;
+                modelSelect.appendChild(option);
+            });
+        })
+        .catch(error => console.error('Error loading AI models:', error));
+    */
+});
+
+// Load topics when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadTopics();
+    // ... rest of your initialization code ...
+});
+
+async function loadAnnotations(articleUri) {
+    try {
+        // Double encode the URI to match FastAPI's handling
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`);
+        
+        if (!response.ok) {
+            throw new Error('Failed to load annotations');
+        }
+        
+        const annotations = await response.json();
+        const annotationsList = document.getElementById('annotationsList');
+        
+        annotationsList.innerHTML = annotations.map(annotation => `
+            <div class="card mb-2" data-annotation-id="${annotation.id}">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <small class="text-muted">
+                                ${annotation.author} - ${new Date(annotation.created_at).toLocaleString()}
+                            </small>
+                            ${annotation.is_private ? '<span class="badge bg-secondary ms-2">Private</span>' : ''}
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-sm btn-outline-primary" onclick="editAnnotation(${annotation.id})">
+                                Edit
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteAnnotation(${annotation.id})">
+                                Delete
+                            </button>
+                        </div>
+                    </div>
+                    <div class="annotation-content" data-raw-content="${encodeURIComponent(annotation.content)}">
+                        ${marked.parse(annotation.content)}
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    } catch (error) {
+        console.error('Error loading annotations:', error);
+        showAlert('Failed to load annotations: ' + error.message, 'danger');
+    }
+}
+
+async function saveAnnotation() {
+    const content = document.getElementById('newAnnotation').value.trim();
+    const isPrivate = document.getElementById('annotationPrivate').checked;
+    const articleUri = document.getElementById('analysisUrl').value;
+    
+    if (!content) {
+        showAlert('Please enter annotation content', 'warning');
+        return;
+    }
+    
+    try {
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to save annotation');
+        }
+        
+        // Clear the form
+        document.getElementById('newAnnotation').value = '';
+        document.getElementById('annotationPrivate').checked = false;
+        
+        // Reload annotations
+        await loadAnnotations(articleUri);
+        showAlert('Annotation saved successfully', 'success');
+    } catch (error) {
+        console.error('Error saving annotation:', error);
+        showAlert('Failed to save annotation: ' + error.message, 'danger');
+    }
+}
+
+async function editAnnotation(annotationId) {
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        const contentDiv = annotationCard.querySelector('.annotation-content');
+        const currentContent = contentDiv.getAttribute('data-raw-content');
+        const isPrivate = annotationCard.querySelector('.badge.bg-secondary') !== null;
+        
+        const originalHtml = annotationCard.innerHTML;
+        annotationCard.innerHTML = `
+            <div class="card-body">
+                <textarea class="form-control mb-2" rows="3">${decodeURIComponent(currentContent)}</textarea>
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="editPrivate_${annotationId}" ${isPrivate ? 'checked' : ''}>
+                    <label class="form-check-label" for="editPrivate_${annotationId}">
+                        Private note
+                    </label>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-sm btn-primary" onclick="saveEditedAnnotation(${annotationId}, '${originalHtml}')">
+                        Save
+                    </button>
+                    <button class="btn btn-sm btn-secondary" onclick="cancelEdit(${annotationId}, '${originalHtml}')">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+    } catch (error) {
+        console.error('Error setting up annotation edit:', error);
+        showAlert('Failed to set up annotation edit', 'danger');
+    }
+}
+
+async function saveEditedAnnotation(annotationId, originalHtml) {
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+        const content = annotationCard.querySelector('textarea').value;
+        const isPrivate = annotationCard.querySelector('input[type="checkbox"]').checked;
+
+        const response = await fetch(`/api/articles/${encodeURIComponent(articleUri)}/annotations/${annotationId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to update annotation');
+
+        await loadAnnotations(articleUri);
+        showAlert('Annotation updated successfully', 'success');
+    } catch (error) {
+        console.error('Error saving annotation edit:', error);
+        showAlert('Failed to save annotation edit', 'danger');
+        annotationCard.innerHTML = originalHtml;
+    }
+}
+
+function cancelEdit(annotationId, originalHtml) {
+    const annotationCard = document.querySelector(`[data-annotation-id="${annotationId}"]`);
+    annotationCard.innerHTML = originalHtml;
+}
+
+async function deleteAnnotation(annotationId) {
+    if (!confirm('Are you sure you want to delete this annotation?')) {
+        return;
+    }
+
+    try {
+        const articleUri = document.getElementById('analysisUrl').value;
+        const response = await fetch(
+            `/api/articles/${encodeURIComponent(articleUri)}/annotations/${annotationId}`, 
+            { method: 'DELETE' }
+        );
+
+        if (!response.ok) throw new Error('Failed to delete annotation');
+
+        await loadAnnotations(articleUri);
+        showAlert('Annotation deleted successfully', 'success');
+    } catch (error) {
+        console.error('Error deleting annotation:', error);
+        showAlert('Failed to delete annotation', 'danger');
+    }
+}
+
+function showAlert(message, type = 'info') {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    alertDiv.style.top = '20px';
+    alertDiv.style.right = '20px';
+    alertDiv.style.zIndex = '9999';
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    document.body.appendChild(alertDiv);
+
+    setTimeout(() => {
+        alertDiv.remove();
+    }, 5000);
+}
+
+// Add this function to manage annotation controls
+function toggleAnnotationControls(enabled) {
+    const newAnnotation = document.getElementById('newAnnotation');
+    const annotationPrivate = document.getElementById('annotationPrivate');
+    const addAnnotationButton = document.querySelector('.btn[onclick="saveAnnotation()"]');
+    
+    [newAnnotation, annotationPrivate, addAnnotationButton].forEach(element => {
+        if (element) {
+            element.disabled = !enabled;
+        }
+    });
+    
+    // Add a message when disabled
+    const messageDiv = document.getElementById('annotationDisabledMessage');
+    if (!messageDiv && !enabled) {
+        const message = document.createElement('div');
+        message.id = 'annotationDisabledMessage';
+        message.className = 'alert alert-info mt-2';
+        message.textContent = 'Save the article to enable annotations';
+        document.querySelector('.card-body').appendChild(message);
+    } else if (messageDiv && enabled) {
+        messageDiv.remove();
+    }
+}
+</script>
+{% endblock %}
+
