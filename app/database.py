@@ -1,3 +1,4 @@
+# flake8: noqa
 import sqlite3
 import os
 import json
@@ -169,7 +170,8 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     completed_at TIMESTAMP,
                     error TEXT,
-                    transcript TEXT
+                    transcript TEXT,
+                    metadata TEXT
                 )
             """)
             
@@ -198,7 +200,8 @@ class Database:
                 migrations = [
                     ("ensure_users_table_schema", self._ensure_users_table_schema),
                     ("ensure_podcasts_table_schema", self._ensure_podcasts_table_schema),
-                    ("ensure_settings_podcasts_table", self._ensure_settings_podcasts_table)
+                    ("ensure_settings_podcasts_table", self._ensure_settings_podcasts_table),
+                    ("add_metadata_column_to_podcasts", self._add_metadata_column_to_podcasts)
                 ]
                 
                 # Apply missing migrations
@@ -283,24 +286,16 @@ class Database:
             
             required_columns = {
                 'id', 'title', 'status', 'audio_url', 'created_at', 
-                'completed_at', 'error', 'transcript'
+                'completed_at', 'error', 'transcript', 'metadata'
             }
             
-            if not required_columns.issubset(columns):
-                # Recreate table with correct schema
-                cursor.execute("DROP TABLE IF EXISTS podcasts")
-                cursor.execute("""
-                    CREATE TABLE podcasts (
-                        id TEXT PRIMARY KEY,
-                        title TEXT,
-                        status TEXT DEFAULT 'processing',
-                        audio_url TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        completed_at TIMESTAMP,
-                        error TEXT,
-                        transcript TEXT
-                    )
-                """)
+            missing = required_columns - columns
+            for col in missing:
+                logger.info(f"Adding missing column '{col}' to podcasts table")
+                col_def = "TEXT"
+                if col in {"created_at", "completed_at"}:
+                    col_def = "TIMESTAMP"
+                cursor.execute(f"ALTER TABLE podcasts ADD COLUMN {col} {col_def}")
         else:
             # Create podcasts table if it doesn't exist
             cursor.execute("""
@@ -312,7 +307,8 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     completed_at TIMESTAMP,
                     error TEXT,
-                    transcript TEXT
+                    transcript TEXT,
+                    metadata TEXT
                 )
             """)
 
@@ -324,6 +320,34 @@ class Database:
                 value TEXT
             )
         """)
+
+    def _add_metadata_column_to_podcasts(self, cursor):
+        """Add metadata column to podcasts table."""
+        # Check if podcasts table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='podcasts'")
+        if cursor.fetchone():
+            # Check if metadata column exists
+            cursor.execute("PRAGMA table_info(podcasts)")
+            columns = {row[1] for row in cursor.fetchall()}
+            
+            if 'metadata' not in columns:
+                logger.info("Adding metadata column to podcasts table")
+                cursor.execute("ALTER TABLE podcasts ADD COLUMN metadata TEXT")
+        else:
+            # Create podcasts table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE podcasts (
+                    id TEXT PRIMARY KEY,
+                    title TEXT,
+                    status TEXT DEFAULT 'processing',
+                    audio_url TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP,
+                    error TEXT,
+                    transcript TEXT,
+                    metadata TEXT
+                )
+            """)
 
     # ------------------------------------------------------------------
     # Podcast settings helpers

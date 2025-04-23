@@ -209,25 +209,25 @@
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="ttsMode" class="form-label" data-bs-toggle="tooltip" title="Conversation uses host + guest. Bulletin uses only the host voice">Podcast Mode</label>
-                                    <select class="form-control" id="ttsMode" onchange="toggleTTSGuestVoice()">
-                                        <option value="conversation" selected>Conversation</option>
-                                        <option value="bulletin">Bulletin</option>
-                                    </select>
-                                </div>
-
-                                <div class="mb-3">
-                                    <label for="ttsDuration" class="form-label" data-bs-toggle="tooltip" title="Short: 1‑2 min, Medium: 3‑5 min, Long: >5 min">Duration</label>
-                                    <select class="form-control" id="ttsDuration">
-                                        <option value="short">Short</option>
-                                        <option value="medium" selected>Medium</option>
-                                        <option value="long">Long</option>
-                                    </select>
-                                </div>
-
-                                <div class="mb-3">
                                     <label for="ttsHostVoice" class="form-label">Host Voice</label>
                                     <select class="form-control" id="ttsHostVoice"></select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="guestName" class="form-label">Guest Name</label>
+                                    <input type="text" class="form-control" id="guestName" required placeholder="Enter the guest's name" value="Auspex">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="guestTitle" class="form-label">Guest Title</label>
+                                    <select class="form-control mb-2" id="guestTitle" onchange="toggleCustomTitle()">
+                                        <option value="chief_futurist">Chief Futurist at Aunoo</option>
+                                        <option value="special_correspondent">Special Correspondent</option>
+                                        <option value="industry_expert">Industry Expert</option>
+                                        <option value="research_analyst">Research Analyst</option>
+                                        <option value="custom">Custom…</option>
+                                    </select>
+                                    <input type="text" class="form-control" id="guestTitleCustom" placeholder="Enter custom guest title" style="display:none;">
                                 </div>
 
                                 <div class="mb-3" id="ttsGuestVoiceSection">
@@ -245,18 +245,20 @@
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="guestTitle" class="form-label">Guest Title</label>
-                                    <select class="form-control" id="guestTitle">
-                                        <option value="chief_futurist">Chief Futurist at Aunoo</option>
-                                        <option value="special_correspondent">Special Correspondent</option>
-                                        <option value="industry_expert">Industry Expert</option>
-                                        <option value="research_analyst">Research Analyst</option>
+                                    <label for="ttsMode" class="form-label" data-bs-toggle="tooltip" title="Conversation uses host + guest. Bulletin uses only the host voice">Podcast Mode</label>
+                                    <select class="form-control" id="ttsMode" onchange="toggleTTSGuestVoice()">
+                                        <option value="conversation" selected>Conversation</option>
+                                        <option value="bulletin">Bulletin</option>
                                     </select>
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="guestName" class="form-label">Guest Name</label>
-                                    <input type="text" class="form-control" id="guestName" required placeholder="Enter the guest's name" value="Auspex">
+                                    <label for="ttsDuration" class="form-label" data-bs-toggle="tooltip" title="Short: ~2 min, Medium: ~4 min, Long: ~7+ min">Duration</label>
+                                    <select class="form-control" id="ttsDuration">
+                                        <option value="short">Short (~2 min)</option>
+                                        <option value="medium" selected>Medium (~4 min)</option>
+                                        <option value="long">Long (~7+ min)</option>
+                                    </select>
                                 </div>
 
                             </div>
@@ -265,10 +267,7 @@
                                 <div class="mb-3">
                                     <label class="form-label">Script Template <i class="fas fa-info-circle ms-1" data-bs-toggle="tooltip" title="Available placeholders: {podcast_name}, {episode_title}, {guest_name}, {guest_title}, {articles_discussion}"></i></label>
                                     <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <select class="form-control me-2" id="scriptTemplate">
-                                            <option value="default">Default Template</option>
-                                            <option value="custom">Custom Template</option>
-                                        </select>
+                                        <select class="form-control me-2" id="scriptTemplate"></select>
                                         <button type="button" class="btn btn-secondary" id="editTemplate">
                                             Edit Template
                                         </button>
@@ -291,7 +290,10 @@
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary">Generate TTS Podcast</button>
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="submit" class="btn btn-primary">Generate TTS Podcast</button>
+                            <button type="button" class="btn btn-outline-secondary" id="saveDefaultsBtn" data-bs-toggle="tooltip" title="Save current selections as defaults for this mode">Save Defaults</button>
+                        </div>
                     </form>
                 </div>
             </div>
@@ -491,6 +493,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             templateEditorModal.hide();
+            await loadTemplates();
             alert('Template saved successfully');
         } catch (error) {
             console.error('Error saving template:', error);
@@ -538,8 +541,14 @@ document.addEventListener('DOMContentLoaded', function() {
             // Pre‑select first voice as host, second as guest (if available)
             if (hostSel.options.length) hostSel.selectedIndex = 0;
             if (guestSel.options.length > 1) guestSel.selectedIndex = 1;
+
+            // Now that voices are loaded, load saved defaults
+            loadDefaults();
         })
         .catch(err => console.error('Error loading voices', err));
+
+    // Reload defaults when mode changes
+    document.getElementById('ttsMode').addEventListener('change', loadDefaults);
 
     // Load past podcasts immediately
     loadPastPodcasts();
@@ -549,6 +558,23 @@ document.addEventListener('DOMContentLoaded', function() {
     tooltipTriggerList.forEach(function (tooltipTriggerEl) {
         new bootstrap.Tooltip(tooltipTriggerEl);
     });
+
+    // Load templates list
+    async function loadTemplates() {
+        try {
+            const res = await fetch('/api/podcast_templates');
+            if (!res.ok) throw new Error('Failed template list');
+            const templates = await res.json();
+            const sel = document.getElementById('scriptTemplate');
+            sel.innerHTML = '';
+            templates.forEach(t => {
+                const opt = new Option(t.name, t.name, false, t.name === 'default');
+                sel.appendChild(opt);
+            });
+        } catch (err) { console.error('Error loading templates', err); }
+    }
+
+    loadTemplates();
 });
 
 function initializeDropdowns() {
@@ -1022,13 +1048,23 @@ async function loadPastPodcasts() {
         podcasts.forEach(podcast => {
             const item = document.createElement('div');
             item.className = 'list-group-item';
+            const created = new Date(podcast.created_at).toLocaleString();
+            const completed = podcast.completed_at ? new Date(podcast.completed_at).toLocaleString() : '—';
+            const meta = podcast.metadata || {};
+            const metaBadges = [];
+            if (meta.duration) metaBadges.push(`<span class='badge bg-info me-1'>${meta.duration} min</span>`);
+            if (meta.guest) metaBadges.push(`<span class='badge bg-secondary me-1'>Guest: ${meta.guest}</span>`);
+            if (meta.topic) metaBadges.push(`<span class='badge bg-dark'>${meta.topic}</span>`);
             item.innerHTML = `
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
+                <div class="d-flex justify-content-between align-items-start flex-wrap">
+                    <div class="me-2">
                         <h6 class="mb-1">${podcast.title}</h6>
-                        <p class="mb-1 text-muted">Created: ${new Date(podcast.created_at).toLocaleString()}</p>
+                        <small class="text-muted">Created: ${created}</small><br>
+                        <small class="text-muted">Completed: ${completed}</small><br>
+                        <span class="badge bg-${podcast.status === 'completed' ? 'success' : (podcast.status === 'error' ? 'danger' : 'warning')} text-uppercase">${podcast.status}</span>
+                        ${metaBadges.join(' ')}
                     </div>
-                    <div class="btn-group">
+                    <div class="btn-group mt-2 mt-md-0">
                         <button class="btn btn-sm btn-primary play-btn">
                             <i class="fas fa-play"></i> Play
                         </button>
@@ -1037,6 +1073,9 @@ async function loadPastPodcasts() {
                         </button>
                         <button class="btn btn-sm btn-success download-btn">
                             <i class="fas fa-download"></i> Download
+                        </button>
+                        <button class="btn btn-sm btn-danger delete-btn">
+                            <i class="fas fa-trash"></i>
                         </button>
                     </div>
                 </div>
@@ -1051,6 +1090,9 @@ async function loadPastPodcasts() {
             
             const downloadBtn = item.querySelector('.download-btn');
             downloadBtn.addEventListener('click', () => downloadPodcast(podcast.audio_url));
+            
+            const deleteBtn = item.querySelector('.delete-btn');
+            deleteBtn.addEventListener('click', () => deletePodcast(podcast.podcast_id));
             
             pastPodcastsContainer.appendChild(item);
         });
@@ -1105,13 +1147,35 @@ function downloadPodcast(audioUrl) {
     }
 }
 
+function deletePodcast(podcastId) {
+    if (confirm('Are you sure you want to delete this podcast?')) {
+        fetch(`/api/podcast/${podcastId}`, {
+            method: 'DELETE'
+        })
+        .then(response => {
+            if (response.ok) {
+                alert('Podcast deleted successfully');
+                loadPastPodcasts();
+            } else {
+                console.error('Error deleting podcast');
+                alert('Error deleting podcast. Please try again.');
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting podcast:', error);
+            alert('Error deleting podcast. Please try again.');
+        });
+    }
+}
+
 // Handle script generation
 document.getElementById('generateScript').addEventListener('click', async () => {
     const podcastName = document.getElementById('podcastName').value;
     const episodeTitle = document.getElementById('episodeTitle').value;
     const model = document.getElementById('llmModel').value;
     const mode = document.getElementById('ttsMode').value;
-    const guestTitle = document.getElementById('guestTitle').value;
+    let guestTitle = document.getElementById('guestTitle').value;
+    if (guestTitle === 'custom') guestTitle = document.getElementById('guestTitleCustom').value;
     const guestName = document.getElementById('guestName').value;
     const hostName = document.getElementById('hostName').value;
     const duration = document.getElementById('ttsDuration').value;
@@ -1197,7 +1261,7 @@ document.getElementById('ttsForm').addEventListener('submit', async (e) => {
         mode: document.getElementById('ttsMode').value,
         host_voice_id: document.getElementById('ttsHostVoice').value,
         guest_voice_id: document.getElementById('ttsMode').value === 'conversation' ? document.getElementById('ttsGuestVoice').value : null,
-        guest_title: document.getElementById('guestTitle').value,
+        guest_title: (() => { const val=document.getElementById('guestTitle').value; return val==='custom'?document.getElementById('guestTitleCustom').value:val; })(),
         guest_name: guestName,
         model_id: "eleven_multilingual_v2",
         output_format: "mp3_44100_128",
@@ -1207,7 +1271,10 @@ document.getElementById('ttsForm').addEventListener('submit', async (e) => {
             style: 0.0,
             use_speaker_boost: true,
             speed: 1.0
-        }
+        },
+        model: document.getElementById('llmModel').value,
+        podcast_name: document.getElementById('podcastName').value,
+        episode_title: document.getElementById('episodeTitle').value
     };
 
     try {
@@ -1254,6 +1321,55 @@ function toggleTTSGuestVoice() {
     const guestNameField = document.getElementById('guestName').parentElement;
     guestTitleField.style.display = mode === 'conversation' ? 'block' : 'none';
     guestNameField.style.display = mode === 'conversation' ? 'block' : 'none';
+}
+
+// Settings defaults helpers
+async function loadDefaults() {
+    const mode = document.getElementById('ttsMode').value;
+    try {
+        const res = await fetch(`/api/podcast_settings/${mode}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.host_voice_id) document.getElementById('ttsHostVoice').value = data.host_voice_id;
+        if (data.guest_voice_id) document.getElementById('ttsGuestVoice').value = data.guest_voice_id;
+        if (data.host_name) document.getElementById('hostName').value = data.host_name;
+        if (data.guest_name) document.getElementById('guestName').value = data.guest_name;
+        if (data.model) document.getElementById('llmModel').value = data.model;
+        if (data.podcast_name) document.getElementById('podcastName').value = data.podcast_name;
+        if (data.episode_title) document.getElementById('episodeTitle').value = data.episode_title;
+    } catch (err) { console.error('Error loading defaults', err); }
+}
+
+document.getElementById('saveDefaultsBtn').addEventListener('click', async () => {
+    const mode = document.getElementById('ttsMode').value;
+    const payload = {
+        settings: {
+            host_voice_id: document.getElementById('ttsHostVoice').value,
+            guest_voice_id: document.getElementById('ttsGuestVoice').value,
+            host_name: document.getElementById('hostName').value,
+            guest_name: document.getElementById('guestName').value,
+            model: document.getElementById('llmModel').value,
+            podcast_name: document.getElementById('podcastName').value,
+            episode_title: document.getElementById('episodeTitle').value
+        }
+    };
+    try {
+        await fetch(`/api/podcast_settings/${mode}`, {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(payload)
+        });
+        alert('Defaults saved');
+    } catch (err) { console.error('Error saving defaults', err); alert('Error saving defaults'); }
+});
+
+// load on page‑ready after voices/models fetched
+loadDefaults();
+
+function toggleCustomTitle() {
+    const sel = document.getElementById('guestTitle');
+    const customInput = document.getElementById('guestTitleCustom');
+    customInput.style.display = sel.value === 'custom' ? 'block' : 'none';
 }
 </script>
 

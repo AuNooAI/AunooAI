@@ -1,3 +1,4 @@
+# flake8: noqa
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, staticfiles, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from typing import List, Optional, Dict
@@ -19,14 +20,10 @@ import logging
 from pydub import AudioSegment
 import asyncio
 from app.ai_models import LiteLLMModel
-from ..utils.audio import combine_audio_files, save_audio_file, AUDIO_DIR, ensure_audio_directory
-from ..config import settings
+from app.utils.audio import combine_audio_files, save_audio_file, AUDIO_DIR, ensure_audio_directory
 import requests
-from sqlalchemy.orm import Session
-from ..models.article import Article
 import uuid
 import random
-import io
 from pathlib import Path
 import re
 
@@ -83,56 +80,133 @@ router = APIRouter(prefix="/api")  # Add /api prefix to all routes
 # Mount static directory for audio files
 router.mount("/static", staticfiles.StaticFiles(directory="static"), name="static")
 
-# Add template storage
-TEMPLATES = {
-    "default": {
-        "name": "Default Template",
-        "content": """
-[Host]: Welcome to our podcast! Today we'll be discussing some fascinating developments in {topic}.
+# ---------------------------------------------------------------------------
+# Template helpers & API
+# ---------------------------------------------------------------------------
 
-{articles_discussion}
+TEMPLATE_DIR = (
+    Path(__file__).resolve().parent.parent.parent / "data" / "prompts" / "script_templates"
+)
 
-[Host]: That wraps up our discussion for today. Thanks for listening!
-"""
+
+def _sanitize_template_name(name: str) -> str:
+    """Ensure only safe characters (letters, numbers, underscore) in name."""
+    return re.sub(r"[^0-9a-zA-Z_]+", "_", name).strip("_")
+
+
+def _template_path(name: str) -> Path:
+    sanitized = _sanitize_template_name(name)
+    return TEMPLATE_DIR / f"{sanitized}.json"
+
+
+def _load_template_file(path: Path) -> Dict[str, str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        # Support both {"template": "..."} and split system/user prompt formats
+        if "template" in data:
+            return {"name": path.stem, "content": data["template"]}
+        if "system_prompt" in data and "user_prompt" in data:
+            # Concatenate for editing convenience
+            system = data.get("system_prompt", "")
+            user = data.get("user_prompt", "")
+            return {
+                "name": path.stem,
+                "content": f"{system}\n\n{user}".strip(),
+            }
+    except Exception as exc:
+        logger.error("Failed to load template %s: %s", path, exc)
+    # Fallback: treat file as plain text
+    return {"name": path.stem, "content": path.read_text(encoding="utf-8")}
+
+
+def _save_template_file(name: str, content: str):
+    TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+    path = _template_path(name)
+    # Store under uniform structure so future parsing is easy
+    payload = {
+        "template": content,
+        "version": "1.0.0",
+        "updated_at": datetime.utcnow().isoformat() + "Z",
     }
-}
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
 
 class PodcastTemplate(BaseModel):
     name: str
     content: str
 
-@router.get("/podcast_templates/{template_name}")  # Changed from /templates to /podcast_templates
-async def get_podcast_template(template_name: str):
-    """Get a podcast script template by name.
 
-    The front‑end expects a JSON object with a `template` key holding
-    the template markdown itself. We therefore wrap the stored
-    template's `content` so the structure matches what the UI expects.
-    """
-    if template_name not in TEMPLATES:
+@router.get("/podcast_templates/{template_name}")
+async def get_podcast_template(template_name: str):
+    """Return template content by name from disk."""
+    path = _template_path(template_name)
+    if not path.exists():
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
 
-    template = TEMPLATES[template_name]
-    # Backwards compatible payload – both old (content) and new (template)
-    return {
-        "name": template_name,
-        "content": template["content"],
-        "template": template["content"],  # alias used by existing JS
-    }
+    tpl = _load_template_file(path)
+    return {"name": tpl["name"], "content": tpl["content"], "template": tpl["content"]}
 
-@router.post("/podcast_templates")  # Changed from /templates to /podcast_templates
+
+@router.post("/podcast_templates")
 async def save_podcast_template(template: PodcastTemplate):
-    """Save a podcast script template."""
-    TEMPLATES[template.name] = {
-        "name": template.name,
-        "content": template.content
-    }
-    return {"message": f"Template '{template.name}' saved successfully"}
+    """Create or update a template file on disk."""
+    try:
+        _save_template_file(template.name, template.content)
+        return {"message": f"Template '{template.name}' saved successfully"}
+    except Exception as exc:
+        logger.error("Error saving template %s: %s", template.name, exc)
+        raise HTTPException(status_code=500, detail=str(exc))
 
-@router.get("/podcast_templates")  # Changed from /templates to /podcast_templates
+
+@router.get("/podcast_templates")
 async def list_podcast_templates():
-    """List all available podcast templates."""
-    return list(TEMPLATES.values())
+    """List all template names and brief info."""
+    try:
+        TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
+        templates = []
+        for path in TEMPLATE_DIR.glob("*.json"):
+            tpl = _load_template_file(path)
+            templates.append(tpl)
+        # Ensure at least default exists
+        if not any(t["name"] == "default" for t in templates):
+            templates.append(
+                {
+                    "name": "default",
+                    "content": "[Host]: Welcome...\n\n{articles_discussion}\n\n[Host]: That wraps up...",
+                }
+            )
+        return templates
+    except Exception as exc:
+        logger.error("Failed listing templates: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to list templates")
+
+# ---------------------------------------------------------------------------
+# Podcast setting helpers & API
+# ---------------------------------------------------------------------------
+
+
+class PodcastSettingModel(BaseModel):
+    settings: Dict[str, str]
+
+
+def _settings_key(mode: str) -> str:
+    return f"defaults_{mode.lower()}"
+
+
+@router.get("/podcast_settings/{mode}")
+async def get_podcast_settings(mode: str, db: Database = Depends(get_database_instance)):
+    """Fetch saved default settings for a mode (conversation/bulletin)."""
+    key = _settings_key(mode)
+    raw = db.get_podcast_setting(key)
+    return json.loads(raw) if raw else {}
+
+
+@router.post("/podcast_settings/{mode}")
+async def save_podcast_settings(mode: str, payload: PodcastSettingModel, db: Database = Depends(get_database_instance)):
+    """Save default settings (upsert)."""
+    key = _settings_key(mode)
+    db.set_podcast_setting(key, json.dumps(payload.settings))
+    return {"message": "Settings saved"}
 
 class PodcastRequest(BaseModel):
     title: str
@@ -217,7 +291,11 @@ def load_prompt_template(mode: str, duration: str) -> str:
     if json_path.exists():
         try:
             data = json.loads(json_path.read_text(encoding="utf-8"))
-            return data.get("system_prompt", "")
+            if "template" in data:
+                return data["template"]
+            system = data.get("system_prompt", "")
+            user = data.get("user_prompt", "")
+            return f"{system}\n\n{user}".strip()
         except Exception as e:
             logger.error(f"Failed to parse prompt template {json_path}: {e}")
 
@@ -282,13 +360,17 @@ async def generate_podcast_script(
         # Prepare the system prompt from external template
         prompt_template = load_prompt_template(request.mode, request.duration)
 
-        system_prompt = prompt_template.format(
+        class _SafeDict(dict):
+            def __missing__(self, key):
+                return "{" + key + "}"
+
+        system_prompt = prompt_template.format_map(_SafeDict(
             podcast_name=request.podcast_name,
             episode_title=request.episode_title,
             host_name=(request.host_name or "Aunoo"),
             guest_title=(request.guest_title or "Guest"),
             guest_name=(request.guest_name or "Auspex"),
-        )
+        ))
         logger.info(f"Prepared system prompt: {system_prompt}")
         
         # Get the AI model
@@ -366,12 +448,13 @@ async def generate_tts_podcast(
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO podcasts (
-                    id, title, status, created_at, transcript
-                ) VALUES (?, ?, 'processing', CURRENT_TIMESTAMP, ?)
+                    id, title, status, created_at, transcript, metadata
+                ) VALUES (?, ?, 'processing', CURRENT_TIMESTAMP, ?, ?)
             """, (
                 podcast_id,
                 f"{podcast_name} - {episode_title}",
-                request.script
+                request.script,
+                json.dumps({})  # metadata
             ))
             conn.commit()
         
@@ -426,7 +509,10 @@ async def generate_tts_podcast(
                 # Extract the first bracket block – this always contains the speaker (and optional role)
                 first_close_idx = stripped.find(']')
                 header = stripped[1:first_close_idx]
-                speaker, role = (header.split(' - ') + [None])[:2] if ' - ' in header else (header, None)
+                # Split on various dash characters surrounded by optional spaces
+                parts = re.split(r"\s*[\-‑–—]\s*", header, maxsplit=1)
+                speaker = parts[0]
+                role = parts[1] if len(parts) > 1 else None
 
                 # Attempt to extract a second bracket block which might hold an emotion/context label
                 emotion = None
@@ -506,11 +592,24 @@ async def generate_tts_podcast(
             return "\n".join(cleaned_lines)
 
         for section in script_sections:
-            # Determine voice mapping
-            if request.mode == "bulletin":
-                voice_id = request.host_voice_id
+            # Robust host/guest identification
+            speaker_lower = section["speaker"].strip().lower()
+            role_lower = (section.get("role") or "").lower()
+
+            if request.guest_name and speaker_lower == request.guest_name.strip().lower():
+                use_host = False
+            elif speaker_lower in host_aliases:
+                use_host = True
+            elif "guest" in role_lower:
+                use_host = False
+            elif "host" in role_lower or "host" in speaker_lower:
+                use_host = True
             else:
-                voice_id = request.host_voice_id if section["speaker"].lower() in host_aliases else guest_voice.voice_id
+                # Fallback: default host for unknown speaker to avoid empty mapping
+                use_host = True
+
+            voice_id = request.host_voice_id if use_host else guest_voice.voice_id
+            logger.debug(f"Speaker '{section['speaker']}' assigned to {'host' if use_host else 'guest'} voice {voice_id}")
 
             # Convert voice settings to dict for the API
             voice_settings_dict = {
@@ -576,6 +675,13 @@ async def generate_tts_podcast(
             # Combine all audio segments using the utility function
             duration = combine_audio_files(audio_segments, output_filename)
             
+            # Prepare metadata
+            meta = {
+                "duration": round(duration / 60, 2),  # seconds to minutes
+                "guest": request.guest_name,
+                "topic": None
+            }
+
             # Update podcast record with success
             with get_database_instance().get_connection() as conn:
                 cursor = conn.cursor()
@@ -584,10 +690,12 @@ async def generate_tts_podcast(
                     SET status = 'completed',
                         audio_url = ?,
                         completed_at = CURRENT_TIMESTAMP,
-                        error = NULL
+                        error = NULL,
+                        metadata = ?
                     WHERE id = ?
                 """, (
                     f"/static/audio/{output_filename}",
+                    json.dumps(meta),
                     podcast_id
                 ))
                 conn.commit()
@@ -788,7 +896,8 @@ async def create_podcast(request: PodcastRequest, db: Database = Depends(get_dat
                 response["podcast_id"],
                 request.title,
                 None,  # config
-                ','.join(request.article_uris)  # article_uris as comma-separated string
+                ','.join(request.article_uris),  # article_uris as comma-separated string
+                json.dumps({})  # metadata
             ))
             conn.commit()
 
@@ -814,7 +923,7 @@ async def get_podcast_transcript(podcast_id: str):
         with get_database_instance().get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT title, transcript
+                SELECT title, transcript, metadata
                 FROM podcasts
                 WHERE id = ?
             """, (podcast_id,))
@@ -829,6 +938,7 @@ async def get_podcast_transcript(podcast_id: str):
             
             title = result[0]
             transcript = result[1] or ""
+            metadata = json.loads(result[2]) if result[2] else {}
             
             # Return as plain text with a filename
             return PlainTextResponse(
@@ -854,7 +964,7 @@ async def list_podcasts():
         with get_database_instance().get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, title, status, audio_url, created_at, completed_at, error, transcript
+                SELECT id, title, status, audio_url, created_at, completed_at, error, transcript, metadata
                 FROM podcasts
                 ORDER BY created_at DESC
             """)
@@ -870,7 +980,8 @@ async def list_podcasts():
                     "created_at": row[4],
                     "completed_at": row[5],
                     "error": row[6],
-                    "transcript": row[7] if row[7] else ""  # Ensure transcript is never null
+                    "transcript": row[7] if row[7] else "",
+                    "metadata": json.loads(row[8]) if row[8] else {}
                 }
                 podcasts.append(podcast)
             
@@ -891,7 +1002,7 @@ async def get_podcast_status(podcast_id: str):
         with get_database_instance().get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT id, title, status, audio_url, created_at, completed_at, error, transcript
+                SELECT id, title, status, audio_url, created_at, completed_at, error, transcript, metadata
                 FROM podcasts
                 WHERE id = ?
             """, (podcast_id,))
@@ -912,7 +1023,8 @@ async def get_podcast_status(podcast_id: str):
                 "created_at": result[4],
                 "completed_at": result[5],
                 "error": result[6],
-                "transcript": result[7]
+                "transcript": result[7],
+                "metadata": json.loads(result[8]) if result[8] else {}
             }
             
     except HTTPException:
@@ -923,27 +1035,6 @@ async def get_podcast_status(podcast_id: str):
             status_code=500,
             detail=str(e)
         )
-
-@router.get("/list", response_model=List[PodcastResponse])
-async def list_podcasts():
-    try:
-        client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
-        podcasts = client.studio.list_podcasts()
-        
-        return [
-            PodcastResponse(
-                podcast_id=p["podcast_id"],
-                title=p["title"],
-                status=p["status"],
-                created_at=datetime.fromtimestamp(p["created_at"]),
-                audio_url=p.get("audio_url"),
-                transcript=p.get("transcript")
-            )
-            for p in podcasts
-        ]
-    except Exception as e:
-        logger.error(f"Error listing podcasts: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/available_voices", response_model=List[VoiceResponse])
 async def get_available_voices():
@@ -1038,4 +1129,51 @@ async def get_voice(voice_id: str):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch voice: {str(e)}"
+        )
+
+@router.delete("/podcast/{podcast_id}")
+async def delete_podcast(podcast_id: str):
+    """Delete a podcast and its associated audio file."""
+    try:
+        with get_database_instance().get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT audio_url
+                FROM podcasts
+                WHERE id = ?
+            """, (podcast_id,))
+            
+            result = cursor.fetchone()
+            
+            if not result:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Podcast {podcast_id} not found"
+                )
+            
+            audio_url = result[0]
+            
+            # Delete podcast record
+            cursor.execute("""
+                DELETE FROM podcasts
+                WHERE id = ?
+            """, (podcast_id,))
+            conn.commit()
+            
+            # Delete audio file
+            if audio_url and audio_url.startswith("/static/audio/"):
+                # Derive the file system path of the generated audio
+                ensure_audio_directory()
+                filename = audio_url.split("/static/audio/")[1]
+                audio_path = AUDIO_DIR / filename
+                if audio_path.exists():
+                    audio_path.unlink()
+            
+            return {"message": f"Podcast {podcast_id} and associated audio file deleted successfully"}
+            
+    except Exception as e:
+        logger.error(f"Error deleting podcast: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
         ) 
