@@ -2,12 +2,13 @@ import os
 import yaml
 from litellm import Router
 import logging
-from app.env_loader import load_environment, ensure_model_env_vars
+from app.env_loader import ensure_model_env_vars
 from typing import Optional, Dict, Any
 from litellm import completion
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the default logging level
+logger = logging.getLogger(__name__)
 
 # Suppress LiteLLM logs
 litellm_logger = logging.getLogger('litellm')

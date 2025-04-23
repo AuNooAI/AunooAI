@@ -1,18 +1,12 @@
-from openai import OpenAI
-from typing import Optional
+from typing import Any, Dict
 from urllib.parse import urlparse
 import logging
 import os
 import json
-from firecrawl import FirecrawlApp
-from app.config import settings
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from app.database import Database, SessionLocal
 from app.env_loader import load_environment, ensure_model_env_vars
-from app.database import Database 
 from app.analyzers.article_analyzer import ArticleAnalyzer
-import importlib
 from dotenv import load_dotenv
 
 # Set up logging
@@ -29,8 +23,7 @@ class Research:
         try:
             logger.debug(f"Initializing Research with DB type: {type(db).__name__}")
             
-            # Update required methods to match actual Database class methods
-            required_methods = ['get_connection', 'save_raw_article', 'get_raw_article']
+            # Ensure db exposes necessary methods
             
             if isinstance(db, Session):
                 logger.debug("Converting Session to Database")
@@ -151,8 +144,8 @@ class Research:
             return
         
         if topic_name not in self.topic_configs:
-            logger.error(f"Invalid topic: {topic_name}")
-            raise ValueError(f"Invalid topic: {topic_name}")
+            logger.warning("Invalid topic received: %s. Retaining current topic '%s'", topic_name, self.current_topic)
+            return
             
         if self.current_topic != topic_name:
             self.current_topic = topic_name
@@ -236,9 +229,11 @@ class Research:
                 logger.info("Testing Firecrawl instance with a basic request...")
                 test_result = firecrawl_instance.scrape_url(
                     "https://example.com",
-                    params={'formats': ['markdown']}
+                    formats=["markdown"]
                 )
-                if 'markdown' in test_result:
+                # Normalise Firecrawl response (v1 returns content under 'data')
+                test_data = test_result.get('data', test_result) if isinstance(test_result, dict) else {}
+                if 'markdown' in test_data:
                     logger.info("Firecrawl test successful!")
                 else:
                     logger.warning("Firecrawl test returned unexpected response format")
@@ -324,12 +319,13 @@ class Research:
                 logger.info(f"Using Firecrawl to scrape content for URI: {uri}")
                 scrape_result = self.firecrawl_app.scrape_url(
                     uri,
-                    params={'formats': ['markdown']}
+                    formats=["markdown"]
                 )
+                scrape_data = self._normalize_scrape_result(scrape_result)
                 
                 # Extract content
-                if isinstance(scrape_result, dict) and 'markdown' in scrape_result:
-                    content = scrape_result['markdown']
+                if isinstance(scrape_data, dict) and 'markdown' in scrape_data:
+                    content = scrape_data['markdown']
                     
                     # Extract publication date using ArticleAnalyzer
                     publication_date = self.article_analyzer.extract_publication_date(content)
@@ -416,15 +412,16 @@ class Research:
             logger.info(f"Using Firecrawl to scrape content for URI: {uri}")
             scrape_result = self.firecrawl_app.scrape_url(
                 uri,
-                params={'formats': ['markdown']}
+                formats=["markdown"]
             )
+            scrape_data = self._normalize_scrape_result(scrape_result)
             
             logger.debug(f"Scrape result type: {type(scrape_result)}")
-            logger.debug(f"Scrape result keys: {scrape_result.keys() if isinstance(scrape_result, dict) else 'Not a dict'}")
+            logger.debug(f"Scrape result keys: {scrape_data.keys() if isinstance(scrape_data, dict) else 'Not a dict'}")
             
             # Extract content
-            if isinstance(scrape_result, dict) and 'markdown' in scrape_result:
-                content = scrape_result['markdown']
+            if isinstance(scrape_data, dict) and 'markdown' in scrape_data:
+                content = scrape_data['markdown']
                 logger.debug(f"Content length: {len(content) if content else 0} chars")
                 
                 # Extract publication date using ArticleAnalyzer if available
@@ -722,12 +719,10 @@ class Research:
             try:
                 logger.info(f"Using Firecrawl to scrape {uri}")
                 scrape_result = self.firecrawl_app.scrape_url(
-                    uri, 
-                    params={
-                        'formats': ['markdown']
-                    }
+                    uri,
+                    formats=["markdown"]
                 )
-                logger.debug(f"Firecrawl response keys: {scrape_result.keys() if isinstance(scrape_result, dict) else 'Not a dict'}")
+                scrape_data = self._normalize_scrape_result(scrape_result)
             except Exception as scrape_error:
                 logger.error(f"Firecrawl API error: {str(scrape_error)}")
                 return {
@@ -738,8 +733,8 @@ class Research:
                 }
             
             # Process the response if it's a dictionary containing 'markdown'
-            if isinstance(scrape_result, dict) and 'markdown' in scrape_result:
-                content = scrape_result['markdown']
+            if isinstance(scrape_data, dict) and 'markdown' in scrape_data:
+                content = scrape_data['markdown']
                 
                 # Check if content is empty or too short
                 if not content or len(content.strip()) < 10:
@@ -773,12 +768,12 @@ class Research:
                 
                 # Get metadata if available
                 metadata = {}
-                if 'title' in scrape_result:
-                    metadata['title'] = scrape_result['title']
-                if 'published_date' in scrape_result:
-                    metadata['published_date'] = scrape_result['published_date']
-                if 'author' in scrape_result:
-                    metadata['author'] = scrape_result['author']
+                if 'title' in scrape_data:
+                    metadata['title'] = scrape_data['title']
+                if 'published_date' in scrape_data:
+                    metadata['published_date'] = scrape_data['published_date']
+                if 'author' in scrape_data:
+                    metadata['author'] = scrape_data['author']
                 
                 return {
                     "content": content,
@@ -788,7 +783,7 @@ class Research:
                 }
             else:
                 # Log the actual response format received
-                logger.error(f"Unexpected response format from Firecrawl: {scrape_result}")
+                logger.error(f"Unexpected response format from Firecrawl: {scrape_data}")
                 return {
                     "content": "Failed to fetch article content. Unexpected response format.", 
                     "source": self.extract_source(uri), 
@@ -858,7 +853,17 @@ class Research:
             # Load the model
             logger.debug(f"Getting AI model instance for {model_name}")
             self.ai_model = get_ai_model(model_name)
-            logger.debug(f"AI model instance created: {type(self.ai_model).__name__}")
+            if self.ai_model is None:
+                logger.warning("Model not found in static config; falling back to LiteLLM dynamic router")
+                try:
+                    from app.ai_models import LiteLLMModel
+                    self.ai_model = LiteLLMModel.get_instance(model_name)
+                    logger.info("Instantiated LiteLLMModel for %s", model_name)
+                except Exception as llm_err:
+                    logger.error("Failed to create LiteLLMModel: %s", llm_err)
+                    raise
+            else:
+                logger.debug(f"AI model instance created: {type(self.ai_model).__name__}")
             
             # Initialize the article analyzer with the new model
             from app.analyzers.article_analyzer import ArticleAnalyzer
@@ -972,6 +977,31 @@ class Research:
         except Exception as e:
             logger.error(f"Error reloading environment: {str(e)}")
             return False
+
+    def _normalize_scrape_result(self, scrape_result: Any) -> Dict[str, Any]:
+        """Convert Firecrawl scrape result to a plain dict with markdown, etc."""
+        if isinstance(scrape_result, dict):
+            return scrape_result.get("data", scrape_result)
+
+        # Check for `.data` attribute (SDK object)
+        data_attr = getattr(scrape_result, "data", None)
+        if isinstance(data_attr, dict):
+            return data_attr
+
+        # Check for Pydantic `model_dump()`
+        if hasattr(scrape_result, "model_dump"):
+            try:
+                dumped = scrape_result.model_dump()
+                if isinstance(dumped, dict):
+                    return dumped.get("data", dumped)
+            except Exception:
+                pass
+
+        # Fallback to __dict__ if available
+        if hasattr(scrape_result, "__dict__"):
+            return scrape_result.__dict__.get("data", scrape_result.__dict__)
+
+        return {}
 
 
 

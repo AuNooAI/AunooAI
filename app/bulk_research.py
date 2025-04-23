@@ -268,7 +268,7 @@ class BulkResearch:
             # Try to scrape with Firecrawl directly
             scrape_result = self.research.firecrawl_app.scrape_url(
                 url,
-                params={'formats': ['markdown']}
+                formats=["markdown"]
             )
             
             # Extract content
