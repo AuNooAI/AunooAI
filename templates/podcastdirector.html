@@ -116,12 +116,7 @@
             <!-- Tabs -->
             <ul class="nav nav-tabs mb-3" id="podcastTabs" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="podcast-api-tab" data-bs-toggle="tab" data-bs-target="#podcast-api" type="button" role="tab">
-                        Podcast API
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="tts-tab" data-bs-toggle="tab" data-bs-target="#tts" type="button" role="tab">
+                    <button class="nav-link active" id="tts-tab" data-bs-toggle="tab" data-bs-target="#tts" type="button" role="tab">
                         TTS with Script
                     </button>
                 </li>
@@ -129,97 +124,38 @@
 
             <!-- Tab Content -->
             <div class="tab-content" id="podcastTabsContent">
-                <!-- Podcast API Tab -->
-                <div class="tab-pane fade show active" id="podcast-api" role="tabpanel">
-                    <form id="podcastForm">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="mb-3">
-                                    <label for="podcastTitle" class="form-label">Podcast Title</label>
-                                    <input type="text" class="form-control" id="podcastTitle" required>
-                                </div>
-
-                                <div class="mb-3">
-                                    <label for="podcastMode" class="form-label">Podcast Mode</label>
-                                    <select class="form-control" id="podcastMode" onchange="toggleGuestVoice()">
-                                        <option value="conversation">Conversation (Two hosts)</option>
-                                        <option value="bulletin">Bulletin (One host)</option>
-                                    </select>
-                                </div>
-
-                                <div class="mb-3">
-                                    <label for="hostVoice" class="form-label">Host Voice</label>
-                                    <select class="form-control" id="hostVoice">
-                                        <option value="aw1NgEzBg83R7vgmiJt6">Brian - Deep & Funny</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="col-md-6">
-                                <div class="mb-3" id="guestVoiceSection">
-                                    <label for="guestVoice" class="form-label">Guest Voice</label>
-                                    <select class="form-control" id="guestVoice">
-                                        <option value="aw1NgEzBg83R7vgmiJt7">Christina - Calming Yoga Instructor</option>
-                                    </select>
-                                </div>
-
-                                <div class="mb-3">
-                                    <label for="durationScale" class="form-label">Duration Scale</label>
-                                    <select class="form-control" id="durationScale">
-                                        <option value="short">Short (< 3 minutes)</option>
-                                        <option value="default" selected>Default (3-7 minutes)</option>
-                                        <option value="long">Long (> 7 minutes)</option>
-                                    </select>
-                                </div>
-
-                                <div class="mb-3">
-                                    <label for="qualityPreset" class="form-label">Quality Preset</label>
-                                    <select class="form-control" id="qualityPreset">
-                                        <option value="standard">Standard (128kbps)</option>
-                                        <option value="high">High (192kbps)</option>
-                                        <option value="ultra">Ultra (192kbps)</option>
-                                        <option value="ultra_lossless">Ultra Lossless (705.6kbps)</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
-                        <button type="submit" class="btn btn-primary">Generate Podcast</button>
-                    </form>
-                </div>
-
                 <!-- TTS with Script Tab -->
-                <div class="tab-pane fade" id="tts" role="tabpanel">
+                <div class="tab-pane fade show active" id="tts" role="tabpanel">
                     <form id="ttsForm">
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="podcastName" class="form-label">Podcast Name</label>
+                                    <label for="podcastName" class="form-label" data-bs-toggle="tooltip" title="Name of the overall podcast series">Podcast Name</label>
                                     <input type="text" class="form-control" id="podcastName" required placeholder="Enter the name of your podcast series" value="Aunoo News">
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="episodeTitle" class="form-label">Episode Title</label>
+                                    <label for="episodeTitle" class="form-label" data-bs-toggle="tooltip" title="Title of the specific episode">Episode Title</label>
                                     <input type="text" class="form-control" id="episodeTitle" required placeholder="Enter the title for this episode" value="Latest Debate">
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="hostName" class="form-label">Host Name</label>
+                                    <label for="hostName" class="form-label" data-bs-toggle="tooltip" title="Name of the host">Host Name</label>
                                     <input type="text" class="form-control" id="hostName" value="Aunoo" placeholder="Enter the host's name">
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="ttsHostVoice" class="form-label">Host Voice</label>
+                                    <label for="ttsHostVoice" class="form-label" data-bs-toggle="tooltip" title="Voice of the host">Host Voice</label>
                                     <select class="form-control" id="ttsHostVoice"></select>
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="guestName" class="form-label">Guest Name</label>
+                                    <label for="guestName" class="form-label" data-bs-toggle="tooltip" title="Name of the guest">Guest Name</label>
                                     <input type="text" class="form-control" id="guestName" required placeholder="Enter the guest's name" value="Auspex">
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="guestTitle" class="form-label">Guest Title</label>
+                                    <label for="guestTitle" class="form-label" data-bs-toggle="tooltip" title="Title of the guest">Guest Title</label>
                                     <select class="form-control mb-2" id="guestTitle" onchange="toggleCustomTitle()">
                                         <option value="chief_futurist">Chief Futurist at Aunoo</option>
                                         <option value="special_correspondent">Special Correspondent</option>
@@ -231,12 +167,12 @@
                                 </div>
 
                                 <div class="mb-3" id="ttsGuestVoiceSection">
-                                    <label for="ttsGuestVoice" class="form-label">Guest Voice</label>
+                                    <label for="ttsGuestVoice" class="form-label" data-bs-toggle="tooltip" title="Voice of the guest">Guest Voice</label>
                                     <select class="form-control" id="ttsGuestVoice"></select>
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="llmModel" class="form-label">Script Generation Model</label>
+                                    <label for="llmModel" class="form-label" data-bs-toggle="tooltip" title="Script generation model">Script Generation Model</label>
                                     <select class="form-control" id="llmModel">
                                         <option value="gpt-4o">GPT-4 Optimized</option>
                                         <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet</option>
@@ -265,7 +201,7 @@
 
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label class="form-label">Script Template <i class="fas fa-info-circle ms-1" data-bs-toggle="tooltip" title="Available placeholders: {podcast_name}, {episode_title}, {guest_name}, {guest_title}, {articles_discussion}"></i></label>
+                                    <label class="form-label">Script Template</label>
                                     <div class="d-flex justify-content-between align-items-center mb-2">
                                         <select class="form-control me-2" id="scriptTemplate"></select>
                                         <button type="button" class="btn btn-secondary" id="editTemplate">
@@ -377,6 +313,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+                <p class="text-muted small">Available placeholders: <code>{podcast_name}</code>, <code>{episode_title}</code>, <code>{guest_name}</code>, <code>{guest_title}</code>, <code>{articles_discussion}</code></p>
                 <textarea class="form-control" id="templateEditor" rows="15"></textarea>
             </div>
             <div class="modal-footer">
@@ -425,6 +362,7 @@ let currentPage = 1;
 let hasMoreArticles = true;
 let isLoading = false;
 let selectedArticleData = {};
+let currentGeneratedPodcast = null;
 
 // Initialize dropdowns and event listeners
 document.addEventListener('DOMContentLoaded', function() {
@@ -567,10 +505,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const templates = await res.json();
             const sel = document.getElementById('scriptTemplate');
             sel.innerHTML = '';
-            templates.forEach(t => {
-                const opt = new Option(t.name, t.name, false, t.name === 'default');
-                sel.appendChild(opt);
-            });
+            templates
+                .filter(t => t.name !== 'default')
+                .forEach((t, idx) => {
+                    const opt = new Option(t.name, t.name, false, idx === 0);
+                    sel.appendChild(opt);
+                });
         } catch (err) { console.error('Error loading templates', err); }
     }
 
@@ -871,12 +811,14 @@ function toggleCustomDateRange() {
 }
 
 function toggleGuestVoice() {
-    const mode = document.getElementById('podcastMode').value;
+    const modeSel = document.getElementById('podcastMode');
+    if (!modeSel) return;
     const guestVoiceSection = document.getElementById('guestVoiceSection');
-    guestVoiceSection.style.display = mode === 'conversation' ? 'block' : 'none';
+    if (guestVoiceSection) guestVoiceSection.style.display = modeSel.value === 'conversation' ? 'block' : 'none';
 }
 
-document.getElementById('podcastForm').addEventListener('submit', async (e) => {
+const podcastFormEl = document.getElementById('podcastForm');
+if (podcastFormEl) podcastFormEl.addEventListener('submit', async (e) => {
     e.preventDefault();
     
     if (selectedArticles.length === 0) {
@@ -972,6 +914,13 @@ async function pollPodcastStatus(podcastId) {
             case 'completed':
                 progressBar.style.width = '100%';
                 progressStatus.innerHTML = '<div class="alert alert-success">Generation completed!</div>';
+                
+                // Cache current generated podcast info
+                currentGeneratedPodcast = {
+                    id: podcastId,
+                    title: data.title || '',
+                    audioUrl: data.audio_url || ''
+                };
                 
                 // Show result section
                 document.getElementById('resultSection').style.display = 'block';
@@ -1116,7 +1065,30 @@ function playPodcast(audioUrl) {
     player.play();
 }
 
+function downloadPodcast(audioUrl) {
+    // Allow call without param – use currentGeneratedPodcast or player src
+    if (!audioUrl) {
+        if (currentGeneratedPodcast && currentGeneratedPodcast.audioUrl) {
+            audioUrl = currentGeneratedPodcast.audioUrl;
+        } else {
+            const player = document.getElementById('podcastPlayer');
+            audioUrl = player ? player.src : null;
+        }
+    }
+    if (audioUrl) {
+        window.open(audioUrl, '_blank');
+    } else {
+        alert('Audio URL not available');
+    }
+}
+
 async function downloadTranscript(podcastId, title) {
+    if (!podcastId) {
+        if (currentGeneratedPodcast) {
+            podcastId = currentGeneratedPodcast.id;
+            title = currentGeneratedPodcast.title;
+        }
+    }
     try {
         const response = await fetch(`/api/podcast/${podcastId}/transcript`);
         if (!response.ok) {
@@ -1142,12 +1114,6 @@ async function downloadTranscript(podcastId, title) {
     } catch (error) {
         console.error('Error downloading transcript:', error);
         alert('Error downloading transcript. Please try again.');
-    }
-}
-
-function downloadPodcast(audioUrl) {
-    if (audioUrl) {
-        window.open(audioUrl, '_blank');
     }
 }
 
