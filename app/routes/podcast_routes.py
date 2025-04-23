@@ -678,9 +678,16 @@ async def generate_tts_podcast(
             # Prepare metadata
             meta = {
                 "duration": round(duration / 60, 2),  # seconds to minutes
-                "guest": request.guest_name,
+                "podcast_name": request.podcast_name,
+                "episode_title": request.episode_title,
+                "mode": request.mode,
                 "topic": None
             }
+
+            # Only include guest details when in conversation mode
+            if request.mode == "conversation":
+                meta["guest"] = request.guest_name
+                meta["guest_title"] = request.guest_title
 
             # Update podcast record with success
             with get_database_instance().get_connection() as conn:

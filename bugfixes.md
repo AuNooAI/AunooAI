@@ -40,3 +40,12 @@
 - Many long lines & unused imports in `app/routes/podcast_routes.py`.
 - Duplicate `list_podcasts()` route definition.
 - Will be addressed in an upcoming refactor pass focused on linting & style compliance.
+
+### ✅ 2024‑06‑13 – Conversation & Templates Fixes
+- Unified all script templates – removed hard‑coded "Annie", use {host_name} placeholder.
+- Added custom Guest Title option in UI; defaults save/load includes all fields.
+- Re‑ordered TTS‑with‑Script form fields for better UX.
+- Improved voice‑assignment logic; robust parsing of speaker‑role header and dash variants so host/guest voices chosen correctly.
+- Added `metadata` column via migration; duration/guest/topic badges shown in Past Podcasts list.
+- Safe placeholder formatting prevents KeyError when template omits articles_discussion.
+- Settings persistence fixed – loaded after voices populate and on mode switch.

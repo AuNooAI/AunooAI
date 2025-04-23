@@ -1053,8 +1053,12 @@ async function loadPastPodcasts() {
             const meta = podcast.metadata || {};
             const metaBadges = [];
             if (meta.duration) metaBadges.push(`<span class='badge bg-info me-1'>${meta.duration} min</span>`);
+            if (meta.podcast_name) metaBadges.push(`<span class='badge bg-primary me-1'>🎙️ ${meta.podcast_name}</span>`);
+            if (meta.episode_title) metaBadges.push(`<span class='badge bg-primary me-1'>${meta.episode_title}</span>`);
+            if (meta.mode) metaBadges.push(`<span class='badge bg-warning text-dark me-1'>${meta.mode}</span>`);
+            if (meta.guest_title) metaBadges.push(`<span class='badge bg-secondary me-1'>${meta.guest_title}</span>`);
             if (meta.guest) metaBadges.push(`<span class='badge bg-secondary me-1'>Guest: ${meta.guest}</span>`);
-            if (meta.topic) metaBadges.push(`<span class='badge bg-dark'>${meta.topic}</span>`);
+            if (meta.topic) metaBadges.push(`<span class="badge bg-dark">${meta.topic}</span>`);
             item.innerHTML = `
                 <div class="d-flex justify-content-between align-items-start flex-wrap">
                     <div class="me-2">
@@ -1337,6 +1341,7 @@ async function loadDefaults() {
         if (data.model) document.getElementById('llmModel').value = data.model;
         if (data.podcast_name) document.getElementById('podcastName').value = data.podcast_name;
         if (data.episode_title) document.getElementById('episodeTitle').value = data.episode_title;
+        if (data.duration) document.getElementById('ttsDuration').value = data.duration;
     } catch (err) { console.error('Error loading defaults', err); }
 }
 
@@ -1350,7 +1355,8 @@ document.getElementById('saveDefaultsBtn').addEventListener('click', async () =>
             guest_name: document.getElementById('guestName').value,
             model: document.getElementById('llmModel').value,
             podcast_name: document.getElementById('podcastName').value,
-            episode_title: document.getElementById('episodeTitle').value
+            episode_title: document.getElementById('episodeTitle').value,
+            duration: document.getElementById('ttsDuration').value
         }
     };
     try {
