@@ -26,6 +26,7 @@ import uuid
 import random
 from pathlib import Path
 import re
+import threading
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -431,10 +432,7 @@ async def generate_podcast_script(
 # before.
 
 @router.post("/generate_tts_podcast")
-async def generate_tts_podcast(
-    request: TTSPodcastRequest,
-    background_tasks: BackgroundTasks,
-):
+async def generate_tts_podcast(request: TTSPodcastRequest):
     """
     Launch podcast generation. The heavy work is off‑loaded to a background
     task so that the request returns quickly with a `podcast_id` that the UI
@@ -463,8 +461,12 @@ async def generate_tts_podcast(
             )
             conn.commit()
 
-        # Launch background processing task
-        background_tasks.add_task(_run_tts_podcast_worker, podcast_id, request)
+        # Launch background processing task in a separate thread so that the
+        # current ASGI worker is freed immediately.
+        threading.Thread(
+            target=lambda: asyncio.run(_run_tts_podcast_worker(podcast_id, request)),
+            daemon=True,
+        ).start()
 
         # Return immediately
         return {"success": True, "podcast_id": podcast_id, "status": "processing"}
