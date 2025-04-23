@@ -846,13 +846,21 @@ if (podcastFormEl) podcastFormEl.addEventListener('submit', async (e) => {
         progressSection.style.display = 'block';
         resultSection.style.display = 'none';
 
-        // Create podcast
-        const response = await fetch('/api/podcast/create', {
+        // Generate TTS podcast (new flow)
+        const response = await fetch('/api/generate_tts_podcast', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(formData)
+            body: JSON.stringify({
+                podcast_name: formData.title,
+                episode_title: formData.title, // legacy mapping – could refine
+                article_uris: formData.article_uris,
+                host_voice_id: formData.host_voice_id,
+                guest_voice_id: formData.guest_voice_id,
+                mode: formData.mode,
+                script: '', // let backend auto‑generate from articles
+            })
         });
 
         const responseText = await response.text();

@@ -54,6 +54,13 @@ from app.routes.onboarding_routes import router as onboarding_router
 from app.startup import initialize_application
 from app.routes.podcast_routes import router as podcast_router
 
+# ElevenLabs SDK imports used in podcast endpoints
+from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
+from elevenlabs.studio import (
+    BodyCreatePodcastV1StudioPodcastsPostMode_Conversation,
+    BodyCreatePodcastV1StudioPodcastsPostMode_Bulletin,
+)
+
 # Set up logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -2881,7 +2888,26 @@ async def create_podcast(
     try:
         # Log raw request data
         logger.debug(f"Raw request data: {data}")
-        
+
+        # ------------------------------------------------------------------
+        # ✨ Backwards‑compatibility shim
+        # Front‑end pages like report.html or podcastdirector.html may still
+        # send a simple list of URIs under `article_uris` instead of the newer
+        # `articles` list (each item is an object with a `uri` field).
+        # If `articles` is missing but `article_uris` exists, convert the list
+        # so downstream logic remains unchanged.
+        # ------------------------------------------------------------------
+        if "articles" not in data and "article_uris" in data:
+            # Ensure it is a list before processing
+            uris = data.get("article_uris", []) or []
+            # Only accept strings to avoid malformed payloads
+            if isinstance(uris, list):
+                data["articles"] = [{"uri": uri} for uri in uris if isinstance(uri, str)]
+            else:
+                logger.warning("`article_uris` field is not a list: %s", type(uris))
+                data["articles"] = []
+        # ------------------------------------------------------------------
+
         # Check for API key
         api_key = os.getenv("ELEVENLABS_API_KEY")
         if not api_key:
@@ -2957,6 +2983,8 @@ async def create_podcast(
                 mode = BodyCreatePodcastV1StudioPodcastsPostMode_Bulletin()
                 logger.debug("Created bulletin mode configuration")
             
+            # ElevenLabs expects `source` to be a **list** of items where each
+            # item is either a `PodcastTextSource` or `PodcastURLSource`.
             # Create podcast
             logger.debug("Sending request to ElevenLabs API...")
             response = client.studio.create_podcast(

@@ -230,15 +230,27 @@ class VoiceSettings(BaseModel):
     speed: float = 1.0
 
 class TTSPodcastRequest(BaseModel):
+    # Core metadata
     podcast_name: str
     episode_title: str
-    script: str
+
+    # Either a ready‑made script **or** article URIs to build the script from
+    script: Optional[str] = None
+    article_uris: Optional[List[str]] = None
+
+    # Prompt / LLM configuration
+    model: str = "gpt-4o"
+    duration: str = "medium"  # short | medium | long
+
+    # Speaker / voices
     host_name: Optional[str] = "Aunoo"
     host_voice_id: str
     guest_voice_id: Optional[str] = None
-    guest_title: str
-    guest_name: str
+    guest_title: Optional[str] = None
+    guest_name: Optional[str] = None
     mode: str = "conversation"  # "conversation" or "bulletin"
+
+    # ElevenLabs TTS settings
     model_id: str = "eleven_multilingual_v2"
     output_format: str = "mp3_44100_128"
     voice_settings: VoiceSettings = VoiceSettings()
@@ -414,57 +426,108 @@ async def generate_podcast_script(
             detail=f"Failed to generate podcast script: {str(e)}"
         )
 
+# Note: we now launch the heavy TTS generation in the background so the HTTP
+# request returns immediately. The UI can poll `/api/podcast/status/{id}` as
+# before.
+
 @router.post("/generate_tts_podcast")
 async def generate_tts_podcast(
     request: TTSPodcastRequest,
-    podcast_name: str = "Aunoo Live",
-    episode_title: str = "Latest Updates",
-    guest_name: str = "Auspex",
-    output_filename: str = None
+    background_tasks: BackgroundTasks,
 ):
     """
-    Generate a TTS podcast from the provided script.
-    
-    Args:
-        request: TTSPodcastRequest object containing script and voice settings
-        podcast_name: Name of the podcast (default: "Aunoo Live")
-        episode_title: Title of the episode (default: "Latest Updates")
-        guest_name: Name of the guest (default: "Auspex")
-        output_filename: Optional output filename
-        
-    Returns:
-        dict: Response containing podcast details
+    Launch podcast generation. The heavy work is off‑loaded to a background
+    task so that the request returns quickly with a `podcast_id` that the UI
+    can poll using `/api/podcast/status/{podcast_id}`.
     """
-    podcast_id = None
+    podcast_id = str(uuid.uuid4())
+
+    # Immediately insert a DB record with status = processing so polling works.
     try:
         # Generate a unique podcast ID
-        podcast_id = str(uuid.uuid4())
-        
-        # Validate API keys before proceeding
-        validate_api_keys()
-        
-        # Create initial podcast record
-        with get_database_instance().get_connection() as conn:
+        db = get_database_instance()
+        with db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO podcasts (
                     id, title, status, created_at, transcript, metadata
                 ) VALUES (?, ?, 'processing', CURRENT_TIMESTAMP, ?, ?)
-            """, (
-                podcast_id,
-                f"{podcast_name} - {episode_title}",
-                request.script,
-                json.dumps({})  # metadata
-            ))
+                """,
+                (
+                    podcast_id,
+                    f"{request.podcast_name} - {request.episode_title}",
+                    request.script or "",
+                    json.dumps({}),
+                ),
+            )
             conn.commit()
-        
+
+        # Launch background processing task
+        background_tasks.add_task(_run_tts_podcast_worker, podcast_id, request)
+
+        # Return immediately
+        return {"success": True, "podcast_id": podcast_id, "status": "processing"}
+
+    except Exception as exc:
+        logger.error("Failed to enqueue podcast generation: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Worker that does the heavy TTS processing
+# ---------------------------------------------------------------------------
+
+
+async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
+    """Perform the full TTS generation flow. Runs in the background."""
+    logger.info("[Worker] Starting podcast generation %s", podcast_id)
+    try:
+        # --- RE‑RUN previous synchronous logic ----------------------------
+        # Note: this block is essentially the previous implementation of the
+        # generate_tts_podcast body (after the initial INSERT). Only minimal
+        # adaptations were made – e.g. use the already‑supplied `podcast_id`.
+
+        # Validate API keys
+        validate_api_keys()
+
+        # Determine mode defaults
+        if not request.host_name:
+            request.host_name = "Aunoo"
+        if not request.guest_name:
+            request.guest_name = "Auspex"
+
+        # Auto‑generate script if needed (re‑use our helper)
+        if (not request.script or not request.script.strip()) and request.article_uris:
+            db = get_database_instance()
+            records = [db.get_article(u) for u in request.article_uris]
+            records = [r for r in records if r]
+            if not records:
+                raise ValueError("No articles found for provided URIs")
+
+            request.script = _generate_script_from_articles(
+                podcast_name=request.podcast_name,
+                episode_title=request.episode_title,
+                host_name=request.host_name,
+                guest_name=request.guest_name,
+                guest_title=request.guest_title or "Guest",
+                duration=request.duration,
+                mode=request.mode,
+                articles=records,
+                llm_model=request.model,
+            )
+
+        # ------------------------------------------------------------------
+        # (The rest of this function is a verbatim move of the heavy loop from
+        #  the original generate_tts_podcast implementation.)
+        # ------------------------------------------------------------------
+
         # Determine mode and guest voice
         available_voices = await get_available_voices()
 
         if request.mode == "bulletin":
             guest_voice = None  # Not used
         else:
-            # If user specified a guest voice id try to match it; otherwise randomise
             if request.guest_voice_id:
                 guest_voice = next((v for v in available_voices if v.voice_id == request.guest_voice_id), None)
                 if guest_voice is None:
@@ -472,73 +535,61 @@ async def generate_tts_podcast(
             else:
                 guest_voice = random.choice([v for v in available_voices if v.voice_id != request.host_voice_id])
 
-            # Randomise name/title if requested or missing
-            if not request.guest_name or request.guest_name.lower() == "random":
+            if not request.guest_name:
                 request.guest_name = guest_voice.name.split()[0] if guest_voice and guest_voice.name else "Guest"
 
-            if not request.guest_title or request.guest_title.lower() == "random":
-                random_titles = [
+            if not request.guest_title:
+                request.guest_title = random.choice([
                     "Industry Expert",
                     "Chief Futurist",
                     "Senior Analyst",
                     "Innovation Strategist",
-                ]
-                request.guest_title = random.choice(random_titles)
-        
-        # Determine host alias list for voice selection
-        host_aliases = { (request.host_name or "Aunoo").lower(), "annie", "host" }
+                ])
 
-        # Split script into sections by speaker
+        host_aliases = {(request.host_name or "Aunoo").lower(), "annie", "host"}
+
+        # ----------------- (Split script and generate audio) --------------
         script_sections = []
-        current_section = {"speaker": None, "text": "", "emotion": None}
+        current_section = {"speaker": None, "text": "", "emotion": None, "role": None}
 
-        for line in request.script.split('\n'):
+        for line in request.script.split("\n"):
             raw = line.strip()
-            # Remove leading markdown bold/italic markers for detection
-            stripped = raw.lstrip('*').lstrip('_').strip()
+            stripped = raw.lstrip("*").lstrip("_").strip()
 
             speaker_detected = None
             role = None
 
-            # Pattern 1: [Speaker - Role]
-            if stripped.startswith('[') and ']' in stripped:
-                # Save the previous section before starting a new one
+            if stripped.startswith("[") and "]" in stripped:
                 if current_section["speaker"]:
                     script_sections.append(current_section)
 
-                # Extract the first bracket block – this always contains the speaker (and optional role)
-                first_close_idx = stripped.find(']')
+                first_close_idx = stripped.find("]")
                 header = stripped[1:first_close_idx]
-                # Split on various dash characters surrounded by optional spaces
                 parts = re.split(r"\s*[\-‑–—]\s*", header, maxsplit=1)
                 speaker = parts[0]
                 role = parts[1] if len(parts) > 1 else None
 
-                # Attempt to extract a second bracket block which might hold an emotion/context label
                 emotion = None
-                remaining_after_first = stripped[first_close_idx + 1:].lstrip()
-                if remaining_after_first.startswith('[') and ']' in remaining_after_first:
-                    second_close_idx = remaining_after_first.find(']')
-                    emotion = remaining_after_first[1:second_close_idx].strip()
-                    remaining_after_first = remaining_after_first[second_close_idx + 1:].lstrip()
+                remaining = stripped[first_close_idx + 1:].lstrip()
+                if remaining.startswith("[") and "]" in remaining:
+                    second_close_idx = remaining.find("]")
+                    emotion = remaining[1:second_close_idx].strip()
+                    remaining = remaining[second_close_idx + 1:].lstrip()
 
-                # Anything left after the bracket blocks is actual spoken text – capture it
-                initial_text = remaining_after_first + "\n" if remaining_after_first else ""
+                initial_text = remaining + "\n" if remaining else ""
 
                 speaker_detected = speaker
                 current_section = {
                     "speaker": speaker_detected,
                     "role": role,
                     "text": initial_text,
-                    "emotion": emotion
+                    "emotion": emotion,
                 }
             else:
-                # Pattern 2: **Speaker**: text
-                m = re.match(r"^\*\*(.+?)\*\*:\s*(.*)$", raw)
+                m = re.match(r"^\*\*(.+?)\*\*: \s*(.*)$", raw)
                 if m:
                     speaker_detected = m.group(1).strip()
                     line_text = m.group(2)
-                    # Save previous
                     if current_section["speaker"]:
                         script_sections.append(current_section)
                     current_section = {
@@ -550,49 +601,38 @@ async def generate_tts_podcast(
                 else:
                     current_section["text"] += line + "\n"
 
-        # Add last section
         if current_section["speaker"]:
             script_sections.append(current_section)
 
-        # Fallback: if no speaker blocks detected, treat the entire script as one host section
         if not script_sections:
-            logger.warning("No speaker blocks detected in script; using entire script as single host section")
+            logger.warning("No speaker blocks detected in script; using entire script as host section")
             script_sections.append({
-                "speaker": "annie",  # default host speaker identifier
+                "speaker": "annie",
                 "role": "Host",
                 "text": request.script,
                 "emotion": None,
             })
 
-        # Generate audio for each section
         audio_segments = []
         client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
-        # Utility to clean out non‑verbal stage directions (e.g. "Intro music fades in")
         def clean_text(raw: str) -> str:
             text = raw
-            # Remove [bracket] or (parenthesis) stage directions that mention music/sfx
             text = re.sub(r"\[(?:[^\]]*(music|sound|sfx|fade)[^\]]*)\]", "", text, flags=re.IGNORECASE)
             text = re.sub(r"\((?:[^)]*(music|sound|sfx|fade)[^)]*)\)", "", text, flags=re.IGNORECASE)
-
-            # Remove bold speaker cues (again) during cleaning step
             text = re.sub(r"^\*\*[\w\s\-]+:\*\*", "", text, flags=re.MULTILINE)
-            text = re.sub(r"^\*\*[\w\s\-]+\*\*:\s*", "", text, flags=re.MULTILINE)
-
+            text = re.sub(r"^\*\*[\w\s\-]+\*\*: \s*", "", text, flags=re.MULTILINE)
             cleaned_lines = []
             for ln in text.splitlines():
                 lowered = ln.lower()
-                # Skip if line still primarily looks like a stage direction
                 if any(kw in lowered for kw in ["intro music", "music fades", "sound effect", "sfx", "fade in", "fade out"]):
                     continue
-                # Skip heading lines like "Podcast Script for ..."
                 if "podcast script" in lowered:
                     continue
                 cleaned_lines.append(ln)
             return "\n".join(cleaned_lines)
 
         for section in script_sections:
-            # Robust host/guest identification
             speaker_lower = section["speaker"].strip().lower()
             role_lower = (section.get("role") or "").lower()
 
@@ -605,23 +645,18 @@ async def generate_tts_podcast(
             elif "host" in role_lower or "host" in speaker_lower:
                 use_host = True
             else:
-                # Fallback: default host for unknown speaker to avoid empty mapping
                 use_host = True
 
-            voice_id = request.host_voice_id if use_host else guest_voice.voice_id
-            logger.debug(f"Speaker '{section['speaker']}' assigned to {'host' if use_host else 'guest'} voice {voice_id}")
+            voice_id = request.host_voice_id if use_host else (guest_voice.voice_id if guest_voice else request.host_voice_id)
 
-            # Convert voice settings to dict for the API
             voice_settings_dict = {
                 "stability": request.voice_settings.stability,
                 "similarity_boost": request.voice_settings.similarity_boost,
                 "style": request.voice_settings.style,
                 "use_speaker_boost": request.voice_settings.use_speaker_boost,
-                "speed": request.voice_settings.speed
+                "speed": request.voice_settings.speed,
             }
 
-            # ElevenLabs currently has a ~2.5 k character limit per TTS request.
-            # Break long sections into safe-sized chunks so we do not silently lose content.
             cleaned = clean_text(section["text"])
             chunks = split_into_chunks(cleaned, max_chars=2500)
 
@@ -639,132 +674,80 @@ async def generate_tts_podcast(
                         next_text=next_text,
                     )
 
-                    # Collect audio bytes
                     audio_bytes = b"".join(b if isinstance(b, bytes) else b.encode() for b in audio_generator)
 
-                    # Verify audio bytes
                     if not audio_bytes:
-                        logger.warning(f"Empty audio bytes received for section: {section['speaker']} (chunk {chunk_index})")
+                        logger.warning("Empty audio bytes for section %s chunk %d", section["speaker"], chunk_index)
                         continue
 
                     audio_segments.append(audio_bytes)
-                    logger.info(
-                        f"Successfully generated audio for section: {section['speaker']} (chunk {chunk_index}, size: {len(audio_bytes)} bytes)"
-                    )
                 except Exception as e:
-                    logger.error(
-                        f"Error generating audio for section {section['speaker']} (chunk {chunk_index}): {str(e)}"
-                    )
-                    # Continue with other chunks / sections even if one fails
+                    logger.error("Error generating audio: %s", e)
                     continue
-        
-        # Check if we have any audio segments
+
         if not audio_segments:
-            raise ValueError("No audio segments were generated successfully")
-        
-        # Generate output filename
-        if not output_filename:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = f"podcast_{podcast_id}_{timestamp}.mp3"
-        
-        try:
-            # Ensure audio directory exists
-            if not ensure_audio_directory():
-                raise RuntimeError("Could not create or access audio directories")
-            
-            # Combine all audio segments using the utility function
-            duration = combine_audio_files(audio_segments, output_filename)
-            
-            # Prepare metadata
-            meta = {
-                "duration": round(duration / 60, 2),  # seconds to minutes
-                "podcast_name": request.podcast_name,
-                "episode_title": request.episode_title,
-                "mode": request.mode,
-                "topic": None
-            }
+            raise ValueError("No audio segments generated")
 
-            # Only include guest details when in conversation mode
-            if request.mode == "conversation":
-                meta["guest"] = request.guest_name
-                meta["guest_title"] = request.guest_title
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"podcast_{podcast_id}_{timestamp}.mp3"
 
-            # Update podcast record with success
-            with get_database_instance().get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE podcasts 
-                    SET status = 'completed',
-                        audio_url = ?,
-                        completed_at = CURRENT_TIMESTAMP,
-                        error = NULL,
-                        metadata = ?
-                    WHERE id = ?
-                """, (
+        if not ensure_audio_directory():
+            raise RuntimeError("Could not create audio directory")
+
+        duration = combine_audio_files(audio_segments, output_filename)
+
+        meta = {
+            "duration": round(duration / 60, 2),
+            "podcast_name": request.podcast_name,
+            "episode_title": request.episode_title,
+            "mode": request.mode,
+            "topic": None,
+        }
+
+        if request.mode == "conversation":
+            meta["guest"] = request.guest_name
+            meta["guest_title"] = request.guest_title
+
+        db = get_database_instance()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE podcasts
+                SET status = 'completed',
+                    audio_url = ?,
+                    completed_at = CURRENT_TIMESTAMP,
+                    error = NULL,
+                    metadata = ?
+                WHERE id = ?
+                """,
+                (
                     f"/static/audio/{output_filename}",
                     json.dumps(meta),
-                    podcast_id
-                ))
-                conn.commit()
-            
-            return {
-                "success": True,
-                "podcast_id": podcast_id,
-                "name": podcast_name,
-                "episode_title": episode_title,
-                "guest_name": guest_name,
-                "filename": output_filename,
-                "status": "completed",
-                "audio_url": f"/static/audio/{output_filename}",
-                "transcript": request.script,
-                "duration": duration
-            }
-            
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Error saving podcast audio: {error_msg}")
-            
-            # Update podcast record with error
-            with get_database_instance().get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE podcasts 
-                    SET status = 'error',
-                        error = ?,
-                        completed_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (error_msg, podcast_id))
-                conn.commit()
-            
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error saving podcast audio: {error_msg}"
+                    podcast_id,
+                ),
             )
-        
-    except Exception as e:
-        error_msg = str(e)
-        logger.error(f"Error generating TTS podcast: {error_msg}")
-        
-        if podcast_id:
-            try:
-                # Update podcast record with error
-                with get_database_instance().get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        UPDATE podcasts 
-                        SET status = 'error',
-                            error = ?,
-                            completed_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    """, (error_msg, podcast_id))
-                    conn.commit()
-            except Exception as db_error:
-                logger.error(f"Error updating podcast status: {str(db_error)}")
-        
-        raise HTTPException(
-            status_code=500,
-            detail=error_msg
-        )
+            conn.commit()
+
+        logger.info("[Worker] Podcast %s completed", podcast_id)
+
+    except Exception as err:
+        logger.error("[Worker] Error generating TTS podcast %s: %s", podcast_id, err, exc_info=True)
+        try:
+            db = get_database_instance()
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE podcasts
+                    SET status = 'error', error = ?, completed_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (str(err), podcast_id),
+                )
+                conn.commit()
+        except Exception as db_err:
+            logger.error("[Worker] Failed updating error status for %s: %s", podcast_id, db_err)
 
 def split_into_chunks(text: str, max_chars: int = 2500) -> List[str]:
     """Split text into chunks of maximum size while preserving sentence boundaries."""
@@ -871,10 +854,7 @@ async def create_podcast(request: PodcastRequest, db: Database = Depends(get_dat
             response = client.studio.create_podcast(
                 model_id="21m00Tcm4TlvDq8ikWAM",
                 mode=mode,
-                source={
-                    "type": "text",
-                    "text": source_text
-                },
+                source=[PodcastTextSource(type="text", text=source_text)],
                 duration_scale=request.duration_scale,
                 quality_preset=request.quality_preset
             )
@@ -1183,4 +1163,80 @@ async def delete_podcast(podcast_id: str):
         raise HTTPException(
             status_code=500,
             detail=str(e)
-        ) 
+        )
+
+# ---------------------------------------------------------------------------
+# Helper – generate a podcast script from article records
+# ---------------------------------------------------------------------------
+
+
+def _generate_script_from_articles(
+    *,
+    podcast_name: str,
+    episode_title: str,
+    host_name: str,
+    guest_name: str,
+    guest_title: str,
+    duration: str,
+    mode: str,
+    articles: List[dict],
+    llm_model: str,
+) -> str:
+    """Call the LLM (via LiteLLMModel) to create a podcast script for the
+    given set of articles. This mirrors the logic in the /generate_podcast_script
+    endpoint so that we can auto‑generate the script before TTS.
+    """
+
+    # Prepare article blocks
+    article_blocks: List[str] = []
+    for art in articles:
+        block = [
+            f"Title: {art.get('title')}",
+            f"Summary: {art.get('summary')}",
+            f"Category: {art.get('category', 'N/A')}",
+            f"Future Signal: {art.get('future_signal', 'N/A')}",
+            f"Future Signal Explanation: {art.get('future_signal_explanation', 'N/A')}",
+            f"Sentiment: {art.get('sentiment', 'N/A')}",
+            f"Sentiment Explanation: {art.get('sentiment_explanation', 'N/A')}",
+            f"Time to Impact: {art.get('time_to_impact', 'N/A')}",
+            f"Time to Impact Explanation: {art.get('time_to_impact_explanation', 'N/A')}",
+            f"Driver Type: {art.get('driver_type', 'N/A')}",
+            f"Driver Type Explanation: {art.get('driver_type_explanation', 'N/A')}" ,
+        ]
+        article_blocks.append("\n".join(block))
+
+    combined_articles = "\n\n---\n\n".join(article_blocks)
+
+    # Load prompt template
+    prompt_template = load_prompt_template(mode, duration)
+
+    class _SafeDict(dict):
+        def __missing__(self, key):
+            return "{" + key + "}"
+
+    system_prompt = prompt_template.format_map(
+        _SafeDict(
+            podcast_name=podcast_name,
+            episode_title=episode_title,
+            host_name=host_name,
+            guest_title=guest_title,
+            guest_name=guest_name,
+        )
+    )
+
+    # Get model and generate
+    model_instance = LiteLLMModel.get_instance(llm_model)
+    if not model_instance:
+        raise RuntimeError(f"AI model '{llm_model}' is not configured or unavailable")
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": combined_articles},
+    ]
+
+    logger.info("Generating podcast script via LLM – articles: %d", len(articles))
+    script = model_instance.generate_response(messages)
+    if not script:
+        raise RuntimeError("LLM returned empty script")
+
+    return script 

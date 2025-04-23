@@ -446,6 +446,7 @@
                 <div class="action-buttons">
                     <button id="selectAllBtn" class="btn btn-secondary">Select All</button>
                     <button id="generateReportFromSearch" class="btn btn-success">Generate Report</button>
+                    <button id="generatePodcastFromSearch" class="btn btn-primary">Generate Podcast</button>
                 </div>
             </div>
         </div>
@@ -586,6 +587,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (elements.articleList) {
             elements.articleList.addEventListener('scroll', handleScroll);
         }
+        const genPodcastBtn = document.getElementById('generatePodcastFromSearch');
+        if (genPodcastBtn) genPodcastBtn.addEventListener('click', generatePodcastFromSelected);
         if (document.getElementById('generateReportFromSearch')) {
             document.getElementById('generateReportFromSearch').addEventListener('click', generateReport);
         }
@@ -935,6 +938,56 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         selectAllBtn.textContent = selectAll ? 'Deselect All' : 'Select All';
+    }
+
+    async function generatePodcastFromSelected() {
+        const selectedArticles = Array.from(document.querySelectorAll('.article-checkbox:checked'))
+            .map(cb => cb.dataset.uri);
+
+        if (selectedArticles.length === 0) {
+            alert('Please select at least one article for the podcast.');
+            return;
+        }
+
+        try {
+            // Fetch saved defaults (conversation)
+            const defaultsRes = await fetch('/api/podcast_settings/conversation');
+            const defaults = defaultsRes.ok ? await defaultsRes.json() : {};
+
+            const payload = {
+                title: defaults.podcast_name ? `${defaults.podcast_name} - ${defaults.episode_title || 'Latest'}` : 'Aunoo Live - Latest',
+                mode: 'conversation',
+                host_voice_id: defaults.host_voice_id || '21m00Tcm4TlvDq8ikWAM',
+                guest_voice_id: defaults.guest_voice_id || null,
+                duration_scale: 'default',
+                quality_preset: 'standard',
+                article_uris: selectedArticles
+            };
+
+            const res = await fetch('/api/generate_tts_podcast', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    podcast_name: payload.title,
+                    episode_title: payload.title,
+                    article_uris: payload.article_uris,
+                    host_voice_id: payload.host_voice_id,
+                    guest_voice_id: payload.guest_voice_id,
+                    mode: payload.mode,
+                    script: ''
+                })
+            });
+
+            if (!res.ok) {
+                throw new Error(`Failed: ${res.status}`);
+            }
+
+            const data = await res.json();
+            alert(`Podcast generation started (ID: ${data.podcast_id}). You can monitor progress in Podcast Director page.`);
+        } catch (err) {
+            console.error('Error generating podcast:', err);
+            alert('Error generating podcast');
+        }
     }
 
     function generateReport() {
