@@ -204,6 +204,38 @@
                                 </div>
 
                                 <div class="mb-3">
+                                    <label for="hostName" class="form-label">Host Name</label>
+                                    <input type="text" class="form-control" id="hostName" value="Aunoo" placeholder="Enter the host's name">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="ttsMode" class="form-label" data-bs-toggle="tooltip" title="Conversation uses host + guest. Bulletin uses only the host voice">Podcast Mode</label>
+                                    <select class="form-control" id="ttsMode" onchange="toggleTTSGuestVoice()">
+                                        <option value="conversation" selected>Conversation</option>
+                                        <option value="bulletin">Bulletin</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="ttsDuration" class="form-label" data-bs-toggle="tooltip" title="Short: 1‑2 min, Medium: 3‑5 min, Long: >5 min">Duration</label>
+                                    <select class="form-control" id="ttsDuration">
+                                        <option value="short">Short</option>
+                                        <option value="medium" selected>Medium</option>
+                                        <option value="long">Long</option>
+                                    </select>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="ttsHostVoice" class="form-label">Host Voice</label>
+                                    <select class="form-control" id="ttsHostVoice"></select>
+                                </div>
+
+                                <div class="mb-3" id="ttsGuestVoiceSection">
+                                    <label for="ttsGuestVoice" class="form-label">Guest Voice</label>
+                                    <select class="form-control" id="ttsGuestVoice"></select>
+                                </div>
+
+                                <div class="mb-3">
                                     <label for="llmModel" class="form-label">Script Generation Model</label>
                                     <select class="form-control" id="llmModel">
                                         <option value="gpt-4o">GPT-4 Optimized</option>
@@ -231,7 +263,7 @@
 
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label class="form-label">Script Template</label>
+                                    <label class="form-label">Script Template <i class="fas fa-info-circle ms-1" data-bs-toggle="tooltip" title="Available placeholders: {podcast_name}, {episode_title}, {guest_name}, {guest_title}, {articles_discussion}"></i></label>
                                     <div class="d-flex justify-content-between align-items-center mb-2">
                                         <select class="form-control me-2" id="scriptTemplate">
                                             <option value="default">Default Template</option>
@@ -253,7 +285,8 @@
                                             Edit Script
                                         </button>
                                     </div>
-                                    <div id="scriptEditor" class="border rounded p-3 bg-light" style="min-height: 300px;"></div>
+                                    <!-- Preview / inline editor container -->
+                                    <div id="scriptPreview" class="border rounded p-3 bg-light" style="min-height: 300px;"></div>
                                 </div>
                             </div>
                         </div>
@@ -323,7 +356,7 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <textarea class="form-control" id="scriptEditor" rows="15"></textarea>
+                <textarea class="form-control" id="scriptEditorTextarea" rows="15"></textarea>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -369,7 +402,7 @@
         script.onload = function() {
             require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.36.1/min/vs' }});
             require(['vs/editor/editor.main'], function() {
-                editor = monaco.editor.create(document.getElementById('scriptEditor'), {
+                editor = monaco.editor.create(document.getElementById('scriptPreview'), {
                     value: '',
                     language: 'markdown',
                     theme: 'vs-light',
@@ -405,7 +438,7 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('editScript').addEventListener('click', () => {
         if (editor) {
             const scriptContent = editor.getValue();
-            document.getElementById('scriptEditor').value = scriptContent;
+            document.getElementById('scriptEditorTextarea').value = scriptContent;
             scriptEditorModal.show();
         }
     });
@@ -413,7 +446,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Handle script saving
     document.getElementById('saveScript').addEventListener('click', () => {
         if (editor) {
-            const scriptContent = document.getElementById('scriptEditor').value;
+            const scriptContent = document.getElementById('scriptEditorTextarea').value;
             editor.setValue(scriptContent);
             scriptEditorModal.hide();
         }
@@ -463,6 +496,58 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error saving template:', error);
             alert('Error saving template. Please try again.');
         }
+    });
+
+    // At DOMContentLoaded
+    // 1. populate LLM model select
+    // 2. fetch ElevenLabs voices for host / guest dropdowns
+    // 3. load past podcasts list
+
+    fetch('/api/ai_models')
+        .then(res => res.json())
+        .then(models => {
+            const select = document.getElementById('llmModel');
+            select.innerHTML = '<option value="">Select a model</option>';
+            models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.name;
+                opt.textContent = `${m.name} (${m.provider})`;
+                select.appendChild(opt);
+            });
+        })
+        .catch(err => console.error('Error loading AI models', err));
+
+    // Fetch voices for dropdowns
+    fetch('/api/available_voices')
+        .then(res => res.json())
+        .then(voices => {
+            const hostSel = document.getElementById('ttsHostVoice');
+            const guestSel = document.getElementById('ttsGuestVoice');
+
+            hostSel.innerHTML = '';
+            guestSel.innerHTML = '';
+
+            voices.forEach(v => {
+                const label = `${v.name} (${v.category || 'TTS'})`;
+                const opt1 = new Option(label, v.voice_id, false, false);
+                const opt2 = new Option(label, v.voice_id, false, false);
+                hostSel.appendChild(opt1);
+                guestSel.appendChild(opt2);
+            });
+
+            // Pre‑select first voice as host, second as guest (if available)
+            if (hostSel.options.length) hostSel.selectedIndex = 0;
+            if (guestSel.options.length > 1) guestSel.selectedIndex = 1;
+        })
+        .catch(err => console.error('Error loading voices', err));
+
+    // Load past podcasts immediately
+    loadPastPodcasts();
+
+    // Activate bootstrap tooltips globally
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.forEach(function (tooltipTriggerEl) {
+        new bootstrap.Tooltip(tooltipTriggerEl);
     });
 });
 
@@ -1025,8 +1110,11 @@ document.getElementById('generateScript').addEventListener('click', async () => 
     const podcastName = document.getElementById('podcastName').value;
     const episodeTitle = document.getElementById('episodeTitle').value;
     const model = document.getElementById('llmModel').value;
+    const mode = document.getElementById('ttsMode').value;
     const guestTitle = document.getElementById('guestTitle').value;
     const guestName = document.getElementById('guestName').value;
+    const hostName = document.getElementById('hostName').value;
+    const duration = document.getElementById('ttsDuration').value;
     const selectedArticles = Object.values(selectedArticleData);
 
     if (!podcastName || !episodeTitle) {
@@ -1036,6 +1124,12 @@ document.getElementById('generateScript').addEventListener('click', async () => 
 
     if (selectedArticles.length === 0) {
         alert('Please select at least one article');
+        return;
+    }
+
+    // For conversation mode ensure guest name present; for bulletin ignore
+    if (mode === 'conversation' && !guestName) {
+        alert('Please enter a guest name');
         return;
     }
 
@@ -1049,8 +1143,11 @@ document.getElementById('generateScript').addEventListener('click', async () => 
                 podcast_name: podcastName,
                 episode_title: episodeTitle,
                 model,
-                guest_title: guestTitle,
-                guest_name: guestName,
+                mode,
+                duration,
+                host_name: hostName,
+                guest_title: mode === 'conversation' ? guestTitle : null,
+                guest_name: mode === 'conversation' ? guestName : null,
                 articles: selectedArticles
             })
         });
@@ -1097,7 +1194,9 @@ document.getElementById('ttsForm').addEventListener('submit', async (e) => {
         podcast_name: document.getElementById('podcastName').value,
         episode_title: document.getElementById('episodeTitle').value,
         script: script,
-        host_voice_id: "2qfp6zPuviqeCOZIE9RZ", // Fixed Annie voice ID
+        mode: document.getElementById('ttsMode').value,
+        host_voice_id: document.getElementById('ttsHostVoice').value,
+        guest_voice_id: document.getElementById('ttsMode').value === 'conversation' ? document.getElementById('ttsGuestVoice').value : null,
         guest_title: document.getElementById('guestTitle').value,
         guest_name: guestName,
         model_id: "eleven_multilingual_v2",
@@ -1144,6 +1243,18 @@ document.getElementById('ttsForm').addEventListener('submit', async (e) => {
         `;
     }
 });
+
+// Toggle guest voice visibility for TTS section
+function toggleTTSGuestVoice() {
+    const mode = document.getElementById('ttsMode').value;
+    document.getElementById('ttsGuestVoiceSection').style.display = mode === 'conversation' ? 'block' : 'none';
+
+    // Also toggle guest title & name inputs
+    const guestTitleField = document.getElementById('guestTitle').parentElement;
+    const guestNameField = document.getElementById('guestName').parentElement;
+    guestTitleField.style.display = mode === 'conversation' ? 'block' : 'none';
+    guestNameField.style.display = mode === 'conversation' ? 'block' : 'none';
+}
 </script>
 
 <style>

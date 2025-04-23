@@ -159,10 +159,9 @@ class Database:
                 )
             """)
             
-            # Drop and recreate podcasts table with all necessary columns
-            cursor.execute("DROP TABLE IF EXISTS podcasts")
+            # Ensure podcasts table exists (schema enforced by migrations)
             cursor.execute("""
-                CREATE TABLE podcasts (
+                CREATE TABLE IF NOT EXISTS podcasts (
                     id TEXT PRIMARY KEY,
                     title TEXT,
                     status TEXT DEFAULT 'processing',
@@ -198,7 +197,8 @@ class Database:
                 # Define migrations
                 migrations = [
                     ("ensure_users_table_schema", self._ensure_users_table_schema),
-                    ("ensure_podcasts_table_schema", self._ensure_podcasts_table_schema)
+                    ("ensure_podcasts_table_schema", self._ensure_podcasts_table_schema),
+                    ("ensure_settings_podcasts_table", self._ensure_settings_podcasts_table)
                 ]
                 
                 # Apply missing migrations
@@ -315,6 +315,41 @@ class Database:
                     transcript TEXT
                 )
             """)
+
+    def _ensure_settings_podcasts_table(self, cursor):
+        """Ensure settings_podcasts key‑value table exists."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS settings_podcasts (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+
+    # ------------------------------------------------------------------
+    # Podcast settings helpers
+    # ------------------------------------------------------------------
+
+    def get_podcast_setting(self, key: str, default=None):
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT value FROM settings_podcasts WHERE key = ?", (key,))
+                row = cur.fetchone()
+                return row[0] if row else default
+        except Exception as e:
+            logger.error(f"Error fetching podcast setting {key}: {e}")
+            return default
+
+    def set_podcast_setting(self, key: str, value: str):
+        try:
+            with self.get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("REPLACE INTO settings_podcasts (key, value) VALUES (?, ?)", (key, value))
+                conn.commit()
+                return True
+        except Exception as e:
+            logger.error(f"Error saving podcast setting {key}: {e}")
+            return False
 
     def create_database(self, name):
         # Sanitize the database name

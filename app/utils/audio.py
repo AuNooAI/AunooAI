@@ -72,6 +72,27 @@ if not os.path.exists(FFMPEG_PATH) or not os.path.exists(FFPROBE_PATH):
         FFPROBE_PATH = ffprobe_path
     else:
         logger.error("FFmpeg not found in system PATH. Audio processing may not work correctly.")
+        # Try to find ffmpeg in common locations
+        common_paths = [
+            "/usr/bin/ffmpeg",
+            "/usr/local/bin/ffmpeg",
+            "/opt/homebrew/bin/ffmpeg",  # macOS Homebrew
+            "/usr/local/opt/ffmpeg/bin/ffmpeg",  # macOS Homebrew alternative
+            "C:\\ffmpeg\\bin\\ffmpeg.exe",  # Windows common location
+            "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",  # Windows Program Files
+            "C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe"  # Windows Program Files (x86)
+        ]
+        
+        for path in common_paths:
+            if os.path.exists(path):
+                logger.info(f"Found FFmpeg at common location: {path}")
+                FFMPEG_PATH = path
+                # Try to find corresponding ffprobe
+                ffprobe_path = path.replace("ffmpeg", "ffprobe")
+                if os.path.exists(ffprobe_path):
+                    FFPROBE_PATH = ffprobe_path
+                    logger.info(f"Found FFprobe at: {ffprobe_path}")
+                    break
 
 # Override pydub's which function to use our paths
 def custom_which(program):
@@ -135,7 +156,6 @@ def combine_audio_files(audio_contents: list[bytes], output_filename: str) -> fl
     """
     temp_dir = None
     temp_files = []
-    file_handles = []  # Keep track of open file handles
     segments = []
     combined = None
     max_retries = 3
@@ -143,28 +163,8 @@ def combine_audio_files(audio_contents: list[bytes], output_filename: str) -> fl
     
     def cleanup_temp_dir():
         """Clean up temporary directory and its contents."""
-        # First close all file handles
-        for handle in file_handles:
-            try:
-                handle.close()
-            except:
-                pass
-        file_handles.clear()
-        
         if temp_dir and os.path.exists(temp_dir):
             try:
-                # Force close any open file handles
-                for root, dirs, files in os.walk(temp_dir, topdown=False):
-                    for name in files:
-                        try:
-                            os.close(os.open(os.path.join(root, name), os.O_RDONLY))
-                        except:
-                            pass
-                    for name in dirs:
-                        try:
-                            os.rmdir(os.path.join(root, name))
-                        except:
-                            pass
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 logger.info(f"Successfully removed temporary directory: {temp_dir}")
             except Exception as e:
@@ -175,18 +175,16 @@ def combine_audio_files(audio_contents: list[bytes], output_filename: str) -> fl
         temp_dir = tempfile.mkdtemp(prefix="podcast_temp_", dir=str(USER_TEMP_DIR))
         logger.info(f"Created temporary directory: {temp_dir}")
         
-        # Create temporary files for each segment and keep them open
+        # Create temporary files for each segment
         for i, content in enumerate(audio_contents):
             temp_path = Path(temp_dir) / f"temp_{i}.mp3"
             logger.info(f"Creating temporary file: {temp_path}")
             
-            # Write the file and keep it open
-            f = open(temp_path, "wb")
-            f.write(content)
-            f.flush()
-            os.fsync(f.fileno())
-            f.seek(0)  # Reset file pointer to beginning
-            file_handles.append(f)
+            # Write the file
+            with open(temp_path, "wb") as f:
+                f.write(content)
+                f.flush()
+                os.fsync(f.fileno())
             
             # Verify the file exists and has content
             if not temp_path.exists():
@@ -199,7 +197,7 @@ def combine_audio_files(audio_contents: list[bytes], output_filename: str) -> fl
         
         # Combine audio segments with retries
         combined = AudioSegment.empty()
-        for i, (temp_file, file_handle) in enumerate(zip(temp_files, file_handles)):
+        for i, temp_file in enumerate(temp_files):
             logger.info(f"Loading audio segment from: {temp_file}")
             
             # Add detailed file checks
@@ -222,9 +220,10 @@ def combine_audio_files(audio_contents: list[bytes], output_filename: str) -> fl
                     if retry > 0:
                         time.sleep(retry_delay)
                     
-                    # Read from the already open file handle
-                    file_handle.seek(0)  # Reset file pointer
-                    content = file_handle.read()
+                    # Read the file directly
+                    with open(temp_file, "rb") as f:
+                        content = f.read()
+                    
                     logger.info(f"Successfully read {len(content)} bytes from file")
                     
                     # Create audio segment from memory buffer

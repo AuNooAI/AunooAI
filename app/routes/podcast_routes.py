@@ -27,6 +27,8 @@ from ..models.article import Article
 import uuid
 import random
 import io
+from pathlib import Path
+import re
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -37,7 +39,7 @@ ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel's voice ID
 
 # Default podcast script prompt template
-PODCAST_SCRIPT_PROMPT = """
+PODCAST_CONVERSATION_PROMPT = """
 You are an expert podcast script writer. Create a podcast script for "{podcast_name}" episode titled "{episode_title}".
 The script should be engaging, informative, and maintain a natural conversational flow between the host Annie and {guest_name}, our {guest_title}.
 
@@ -55,6 +57,25 @@ Example format:
 [{guest_name} - {guest_title}] [enthusiastic] Thank you for having me, Annie. I'm excited to share these insights...
 
 [Annie - Host] [curious] That's fascinating! Could you tell us more about...
+"""
+
+# Bulletin (single‑presenter) prompt
+PODCAST_BULLETIN_PROMPT = """
+You are an expert news bulletin writer and presenter. Create a concise podcast bulletin for "{podcast_name}" episode titled "{episode_title}".
+
+Guidelines:
+1. Single presenter (Annie) speaking in the first person. No other speakers.
+2. Use an engaging, authoritative tone suitable for a news bulletin.
+3. Group related items, use clear transitions, and end with a brief sign‑off.
+4. Do NOT include host/guest labels except [Annie - Host] for each section.
+5. Remove any instructions like "Intro music fades in" or sound effects.
+6. Format in markdown with speaker sections and emotional cues in [brackets].
+7. Focus on the key insights and interesting aspects of the provided articles.
+
+Example format:
+[Annie - Host] [upbeat] Good day, this is your "{podcast_name}" bulletin. Our first story...  
+[Annie - Host] [serious] Turning to...  
+[Annie - Host] [warm] And finally, ...  
 """
 
 router = APIRouter(prefix="/api")  # Add /api prefix to all routes
@@ -82,10 +103,22 @@ class PodcastTemplate(BaseModel):
 
 @router.get("/podcast_templates/{template_name}")  # Changed from /templates to /podcast_templates
 async def get_podcast_template(template_name: str):
-    """Get a podcast script template by name."""
+    """Get a podcast script template by name.
+
+    The front‑end expects a JSON object with a `template` key holding
+    the template markdown itself. We therefore wrap the stored
+    template's `content` so the structure matches what the UI expects.
+    """
     if template_name not in TEMPLATES:
         raise HTTPException(status_code=404, detail=f"Template '{template_name}' not found")
-    return TEMPLATES[template_name]
+
+    template = TEMPLATES[template_name]
+    # Backwards compatible payload – both old (content) and new (template)
+    return {
+        "name": template_name,
+        "content": template["content"],
+        "template": template["content"],  # alias used by existing JS
+    }
 
 @router.post("/podcast_templates")  # Changed from /templates to /podcast_templates
 async def save_podcast_template(template: PodcastTemplate):
@@ -126,9 +159,12 @@ class TTSPodcastRequest(BaseModel):
     podcast_name: str
     episode_title: str
     script: str
+    host_name: Optional[str] = "Aunoo"
     host_voice_id: str
+    guest_voice_id: Optional[str] = None
     guest_title: str
     guest_name: str
+    mode: str = "conversation"  # "conversation" or "bulletin"
     model_id: str = "eleven_multilingual_v2"
     output_format: str = "mp3_44100_128"
     voice_settings: VoiceSettings = VoiceSettings()
@@ -146,8 +182,11 @@ class PodcastScriptRequest(BaseModel):
     podcast_name: str
     episode_title: str
     model: str
-    guest_title: str
-    guest_name: str
+    mode: str = "conversation"  # "conversation" or "bulletin"
+    duration: str = "medium"  # short | medium | long
+    host_name: Optional[str] = None
+    guest_title: Optional[str] = None
+    guest_name: Optional[str] = None
     articles: List[dict]
 
 class PodcastScriptResponse(BaseModel):
@@ -168,6 +207,28 @@ class VoiceResponse(BaseModel):
     labels: Optional[Dict[str, str]]
     preview_url: Optional[str]
     available_for_tiers: Optional[List[str]]
+
+PROMPT_BASE_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "prompts" / "script_templates"
+
+def load_prompt_template(mode: str, duration: str) -> str:
+    """Load a prompt template markdown from disk."""
+    # Try JSON first (preferred format)
+    json_path = PROMPT_BASE_DIR / f"{mode}_{duration}.json"
+    if json_path.exists():
+        try:
+            data = json.loads(json_path.read_text(encoding="utf-8"))
+            return data.get("system_prompt", "")
+        except Exception as e:
+            logger.error(f"Failed to parse prompt template {json_path}: {e}")
+
+    # Fallback to legacy markdown
+    md_path = PROMPT_BASE_DIR / f"{mode}_{duration}.md"
+    if md_path.exists():
+        return md_path.read_text(encoding="utf-8")
+
+    # Final fallback – built‑in prompts
+    logger.warning(f"Prompt template for {mode}-{duration} not found – using default in‑code prompt")
+    return PODCAST_CONVERSATION_PROMPT if mode == "conversation" else PODCAST_BULLETIN_PROMPT
 
 def validate_api_keys():
     """Validate that required API keys are set"""
@@ -218,12 +279,15 @@ async def generate_podcast_script(
         combined_articles = "\n\n---\n\n".join(article_texts)
         logger.info(f"Prepared article content, total length: {len(combined_articles)}")
         
-        # Prepare the system prompt
-        system_prompt = PODCAST_SCRIPT_PROMPT.format(
+        # Prepare the system prompt from external template
+        prompt_template = load_prompt_template(request.mode, request.duration)
+
+        system_prompt = prompt_template.format(
             podcast_name=request.podcast_name,
             episode_title=request.episode_title,
-            guest_title=request.guest_title,
-            guest_name=request.guest_name
+            host_name=(request.host_name or "Aunoo"),
+            guest_title=(request.guest_title or "Guest"),
+            guest_name=(request.guest_name or "Auspex"),
         )
         logger.info(f"Prepared system prompt: {system_prompt}")
         
@@ -311,53 +375,143 @@ async def generate_tts_podcast(
             ))
             conn.commit()
         
-        # Get available voices for guest selection
+        # Determine mode and guest voice
         available_voices = await get_available_voices()
-        guest_voice = random.choice([v for v in available_voices if v.voice_id != request.host_voice_id])
+
+        if request.mode == "bulletin":
+            guest_voice = None  # Not used
+        else:
+            # If user specified a guest voice id try to match it; otherwise randomise
+            if request.guest_voice_id:
+                guest_voice = next((v for v in available_voices if v.voice_id == request.guest_voice_id), None)
+                if guest_voice is None:
+                    raise HTTPException(status_code=400, detail="Invalid guest_voice_id provided")
+            else:
+                guest_voice = random.choice([v for v in available_voices if v.voice_id != request.host_voice_id])
+
+            # Randomise name/title if requested or missing
+            if not request.guest_name or request.guest_name.lower() == "random":
+                request.guest_name = guest_voice.name.split()[0] if guest_voice and guest_voice.name else "Guest"
+
+            if not request.guest_title or request.guest_title.lower() == "random":
+                random_titles = [
+                    "Industry Expert",
+                    "Chief Futurist",
+                    "Senior Analyst",
+                    "Innovation Strategist",
+                ]
+                request.guest_title = random.choice(random_titles)
         
+        # Determine host alias list for voice selection
+        host_aliases = { (request.host_name or "Aunoo").lower(), "annie", "host" }
+
         # Split script into sections by speaker
         script_sections = []
         current_section = {"speaker": None, "text": "", "emotion": None}
-        
+
         for line in request.script.split('\n'):
-            if line.strip().startswith('[') and ']' in line:
-                # Save previous section if exists
+            raw = line.strip()
+            # Remove leading markdown bold/italic markers for detection
+            stripped = raw.lstrip('*').lstrip('_').strip()
+
+            speaker_detected = None
+            role = None
+
+            # Pattern 1: [Speaker - Role]
+            if stripped.startswith('[') and ']' in stripped:
+                # Save the previous section before starting a new one
                 if current_section["speaker"]:
                     script_sections.append(current_section)
-                
-                # Parse new section header
-                header = line[line.find('[')+1:line.find(']')]
-                if ' - ' in header:
-                    speaker, role = header.split(' - ')
-                else:
-                    speaker = header
-                    role = None
-                
-                # Look for emotion in next bracket
+
+                # Extract the first bracket block – this always contains the speaker (and optional role)
+                first_close_idx = stripped.find(']')
+                header = stripped[1:first_close_idx]
+                speaker, role = (header.split(' - ') + [None])[:2] if ' - ' in header else (header, None)
+
+                # Attempt to extract a second bracket block which might hold an emotion/context label
                 emotion = None
-                if ']' in line and '[' in line[line.find(']')+1:]:
-                    emotion = line[line.find(']')+1:line.find(']', line.find(']')+1)].strip()
-                
+                remaining_after_first = stripped[first_close_idx + 1:].lstrip()
+                if remaining_after_first.startswith('[') and ']' in remaining_after_first:
+                    second_close_idx = remaining_after_first.find(']')
+                    emotion = remaining_after_first[1:second_close_idx].strip()
+                    remaining_after_first = remaining_after_first[second_close_idx + 1:].lstrip()
+
+                # Anything left after the bracket blocks is actual spoken text – capture it
+                initial_text = remaining_after_first + "\n" if remaining_after_first else ""
+
+                speaker_detected = speaker
                 current_section = {
-                    "speaker": speaker,
+                    "speaker": speaker_detected,
                     "role": role,
-                    "text": "",
+                    "text": initial_text,
                     "emotion": emotion
                 }
             else:
-                current_section["text"] += line + "\n"
-        
+                # Pattern 2: **Speaker**: text
+                m = re.match(r"^\*\*(.+?)\*\*:\s*(.*)$", raw)
+                if m:
+                    speaker_detected = m.group(1).strip()
+                    line_text = m.group(2)
+                    # Save previous
+                    if current_section["speaker"]:
+                        script_sections.append(current_section)
+                    current_section = {
+                        "speaker": speaker_detected,
+                        "role": None,
+                        "text": line_text + "\n",
+                        "emotion": None,
+                    }
+                else:
+                    current_section["text"] += line + "\n"
+
         # Add last section
         if current_section["speaker"]:
             script_sections.append(current_section)
-        
+
+        # Fallback: if no speaker blocks detected, treat the entire script as one host section
+        if not script_sections:
+            logger.warning("No speaker blocks detected in script; using entire script as single host section")
+            script_sections.append({
+                "speaker": "annie",  # default host speaker identifier
+                "role": "Host",
+                "text": request.script,
+                "emotion": None,
+            })
+
         # Generate audio for each section
         audio_segments = []
         client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
-        
+
+        # Utility to clean out non‑verbal stage directions (e.g. "Intro music fades in")
+        def clean_text(raw: str) -> str:
+            text = raw
+            # Remove [bracket] or (parenthesis) stage directions that mention music/sfx
+            text = re.sub(r"\[(?:[^\]]*(music|sound|sfx|fade)[^\]]*)\]", "", text, flags=re.IGNORECASE)
+            text = re.sub(r"\((?:[^)]*(music|sound|sfx|fade)[^)]*)\)", "", text, flags=re.IGNORECASE)
+
+            # Remove bold speaker cues (again) during cleaning step
+            text = re.sub(r"^\*\*[\w\s\-]+:\*\*", "", text, flags=re.MULTILINE)
+            text = re.sub(r"^\*\*[\w\s\-]+\*\*:\s*", "", text, flags=re.MULTILINE)
+
+            cleaned_lines = []
+            for ln in text.splitlines():
+                lowered = ln.lower()
+                # Skip if line still primarily looks like a stage direction
+                if any(kw in lowered for kw in ["intro music", "music fades", "sound effect", "sfx", "fade in", "fade out"]):
+                    continue
+                # Skip heading lines like "Podcast Script for ..."
+                if "podcast script" in lowered:
+                    continue
+                cleaned_lines.append(ln)
+            return "\n".join(cleaned_lines)
+
         for section in script_sections:
-            voice_id = request.host_voice_id if section["speaker"].lower() == "annie" else guest_voice.voice_id
-            
+            # Determine voice mapping
+            if request.mode == "bulletin":
+                voice_id = request.host_voice_id
+            else:
+                voice_id = request.host_voice_id if section["speaker"].lower() in host_aliases else guest_voice.voice_id
+
             # Convert voice settings to dict for the API
             voice_settings_dict = {
                 "stability": request.voice_settings.stability,
@@ -366,25 +520,48 @@ async def generate_tts_podcast(
                 "use_speaker_boost": request.voice_settings.use_speaker_boost,
                 "speed": request.voice_settings.speed
             }
-            
-            audio_generator = client.text_to_speech.convert(
-                voice_id=voice_id,
-                text=section["text"].strip(),
-                model_id=request.model_id,
-                output_format=request.output_format,
-                voice_settings=voice_settings_dict
-            )
-            
-            # Collect audio bytes
-            audio_bytes = b''
-            for chunk in audio_generator:
-                if isinstance(chunk, bytes):
-                    audio_bytes += chunk
-                else:
-                    audio_bytes += chunk.encode()
-            
-            # Add audio bytes to segments list
-            audio_segments.append(audio_bytes)
+
+            # ElevenLabs currently has a ~2.5 k character limit per TTS request.
+            # Break long sections into safe-sized chunks so we do not silently lose content.
+            cleaned = clean_text(section["text"])
+            chunks = split_into_chunks(cleaned, max_chars=2500)
+
+            for chunk_index, chunk_text in enumerate(chunks):
+                previous_text = chunks[chunk_index - 1] if chunk_index > 0 else None
+                next_text = chunks[chunk_index + 1] if chunk_index < len(chunks) - 1 else None
+                try:
+                    audio_generator = client.text_to_speech.convert(
+                        voice_id=voice_id,
+                        text=chunk_text.strip(),
+                        model_id=request.model_id,
+                        output_format=request.output_format,
+                        voice_settings=voice_settings_dict,
+                        previous_text=previous_text,
+                        next_text=next_text,
+                    )
+
+                    # Collect audio bytes
+                    audio_bytes = b"".join(b if isinstance(b, bytes) else b.encode() for b in audio_generator)
+
+                    # Verify audio bytes
+                    if not audio_bytes:
+                        logger.warning(f"Empty audio bytes received for section: {section['speaker']} (chunk {chunk_index})")
+                        continue
+
+                    audio_segments.append(audio_bytes)
+                    logger.info(
+                        f"Successfully generated audio for section: {section['speaker']} (chunk {chunk_index}, size: {len(audio_bytes)} bytes)"
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Error generating audio for section {section['speaker']} (chunk {chunk_index}): {str(e)}"
+                    )
+                    # Continue with other chunks / sections even if one fails
+                    continue
+        
+        # Check if we have any audio segments
+        if not audio_segments:
+            raise ValueError("No audio segments were generated successfully")
         
         # Generate output filename
         if not output_filename:

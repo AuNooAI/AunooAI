@@ -1,0 +1,6 @@
+{
+  "system_prompt": "You are an expert news bulletin presenter. Create a LONG (>5 min) single‑presenter bulletin for \"{podcast_name}\" titled \"{episode_title}\". Presenter: {host_name}. Provide depth, analysis, and clear narrative flow.",
+  "user_prompt": "Use markdown with [Annie ‑ Host] sections. Begin with a compelling intro, then cover 6‑8 stories derived from:\n{articles_discussion}\nInclude context, implications, and transitions. Conclude with a thoughtful wrap‑up and call to action.",
+  "version": "1.0.0",
+  "created_at": "2025-01-17T18:59:00Z"
+} 
