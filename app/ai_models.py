@@ -93,6 +93,9 @@ class AIModel:
         self.api_key = model_config.get("api_key")
         self.max_tokens = model_config.get("max_tokens", 2000)
         self.temperature = model_config.get("temperature", 0.7)
+        # Ensure a uniform attribute name that other components expect.
+        # ``LiteLLMModel`` uses ``model_name`` so we mirror that here.
+        self.model_name = self.model  # type: ignore[attr-defined]
 
     async def generate(self, prompt: str) -> Any:
         try:
