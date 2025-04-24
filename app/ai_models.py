@@ -114,13 +114,116 @@ class AIModel:
             logger.error(f"Error generating with model {self.model}: {str(e)}")
             raise
 
+    def generate_response(self, messages):
+        """Generate a response from a list of chat *messages*.
+
+        This mirrors the signature expected by the rest of the codebase
+        (e.g., *chat_routes.py*).  It keeps the implementation minimal and
+        synchronous, delegating the heavy-lifting to *litellm.completion* just
+        like the *generate* coroutine but without forcing callers to use
+        ``await``.
+
+        Parameters
+        ----------
+        messages : list[dict]
+            The usual OpenAI-style message list:
+            ``{"role": "user|system|assistant", "content": str}``.
+        """
+
+        try:
+            # Set API key if provided (important when multiple models/
+            # providers coexist)
+            if self.api_key:
+                os.environ[f"{self.model.upper()}_API_KEY"] = self.api_key
+
+            response = completion(
+                model=self.model,
+                messages=messages,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+            )
+
+            # Extract the content field in a generic way.
+            if (
+                hasattr(response, "choices")
+                and response.choices
+                and hasattr(response.choices[0], "message")
+                and hasattr(response.choices[0].message, "content")
+            ):
+                return response.choices[0].message.content
+
+            # Fallback: try to cast to str so the caller gets *something*.
+            return str(response)
+
+        except Exception as e:
+            logger.error(
+                "Error in generate_response with model %s: %s",
+                self.model,
+                str(e),
+            )
+            # Propagate so higher-level error handling (fallbacks, HTTP 500 etc.)
+            # works.
+            raise
+
 def load_model_config() -> Dict[str, Dict[str, Any]]:
-    """Load model configuration from YAML file."""
-    config_path = os.path.join("app", "config", "litellm_config.yaml")
+    """Load model configuration from *litellm_config.yaml*.
+
+    The YAML may use either the legacy ``models`` mapping **or** the newer
+    ``model_list`` structure introduced by LiteLLM.  For backward
+    compatibility we merge both:
+
+    * ``models`` – a mapping keyed by model name.
+    * ``model_list`` – a list of entries that include ``model_name``.
+
+    Returns
+    -------
+    dict[str, dict]
+        Dictionary keyed by model name with its configuration as the value.
+    """
+
+    # Locate the config file relative to this module to avoid path issues when
+    # the working directory changes (e.g. when running tests or uvicorn).
+    config_path = os.path.join(
+        os.path.dirname(__file__),
+        "config",
+        "litellm_config.yaml",
+    )
+
     try:
         with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-        return config.get("models", {})
+            raw_config = yaml.safe_load(f) or {}
+
+        # Start with the explicit ``models`` mapping if present (legacy format)
+        models: Dict[str, Dict[str, Any]] = raw_config.get("models", {}).copy()
+
+        # Merge in any entries from the ``model_list`` format that are missing
+        # from the mapping.  We deliberately *do not* overwrite existing keys
+        # so that explicit config wins over derived config.
+        for model_entry in raw_config.get("model_list", []):
+            model_name = model_entry.get("model_name")
+            if not model_name:
+                continue  # Skip invalid entries
+
+            if model_name not in models:
+                # Convert the liteLLM style to the expected structure.
+                litellm_params = model_entry.get("litellm_params", {})
+                models[model_name] = {
+                    "model": litellm_params.get("model", model_name),
+                    # Provide sane defaults if they are not specified.
+                    "max_tokens": litellm_params.get("max_tokens", 2000),
+                    "temperature": litellm_params.get("temperature", 0.7),
+                    # Store the raw litellm params so callers can access them
+                    # when needed (e.g., api_key extraction).
+                    **litellm_params,
+                }
+
+        return models
+
+    except FileNotFoundError:
+        logger.error(
+            "litellm_config.yaml not found at %s. No models available.", config_path
+        )
+        return {}
     except Exception as e:
         logger.error(f"Error loading model config: {str(e)}")
         return {}

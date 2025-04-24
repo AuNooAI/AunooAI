@@ -541,8 +541,8 @@ topicSelect.addEventListener('change', () => {
     }
 });
 
-// Load AI models
-fetch('/api/models')
+// Load AI models (all supported models via LiteLLM config)
+fetch('/api/ai_models')
     .then(response => response.json())
     .then(models => {
         // Ensure models is an array
