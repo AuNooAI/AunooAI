@@ -739,11 +739,16 @@ function displaySearchResults(articles) {
             </div>
         `;
 
-        // Add click handler after creating the element
+        // Safely attach the click handler once the button element is found
         const button = item.querySelector('button');
-        button.addEventListener('click', () => {
-            toggleArticleSelection(article);
-        });
+        if (button) {
+            button.addEventListener('click', () => {
+                toggleArticleSelection(article);
+            });
+        } else {
+            // This should not normally happen but guards against malformed HTML
+            console.warn('displaySearchResults: <button> not found for article', article);
+        }
         
         container.appendChild(item);
     });
