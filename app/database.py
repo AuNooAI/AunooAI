@@ -693,6 +693,24 @@ class Database:
                 
                 cursor.execute(query, params)
                 conn.commit()
+                # After committing to the relational DB, index the article in
+                # the vector store.  We swallow any errors so that a failure
+                # in the secondary store does not break the primary flow.
+                try:
+                    from app.vector_store import upsert_article  # Local import to avoid circular deps
+
+                    upsert_article({
+                        **article_data,
+                        # Provide the original *summary* as the document text
+                        # if available.  Raw content will be attached by
+                        # *Research* when present.
+                    })
+                except Exception as vector_exc:  # pragma: no cover
+                    logger.warning(
+                        "Vector indexing failed for article %s – %s",
+                        article_data.get("uri"),
+                        vector_exc,
+                    )
                 return {"message": "Article saved successfully"}
                 
             except Exception as e:

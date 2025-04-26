@@ -53,6 +53,7 @@ from starlette.templating import _TemplateResponse  # Add this import at the top
 from app.routes.onboarding_routes import router as onboarding_router
 from app.startup import initialize_application
 from app.routes.podcast_routes import router as podcast_router
+from app.routes.vector_routes import router as vector_router
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -197,6 +198,9 @@ app.include_router(onboarding_router)
 
 # Add podcast router
 app.include_router(podcast_router)
+
+# Add vector router
+app.include_router(vector_router)
 
 class ArticleData(BaseModel):
     title: str

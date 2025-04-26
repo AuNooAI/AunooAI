@@ -1,0 +1,182 @@
+{% extends 'base.html' %}
+{% block title %}Vector Analysis{% endblock %}
+
+{% block content %}
+<style>
+    .layout {
+        display: grid;
+        grid-template-columns: 220px 1fr 260px;
+        gap: 1rem;
+        margin-top: 1.5rem;
+    }
+    .sidebar, .meta {
+        background: var(--light-gray);
+        padding: 1rem;
+        border-radius: 8px;
+        height: calc(100vh - 160px);
+        overflow-y: auto;
+    }
+    .main {
+        display: flex;
+        flex-direction: column;
+    }
+    #results {
+        flex: 1;
+        margin-top: 1rem;
+        overflow-y: auto;
+    }
+</style>
+
+<div class="layout">
+    <!-- Left Sidebar -->
+    <div class="sidebar">
+        <h5>Filters</h5>
+        <!-- Dynamic Facets from search response -->
+        <div id="facetList" class="mb-3 small"></div>
+        <div class="mb-3">
+            <label class="form-label">Topic</label>
+            <input type="text" class="form-control" id="filterTopic">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Category</label>
+            <input type="text" class="form-control" id="filterCategory">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Future Signal</label>
+            <input type="text" class="form-control" id="filterFuture">
+        </div>
+        <div class="mb-3">
+            <label class="form-label">Sentiment</label>
+            <input type="text" class="form-control" id="filterSentiment">
+        </div>
+        <button id="applyFilters" class="btn btn-primary w-100">Apply</button>
+    </div>
+
+    <!-- Center Main Content -->
+    <div class="main">
+        <div class="input-group mb-2">
+            <input type="text" id="searchInput" class="form-control" placeholder="Search news…">
+            <button id="searchBtn" class="btn btn-primary">Search</button>
+        </div>
+        <canvas id="timelineChart" height="80"></canvas>
+        <div id="results"></div>
+    </div>
+
+    <!-- Right Metadata -->
+    <div class="meta">
+        <h5>Metadata</h5>
+        <pre id="metaContent" style="white-space: pre-wrap"></pre>
+    </div>
+</div>
+
+<script>
+async function runSearch() {
+    const q = document.getElementById('searchInput').value;
+    if (!q) return;
+
+    const params = new URLSearchParams({ q, top_k: 20 });
+    const topic = document.getElementById('filterTopic').value.trim();
+    const category = document.getElementById('filterCategory').value.trim();
+    const future = document.getElementById('filterFuture').value.trim();
+    const sentiment = document.getElementById('filterSentiment').value.trim();
+    if (topic) params.append('topic', topic);
+    if (category) params.append('category', category);
+    if (future) params.append('future_signal', future);
+    if (sentiment) params.append('sentiment', sentiment);
+
+    const res = await fetch(`/api/vector-search?${params.toString()}`);
+    const data = await res.json();
+    renderResults(data.results);
+    renderFacets(data.facets || {});
+    renderTimeline(data.timeline || {});
+}
+
+function renderResults(results) {
+    const container = document.getElementById('results');
+    container.innerHTML = '';
+    results.forEach(r => {
+        const card = document.createElement('div');
+        card.className = 'card mb-2';
+        const body = document.createElement('div');
+        body.className = 'card-body';
+        const title = r.metadata.title || 'Untitled';
+        const link = r.metadata.uri ? `<a href="${r.metadata.uri}" target="_blank" rel="noopener">${title}</a>` : title;
+        const summary = (r.metadata.summary || '').slice(0, 160);
+        const cat = r.metadata.category ? `Category: ${r.metadata.category}` : '';
+        const topic = r.metadata.topic ? `Topic: ${r.metadata.topic}` : '';
+
+        body.innerHTML = `<h6>${link}</h6>
+            <p class='mb-1'><small>${r.metadata.news_source || ''}</small></p>
+            <p class='mb-1 text-muted small'>${summary}</p>
+            <p class='mb-1'><small>${cat}${cat && topic ? ' · ' : ''}${topic}</small></p>
+            <p class='mb-1'><small>Score: ${r.score.toFixed(3)}</small></p>`;
+        card.appendChild(body);
+        card.addEventListener('click', () => {
+            document.getElementById('metaContent').textContent = JSON.stringify(r.metadata, null, 2);
+        });
+        container.appendChild(card);
+    });
+}
+
+function renderFacets(facets) {
+    const el = document.getElementById('facetList');
+    el.innerHTML = '';
+    Object.entries(facets).forEach(([field, values]) => {
+        const group = document.createElement('div');
+        group.className = 'mb-2';
+        group.innerHTML = `<strong>${field}</strong>`;
+        const list = document.createElement('ul');
+        list.className = 'list-unstyled ms-2';
+        Object.entries(values).sort((a,b)=>b[1]-a[1]).slice(0,10).forEach(([val,count])=>{
+            const li=document.createElement('li');
+            li.innerHTML=`<a href="#" data-field="${field}" data-value="${val}">${val}</a> <span class="text-muted">(${count})</span>`;
+            list.appendChild(li);
+        });
+        group.appendChild(list);
+        el.appendChild(group);
+    });
+
+    // Add click handler to facet links to auto-fill filters and rerun search
+    el.querySelectorAll('a[data-field]').forEach(a=>{
+        a.addEventListener('click',evt=>{
+            evt.preventDefault();
+            const field=a.dataset.field;
+            const value=a.dataset.value;
+            if(field==='topic') document.getElementById('filterTopic').value=value;
+            if(field==='category') document.getElementById('filterCategory').value=value;
+            // Re-run with new filter
+            runSearch();
+        });
+    });
+}
+
+// Simple bar chart with Chart.js (use CDN)
+let timelineChart;
+async function renderTimeline(timeline) {
+    const labels = Object.keys(timeline).sort();
+    const dataPoints = labels.map(l=>timeline[l]);
+    if(!window.Chart){
+        await loadChartJs();
+    }
+    const ctx = document.getElementById('timelineChart').getContext('2d');
+    if(timelineChart){timelineChart.destroy();}
+    timelineChart = new Chart(ctx, {
+        type:'bar',
+        data:{labels,datasets:[{label:'Matches',data:dataPoints,backgroundColor:'#6c63ff'}]},
+        options:{scales:{x:{ticks:{autoSkip:true,maxTicksLimit:10}},y:{beginAtZero:true}}}
+    });
+}
+
+function loadChartJs(){
+    return new Promise(res=>{
+        const s=document.createElement('script');
+        s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+        s.onload=res;
+        document.head.appendChild(s);
+    });
+}
+
+document.getElementById('searchBtn').addEventListener('click', runSearch);
+document.getElementById('applyFilters').addEventListener('click', runSearch);
+</script>
+{% endblock %} 
