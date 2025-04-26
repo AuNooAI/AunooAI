@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 from fastapi import APIRouter, Query, Depends
 from fastapi.responses import JSONResponse
 
-from app.vector_store import search_articles, upsert_article
+from app.vector_store import search_articles, upsert_article, similar_articles
 from app.database import Database, get_database_instance
 
 router = APIRouter(prefix="/api", tags=["vector-search"])
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api", tags=["vector-search"])
 @router.get("/vector-search")
 def vector_search_endpoint(
     q: str = Query(..., description="Search query"),
-    top_k: int = Query(10, ge=1, le=100),
+    top_k: int = Query(100, ge=1, le=500),
     topic: Optional[str] = None,
     category: Optional[str] = None,
     future_signal: Optional[str] = None,
@@ -47,12 +47,19 @@ def vector_search_endpoint(
     facets: dict[str, dict[str, int]] = defaultdict(  # type: ignore[arg-type]
         Counter
     )
-    timeline: dict[str, int] = Counter()
+    # category -> Counter(date)
+    timeline: dict[str, dict[str, int]] = defaultdict(Counter)
 
     for hit in results:
         meta = hit.get("metadata", {})
         # Facets for quick filters
-        for field in ("topic", "category", "news_source"):
+        for field in (
+            "topic",
+            "category",
+            "news_source",
+            "driver_type",
+            "sentiment",
+        ):
             val = meta.get(field)
             if val:
                 facets[field][str(val)] += 1
@@ -61,11 +68,11 @@ def vector_search_endpoint(
         pub_date = meta.get("publication_date")
         if pub_date:
             try:
-                # Accept either date or datetime strings.
                 date_obj = datetime.fromisoformat(str(pub_date))
                 bucket = date_obj.date().isoformat()
-                timeline[bucket] += 1
-            except Exception:  # noqa: BLE001 – skip unparsable dates
+                cat_key = meta.get("category", "Uncategorized")
+                timeline[cat_key][bucket] += 1
+            except Exception:
                 pass
 
     return JSONResponse(
@@ -93,4 +100,20 @@ async def vector_reindex(db: Database = Depends(get_database_instance)):
             indexed += 1
         except Exception as exc:  # pragma: no cover – continue on error
             print(f"Vector upsert failed for {article.get('uri')}: {exc}")
-    return {"indexed": indexed, "total": len(articles)} 
+    return {"indexed": indexed, "total": len(articles)}
+
+
+# ------------------------------------------------------------------
+# Similar articles endpoint (nearest neighbours)
+# ------------------------------------------------------------------
+
+
+@router.get("/vector-similar")
+def vector_similar_endpoint(
+    uri: str = Query(..., description="Article URI"),
+    top_k: int = Query(5, ge=1, le=50),
+):
+    """Return *top_k* articles most similar to the article with *uri*."""
+    return {
+        "results": similar_articles(uri, top_k=top_k),
+    } 
