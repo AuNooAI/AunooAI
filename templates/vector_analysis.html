@@ -2,6 +2,7 @@
 {% block title %}Vector Analysis{% endblock %}
 
 {% block content %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 <style>
     .layout {
         display: grid;
@@ -25,6 +26,20 @@
         margin-top: 1rem;
         overflow-y: auto;
     }
+    /* square icon buttons */
+    .icon-btn {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+        border-radius: 4px !important;
+        background: var(--primary-color);
+        color: #fff;
+    }
+    .icon-btn i { font-size: 14px; pointer-events: none; }
+    /* metadata table */
+    .meta table {width:100%; font-size:0.85rem;}
+    .meta th{color:var(--primary-color); font-weight:500; white-space:nowrap;}
+    .meta td{word-break:break-word;}
 </style>
 
 <div class="layout">
@@ -33,32 +48,24 @@
         <h5>Filters</h5>
         <!-- Dynamic Facets from search response -->
         <div id="facetList" class="mb-3 small"></div>
-        <div class="mb-3">
-            <label class="form-label">Topic</label>
-            <input type="text" class="form-control" id="filterTopic">
-        </div>
-        <div class="mb-3">
-            <label class="form-label">Category</label>
-            <input type="text" class="form-control" id="filterCategory">
-        </div>
-        <div class="mb-3">
-            <label class="form-label">Future Signal</label>
-            <input type="text" class="form-control" id="filterFuture">
-        </div>
-        <div class="mb-3">
-            <label class="form-label">Sentiment</label>
-            <input type="text" class="form-control" id="filterSentiment">
-        </div>
-        <button id="applyFilters" class="btn btn-primary w-100">Apply</button>
+        <small class="text-muted">Use <code>filter(field="value")</code> in the
+            search bar to refine, e.g. <code>agi filter(category="AI Business")</code>
+        </small>
+        <hr>
+        <button id="generateReportBtn" class="btn btn-secondary w-100 mb-2" disabled>Generate Report</button>
+        <button id="generatePodcastBtn" class="btn btn-secondary w-100" disabled>Generate Podcast</button>
     </div>
 
     <!-- Center Main Content -->
     <div class="main">
-        <div class="input-group mb-2">
-            <input type="text" id="searchInput" class="form-control" placeholder="Search news…">
-            <button id="searchBtn" class="btn btn-primary">Search</button>
+        <div class="sticky-top bg-white pt-2" style="z-index:2;">
+            <div class="input-group mb-2">
+                <input type="text" id="searchInput" class="form-control" placeholder="Search news…">
+                <button id="searchBtn" class="btn btn-primary">Search</button>
+            </div>
+            <div id="activeFilters" class="mb-2"></div>
+            <canvas id="timelineChart" height="80"></canvas>
         </div>
-        <canvas id="timelineChart" height="80"></canvas>
         <div id="results"></div>
     </div>
 
@@ -71,24 +78,23 @@
 
 <script>
 async function runSearch() {
-    const q = document.getElementById('searchInput').value;
-    if (!q) return;
+    const raw = document.getElementById('searchInput').value;
+    if (!raw) return;
 
-    const params = new URLSearchParams({ q, top_k: 20 });
-    const topic = document.getElementById('filterTopic').value.trim();
-    const category = document.getElementById('filterCategory').value.trim();
-    const future = document.getElementById('filterFuture').value.trim();
-    const sentiment = document.getElementById('filterSentiment').value.trim();
-    if (topic) params.append('topic', topic);
-    if (category) params.append('category', category);
-    if (future) params.append('future_signal', future);
-    if (sentiment) params.append('sentiment', sentiment);
+    const {cleaned, metadata} = parseQuery(raw);
+
+    const params = new URLSearchParams({ q: cleaned, top_k: 20 });
+    Object.entries(metadata).forEach(([k,v])=>params.append(k, v));
 
     const res = await fetch(`/api/vector-search?${params.toString()}`);
     const data = await res.json();
+    lastResults = data.results;
+    selectedUris.clear();
+    updateActionButtons();
     renderResults(data.results);
     renderFacets(data.facets || {});
     renderTimeline(data.timeline || {});
+    updateActiveChips();
 }
 
 function renderResults(results) {
@@ -96,7 +102,7 @@ function renderResults(results) {
     container.innerHTML = '';
     results.forEach(r => {
         const card = document.createElement('div');
-        card.className = 'card mb-2';
+        card.className = 'card mb-2 position-relative ps-5';
         const body = document.createElement('div');
         body.className = 'card-body';
         const title = r.metadata.title || 'Untitled';
@@ -104,15 +110,23 @@ function renderResults(results) {
         const summary = (r.metadata.summary || '').slice(0, 160);
         const cat = r.metadata.category ? `Category: ${r.metadata.category}` : '';
         const topic = r.metadata.topic ? `Topic: ${r.metadata.topic}` : '';
+        const pub = r.metadata.publication_date ? new Date(r.metadata.publication_date).toISOString().split('T')[0] : '';
 
-        body.innerHTML = `<h6>${link}</h6>
-            <p class='mb-1'><small>${r.metadata.news_source || ''}</small></p>
-            <p class='mb-1 text-muted small'>${summary}</p>
-            <p class='mb-1'><small>${cat}${cat && topic ? ' · ' : ''}${topic}</small></p>
-            <p class='mb-1'><small>Score: ${r.score.toFixed(3)}</small></p>`;
+        body.innerHTML = `<h6 class="ms-4">${link}</h6>
+            <p class='mb-1 ms-4'><small>${pub} · ${r.metadata.news_source || ''}</small></p>
+            <p class='mb-1 text-muted small ms-4'>${summary}</p>
+            <p class='mb-1 ms-4'><small>${cat}${cat && topic ? ' · ' : ''}${topic}</small></p>
+            <p class='mb-1 ms-4'><small>Score: ${r.score.toFixed(3)}</small></p>
+            <div class='d-flex gap-1 ms-4 mb-1'>
+              <button class="btn icon-btn view-db" data-uri="${r.id}" title="View / edit"><i class="fas fa-eye"></i></button>
+              <button class="btn icon-btn edit-note" data-uri="${r.id}" title="Annotate"><i class="fas fa-pen"></i></button>
+              <a href="https://12ft.io/${r.metadata.uri}" target="_blank" class="btn icon-btn" title="Bypass paywall"><i class="fas fa-unlock"></i></a>
+              <a href="https://archive.is/newest/${r.metadata.uri}" target="_blank" class="btn icon-btn" title="Archive snapshot"><i class="fas fa-box"></i></a>
+            </div>`;
         card.appendChild(body);
-        card.addEventListener('click', () => {
-            document.getElementById('metaContent').textContent = JSON.stringify(r.metadata, null, 2);
+        card.addEventListener('click', (e) => {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'A' || e.target.closest('a')) return;
+            renderMetadata(r.metadata);
         });
         container.appendChild(card);
     });
@@ -127,24 +141,46 @@ function renderFacets(facets) {
         group.innerHTML = `<strong>${field}</strong>`;
         const list = document.createElement('ul');
         list.className = 'list-unstyled ms-2';
-        Object.entries(values).sort((a,b)=>b[1]-a[1]).slice(0,10).forEach(([val,count])=>{
-            const li=document.createElement('li');
-            li.innerHTML=`<a href="#" data-field="${field}" data-value="${val}">${val}</a> <span class="text-muted">(${count})</span>`;
+
+        const entries = Object.entries(values).sort((a, b) => b[1] - a[1]);
+        entries.forEach(([val, count], idx) => {
+            const li = document.createElement('li');
+            if (idx >= 5) li.classList.add('d-none', 'extra');
+            li.innerHTML = `<a href="#" data-field="${field}" data-value="${val}">${val}</a> <span class="text-muted">(${count})</span>`;
             list.appendChild(li);
         });
-        group.appendChild(list);
+
+        if (entries.length > 5) {
+            const toggle = document.createElement('a');
+            toggle.href = '#';
+            toggle.className = 'small';
+            toggle.textContent = 'show more...';
+            toggle.addEventListener('click', (e) => {
+                e.preventDefault();
+                list.querySelectorAll('.extra').forEach(li => li.classList.toggle('d-none'));
+                toggle.textContent = toggle.textContent.startsWith('show') ? 'show less' : 'show more...';
+            });
+            group.appendChild(list);
+            group.appendChild(toggle);
+        } else {
+            group.appendChild(list);
+        }
+
         el.appendChild(group);
     });
 
     // Add click handler to facet links to auto-fill filters and rerun search
-    el.querySelectorAll('a[data-field]').forEach(a=>{
-        a.addEventListener('click',evt=>{
+    el.querySelectorAll('a[data-field]').forEach((a) => {
+        a.addEventListener('click', (evt) => {
             evt.preventDefault();
-            const field=a.dataset.field;
-            const value=a.dataset.value;
-            if(field==='topic') document.getElementById('filterTopic').value=value;
-            if(field==='category') document.getElementById('filterCategory').value=value;
-            // Re-run with new filter
+            const { field, value } = a.dataset;
+            const input=document.getElementById('searchInput');
+            const expr=`filter(${field}="${value}")`;
+            if(input.value.includes(expr)){
+                input.value=input.value.replace(expr,'').trim();
+            }else{
+                input.value=`${input.value} ${expr}`.trim();
+            }
             runSearch();
         });
     });
@@ -176,7 +212,173 @@ function loadChartJs(){
     });
 }
 
+function renderMetadata(meta){
+    const pre = document.getElementById('metaContent');
+    const rows = Object.entries(meta).map(([k,v])=>{
+        let val = v;
+        if(k==='uri' || k==='url'){
+            val = `<a href="${v}" target="_blank">link</a>`;
+        }
+        if(['topic','category','news_source','sentiment'].includes(k)){
+            val = `<a href="#" class="meta-filter" data-field="${k}" data-val="${v}">${v}</a>`;
+        }
+        return `<tr><th class='text-end pe-2'>${k}</th><td>${val ?? ''}</td></tr>`;
+    }).join('');
+    pre.innerHTML = `<table class='table table-sm'>${rows}</table>`;
+
+    // Related articles (same topic)
+    const relDiv = document.createElement('div');
+    relDiv.innerHTML = '<h6 class="mt-3">Related</h6>';
+    const relList=document.createElement('ul');
+    relList.className='list-unstyled small';
+    (lastResults||[]).filter(r=>r.metadata.topic===meta.topic && r.id!==meta.uri).slice(0,5).forEach(r=>{
+        const li=document.createElement('li');
+        li.innerHTML=`<a href="#" class="related-link" data-id="${r.id}">${r.metadata.title}</a>`;
+        relList.appendChild(li);
+    });
+    relDiv.appendChild(relList);
+    pre.appendChild(relDiv);
+
+    // click related link to drill
+    pre.querySelectorAll('.related-link').forEach(a=>{
+        a.addEventListener('click',e=>{
+            e.preventDefault();
+            const id=a.dataset.id;
+            const target= (lastResults||[]).find(r=>r.id===id);
+            if(target) renderMetadata(target.metadata);
+        });
+    });
+
+    // drill-down meta filters
+    pre.querySelectorAll('.meta-filter').forEach(a=>{
+        a.addEventListener('click',e=>{
+            e.preventDefault();
+            const { field, val } = a.dataset;
+            const input=document.getElementById('searchInput');
+            input.value=`${input.value} filter(${field}="${val}")`.trim();
+            runSearch();
+        });
+    });
+}
+
+// -------------
+// Filter parser
+// -------------
+function parseQuery(q){
+    const metadata = {};
+    const filterRegex = /filter\(([^)]+)\)/g;
+    let cleaned=q;
+    let m;
+    while((m=filterRegex.exec(q))!==null){
+        cleaned=cleaned.replace(m[0],'').trim();
+        const inner=m[1];
+        // Find every key="value" (quotes required to allow spaces)
+        const pairRe=/(\w+)\s*=\s*"([^"]+)"/g;
+        let p;
+        while((p=pairRe.exec(inner))!==null){
+            metadata[p[1]]=p[2];
+        }
+    }
+    return {cleaned, metadata};
+}
+
+function updateActiveChips() {
+    const container = document.getElementById('activeFilters');
+    const { metadata } = parseQuery(document.getElementById('searchInput').value);
+    container.innerHTML = '';
+
+    Object.entries(metadata).forEach(([field, value]) => {
+        const chip = document.createElement('span');
+        chip.className = 'badge bg-primary me-1';
+        chip.style.cursor = 'pointer';
+        chip.textContent = `${field}: ${value} ×`;
+        chip.addEventListener('click', () => {
+            const raw = document.getElementById('searchInput').value;
+            document.getElementById('searchInput').value = raw.replace(`filter(${field}="${value}")`,'').trim();
+            runSearch();
+        });
+        container.appendChild(chip);
+    });
+    if (!Object.keys(metadata).length) {
+        container.innerHTML = '<small class="text-muted">No filters applied</small>';
+    }
+}
+
+// Selected uris and action buttons
+const selectedUris = new Set();
+function updateActionButtons() {
+    document.getElementById('generateReportBtn').disabled = selectedUris.size === 0;
+    document.getElementById('generatePodcastBtn').disabled = selectedUris.size === 0;
+}
+
+document.getElementById('generateReportBtn').addEventListener('click', async ()=>{
+    if(!selectedUris.size) return;
+    const res = await fetch('/api/generate_report',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ article_ids:[...selectedUris] })
+    });
+    if(res.ok){alert('Report generation started');}
+});
+
+document.getElementById('generatePodcastBtn').addEventListener('click', async ()=>{
+    if(!selectedUris.size) return;
+    const res = await fetch('/api/generate_tts_podcast',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ article_uris:[...selectedUris] })
+    });
+    if(res.ok){alert('Podcast generation started');}
+});
+
 document.getElementById('searchBtn').addEventListener('click', runSearch);
-document.getElementById('applyFilters').addEventListener('click', runSearch);
+
+// Annotation modal appended at end of body when DOM ready
+if(!document.getElementById('noteModal')){
+    const modalHtml=`<div class="modal fade" id="noteModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Annotate</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><textarea id="noteText" class="form-control" rows="4"></textarea><div class="form-check mt-2"><input class="form-check-input" type="checkbox" id="notePrivate"><label class="form-check-label">Private</label></div></div><div class="modal-footer"><button class="btn btn-primary" id="noteSave">Save</button></div></div></div></div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+}
+
+let currentAnnotateUri='';
+document.body.addEventListener('click',e=>{
+    const noteBtn=e.target.closest('.edit-note');
+    if(noteBtn){
+        currentAnnotateUri=noteBtn.dataset.uri;
+        document.getElementById('noteText').value='';
+        document.getElementById('notePrivate').checked=false;
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('noteModal')).show();
+    }
+});
+
+document.getElementById('noteSave').addEventListener('click',async()=>{
+    const txt=document.getElementById('noteText').value.trim();
+    if(!txt) return;
+    await fetch(`/api/articles/${encodeURIComponent(currentAnnotateUri)}/annotations`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({content:txt,is_private:document.getElementById('notePrivate').checked})
+    });
+    bootstrap.Modal.getInstance(document.getElementById('noteModal')).hide();
+    alert('Annotation saved');
+});
+
+// Article detail modal
+if(!document.getElementById('articleModal')){
+    document.body.insertAdjacentHTML('beforeend',`<div class="modal fade" id="articleModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Article Detail</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div id="articleDetail">Loading…</div></div></div></div></div>`);
+}
+
+document.body.addEventListener('click',async e=>{
+    const btn=e.target.closest('.view-db');
+    if(btn){
+        const uri=btn.dataset.uri;
+        const detailBox=document.getElementById('articleDetail');
+        detailBox.textContent='Loading…';
+        bootstrap.Modal.getOrCreateInstance('#articleModal').show();
+        const res=await fetch(`/api/article?uri=${encodeURIComponent(uri)}`);
+        if(res.ok){
+            const data=await res.json();
+            detailBox.innerHTML=`<pre class='small'>${JSON.stringify(data,null,2)}</pre>`;
+        }else{
+            detailBox.textContent='Failed to load article.';
+        }
+    }
+});
 </script>
 {% endblock %} 
