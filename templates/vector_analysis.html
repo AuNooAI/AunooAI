@@ -9,22 +9,26 @@
         grid-template-columns: 220px 1fr 260px;
         gap: 1rem;
         margin-top: 1.5rem;
+        /* keep sidebars fixed, results scroll inside */
+        height: calc(100vh - 120px);
+        overflow: hidden;
     }
     .sidebar, .meta {
         background: var(--light-gray);
         padding: 1rem;
         border-radius: 8px;
-        height: calc(100vh - 160px);
         overflow-y: auto;
     }
     .main {
         display: flex;
         flex-direction: column;
+        overflow: hidden;
     }
     #results {
         flex: 1;
         margin-top: 1rem;
         overflow-y: auto;
+        height: 100%;
     }
     /* square icon buttons */
     .icon-btn {
@@ -52,6 +56,10 @@
             search bar to refine, e.g. <code>agi filter(category="AI Business")</code>
         </small>
         <hr>
+        <div class="mb-3">
+            <label class="form-label small">Max results</label>
+            <input type="number" id="topK" class="form-control form-control-sm" value="100" min="1" max="500" style="width:100px;">
+        </div>
         <button id="generateReportBtn" class="btn btn-secondary w-100 mb-2" disabled>Generate Report</button>
         <button id="generatePodcastBtn" class="btn btn-secondary w-100" disabled>Generate Podcast</button>
     </div>
@@ -61,10 +69,31 @@
         <div class="sticky-top bg-white pt-2" style="z-index:2;">
             <div class="input-group mb-2">
                 <input type="text" id="searchInput" class="form-control" placeholder="Search news…">
+                <div class="btn-group me-2">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" id="searchModeBtn">Fuzzy</button>
+                    <ul class="dropdown-menu dropdown-menu-end small">
+                        <li><a class="dropdown-item mode-select" data-mode="fuzzy" href="#">Fuzzy</a></li>
+                        <li><a class="dropdown-item mode-select" data-mode="keyword" href="#">Keyword</a></li>
+                    </ul>
+                </div>
                 <button id="searchBtn" class="btn btn-primary">Search</button>
             </div>
             <div id="activeFilters" class="mb-2"></div>
-            <canvas id="timelineChart" height="80"></canvas>
+            <!-- Tabs -->
+            <ul class="nav nav-tabs small mb-2" id="resultTabs" role="tablist">
+              <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#eventsPane" type="button" role="tab">Events</button></li>
+              <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#patternsPane" type="button" role="tab">Patterns</button></li>
+              <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#statsPane" type="button" role="tab">Statistics</button></li>
+              <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#vizPane" type="button" role="tab">Visualization</button></li>
+            </ul>
+            <div class="tab-content">
+              <div class="tab-pane fade show active" id="eventsPane" role="tabpanel">
+                <canvas id="timelineChart" height="80"></canvas>
+              </div>
+              <div class="tab-pane fade" id="patternsPane" role="tabpanel"><div class="p-3 text-muted small">Coming soon…</div></div>
+              <div class="tab-pane fade" id="statsPane" role="tabpanel"><div class="p-3 text-muted small">Coming soon…</div></div>
+              <div class="tab-pane fade" id="vizPane" role="tabpanel"><div class="p-3 text-muted small">Coming soon…</div></div>
+            </div>
         </div>
         <div id="results"></div>
     </div>
@@ -72,7 +101,7 @@
     <!-- Right Metadata -->
     <div class="meta">
         <h5>Metadata</h5>
-        <pre id="metaContent" style="white-space: pre-wrap"></pre>
+        <div id="metaContent" class="small"></div>
     </div>
 </div>
 
@@ -83,11 +112,43 @@ async function runSearch() {
 
     const {cleaned, metadata} = parseQuery(raw);
 
-    const params = new URLSearchParams({ q: cleaned, top_k: 20 });
-    Object.entries(metadata).forEach(([k,v])=>params.append(k, v));
-
-    const res = await fetch(`/api/vector-search?${params.toString()}`);
-    const data = await res.json();
+    const topK = document.getElementById('topK').value;
+    const mode = document.getElementById('searchModeBtn').dataset.mode || 'fuzzy';
+    let data;
+    if(mode==='keyword'){
+        const params=new URLSearchParams({
+            keyword: cleaned,
+            per_page: topK,
+            search_fields: 'title,summary,tags',
+        });
+        const res=await fetch(`/api/search_articles?${params.toString()}`);
+        const raw=await res.json();
+        const kwResults = raw.articles.map(a=>({id:a.uri,score:0,metadata:a}));
+        // Build facets and simple timeline (by category & date)
+        const facets = {};
+        const timeline = {};
+        kwResults.forEach(res=>{
+            const m=res.metadata;
+            ["topic","category","news_source","driver_type","sentiment"].forEach(f=>{
+                if(m[f]){
+                    facets[f]??={};
+                    facets[f][m[f]] = (facets[f][m[f]]||0)+1;
+                }
+            });
+            if(m.publication_date){
+                const d=new Date(m.publication_date).toISOString().split('T')[0];
+                const cat=m.category||'Uncategorized';
+                timeline[cat]??={};
+                timeline[cat][d]=(timeline[cat][d]||0)+1;
+            }
+        });
+        data={results:kwResults,facets,timeline};
+    }else{
+        const params = new URLSearchParams({ q: cleaned, top_k: topK });
+        Object.entries(metadata).forEach(([k,v])=>params.append(k, v));
+        const res = await fetch(`/api/vector-search?${params.toString()}`);
+        data = await res.json();
+    }
     lastResults = data.results;
     selectedUris.clear();
     updateActionButtons();
@@ -103,6 +164,21 @@ function renderResults(results) {
     results.forEach(r => {
         const card = document.createElement('div');
         card.className = 'card mb-2 position-relative ps-5';
+        // Selection checkbox
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'form-check-input position-absolute';
+        checkbox.style.left = '12px';
+        checkbox.style.top = '18px';
+        checkbox.addEventListener('change', () => {
+            if (checkbox.checked) {
+                selectedUris.add(r.id);
+            } else {
+                selectedUris.delete(r.id);
+            }
+            updateActionButtons();
+        });
+
         const body = document.createElement('div');
         body.className = 'card-body';
         const title = r.metadata.title || 'Untitled';
@@ -124,6 +200,7 @@ function renderResults(results) {
               <a href="https://archive.is/newest/${r.metadata.uri}" target="_blank" class="btn icon-btn" title="Archive snapshot"><i class="fas fa-box"></i></a>
             </div>`;
         card.appendChild(body);
+        card.appendChild(checkbox);
         card.addEventListener('click', (e) => {
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'A' || e.target.closest('a')) return;
             renderMetadata(r.metadata);
@@ -188,18 +265,39 @@ function renderFacets(facets) {
 
 // Simple bar chart with Chart.js (use CDN)
 let timelineChart;
-async function renderTimeline(timeline) {
-    const labels = Object.keys(timeline).sort();
-    const dataPoints = labels.map(l=>timeline[l]);
-    if(!window.Chart){
-        await loadChartJs();
-    }
-    const ctx = document.getElementById('timelineChart').getContext('2d');
+async function renderTimeline(timeline){
+    if(!timeline || !Object.keys(timeline).length){return;}
+
+    // Build date axis
+    const dateSet=new Set();
+    Object.values(timeline).forEach(catObj=>{
+        Object.keys(catObj).forEach(d=>dateSet.add(d));
+    });
+    const labels=Array.from(dateSet).sort();
+
+    const palette=[
+        '#6c63ff','#ff6384','#36a2eb','#ff9f40','#4bc0c0','#9966ff','#c9cbcf',
+    ];
+    const datasets=Object.entries(timeline).map(([cat,obj],idx)=>({
+        label:cat,
+        data:labels.map(d=>obj[d]||0),
+        backgroundColor:palette[idx%palette.length],
+        stack:'stack1'
+    }));
+
+    if(!window.Chart){await loadChartJs();}
+    const ctx=document.getElementById('timelineChart').getContext('2d');
     if(timelineChart){timelineChart.destroy();}
-    timelineChart = new Chart(ctx, {
+    timelineChart=new Chart(ctx,{
         type:'bar',
-        data:{labels,datasets:[{label:'Matches',data:dataPoints,backgroundColor:'#6c63ff'}]},
-        options:{scales:{x:{ticks:{autoSkip:true,maxTicksLimit:10}},y:{beginAtZero:true}}}
+        data:{labels,datasets},
+        options:{
+            plugins:{legend:{display:true,position:'bottom'}},
+            scales:{
+                x:{stacked:true,ticks:{autoSkip:true,maxTicksLimit:10}},
+                y:{stacked:true,beginAtZero:true},
+            }
+        }
     });
 }
 
@@ -231,10 +329,13 @@ function renderMetadata(meta){
     relDiv.innerHTML = '<h6 class="mt-3">Related</h6>';
     const relList=document.createElement('ul');
     relList.className='list-unstyled small';
-    (lastResults||[]).filter(r=>r.metadata.topic===meta.topic && r.id!==meta.uri).slice(0,5).forEach(r=>{
-        const li=document.createElement('li');
-        li.innerHTML=`<a href="#" class="related-link" data-id="${r.id}">${r.metadata.title}</a>`;
-        relList.appendChild(li);
+    // Fetch from backend similar endpoint
+    fetch(`/api/vector-similar?uri=${encodeURIComponent(meta.uri)}&top_k=5`).then(r=>r.json()).then(d=>{
+        d.results.forEach(r=>{
+            const li=document.createElement('li');
+            li.innerHTML=`<a href="#" class="related-link" data-id="${r.id}">${r.metadata.title}</a>`;
+            relList.appendChild(li);
+        });
     });
     relDiv.appendChild(relList);
     pre.appendChild(relDiv);
@@ -379,6 +480,16 @@ document.body.addEventListener('click',async e=>{
             detailBox.textContent='Failed to load article.';
         }
     }
+});
+
+// Search mode dropdown handlers
+document.querySelectorAll('.mode-select').forEach(el=>{
+    el.addEventListener('click',e=>{
+        e.preventDefault();
+        const mode=el.dataset.mode;
+        document.getElementById('searchModeBtn').textContent=mode.charAt(0).toUpperCase()+mode.slice(1);
+        document.getElementById('searchModeBtn').dataset.mode=mode;
+    });
 });
 </script>
 {% endblock %} 

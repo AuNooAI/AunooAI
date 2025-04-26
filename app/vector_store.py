@@ -101,6 +101,53 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
 # Public API – upsert & search
 # --------------------------------------------------------------------------------------
 
+def similar_articles(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    """Return *top_k* articles most similar to the one with *uri*.
+
+    The first result returned by Chroma is the reference article itself – we
+    skip it and return the next closest matches.
+    """
+    try:
+        collection = _get_collection()
+
+        doc_data = collection.get(ids=[uri], include=["documents"])  # type: ignore[arg-type]
+        if not doc_data.get("ids"):
+            return []
+
+        doc_text = doc_data["documents"][0]
+
+        if collection._embedding_function is None:  # type: ignore[attr-defined]
+            embeds = _embed_texts([doc_text])
+            res = collection.query(
+                query_embeddings=embeds,
+                n_results=top_k + 1,
+                include=["metadatas", "distances"],
+            )
+        else:
+            res = collection.query(
+                query_texts=[doc_text],
+                n_results=top_k + 1,
+                include=["metadatas", "distances"],
+            )
+
+        out: List[Dict[str, Any]] = []
+        for idx, _id in enumerate(res["ids"][0]):
+            if _id == uri:
+                continue
+            out.append(
+                {
+                    "id": _id,
+                    "score": res["distances"][0][idx],
+                    "metadata": res["metadatas"][0][idx],
+                }
+            )
+            if len(out) >= top_k:
+                break
+        return out
+    except Exception as exc:  # pragma: no cover – log & degrade gracefully
+        logger.error("Vector similarity search failed for %s – %s", uri, exc)
+        return []
+
 def upsert_article(article: Dict[str, Any]) -> None:
     """Upsert an *article* into the Chroma collection.
 
