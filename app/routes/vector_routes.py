@@ -17,6 +17,7 @@ def vector_search_endpoint(
     category: Optional[str] = None,
     future_signal: Optional[str] = None,
     sentiment: Optional[str] = None,
+    news_source: Optional[str] = None,
 ):
     """Semantic search endpoint backed by ChromaDB.
 
@@ -32,6 +33,8 @@ def vector_search_endpoint(
         metadata_filter["future_signal"] = future_signal
     if sentiment:
         metadata_filter["sentiment"] = sentiment
+    if news_source:
+        metadata_filter["news_source"] = news_source
 
     results = search_articles(q, top_k=top_k, metadata_filter=metadata_filter)
 
@@ -41,7 +44,9 @@ def vector_search_endpoint(
     from collections import Counter, defaultdict
     from datetime import datetime
 
-    facets: dict[str, dict[str, int]] = defaultdict(Counter)  # type: ignore[arg-type]
+    facets: dict[str, dict[str, int]] = defaultdict(  # type: ignore[arg-type]
+        Counter
+    )
     timeline: dict[str, int] = Counter()
 
     for hit in results:

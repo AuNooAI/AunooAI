@@ -205,7 +205,11 @@ def search_articles(
             "include": ["metadatas", "distances"],
         }
         if metadata_filter:
-            query_kwargs["where"] = metadata_filter
+            query_kwargs["where"] = (
+                metadata_filter
+                if len(metadata_filter) == 1
+                else {"$and": [{k: v} for k, v in metadata_filter.items()]}
+            )
 
         try:
             if collection._embedding_function is None:  # type: ignore[attr-defined]
