@@ -92,7 +92,10 @@
               </div>
               <div class="tab-pane fade" id="patternsPane" role="tabpanel"><div class="p-3 text-muted small">Coming soon…</div></div>
               <div class="tab-pane fade" id="statsPane" role="tabpanel"><div class="p-3 text-muted small">Coming soon…</div></div>
-              <div class="tab-pane fade" id="vizPane" role="tabpanel"><div class="p-3 text-muted small">Coming soon…</div></div>
+              <div class="tab-pane fade" id="vizPane" role="tabpanel">
+                <div class="p-3 text-muted small" id="vizLoading">Loading…</div>
+                <div id="scatter" style="width:100%;height:600px;display:none;"></div>
+              </div>
             </div>
         </div>
         <div id="results"></div>
@@ -491,5 +494,56 @@ document.querySelectorAll('.mode-select').forEach(el=>{
         document.getElementById('searchModeBtn').dataset.mode=mode;
     });
 });
+
+// ---------------------------
+// Embedding visualisation (Plotly)
+// ---------------------------
+// Load and render once when the tab first becomes visible
+let scatterLoaded=false;
+document.querySelector('button[data-bs-target="#vizPane"]').addEventListener('shown.bs.tab',()=>{
+    if(scatterLoaded) return;
+    scatterLoaded=true;
+    initScatter();
+});
+
+async function initScatter(){
+    const loading=document.getElementById('vizLoading');
+    const div=document.getElementById('scatter');
+
+    // Bring in plotly
+    if(!window.Plotly){
+        await new Promise(res=>{
+            const s=document.createElement('script');
+            s.src='https://cdn.plot.ly/plotly-2.27.0.min.js';
+            s.onload=res;
+            document.head.appendChild(s);
+        });
+    }
+
+    // fetch projection
+    const pts=await fetch('/api/embedding_projection').then(r=>r.json());
+    if(!pts.length){loading.textContent='No data';return;}
+
+    const trace={
+        type:'scattergl',mode:'markers',
+        x:pts.map(p=>p.x),
+        y:pts.map(p=>p.y),
+        marker:{size:7,color:pts.map(p=>p.cluster),colorscale:'Viridis',opacity:0.9},
+        text:pts.map(p=>p.title||''),
+        hovertemplate:'%{text}<extra>cluster=%{marker.color}</extra>'
+    };
+    Plotly.newPlot(div,[trace],{margin:{t:0,l:0,r:0,b:0},hovermode:'closest'});
+    loading.style.display='none';
+    div.style.display='block';
+
+    div.on('plotly_click',async ev=>{
+        const idx=ev.points[0].pointIndex;
+        const selId=pts[idx].id;
+        const neighbours=await fetch(`/api/embedding_neighbours?id=${encodeURIComponent(selId)}&top_k=5`).then(r=>r.json());
+        const ids=[selId,...neighbours.map(n=>n.id)];
+        const style=pts.map(p=>ids.includes(p.id)?1:0.15);
+        Plotly.restyle(div,{ 'marker.opacity':[style] });
+    });
+}
 </script>
 {% endblock %} 

@@ -18,6 +18,12 @@ import sqlite3
 from pathlib import Path
 import sys
 
+# Ensure .env variables are loaded *before* any application modules that may
+# read from os.environ during import time (e.g. vector_store).
+from dotenv import load_dotenv  # type: ignore
+
+load_dotenv()
+
 # Ensure project root (parent of scripts/) is on PYTHONPATH so that 'app'
 # package is importable even when this script is executed directly.
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -26,7 +32,7 @@ if str(ROOT_DIR) not in sys.path:
 
 # Now we can import application modules
 from app.config.settings import DATABASE_DIR  # type: ignore
-from app.vector_store import upsert_article
+from app.vector_store import upsert_article, get_chroma_client
 from app.database import Database
 
 logger = logging.getLogger(__name__)
@@ -69,6 +75,9 @@ def main():
         return 1
 
     db = Database()
+
+    client = get_chroma_client()
+    client.delete_collection("articles")       # drop current index
 
     total = 0
     for article in iter_articles(db, args.limit):

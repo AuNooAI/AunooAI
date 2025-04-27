@@ -33,10 +33,61 @@ def _get_embedding_function():
     supply *embeddings* explicitly when upserting/querying.
     """
     api_key = os.getenv("OPENAI_API_KEY")
+
+    # 1. Scan env for any variable that *contains* OPENAI_API_KEY (covers
+    #    suffixes such as OPENAI_API_KEY_GPT_4O).
+    if not api_key:
+        for name, val in os.environ.items():
+            if "OPENAI_API_KEY" in name and val:
+                api_key = val
+                break
+
+    # 2. Still nothing?  Peek inside LiteLLM config for a key reference or
+    #    literal token.
+    if not api_key:
+        import yaml  # type: ignore
+        from pathlib import Path
+
+        cfg_path = Path(__file__).parent / "config" / "litellm_config.yaml"
+        if cfg_path.exists():
+            try:
+                with cfg_path.open("r", encoding="utf-8") as fh:
+                    cfg = yaml.safe_load(fh)
+                for entry in cfg.get("model_list", []):
+                    params: dict = entry.get("litellm_params", {})
+                    if params.get("model", "").startswith("openai/"):
+                        api_spec = params.get("api_key")
+                        if not api_spec:
+                            continue
+                        if api_spec.startswith("os.environ/"):
+                            env_var = api_spec.split("/", 1)[1]
+                            api_key = os.getenv(env_var)
+                        else:
+                            api_key = api_spec
+                        if api_key:
+                            break
+            except Exception as exc:  # pragma: no cover – config optional
+                logger.warning("Failed to read litellm_config.yaml: %s", exc)
+
     if api_key and openai:
-        return OpenAIEmbeddingFunction(
-            api_key, model_name="text-embedding-3-small"
+        logger.info("Vector store: using OpenAI embeddings (text-embedding-3-small)")
+        return OpenAIEmbeddingFunction(api_key, model_name="text-embedding-3-small")
+
+    # Diagnostic logging – explain why we cannot use OpenAI
+    if not api_key:
+        logger.warning(
+            "Vector store: no OPENAI_API_KEY* env var found – falling back to the "
+            "built-in ONNX mini-LM embedder."
         )
+    elif not openai:
+        logger.warning(
+            "Vector store: 'openai' package not installed – falling back to ONNX embedder."
+        )
+    else:
+        logger.warning(
+            "Vector store: unknown reason prevented OpenAI embedder – falling back to ONNX."
+        )
+
     return None  # Caller will embed manually.
 
 
@@ -56,7 +107,14 @@ def _get_collection() -> chromadb.Collection:
 
     # We try to get it; if it does not exist we create it with an optional embedder
     try:
-        return client.get_collection(name=_COLLECTION_NAME)
+        col = client.get_collection(name=_COLLECTION_NAME)
+        # If the collection was created earlier without an embedder, attach one
+        # dynamically so we no longer need to supply embeddings manually.
+        if col._embedding_function is None:  # type: ignore[attr-defined]
+            emb_fn = _get_embedding_function()
+            if emb_fn is not None:
+                col.add_embedding_function(emb_fn)  # type: ignore[attr-defined]
+        return col
     except (ValueError, ChromaNotFoundError):  # Collection absent → create
         return client.create_collection(
             name=_COLLECTION_NAME,
@@ -76,17 +134,31 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key and openai:
-        openai.api_key = api_key
         try:
-            resp = openai.Embedding.create(
-                model="text-embedding-3-small",
-                input=texts,
-            )
-            # The response ordering is guaranteed to match the input order.
-            return [
-                item["embedding"]
-                for item in sorted(resp["data"], key=lambda x: x["index"])
-            ]
+            if hasattr(openai, "OpenAI"):  # Official >=1.0 client
+                client = openai.OpenAI(api_key=api_key)  # type: ignore
+                resp = client.embeddings.create(
+                    model="text-embedding-3-small",
+                    input=texts,
+                )
+                data = resp.data  # type: ignore[attr-defined]
+            else:  # Legacy 0.x SDK
+                openai.api_key = api_key  # type: ignore[attr-defined]
+                resp = getattr(openai, "Embedding").create(  # type: ignore[attr-defined]
+                    model="text-embedding-3-small",
+                    input=texts,
+                )
+                data = resp["data"]
+
+            def _get_idx(it):
+                return it["index"] if isinstance(it, dict) else it.index  # type: ignore[attr-defined]
+
+            embeddings_list = []
+            for it in sorted(data, key=_get_idx):
+                emb = it["embedding"] if isinstance(it, dict) else it.embedding  # type: ignore[attr-defined]
+                embeddings_list.append(emb)
+
+            return embeddings_list
         except Exception as exc:
             logger.warning(
                 "OpenAI embedding failed, falling back to random. Error: %s",
@@ -116,19 +188,14 @@ def similar_articles(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
 
         doc_text = doc_data["documents"][0]
 
-        if collection._embedding_function is None:  # type: ignore[attr-defined]
-            embeds = _embed_texts([doc_text])
-            res = collection.query(
-                query_embeddings=embeds,
-                n_results=top_k + 1,
-                include=["metadatas", "distances"],
-            )
-        else:
-            res = collection.query(
-                query_texts=[doc_text],
-                n_results=top_k + 1,
-                include=["metadatas", "distances"],
-            )
+        # Always embed locally (1536-dim) to avoid relying on the collection's
+        # attached embedder which may differ in dimensionality.
+        embeds = _embed_texts([doc_text])
+        res = collection.query(
+            query_embeddings=embeds,
+            n_results=top_k + 1,
+            include=["metadatas", "distances"],
+        )
 
         out: List[Dict[str, Any]] = []
         for idx, _id in enumerate(res["ids"][0]):
@@ -175,20 +242,16 @@ def upsert_article(article: Dict[str, Any]) -> None:
             return
 
         def _do_upsert(col):
-            if col._embedding_function is None:  # type: ignore[attr-defined]
-                embs = _embed_texts([doc_text])
-                col.upsert(
-                    ids=[article["uri"]],
-                    documents=[doc_text],
-                    embeddings=embs,
-                    metadatas=[_build_metadata(article)],
-                )
-            else:
-                col.upsert(
-                    ids=[article["uri"]],
-                    documents=[doc_text],
-                    metadatas=[_build_metadata(article)],
-                )
+            # Always embed locally to avoid relying on whatever embedder the
+            # collection happens to have attached (which may differ in
+            # dimensionality).  This guarantees consistent 1536-dim vectors.
+            embs = _embed_texts([doc_text])
+            col.upsert(
+                ids=[article["uri"]],
+                documents=[doc_text],
+                embeddings=embs,
+                metadatas=[_build_metadata(article)],
+            )
 
         try:
             _do_upsert(collection)
@@ -218,7 +281,7 @@ def upsert_article(article: Dict[str, Any]) -> None:
 
 def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
     """Extract a subset of article fields to use as vector metadata."""
-    return {
+    meta = {
         "title": article.get("title"),
         "news_source": article.get("news_source"),
         "category": article.get("category"),
@@ -230,6 +293,8 @@ def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
         "summary": article.get("summary"),
         "uri": article.get("uri"),
     }
+    # Remove keys whose value is ``None`` – Chroma only accepts str, int, float bool.
+    return {k: v for k, v in meta.items() if v is not None}
 
 
 def search_articles(
@@ -259,17 +324,11 @@ def search_articles(
             )
 
         try:
-            if collection._embedding_function is None:  # type: ignore[attr-defined]
-                embeds = _embed_texts([query])
-                res = collection.query(
-                    query_embeddings=embeds,
-                    **query_kwargs,
-                )
-            else:
-                res = collection.query(
-                    query_texts=[query],
-                    **query_kwargs,
-                )
+            embeds = _embed_texts([query])
+            res = collection.query(
+                query_embeddings=embeds,
+                **query_kwargs,
+            )
         except (ValueError, ChromaNotFoundError) as err:
             if "does not exists" in str(err):
                 logger.warning("Collection missing; recreating…")
