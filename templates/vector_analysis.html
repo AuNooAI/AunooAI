@@ -83,17 +83,25 @@
             <ul class="nav nav-tabs small mb-2" id="resultTabs" role="tablist">
               <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#eventsPane" type="button" role="tab">Events</button></li>
               <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#patternsPane" type="button" role="tab">Patterns</button></li>
-              <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#statsPane" type="button" role="tab">Statistics</button></li>
               <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#vizPane" type="button" role="tab">Visualization</button></li>
             </ul>
             <div class="tab-content">
               <div class="tab-pane fade show active" id="eventsPane" role="tabpanel">
                 <canvas id="timelineChart" height="80"></canvas>
               </div>
-              <div class="tab-pane fade" id="patternsPane" role="tabpanel"><div class="p-3 text-muted small">Coming soon…</div></div>
-              <div class="tab-pane fade" id="statsPane" role="tabpanel"><div class="p-3 text-muted small">Coming soon…</div></div>
+              <div class="tab-pane fade" id="patternsPane" role="tabpanel">
+                <div id="patternList" class="small p-2"></div>
+              </div>
               <div class="tab-pane fade" id="vizPane" role="tabpanel">
                 <div class="p-3 text-muted small" id="vizLoading">Loading…</div>
+                <div class="d-flex align-items-center mb-1">
+                  <select id="embedMethod" class="form-select form-select-sm me-2" style="width:120px;">
+                    <option value="umap">UMAP</option>
+                    <option value="tsne">t-SNE</option>
+                    <option value="pca">PCA</option>
+                  </select>
+                  <div id="clusterLegend" class="small flex-wrap"></div>
+                </div>
                 <div id="scatter" style="width:100%;height:600px;display:none;"></div>
               </div>
             </div>
@@ -545,15 +553,22 @@ async function updateScatter(){
     loading.textContent='Loading…';
     loading.style.display='block';
 
-    // Build filter params from searchInput contents
+    // Build filter params
     const { metadata } = parseQuery(document.getElementById('searchInput').value);
     const params=new URLSearchParams();
     Object.entries(metadata).forEach(([k,v])=>params.append(k,v));
+    params.append('method',document.getElementById('embedMethod').value);
     const res=await fetch(`/api/embedding_projection?${params.toString()}`);
-    const pts=await res.json();
+    const data=await res.json();
+
+    const pts = data.points || data;
     if(!pts.length){loading.textContent='No data';return;}
 
     window.scatterPoints=pts;
+    window.clusterExplain=data.explain||{};
+    window.clusterCentroids=data.centroids||{};
+
+    const custom=pts.map(p=>(window.clusterExplain[p.cluster]||[]).join(', '));
 
     const trace={
         type:'scattergl',mode:'markers',
@@ -561,11 +576,117 @@ async function updateScatter(){
         y:pts.map(p=>p.y),
         marker:{size:7,color:pts.map(p=>p.cluster),colorscale:'Viridis',opacity:0.9},
         text:pts.map(p=>p.title||''),
-        hovertemplate:'%{text}<extra>cluster=%{marker.color}</extra>'
+        customdata:custom,
+        hovertemplate:'%{text}<br><small>%{customdata}</small><extra>cluster=%{marker.color}</extra>'
     };
-    Plotly.react(div,[trace],{margin:{t:0,l:0,r:0,b:0},hovermode:'closest'});
+    Plotly.react(div,[trace],{margin:{t:0,l:0,r:0,b:0},hovermode:'closest',plugins:{legend:{display:true,position:'right'}}});
+
+    // Build legend after fetching points
+    const cls=[...new Set(pts.map(p=>p.cluster))].sort((a,b)=>a-b);
+    rebuildLegend(cls);
 
     loading.style.display='none';
+}
+
+// Utility to build filter params object
+function buildQueryParams(){
+  const { cleaned, metadata } = parseQuery(document.getElementById('searchInput').value);
+  const p=new URLSearchParams();
+  if(cleaned){p.append('q', cleaned);}
+  Object.entries(metadata).forEach(([k,v])=>p.append(k,v));
+  return p;
+}
+
+function buildFilterParams(){
+  const { metadata } = parseQuery(document.getElementById('searchInput').value);
+  return metadata;
+}
+
+// ---------------------------
+// Patterns and Statistics loaders
+// ---------------------------
+let patternsLoaded=false;
+
+document.querySelector('button[data-bs-target="#patternsPane"]').addEventListener('shown.bs.tab',()=>{
+  if(patternsLoaded) return;
+  loadPatterns();
+  patternsLoaded=true;
+});
+
+async function loadPatterns(){
+  const res = await fetch(`/api/patterns?${buildQueryParams()}`);
+  const data = await res.json();
+
+  const list = document.getElementById('patternList');
+  let html = '<h6>Top keywords</h6><div class="mb-2">';
+  (data.ngrams||[]).slice(0,20).forEach(ng=>{
+     html+=`<span class="badge bg-secondary me-1 mb-1">${ng.text} (${ng.count})</span>`;
+  });
+  html+='</div><h6 class="mt-3">Outliers</h6>';
+
+  // Fetch top anomalies (embedding space outliers)
+  const anoRes = await fetch(`/api/embedding_anomalies?${buildQueryParams()}`);
+  const anomalies = await anoRes.json();
+  html += anomalies.map(a=>`
+       <div class="border-bottom py-1">
+          <a href="#" class="outlier-link" data-id="${a.id}">${a.metadata.title || 'Untitled'}</a>
+          <small class="text-muted">score ${a.score.toFixed(3)}</small>
+       </div>`).join('');
+
+  list.innerHTML = html;
+
+  // click to open metadata
+  list.querySelectorAll('.outlier-link').forEach(link=>{
+      link.addEventListener('click',async e=>{
+          e.preventDefault();
+          const id=link.dataset.id;
+          let target=(window.lastResults||[]).find(r=>r.id===id);
+          if(!target){
+               const res=await fetch(`/api/article?uri=${encodeURIComponent(id)}`);
+               if(res.ok){
+                   const meta=await res.json();
+                   renderMetadata(meta);
+                   return;
+               }
+          }
+          if(target){renderMetadata(target.metadata);}            
+      });
+  });
+}
+
+// ---------------------------
+// Visualization helpers – method dropdown & legend
+// ---------------------------
+document.getElementById('embedMethod').addEventListener('change',()=>{
+  if(scatterLoaded){updateScatter();}
+});
+
+function rebuildLegend(clusters){
+  const container=document.getElementById('clusterLegend');
+  container.innerHTML='';
+  clusters.forEach(idx=>{
+    const span=document.createElement('span');
+    span.className='badge me-1';
+    span.style.background='#6c63ff';
+    span.style.cursor='pointer';
+    span.textContent=`Cluster ${idx}`;
+    const kw=(window.clusterExplain||{})[idx];
+    if(kw){span.title=kw.join(', ');}  // tooltip
+    span.addEventListener('click',()=>{
+      const style=window.scatterPoints.map(p=>p.cluster===idx?1:0.1);
+      Plotly.restyle('scatter',{'marker.opacity':[style]});
+    });
+    container.appendChild(span);
+  });
+}
+
+// simple fallback: cycle through a fixed palette
+function palette(n){
+  const base = ['#6c63ff','#36a2eb','#ff6384','#ff9f40',
+                '#4bc0c0','#9966ff','#c9cbcf'];
+  const colours = [];
+  for (let i = 0; i < n; i++) colours.push(base[i % base.length]);
+  return colours;
 }
 </script>
 {% endblock %} 
