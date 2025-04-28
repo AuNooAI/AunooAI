@@ -136,7 +136,7 @@ def vector_similar_endpoint(
 # ------------------------------------------------------------------
 
 
-def _fetch_vectors(limit: int | None = None):
+def _fetch_vectors(limit: int | None = None, where: Optional[Dict[str, Any]] = None):
     """Return `(vectors, metadatas, ids)` truncated to *limit* items.
 
     Vectors are returned as an ``np.ndarray`` of shape ``(n, dim)`` to
@@ -147,9 +147,16 @@ def _fetch_vectors(limit: int | None = None):
 
     collection = _vector_collection()
     try:
-        res = collection.get(limit=limit, include=["embeddings", "metadatas"])
+        kw = {"include": ["embeddings", "metadatas"]}
+        if limit:
+            kw["limit"] = limit  # type: ignore[assignment]
+        if where:
+            kw["where"] = where  # type: ignore[assignment]
+        res = collection.get(**kw)  # type: ignore[arg-type]
     except Exception as exc:  # Fallback – corrupted records without embeddings
-        logging.getLogger(__name__).error("Chroma get() failed: %s", exc)
+        logging.getLogger(__name__).error(
+            "Chroma get() failed: %s", exc
+        )
         return np.empty((0, 0), dtype=np.float32), [], []
 
     vectors = np.asarray(res.get("embeddings", []), dtype=np.float32)
@@ -161,8 +168,16 @@ def _fetch_vectors(limit: int | None = None):
 @router.get("/embedding_projection")
 def embedding_projection(
     top_k: int = Query(
-        500, ge=10, le=5000, description="Number of points to project"
+        500,
+        ge=10,
+        le=5000,
+        description="Number of points to project",
     ),
+    topic: Optional[str] = None,
+    category: Optional[str] = None,
+    future_signal: Optional[str] = None,
+    sentiment: Optional[str] = None,
+    news_source: Optional[str] = None,
 ) -> List[dict]:
     """Return a 2-D UMAP projection together with a lightweight cluster label.
 
@@ -170,7 +185,25 @@ def embedding_projection(
     containing ``id``, ``x``, ``y``, ``cluster`` and a couple of handy
     metadata fields (currently ``title``).
     """
-    vectors, metas, ids = _fetch_vectors(limit=top_k)
+    # Build optional metadata filter using same semantics as vector-search
+    where: Dict[str, Any] | None = None
+    if any([topic, category, sentiment, news_source, future_signal]):
+        where = {}
+        if topic:
+            where["topic"] = topic
+        if category:
+            where["category"] = category
+        if sentiment:
+            where["sentiment"] = sentiment
+        if news_source:
+            where["news_source"] = news_source
+        if future_signal:
+            where["future_signal"] = future_signal
+
+    vectors, metas, ids = _fetch_vectors(
+        limit=top_k,
+        where=where,
+    )
     if vectors.size == 0:
         return []
 

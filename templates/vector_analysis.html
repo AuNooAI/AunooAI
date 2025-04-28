@@ -510,7 +510,7 @@ async function initScatter(){
     const loading=document.getElementById('vizLoading');
     const div=document.getElementById('scatter');
 
-    // Bring in plotly
+    // Bring in plotly if missing
     if(!window.Plotly){
         await new Promise(res=>{
             const s=document.createElement('script');
@@ -520,9 +520,40 @@ async function initScatter(){
         });
     }
 
-    // fetch projection
-    const pts=await fetch('/api/embedding_projection').then(r=>r.json());
+    // Initial fetch
+    window.scatterPoints=[];
+    await updateScatter();
+
+    // click handler
+    div.on('plotly_click',async ev=>{
+        const idx=ev.points[0].pointIndex;
+        const selId=window.scatterPoints[idx].id;
+        const neighbours=await fetch(`/api/embedding_neighbours?id=${encodeURIComponent(selId)}&top_k=5`).then(r=>r.json());
+        const ids=[selId,...neighbours.map(n=>n.id)];
+        const style=window.scatterPoints.map(p=>ids.includes(p.id)?1:0.15);
+        Plotly.restyle(div,{ 'marker.opacity':[style] });
+    });
+
+    loading.style.display='none';
+    div.style.display='block';
+}
+
+// Refresh scatter with current filters
+async function updateScatter(){
+    const loading=document.getElementById('vizLoading');
+    const div=document.getElementById('scatter');
+    loading.textContent='Loading…';
+    loading.style.display='block';
+
+    // Build filter params from searchInput contents
+    const { metadata } = parseQuery(document.getElementById('searchInput').value);
+    const params=new URLSearchParams();
+    Object.entries(metadata).forEach(([k,v])=>params.append(k,v));
+    const res=await fetch(`/api/embedding_projection?${params.toString()}`);
+    const pts=await res.json();
     if(!pts.length){loading.textContent='No data';return;}
+
+    window.scatterPoints=pts;
 
     const trace={
         type:'scattergl',mode:'markers',
@@ -532,18 +563,9 @@ async function initScatter(){
         text:pts.map(p=>p.title||''),
         hovertemplate:'%{text}<extra>cluster=%{marker.color}</extra>'
     };
-    Plotly.newPlot(div,[trace],{margin:{t:0,l:0,r:0,b:0},hovermode:'closest'});
-    loading.style.display='none';
-    div.style.display='block';
+    Plotly.react(div,[trace],{margin:{t:0,l:0,r:0,b:0},hovermode:'closest'});
 
-    div.on('plotly_click',async ev=>{
-        const idx=ev.points[0].pointIndex;
-        const selId=pts[idx].id;
-        const neighbours=await fetch(`/api/embedding_neighbours?id=${encodeURIComponent(selId)}&top_k=5`).then(r=>r.json());
-        const ids=[selId,...neighbours.map(n=>n.id)];
-        const style=pts.map(p=>ids.includes(p.id)?1:0.15);
-        Plotly.restyle(div,{ 'marker.opacity':[style] });
-    });
+    loading.style.display='none';
 }
 </script>
 {% endblock %} 
