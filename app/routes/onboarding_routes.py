@@ -184,17 +184,9 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
                 from firecrawl import FirecrawlApp
                 firecrawl = FirecrawlApp(api_key=api_key)
                 
-                # Try a simple test scrape
-                test_result = firecrawl.scrape_url(
-                    "https://example.com",
-                    params={'formats': ['markdown']}
-                )
-                
-                if 'markdown' not in test_result:
-                    raise HTTPException(
-                        status_code=400, 
-                        detail="Invalid Firecrawl API key"
-                    )
+                # Validation: if the call returns without raising an exception,
+                # we consider the key valid – no need to inspect the payload.
+                firecrawl.scrape_url("https://example.com", formats=["markdown"])
                 
                 # Save API key - using primary format
                 primary_env_var = 'PROVIDER_FIRECRAWL_KEY'
