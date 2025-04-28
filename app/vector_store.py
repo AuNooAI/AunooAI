@@ -290,6 +290,7 @@ def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
         "time_to_impact": article.get("time_to_impact"),
         "topic": article.get("topic"),
         "publication_date": article.get("publication_date"),
+        "tags": article.get("tags"),
         "summary": article.get("summary"),
         "uri": article.get("uri"),
     }
@@ -361,4 +362,29 @@ def search_articles(
         logger.error(
             "Vector search failed for query '%s' – %s", query, exc
         )
-        return [] 
+        return []
+
+def embedding_projection(vecs: List[List[float]]) -> Dict[str, Any]:
+    """Cluster the vectors using MiniBatchKMeans and return centroids and sizes."""
+    from sklearn.cluster import MiniBatchKMeans
+    from collections import Counter
+
+    km = MiniBatchKMeans(n_clusters=3, random_state=42)
+    clusters = km.fit_predict(vecs)
+    centroids = km.cluster_centers_.tolist()
+    sizes = Counter(clusters)
+
+    out = []
+    for i, cluster in enumerate(clusters):
+        out.append({
+            "x": vecs[i][0],
+            "y": vecs[i][1],
+            "cluster": cluster,
+            "size": sizes[cluster],
+        })
+
+    return {
+        "points": out,
+        "centroids": centroids,
+        "sizes": sizes,
+    } 
