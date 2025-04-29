@@ -224,6 +224,7 @@
         display: flex;
         gap: 10px;
         margin-top: 15px;
+        flex-wrap: wrap;  /* Ensure extra buttons stay visible */
     }
 
     .preview-content {
@@ -496,6 +497,9 @@
                     <button id="updatePreview" class="btn btn-primary">Update Preview</button>
                     <button id="saveReport" class="btn btn-info">Save Report</button>
                     <button id="downloadReport" class="btn btn-secondary">Download Report</button>
+                    <button id="sendToPodcast" class="btn btn-primary" disabled title="Generate a podcast script from this report">
+                        Generate Podcast
+                    </button>
                 </div>
             </div>
         </div>
@@ -1104,10 +1108,28 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error('Error updating preview:', error);
             reportPreview.innerHTML = '<p class="error">Error generating preview</p>';
         });
+
+        // Enable/disable Send to Podcast button
+        const sendBtn = document.getElementById('sendToPodcast');
+        if (sendBtn) sendBtn.disabled = !(reportDraft && reportDraft.value.trim());
     }
 
     // Add event listener for the update preview button
     document.getElementById('updatePreview').addEventListener('click', updatePreview);
+
+    // Enable Send to Podcast button when draft edits occur
+    document.getElementById('reportDraft').addEventListener('input', () => {
+        const sendBtn = document.getElementById('sendToPodcast');
+        sendBtn.disabled = !document.getElementById('reportDraft').value.trim();
+    });
+
+    // Send to Podcast handler
+    document.getElementById('sendToPodcast').addEventListener('click', () => {
+        const draft = document.getElementById('reportDraft').value.trim();
+        if (!draft) return;
+        localStorage.setItem('podcast_draft_script', draft);
+        window.location.href = '/podcastdirector';
+    });
 
     function toggleCustomDateRange() {
         customDateRange.style.display = dateRange.value === 'custom' ? 'block' : 'none';

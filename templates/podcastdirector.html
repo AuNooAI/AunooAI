@@ -350,6 +350,13 @@
                     scrollBeyondLastLine: false,
                     automaticLayout: true
                 });
+
+                // Prefill script from database_chat if available
+                const draft = localStorage.getItem('podcast_draft_script');
+                if (draft) {
+                    editor.setValue(draft);
+                    localStorage.removeItem('podcast_draft_script');
+                }
             });
         };
         document.head.appendChild(script);
