@@ -392,6 +392,15 @@
             >
                 <i class="fas fa-paper-plane"></i>
             </button>
+            <!-- New: Generate Podcast button (disabled until an assistant reply is available) -->
+            <button
+                id="podcastButton"
+                class="btn btn-outline-secondary"
+                disabled
+                title="Generate a podcast script from the last answer"
+            >
+                <i class="fas fa-podcast"></i>
+            </button>
         </div>
 
         <div class="loading" id="loadingIndicator">
@@ -414,6 +423,7 @@ const loadingIndicator = document.getElementById('loadingIndicator');
 const categoryButtons = document.getElementById('categoryButtons');
 const queryButtons = document.querySelectorAll('.query-button');
 let availableCategories = [];  // Store available categories globally
+let lastAssistantMessage = '';
 
 // Query template definitions
 const templates = {
@@ -660,6 +670,8 @@ async function sendMessage() {
             throw new Error('Invalid response format from server');
         }
         addMessage(data.response, false);
+        lastAssistantMessage = data.response;
+        updatePodcastButton();
     } catch (error) {
         addMessage(`Error: ${error.message}`, false);
         console.error('Error:', error);
@@ -678,6 +690,24 @@ userInput.addEventListener('keypress', (e) => {
         sendMessage();
     }
 });
+
+// Podcast button handler
+const podcastButton = document.getElementById('podcastButton');
+
+function updatePodcastButton() {
+    podcastButton.disabled = !lastAssistantMessage;
+}
+
+podcastButton.addEventListener('click', () => {
+    if (!lastAssistantMessage) return;
+    // Store the script in localStorage so podcastdirector page can prefill
+    localStorage.setItem('podcast_draft_script', typeof lastAssistantMessage === 'object' ? lastAssistantMessage.response || '' : lastAssistantMessage);
+    // Navigate to the podcast director page
+    window.location.href = '/podcastdirector';
+});
+
+// Ensure button state reflects current value on load
+updatePodcastButton();
 
 function createCategoryButtons(categories) {
     categoryButtons.innerHTML = '';
