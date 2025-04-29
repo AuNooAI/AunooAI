@@ -1,0 +1,270 @@
+{% extends 'base.html' %}
+{% block title %}Follow the Flow{% endblock %}
+
+{% block content %}
+<style>
+  :root {
+      --primary-color: #FF69B4;  /* Hot Pink */
+      --primary-dark: #FF1493;   /* Deep Pink */
+      --light-gray: #f8f9fa;
+  }
+  .controls {
+      display:flex;
+      flex-wrap:wrap;
+      gap:0.5rem;
+      margin-bottom:1rem;
+  }
+  .filter-box{min-width:160px;}
+  .filter-panel{
+      background-color:var(--light-gray);
+      border-radius:8px;
+      padding:20px;
+      margin-bottom:20px;
+  }
+  .filter-row{
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+      gap:15px;
+      margin-bottom:0;
+  }
+</style>
+
+<div class="container mt-4">
+  <h2 class="mb-3">Follow the Flow</h2>
+  <div class="controls">
+    <select id="topicSelect" class="form-select" style="max-width:220px;"></select>
+    <select id="timeframeSelect" class="form-select" style="max-width:160px;">
+      <option value="all" selected>All time</option>
+      <option value="7">Last 7 days</option>
+      <option value="30">Last 30 days</option>
+      <option value="90">Last 90 days</option>
+    </select>
+    <input id="topSourcesInput" type="number" value="12" min="3" max="50" class="form-control" title="Top sources count" style="width:120px;"/>
+    <select id="colorMode" class="form-select" style="width:180px;">
+      <option value="stage" selected>Colour by stage</option>
+      <option value="source">Colour by source</option>
+      <option value="category">Colour by category</option>
+    </select>
+    <button id="refreshBtn" class="btn btn-primary">Refresh</button>
+  </div>
+  <div id="filtersContainer" class="filter-panel">
+    <div class="filter-row">
+      <select id="sourceFilter" class="form-select filter-box select2-multiple" multiple title="Filter by source"></select>
+      <select id="categoryFilter" class="form-select filter-box select2-multiple" multiple title="Filter by category"></select>
+      <select id="sentimentFilter" class="form-select filter-box select2-multiple" multiple title="Filter by sentiment"></select>
+      <div class="form-check align-self-center">
+        <input class="form-check-input me-1" type="checkbox" id="includeOtherCheckbox" checked>
+        <label class="form-check-label" for="includeOtherCheckbox">Include "Other sources"</label>
+      </div>
+      <div class="form-check align-self-center">
+        <input class="form-check-input me-1" type="checkbox" id="showCategoryCheckbox" checked>
+        <label class="form-check-label" for="showCategoryCheckbox">Show category stage</label>
+      </div>
+    </div>
+  </div>
+  <div id="sankeyChart" style="height:700px;"></div>
+</div>
+
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+async function loadTopics() {
+    try {
+        const res = await fetch('/api/topics');
+        const topics = await res.json();
+        const select = document.getElementById('topicSelect');
+        select.innerHTML = '<option value="">All topics</option>';
+        topics.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.name;
+            opt.textContent = t.name;
+            select.appendChild(opt);
+        });
+    } catch(e) { console.error(e); }
+}
+
+// Utility for fallback pastel hues when stage color not used
+function pastelColor(idx, total) {
+    const hue = (idx * 360 / total) % 360;
+    return `hsl(${hue},60%,70%)`;
+}
+
+const STAGE_COLORS = ['#4e79a7', '#f28e2c', '#59a14f']; // source, category, sentiment
+
+function buildSankeyData(articles, maxSources, includeOther=true, includeCategory=true) {
+    const MAX_SOURCES = maxSources;
+
+    // Count occurrences per source
+    const sourceCounts = articles.reduce((acc, art) => {
+        const src = art.source || 'Unknown source';
+        acc[src] = (acc[src] || 0) + 1;
+        return acc;
+    }, {});
+
+    // Determine top sources
+    const topSources = Object.entries(sourceCounts)
+        .sort((a,b)=>b[1]-a[1])
+        .slice(0, MAX_SOURCES)
+        .map(([name])=>name);
+
+    const nodeIndices = new Map();
+    const nodes = [];
+    function getIndex(label) {
+        if(!nodeIndices.has(label)) {
+            nodeIndices.set(label, nodes.length);
+            nodes.push(label);
+        }
+        return nodeIndices.get(label);
+    }
+
+    const pairCounts = new Map();
+    const stageMap = new Map(); // label -> stage index 0-2
+
+    articles.forEach(art => {
+        let src = art.source || 'Unknown source';
+        if(!topSources.includes(src)) {
+            if(!includeOther) return; // skip this article altogether
+            src = 'Other sources';
+        }
+
+        let cat = art.category || 'Unknown';
+        if(cat.toLowerCase().includes('unknown')) return; // Skip unknowns
+
+        const sent = art.sentiment || 'Unknown sentiment';
+
+        // only three stages
+        const pairs = includeCategory ? [[src, cat],[cat, sent]] : [[src, sent]];
+        pairs.forEach(([a,b]) => {
+            const key = `${a}>>${b}`;
+            pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+            const aIdx = getIndex(a);
+            const bIdx = getIndex(b);
+            // Track stage for coloring
+            if(!stageMap.has(a)) stageMap.set(a, includeCategory? (pairs.length===2 && b===cat?0: pairs.indexOf([a,b])) : 0);
+            if(!stageMap.has(b)) {
+                const stageGuess = stageMap.get(a)+1;
+                stageMap.set(b, stageGuess);
+            }
+        });
+    });
+
+    const sources = [];
+    const targets = [];
+    const values = [];
+    pairCounts.forEach((val, key) => {
+        const [a, b] = key.split('>>');
+        sources.push(getIndex(a));
+        targets.push(getIndex(b));
+        values.push(val);
+    });
+
+    // Generate colors: use stage palette fallback pastel
+    const palette = includeCategory ? STAGE_COLORS : ['#4e79a7','#59a14f'];
+    const nodeColors = nodes.map(label => {
+        const stage = stageMap.get(label);
+        if(stage !== undefined) return palette[stage] || pastelColor(0,1);
+        return pastelColor(0,1);
+    });
+
+    // Unique color for each link
+    const linkColors = values.map((_, idx) => pastelColor(idx, values.length));
+
+    return { nodes, sources, targets, values, nodeColors, linkColors };
+}
+
+function renderSankey(data) {
+    const trace = {
+        type: 'sankey',
+        orientation: 'h',
+        node: {
+            pad: 30,
+            thickness: 30,
+            label: data.nodes,
+            color: data.nodeColors,
+            font: {size: 10, color: '#000'}
+        },
+        link: {
+            source: data.sources,
+            target: data.targets,
+            value: data.values,
+            color: data.linkColors
+        }
+    };
+    const layout = {
+        title: 'Article Flow Across Stages',
+        font: {size: 12},
+        height: 650,
+        margin: {l: 50, r: 50, t: 40, b: 10},
+        autosize: true
+    };
+    Plotly.react('sankeyChart', [trace], layout, {responsive: true});
+}
+
+function applyFilters(records) {
+    const sel = id => Array.from(document.getElementById(id).selectedOptions).map(o=>o.value);
+    const srcSel = sel('sourceFilter');
+    const catSel = sel('categoryFilter');
+    const sentSel = sel('sentimentFilter');
+    return records.filter(r=>{
+        const srcOk = srcSel.length? srcSel.includes(r.source): true;
+        const catOk = catSel.length? catSel.includes(r.category): true;
+        const sentOk = sentSel.length? sentSel.includes(r.sentiment): true;
+        return srcOk && catOk && sentOk;
+    });
+}
+
+function populateFilters(records){
+    function unique(field){return [...new Set(records.map(r=>r[field]).filter(Boolean))].sort();}
+    const setOptions=(id,list)=>{
+        const select=document.getElementById(id);
+        if(select.options.length) return; // only first time
+        list.forEach(v=>{
+            const opt=document.createElement('option');
+            opt.value=opt.textContent=v; select.appendChild(opt);
+        });
+    };
+    setOptions('sourceFilter',unique('source'));
+    setOptions('categoryFilter',unique('category').filter(v=>v!=='Unknown category'));
+    setOptions('sentimentFilter',unique('sentiment'));
+}
+
+async function fetchAndRender() {
+    const topic = document.getElementById('topicSelect').value;
+    const timeframe = document.getElementById('timeframeSelect').value;
+    const topSources = parseInt(document.getElementById('topSourcesInput').value || '12',10);
+    const mode = document.getElementById('colorMode').value;
+    const includeOther = document.getElementById('includeOtherCheckbox').checked;
+    const includeCategory = document.getElementById('showCategoryCheckbox').checked;
+    const params = new URLSearchParams({timeframe, topSources});
+    if(topic) params.append('topic', topic);
+    const res = await fetch(`/api/flow_data?${params.toString()}`);
+    const records = await res.json();
+    populateFilters(records);
+    const filtered = applyFilters(records);
+    const sankey = buildSankeyData(filtered, topSources, includeOther, includeCategory);
+    renderSankey(sankey);
+}
+
+// Event listeners
+document.getElementById('refreshBtn').addEventListener('click', fetchAndRender);
+
+['sourceFilter','categoryFilter','sentimentFilter','colorMode','topSourcesInput','includeOtherCheckbox','showCategoryCheckbox'].forEach(id=>{
+    document.getElementById(id).addEventListener('change', fetchAndRender);
+});
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadTopics();
+    // Initialise Select2 multi-selects once DOM ready
+    $('.select2-multiple').select2({
+        placeholder:'Select options',
+        allowClear:true,
+        width:'resolve'
+    }).on('change', fetchAndRender);
+
+    fetchAndRender();
+});
+</script>
+{% endblock %} 

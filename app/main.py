@@ -3123,6 +3123,68 @@ def generate_podcast_script(articles: list, mode: str, title: str) -> str:
     script += "Thank you for listening!"
     return script
 
+@app.get("/follow-flow", response_class=HTMLResponse)
+async def follow_flow_route(request: Request, session=Depends(verify_session)):
+    """Render the Follow the Flow Gantt chart page."""
+    return templates.TemplateResponse(
+        "follow_flow.html",
+        get_template_context(request)
+    )
+
+@app.get("/api/flow_data")
+async def get_flow_data(
+    timeframe: str = Query("all", description="Timeframe in days or 'all' for no limit"),
+    topic: Optional[str] = Query(None, description="Topic name to filter by"),
+    limit: int = Query(500, ge=1, le=2000, description="Maximum number of articles to return"),
+    db: Database = Depends(get_database_instance)
+):
+    """Return flow data for Gantt chart visualisation.
+
+    Each record contains the source, category, sentiment, and driver_type for an article.
+    """
+    logger.info("Fetching flow data: timeframe=%s, topic=%s, limit=%s", timeframe, topic, limit)
+    query = (
+        "SELECT COALESCE(news_source, 'Unknown') AS source, "
+        "COALESCE(category, 'Unknown') AS category, "
+        "COALESCE(sentiment, 'Unknown') AS sentiment, "
+        "COALESCE(driver_type, 'Unknown') AS driver_type, "
+        "submission_date "
+        "FROM articles WHERE 1=1"
+    )
+    params = []
+
+    if topic:
+        query += " AND topic = ?"
+        params.append(topic)
+
+    if timeframe != "all":
+        try:
+            days = int(timeframe)
+            query += " AND submission_date >= date('now', ?)"
+            params.append(f'-{days} days')
+        except ValueError:
+            logger.warning("Invalid timeframe value provided: %s", timeframe)
+
+    query += " ORDER BY submission_date DESC LIMIT ?"
+    params.append(limit)
+
+    with db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+
+    data = [
+        {
+            "source": row[0],
+            "category": row[1],
+            "sentiment": row[2],
+            "driver_type": row[3],
+            "submission_date": row[4],
+        } for row in rows
+    ]
+    logger.info("Returning %d flow records", len(data))
+    return JSONResponse(content=data)
+
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain('cert.pem', keyfile='key.pem')
