@@ -31,6 +31,8 @@
     {
       "name": "elevenlabs",
       "display_name": "ElevenLabs",
+      "config_type": "api_key",
+      "enabled": true,
       "description": "AI Voice Generation and Podcast Creation",
       "api_key_required": true,
       "api_key_name": "ELEVENLABS_API_KEY",
