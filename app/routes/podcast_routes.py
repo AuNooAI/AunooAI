@@ -1366,6 +1366,7 @@ async def dia_convert_endpoint(req: DiaConvertRequest):
 class DiaTTSRequest(BaseModel):
     text: str
     output_format: str = "mp3"
+    speed_factor: Optional[float] = None
 
 @router.post("/dia/tts")
 async def dia_tts_endpoint(req: DiaTTSRequest):
@@ -1377,7 +1378,32 @@ async def dia_tts_endpoint(req: DiaTTSRequest):
         text = req.text
         if not text.strip().startswith("[S1]"):
             text = to_dia_tags(text)
-        audio = await dia_client.tts(text, output_format=req.output_format)
+
+        # Split overly long scripts to avoid Dia's ~30-second truncation
+        MAX_CHARS = 2500  # ≈360 tokens / ~30 s of audio
+        chunks = (
+            [text]
+            if len(text) <= MAX_CHARS
+            else split_into_chunks(text, max_chars=MAX_CHARS)
+        )
+
+        audio_parts: list[bytes] = []
+        for chunk in chunks:
+            part = await dia_client.tts(
+                chunk,
+                output_format=req.output_format,
+                speed_factor=req.speed_factor,
+            )
+            audio_parts.append(part)
+
+        if len(audio_parts) == 1:
+            audio = audio_parts[0]
+        else:
+            tmp_filename = f"dia_{uuid.uuid4().hex}.mp3"
+            combine_audio_files(audio_parts, tmp_filename)
+            final_path = (AUDIO_DIR / tmp_filename).resolve()
+            audio = final_path.read_bytes()
+
         media_type = "audio/mpeg" if req.output_format.startswith("mp3") else "application/octet-stream"
         from fastapi.responses import Response
         return Response(content=audio, media_type=media_type)

@@ -341,6 +341,13 @@
                                     <option value="wav">wav</option>
                                 </select>
                             </div>
+                            <div class="mb-3 col-md-3">
+                                <label for="diaSpeedFactor" class="form-label" data-bs-toggle="tooltip" title="Playback speed multiplier – 1.0 = normal, lower is slower">Speed&nbsp;Factor</label>
+                                <div class="d-flex align-items-center gap-2">
+                                    <input type="range" class="form-range flex-grow-1" id="diaSpeedFactor" min="0.8" max="1.0" step="0.02" value="0.94">
+                                    <span id="diaSpeedValue" style="width:3rem;">0.94</span>
+                                </div>
+                            </div>
                             <button type="submit" class="btn btn-primary mt-auto">Generate Dia Podcast</button>
                             <span id="diaTtsStatus" class="ms-3"></span>
                         </div>
@@ -840,7 +847,11 @@ function initializeEventListeners() {
             const res = await fetch('/api/dia/tts', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({ text, output_format: $('#diaOutputFormat').val() })
+                body: JSON.stringify({
+                    text,
+                    output_format: $('#diaOutputFormat').val(),
+                    speed_factor: parseFloat($('#diaSpeedFactor').val() || '1')
+                })
             });
             if (!res.ok) throw new Error('Failed');
             const blob = await res.blob();
@@ -854,6 +865,11 @@ function initializeEventListeners() {
             $('#diaTtsStatus').text('Error');
             alert('Dia generation failed');
         }
+    });
+
+    // Update Dia speed value label
+    $('#diaSpeedFactor').on('input', function(){
+        $('#diaSpeedValue').text(parseFloat(this.value).toFixed(2));
     });
 }
 
@@ -1506,7 +1522,8 @@ document.getElementById('ttsForm').addEventListener('submit', async (e) => {
         model: document.getElementById('llmModel').value,
         podcast_name: document.getElementById('podcastName').value,
         episode_title: document.getElementById('episodeTitle').value,
-        voice_speed: parseFloat(document.getElementById('voiceSpeed').value || '1')
+        voice_speed: parseFloat(document.getElementById('voiceSpeed').value || '1'),
+        dia_speed_factor: parseFloat($('#diaSpeedFactor').val() || '1')
     };
 
     try {
