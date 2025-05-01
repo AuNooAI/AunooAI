@@ -384,6 +384,20 @@ async def generate_podcast_script(
             guest_title=(request.guest_title or "Guest"),
             guest_name=(request.guest_name or "Auspex"),
         ))
+
+        # Add explicit generation guidelines to reduce excessive non-verbals and
+        # extremely short / long lines which can cause the TTS engine to speed
+        # up unnaturally.
+        guidelines = (
+            "### Generation Guidelines for Podcast Script\n"
+            "1. Alternate speaker tags beginning with [S1] for the host and [S2] for the guest; never repeat the same tag twice in a row.\n"
+            "2. Keep each spoken sentence between 5–20 seconds of speech (≈40–160 tokens).\n"
+            "3. Use non-verbal cues *sparingly* — at most one per speaker turn — and never output a line that only contains a non-verbal.\n"
+            "4. Allowed non-verbal tags: (laughs), (clears throat), (sighs), (gasps), (coughs), (singing), (sings), (mumbles), (beep), (groans), (sniffs), (claps), (screams), (inhales), (exhales), (applause), (burps), (humming), (sneezes), (chuckle), (whistles).\n"
+            "5. Avoid very short (<5 s) or very long (>20 s) speaker blocks to prevent unnatural TTS speed.\n"
+        )
+
+        system_prompt = f"{system_prompt}\n\n{guidelines}"
         logger.info(f"Prepared system prompt: {system_prompt}")
         
         # Get the AI model
@@ -410,8 +424,8 @@ async def generate_podcast_script(
                 detail="Failed to generate script"
             )
         
-        logger.info("Processing model response")
-        script = response
+        logger.info("Processing model response – applying post-processing")
+        script = _postprocess_script(response)
         logger.info(f"Generated script length: {len(script)}")
         
         return {
@@ -1226,6 +1240,20 @@ def _generate_script_from_articles(
         )
     )
 
+    # Add explicit generation guidelines to reduce excessive non-verbals and
+    # extremely short / long lines which can cause the TTS engine to speed
+    # up unnaturally.
+    guidelines = (
+        "### Generation Guidelines for Podcast Script\n"
+        "1. Alternate speaker tags beginning with [S1] for the host and [S2] for the guest; never repeat the same tag twice in a row.\n"
+        "2. Keep each spoken sentence between 5–20 seconds of speech (≈40–160 tokens).\n"
+        "3. Use non-verbal cues sparingly and where it has the greatest emotional impact. Never more than one per speaker turn. Never output a line that only contains a non-verbal.\n"
+        "4. Allowed non-verbal tags: (laughs), (clears throat), (sighs), (gasps), (coughs), (singing), (sings), (mumbles), (beep), (groans), (sniffs), (claps), (screams), (inhales), (exhales), (applause), (burps), (humming), (sneezes), (chuckle), (whistles).\n"
+        "5. Avoid very short (<5 s) or very long (>20 s) speaker blocks to prevent unnatural TTS speed.\n"
+    )
+
+    system_prompt = f"{system_prompt}\n\n{guidelines}"
+
     # Get model and generate
     model_instance = LiteLLMModel.get_instance(llm_model)
     if not model_instance:
@@ -1237,11 +1265,12 @@ def _generate_script_from_articles(
     ]
 
     logger.info("Generating podcast script via LLM – articles: %d", len(articles))
-    script = model_instance.generate_response(messages)
+    raw_script = model_instance.generate_response(messages)
+    script = _postprocess_script(raw_script or "")
     if not script:
         raise RuntimeError("LLM returned empty script")
 
-    return script 
+    return script
 
 def to_dia_tags(script: str) -> str:
     """Convert a markdown-like podcast script to Dia format.
@@ -1251,6 +1280,10 @@ def to_dia_tags(script: str) -> str:
       still voice-switch by tag while listeners hear the real name.
     • Emotional cues such as `(laughs)` are kept untouched.
     """
+
+    if re.search(r"^\s*\[S[12]\]", script, flags=re.MULTILINE):
+        # Collapse blank lines only
+        return re.sub(r"\r?\n[ \t]*\r?\n", "\n", script)
 
     speaker_tag = "S1"
     out_lines: list[str] = []
@@ -1302,7 +1335,10 @@ def to_dia_tags(script: str) -> str:
 
         speaker_tag = "S2" if speaker_tag == "S1" else "S1"
 
-    return "\n".join(out_lines)
+    cleaned = "\n".join(out_lines)
+    # Collapse blank/whitespace-only lines (handles CRLF and spaces)
+    cleaned = re.sub(r"\r?\n[ \t]*\r?\n", "\n", cleaned)
+    return cleaned
 
 # ---------------------------------------------------------------------------
 # Dia format helper API
@@ -1349,4 +1385,30 @@ async def dia_tts_endpoint(req: DiaTTSRequest):
         raise
     except Exception as exc:
         logger.error("Dia TTS endpoint error: %s", exc)
-        raise HTTPException(status_code=500, detail=str(exc)) 
+        raise HTTPException(status_code=500, detail=str(exc))
+
+# ---------------------------------------------------------------------------
+# Post-processing helpers
+# ---------------------------------------------------------------------------
+
+_EMPTY_SPEAKER_RE = re.compile(
+    r"^\s*\[S[12]\][^\]]*\]\s*(?:$|[\.,;!\?]?$)", re.IGNORECASE
+)
+
+def _postprocess_script(raw: str) -> str:
+    """Remove empty speaker turns that contain only an emotion cue.
+
+    The LLM sometimes emits lines like::
+
+        [S1] Aunoo: [excited]
+
+    which cause awkward silence and speed artefacts in TTS. We drop any line
+    that matches this pattern (speaker tag + optional name + emotion cue) but
+    no spoken words after the final closing bracket.
+    """
+    cleaned_lines: list[str] = []
+    for line in raw.splitlines():
+        if _EMPTY_SPEAKER_RE.match(line):
+            continue  # skip empty expressive line
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines) 

@@ -607,6 +607,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (llmSelect) llmSelect.appendChild(opt1);
                 if (diaSelect) diaSelect.appendChild(opt1.cloneNode(true));
             });
+
+            // Auto-select the first real model if nothing selected yet
+            if (llmSelect && llmSelect.options.length > 1 && !llmSelect.value) {
+                llmSelect.selectedIndex = 1; // index 0 = placeholder
+            }
+            if (diaSelect && diaSelect.options.length > 1 && !diaSelect.value) {
+                diaSelect.selectedIndex = 1;
+            }
         })
         .catch(err => console.error('Error loading AI models', err));
 
@@ -659,13 +667,16 @@ document.addEventListener('DOMContentLoaded', function() {
             const diaSel = document.getElementById('diaScriptTemplate');
             sel.innerHTML = '';
             diaSel.innerHTML = '';
-            templates
-                .filter(t => t.name !== 'default')
-                .forEach((t, idx) => {
-                    const opt = new Option(t.name, t.name, false, idx === 0);
-                    sel.appendChild(opt);
-                    diaSel.appendChild(new Option(t.name, t.name, false, idx === 0));
-                });
+            const eleTemplates = templates.filter(t => !t.name.startsWith('dia_conversation_') && t.name !== 'default');
+            const diaTemplates = templates.filter(t => t.name.startsWith('dia_conversation_'));
+
+            eleTemplates.forEach((t, idx) => {
+                sel.appendChild(new Option(t.name, t.name, false, idx === 0));
+            });
+
+            diaTemplates.forEach((t, idx) => {
+                diaSel.appendChild(new Option(t.name, t.name, false, idx === 0));
+            });
         } catch (err) { console.error('Error loading templates', err); }
     }
 
@@ -798,7 +809,7 @@ function initializeEventListeners() {
                     podcast_name: podcastName,
                     episode_title: episodeTitle,
                     model,
-                    mode: 'conversation',
+                    mode: 'dia_conversation',
                     duration,
                     host_name: hostName,
                     guest_title: guestTitle,
