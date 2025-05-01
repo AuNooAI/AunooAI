@@ -1523,12 +1523,8 @@ async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
         if not script_text.strip().startswith("[S1]"):
             script_text = to_dia_tags(script_text)
 
-        # Prepare chunks (Dia ~30 s limit)
-        chunks = (
-            [script_text]
-            if len(script_text) <= 2500
-            else split_into_chunks(script_text, max_chars=2500)
-        )
+        # Prepare speaker-specific chunks (Dia ~30 s limit)
+        chunks = _split_by_speaker(script_text, max_chars=2500)
 
         # Ensure audio directory exists
         if not ensure_audio_directory():
@@ -1545,7 +1541,7 @@ async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
                 output_format=req.output_format,
                 speed_factor=req.speed_factor,
                 seed=seed,
-                max_tokens=req.max_tokens,
+                max_tokens=req.max_tokens or math.ceil(len(chunk) / 6),
                 audio_prompt=req.audio_prompt,
             )
             audio_parts.append(part)
@@ -1562,6 +1558,7 @@ async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
             "episode_title": req.episode_title,
             "mode": req.mode,
             "seed": seed,
+            "segments": len(chunks),
         }
 
         db = get_database_instance()
@@ -1604,6 +1601,54 @@ async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
                 conn.commit()
         except Exception as db_err:
             logger.error("[DiaWorker] DB update fail %s: %s", podcast_id, db_err)
+
+# ---------------------------------------------------------------------------
+# Speaker-aware chunking helpers
+# ---------------------------------------------------------------------------
+
+
+def _split_by_speaker(text: str, max_chars: int = 2500) -> list[str]:
+    """Return blocks that contain only one speaker tag and fit <= max_chars.
+
+    Each input line is expected to start with `[S1]` or `[S2]` (after optional
+    whitespace).  We accumulate consecutive lines for the same speaker until
+    a different tag is encountered *or* adding the next line would exceed
+    *max_chars*.  This prevents Dia from trying to voice-switch inside a
+    single HTTP request and keeps each request under Dia's ~30-second limit.
+    """
+
+    blocks: list[str] = []
+    current_lines: list[str] = []
+    current_len = 0
+    current_speaker = None
+
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+
+        m = re.match(r"^\[S([12])\]", line)
+        speaker = m.group(0) if m else None
+
+        # Determine if we must flush: speaker change OR would exceed max_chars
+        projected_len = current_len + len(line) + 1  # + newline
+        if (
+            (current_speaker is not None and speaker != current_speaker)
+            or (projected_len > max_chars and current_lines)
+        ):
+            blocks.append("\n".join(current_lines))
+            current_lines = [line]
+            current_len = len(line) + 1
+            current_speaker = speaker
+        else:
+            current_lines.append(line)
+            current_len = projected_len
+            current_speaker = current_speaker or speaker
+
+    if current_lines:
+        blocks.append("\n".join(current_lines))
+
+    return blocks
 
 # ---------------------------------------------------------------------------
 # Post-processing helpers
