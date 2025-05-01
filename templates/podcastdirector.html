@@ -120,6 +120,21 @@
                         TTS with Script
                     </button>
                 </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="dia-config-tab" data-bs-toggle="tab" data-bs-target="#dia-config" type="button" role="tab">
+                        Dia Settings
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="dia-quick-tab" data-bs-toggle="tab" data-bs-target="#dia-quick" type="button" role="tab">
+                        Dia Quick TTS
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="dia-tts-tab" data-bs-toggle="tab" data-bs-target="#dia-tts" type="button" role="tab">
+                        Dia TTS (with Script)
+                    </button>
+                </li>
             </ul>
 
             <!-- Tab Content -->
@@ -232,6 +247,132 @@
                         </div>
                     </form>
                 </div>
+
+                <!-- Dia Config Tab -->
+                <div class="tab-pane fade" id="dia-config" role="tabpanel">
+                    <form id="diaConfigForm" class="mt-3" style="max-width: 500px;">
+                        <div class="mb-3">
+                            <label for="diaApiKey" class="form-label">Dia API Key</label>
+                            <input type="text" class="form-control" id="diaApiKey" placeholder="Enter Dia API Key" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="diaApiUrl" class="form-label">Dia Base URL</label>
+                            <input type="text" class="form-control" id="diaApiUrl" placeholder="http://localhost:8000/v1/tts" required>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">Save</button>
+                            <button type="button" id="diaDeleteBtn" class="btn btn-danger">Remove</button>
+                        </div>
+                        <div id="diaConfigStatus" class="mt-2"></div>
+                    </form>
+                </div>
+
+                <!-- Dia Quick TTS Tab -->
+                <div class="tab-pane fade" id="dia-quick" role="tabpanel">
+                    <div class="mt-3">
+                        <div class="mb-3">
+                            <label for="diaScript" class="form-label">Script (use plain text or markdown)</label>
+                            <textarea class="form-control" id="diaScript" rows="8" placeholder="[S1] Hello world..."></textarea>
+                        </div>
+                        <div class="mb-3 col-md-3">
+                            <label for="diaFormat" class="form-label">Output Format</label>
+                            <select class="form-control" id="diaFormat">
+                                <option value="mp3" selected>mp3</option>
+                                <option value="wav">wav</option>
+                            </select>
+                        </div>
+                        <button id="diaGenerateBtn" class="btn btn-primary">Generate Audio</button>
+                        <span id="diaStatus" class="ms-3"></span>
+                        <div class="mt-4" id="diaPlayerContainer" style="display:none;">
+                            <audio id="diaAudio" controls class="w-100"></audio>
+                            <a id="diaDownload" class="btn btn-success mt-2" download="dia_tts.mp3">Download</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Dia TTS with Script Tab -->
+                <div class="tab-pane fade" id="dia-tts" role="tabpanel">
+                    <form id="diaTtsForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label for="diaPodcastName" class="form-label">Podcast Name</label>
+                                    <input type="text" class="form-control" id="diaPodcastName" placeholder="Enter podcast name" value="Aunoo News">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="diaEpisodeTitle" class="form-label">Episode Title</label>
+                                    <input type="text" class="form-control" id="diaEpisodeTitle" placeholder="Enter episode title" value="Latest Debate">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="diaHostName" class="form-label">Host Name</label>
+                                    <input type="text" class="form-control" id="diaHostName" value="Aunoo">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="diaGuestName" class="form-label">Guest Name</label>
+                                    <input type="text" class="form-control" id="diaGuestName" value="Auspex">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="diaGuestTitle" class="form-label">Guest Title</label>
+                                    <input type="text" class="form-control" id="diaGuestTitle" value="Chief Futurist">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="diaDuration" class="form-label">Duration</label>
+                                    <select class="form-control" id="diaDuration">
+                                        <option value="short">Short (~2 min)</option>
+                                        <option value="medium" selected>Medium (~4 min)</option>
+                                        <option value="long">Long (~7+ min)</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="diaLlmModel" class="form-label">Script Generation Model</label>
+                                    <select class="form-control" id="diaLlmModel">
+                                        <option value="gpt-4o">GPT-4 Optimized</option>
+                                        <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet</option>
+                                        <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Script Template</label>
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <select class="form-control me-2" id="diaScriptTemplate"></select>
+                                        <button type="button" class="btn btn-secondary" id="diaEditTemplate">
+                                            Edit Template
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Generated Script</label>
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <button type="button" class="btn btn-primary" id="diaGenerateScript">
+                                            Generate Script
+                                        </button>
+                                        <button type="button" class="btn btn-secondary" id="diaEditScript">
+                                            Edit Script
+                                        </button>
+                                    </div>
+                                    <div id="diaScriptPreview" class="border rounded p-3 bg-light" style="min-height: 300px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="mb-3 col-md-3">
+                                <label for="diaOutputFormat" class="form-label">Output Format</label>
+                                <select class="form-control" id="diaOutputFormat">
+                                    <option value="mp3" selected>mp3</option>
+                                    <option value="wav">wav</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn btn-primary mt-auto">Generate Dia Podcast</button>
+                            <span id="diaTtsStatus" class="ms-3"></span>
+                        </div>
+                        <div class="mt-4" id="diaTtsPlayerContainer" style="display:none;">
+                            <audio id="diaTtsAudio" controls class="w-100"></audio>
+                            <a id="diaTtsDownload" class="btn btn-success mt-2" download="dia_podcast.mp3">Download</a>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     </div>
@@ -334,6 +475,7 @@
 <script>
     // Monaco Editor initialization
     let editor;
+    let diaEditor;
     (function() {
         // Load Monaco Editor
         const script = document.createElement('script');
@@ -351,10 +493,22 @@
                     automaticLayout: true
                 });
 
-                // Prefill script from database_chat if available
+                // Create Dia editor
+                diaEditor = monaco.editor.create(document.getElementById('diaScriptPreview'), {
+                    value: '',
+                    language: 'markdown',
+                    theme: 'vs-light',
+                    minimap: { enabled: false },
+                    lineNumbers: 'on',
+                    scrollBeyondLastLine: false,
+                    automaticLayout: true
+                });
+
+                // Prefill script from localStorage if present
                 const draft = localStorage.getItem('podcast_draft_script');
                 if (draft) {
                     editor.setValue(draft);
+                    diaEditor.setValue(draft);
                     localStorage.removeItem('podcast_draft_script');
                 }
             });
@@ -410,40 +564,49 @@ document.addEventListener('DOMContentLoaded', function() {
             const data = await response.json();
             document.getElementById('templateEditor').value = data.template;
             templateEditorModal.show();
-        } catch (error) {
-            console.error('Error loading template:', error);
-            alert('Error loading template. Please try again.');
-        }
+            // When saving, post to same endpoint then reload list
+            document.getElementById('saveTemplate').onclick = async () => {
+                try {
+                    const content = document.getElementById('templateEditor').value;
+                    const res = await fetch('/api/podcast_templates', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({ name: templateName, content })
+                    });
+                    if (!res.ok) throw new Error('Save failed');
+                    templateEditorModal.hide();
+                    await loadTemplates();
+                    alert('Template saved');
+                } catch (err) { console.error('Save fail', err); alert('Error'); }
+            };
+        } catch (err) { console.error('Error loading template', err); alert('Error loading template'); }
     });
 
-    // Handle template saving
-    document.getElementById('saveTemplate').addEventListener('click', async () => {
+    // Dia template edit
+    document.getElementById('diaEditTemplate').addEventListener('click', async () => {
         try {
-            const templateName = document.getElementById('scriptTemplate').value;
-            const templateContent = document.getElementById('templateEditor').value;
-            
-            const response = await fetch('/api/podcast_templates', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    name: templateName,
-                    content: templateContent
-                })
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            templateEditorModal.hide();
-            await loadTemplates();
-            alert('Template saved successfully');
-        } catch (error) {
-            console.error('Error saving template:', error);
-            alert('Error saving template. Please try again.');
-        }
+            const templateName = document.getElementById('diaScriptTemplate').value;
+            const response = await fetch(`/api/podcast_templates/${templateName}`);
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            document.getElementById('templateEditor').value = data.template;
+            templateEditorModal.show();
+            // When saving, post to same endpoint then reload list
+            document.getElementById('saveTemplate').onclick = async () => {
+                try {
+                    const content = document.getElementById('templateEditor').value;
+                    const res = await fetch('/api/podcast_templates', {
+                        method: 'POST',
+                        headers: {'Content-Type':'application/json'},
+                        body: JSON.stringify({ name: templateName, content })
+                    });
+                    if (!res.ok) throw new Error('Save failed');
+                    templateEditorModal.hide();
+                    await loadTemplates();
+                    alert('Template saved');
+                } catch (err) { console.error('Save fail', err); alert('Error'); }
+            };
+        } catch (err) { console.error('Error loading template', err); alert('Error loading template'); }
     });
 
     // At DOMContentLoaded
@@ -511,12 +674,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!res.ok) throw new Error('Failed template list');
             const templates = await res.json();
             const sel = document.getElementById('scriptTemplate');
+            const diaSel = document.getElementById('diaScriptTemplate');
             sel.innerHTML = '';
+            diaSel.innerHTML = '';
             templates
                 .filter(t => t.name !== 'default')
                 .forEach((t, idx) => {
                     const opt = new Option(t.name, t.name, false, idx === 0);
                     sel.appendChild(opt);
+                    diaSel.appendChild(new Option(t.name, t.name, false, idx === 0));
                 });
         } catch (err) { console.error('Error loading templates', err); }
     }
@@ -614,6 +780,88 @@ function initializeEventListeners() {
 
     // Infinite scroll
     document.getElementById('articleList').addEventListener('scroll', handleScroll);
+
+    // Handle Dia script editing
+    document.getElementById('diaEditScript').addEventListener('click', () => {
+        if (diaEditor) {
+            document.getElementById('scriptEditorTextarea').value = diaEditor.getValue();
+            scriptEditorModal.show();
+            // Rewire save button temporarily
+            document.getElementById('saveScript').onclick = () => {
+                diaEditor.setValue(document.getElementById('scriptEditorTextarea').value);
+                scriptEditorModal.hide();
+            };
+        }
+    });
+
+    // Dia generate script (uses same backend endpoint)
+    document.getElementById('diaGenerateScript').addEventListener('click', async () => {
+        const podcastName = document.getElementById('diaPodcastName').value;
+        const episodeTitle = document.getElementById('diaEpisodeTitle').value;
+        const model = document.getElementById('diaLlmModel').value;
+        const duration = document.getElementById('diaDuration').value;
+        const guestTitle = document.getElementById('diaGuestTitle').value;
+        const guestName = document.getElementById('diaGuestName').value;
+        const hostName = document.getElementById('diaHostName').value;
+        const articles = Object.values(selectedArticleData);
+        if (!podcastName || !episodeTitle || articles.length === 0) {
+            alert('Fill podcast name/title and select articles first');
+            return;
+        }
+        try {
+            const res = await fetch('/api/generate_podcast_script', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({
+                    podcast_name: podcastName,
+                    episode_title: episodeTitle,
+                    model,
+                    mode: 'conversation',
+                    duration,
+                    host_name: hostName,
+                    guest_title: guestTitle,
+                    guest_name: guestName,
+                    articles
+                })
+            });
+            if (!res.ok) throw new Error('Failed');
+            const data = await res.json();
+            // Convert to Dia format so user sees final payload
+            const conv = await fetch('/api/dia/convert', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({script: data.script})
+            });
+            const dia = conv.ok? await conv.json(): {script:data.script};
+            diaEditor.setValue(dia.script);
+        } catch (err) { console.error(err); alert('Script generation failed'); }
+    });
+
+    // Dia-TTS form submit
+    document.getElementById('diaTtsForm').addEventListener('submit', async e => {
+        e.preventDefault();
+        if (!diaEditor) { alert('Editor not ready'); return; }
+        const text = diaEditor.getValue();
+        if (!text.trim()) { alert('Generate or write a script first'); return; }
+        $('#diaTtsStatus').text('Generating...');
+        try {
+            const res = await fetch('/api/dia/tts', {
+                method: 'POST',
+                headers: {'Content-Type':'application/json'},
+                body: JSON.stringify({ text, output_format: $('#diaOutputFormat').val() })
+            });
+            if (!res.ok) throw new Error('Failed');
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            $('#diaTtsAudio').attr('src', url)[0].load();
+            $('#diaTtsDownload').attr('href', url);
+            $('#diaTtsPlayerContainer').show();
+            $('#diaTtsStatus').text('Done');
+        } catch (err) {
+            console.error(err);
+            $('#diaTtsStatus').text('Error');
+            alert('Dia generation failed');
+        }
+    });
 }
 
 async function loadTopics() {
@@ -1363,6 +1611,87 @@ function toggleCustomTitle() {
     const customInput = document.getElementById('guestTitleCustom');
     customInput.style.display = sel.value === 'custom' ? 'block' : 'none';
 }
+
+// ----------------- Dia TTS config tab -----------------
+function loadDiaConfig() {
+    fetch('/config/dia')
+        .then(r => r.json())
+        .then(data => {
+            if (data.configured) {
+                document.getElementById('diaApiKey').value = '********';
+                document.getElementById('diaApiUrl').value = data.url || '';
+                document.getElementById('diaConfigStatus').innerHTML = '<span class="text-success">Configured</span>';
+            } else {
+                document.getElementById('diaConfigStatus').innerHTML = '<span class="text-danger">Not configured</span>';
+            }
+        })
+        .catch(err => console.error('Failed loading Dia config', err));
+}
+
+document.getElementById('diaConfigForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const payload = {
+        api_key: document.getElementById('diaApiKey').value.trim(),
+        url: document.getElementById('diaApiUrl').value.trim()
+    };
+    try {
+        const res = await fetch('/config/dia', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('Save failed');
+        alert('Dia configuration saved');
+        loadDiaConfig();
+    } catch (err) {
+        console.error(err); alert('Error saving Dia configuration');
+    }
+});
+
+document.getElementById('diaDeleteBtn').addEventListener('click', async () => {
+    if (!confirm('Remove Dia configuration?')) return;
+    try {
+        const res = await fetch('/config/dia', {method:'DELETE'});
+        if (!res.ok) throw new Error('Delete failed');
+        alert('Dia configuration removed');
+        document.getElementById('diaApiKey').value = '';
+        document.getElementById('diaApiUrl').value = '';
+        loadDiaConfig();
+    } catch (err) {
+        console.error(err); alert('Error removing configuration');
+    }
+});
+
+// Load on startup
+loadDiaConfig();
+
+// Dia quick TTS generation
+$('#diaGenerateBtn').on('click', async function () {
+    const text = $('#diaScript').val();
+    if (!text.trim()) {
+        alert('Enter a script first');
+        return;
+    }
+    $('#diaStatus').text('Generating...');
+    try {
+        const res = await fetch('/api/dia/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: text, output_format: $('#diaFormat').val() })
+        });
+        if (!res.ok) throw new Error('Request failed');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        $('#diaAudio').attr('src', url)[0].load();
+        $('#diaDownload').attr('href', url);
+        $('#diaPlayerContainer').show();
+        $('#diaStatus').text('Done');
+    } catch (err) {
+        console.error(err);
+        $('#diaStatus').text('Error');
+        alert('Dia generation failed');
+    }
+});
 </script>
 
 <style>

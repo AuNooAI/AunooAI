@@ -39,6 +39,25 @@
       "api_key_validation": "^sk_[a-zA-Z0-9]{32,}$",
       "api_key_validation_message": "Invalid ElevenLabs API key format",
       "api_key_help": "Get your API key from https://elevenlabs.io/account/api-key"
+    },
+    {
+      "name": "dia",
+      "display_name": "Dia TTS",
+      "config_type": "api_key",
+      "description": "Open-weights Text-to-Speech (dialogue) service",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "DIA_API_KEY",
+      "api_key_placeholder": "Enter Dia API key",
+      "api_key_help": "See https://github.com/nari-labs/dia for setup",
+      "extra_fields": [
+        {
+          "field": "DIA_TTS_URL",
+          "label": "Dia Base URL",
+          "placeholder": "http://localhost:8000/v1/tts",
+          "type": "text"
+        }
+      ]
     }
   ]
 } 
