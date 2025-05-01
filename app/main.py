@@ -244,12 +244,19 @@ class NewsAPIConfig(BaseModel):
         populate_by_name = True
 
 class DiaAPIConfig(BaseModel):
-    """Configuration payload for Dia TTS service (API key + base URL)."""
+    """Configuration payload for Dia TTS service.
+
+    The `api_key` is required, but the service URL can be omitted and will
+    default to the existing value (or be left unset) if an empty string or
+    `null` is provided. Making `url` optional prevents 422 validation errors
+    when the user only wants to update the API key.
+    """
+
     api_key: str = Field(..., min_length=1, alias="api_key")
-    url: str = Field(..., min_length=1, alias="url")
+    url: Optional[str] = Field(None, alias="url")
 
     class Config:
-        alias_generator = lambda s: s.lower()
+        alias_generator = lambda s: s.lower()  # type: ignore
         populate_by_name = True
 
 # Only add HTTPS redirect in production
@@ -3207,12 +3214,14 @@ async def save_dia_config(config: DiaAPIConfig):
         lines = [l for l in lines if not l.startswith("DIA_API_KEY=") and not l.startswith("DIA_TTS_URL=")]
         # Append new values
         lines.append(f"DIA_API_KEY={config.api_key}\n")
-        lines.append(f"DIA_TTS_URL={config.url}\n")
+        if config.url:  # Only persist URL if provided
+            lines.append(f"DIA_TTS_URL={config.url}\n")
         with open(env_path, 'w') as f:
             f.writelines(lines)
         # Update in-memory environment
         os.environ["DIA_API_KEY"] = config.api_key
-        os.environ["DIA_TTS_URL"] = config.url
+        if config.url:
+            os.environ["DIA_TTS_URL"] = config.url
         return JSONResponse(content={"message": "Dia API configuration saved successfully"})
     except Exception as e:
         logger.error(f"Error saving Dia config: {str(e)}")
@@ -3225,11 +3234,12 @@ async def get_dia_config():
     try:
         dia_key = os.getenv("DIA_API_KEY")
         dia_url = os.getenv("DIA_TTS_URL")
+        key_present = bool(dia_key)
         return JSONResponse(
             content={
-                "configured": bool(dia_key and dia_url),
+                "configured": key_present,
                 "url": dia_url or "",
-                "message": "Dia API is configured" if dia_key and dia_url else "Dia API is not configured"
+                "message": "Dia API is configured" if key_present else "Dia API is not configured"
             }
         )
     except Exception as e:
@@ -3255,6 +3265,114 @@ async def remove_dia_config():
     except Exception as e:
         logger.error(f"Error removing Dia config: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ---------------------------------------------------------------------------
+# ElevenLabs Provider Configuration Endpoints
+# ---------------------------------------------------------------------------
+
+# Re-use NewsAPIConfig schema since only `api_key` is required
+
+ELEVEN_ENV_VAR = "ELEVENLABS_API_KEY"
+
+
+@app.post("/config/elevenlabs")
+async def save_elevenlabs_config(config: NewsAPIConfig):
+    """Save ElevenLabs API key to .env and environment."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+
+        # Read existing .env lines (if any)
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        new_line = f'{ELEVEN_ENV_VAR}="{config.api_key}"\n'
+        key_found = False
+
+        for idx, line in enumerate(lines):
+            if line.startswith(f"{ELEVEN_ENV_VAR}="):
+                lines[idx] = new_line
+                key_found = True
+                break
+
+        if not key_found:
+            lines.append(new_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update current process env so runtime picks up immediately
+        os.environ[ELEVEN_ENV_VAR] = config.api_key
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "ElevenLabs configuration saved successfully"
+            },
+        )
+
+    except Exception as exc:
+        logger.error("Error saving ElevenLabs configuration: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/config/elevenlabs")
+async def get_elevenlabs_config():
+    """Return whether ElevenLabs API key is configured."""
+    try:
+        # Reload .env to capture external edits
+        load_dotenv(override=True)
+        key_present = bool(os.getenv(ELEVEN_ENV_VAR))
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": key_present,
+                "message": (
+                    "ElevenLabs is configured" if key_present else "ElevenLabs is not configured"
+                ),
+            },
+        )
+    except Exception as exc:
+        logger.error("Error in get_elevenlabs_config: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/config/elevenlabs")
+async def remove_elevenlabs_config():
+    """Remove ElevenLabs API key from .env and environment."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+
+        # Read lines
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        lines = [ln for ln in lines if not ln.startswith(f"{ELEVEN_ENV_VAR}=")]
+
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Remove from runtime env
+        os.environ.pop(ELEVEN_ENV_VAR, None)
+
+        load_dotenv(dotenv_path=env_path, override=True)
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "message": "ElevenLabs configuration removed successfully"
+            },
+        )
+
+    except Exception as exc:
+        logger.error("Error removing ElevenLabs configuration: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

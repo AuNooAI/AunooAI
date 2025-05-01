@@ -117,17 +117,12 @@
             <ul class="nav nav-tabs mb-3" id="podcastTabs" role="tablist">
                 <li class="nav-item" role="presentation">
                     <button class="nav-link active" id="tts-tab" data-bs-toggle="tab" data-bs-target="#tts" type="button" role="tab">
-                        TTS with Script
+                        ElevenLabs TTS
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link" id="dia-config-tab" data-bs-toggle="tab" data-bs-target="#dia-config" type="button" role="tab">
                         Dia Settings
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="dia-quick-tab" data-bs-toggle="tab" data-bs-target="#dia-quick" type="button" role="tab">
-                        Dia Quick TTS
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -212,6 +207,11 @@
                                     </select>
                                 </div>
 
+                                <div class="mb-3">
+                                    <label for="voiceSpeed" class="form-label" data-bs-toggle="tooltip" title="Voice speed multiplier &mdash; 1.0 is normal, lower is slower, higher is faster">Voice Speed</label>
+                                    <input type="number" class="form-control" id="voiceSpeed" step="0.05" min="0.5" max="1.5" value="0.9">
+                                </div>
+
                             </div>
 
                             <div class="col-md-6">
@@ -265,29 +265,6 @@
                         </div>
                         <div id="diaConfigStatus" class="mt-2"></div>
                     </form>
-                </div>
-
-                <!-- Dia Quick TTS Tab -->
-                <div class="tab-pane fade" id="dia-quick" role="tabpanel">
-                    <div class="mt-3">
-                        <div class="mb-3">
-                            <label for="diaScript" class="form-label">Script (use plain text or markdown)</label>
-                            <textarea class="form-control" id="diaScript" rows="8" placeholder="[S1] Hello world..."></textarea>
-                        </div>
-                        <div class="mb-3 col-md-3">
-                            <label for="diaFormat" class="form-label">Output Format</label>
-                            <select class="form-control" id="diaFormat">
-                                <option value="mp3" selected>mp3</option>
-                                <option value="wav">wav</option>
-                            </select>
-                        </div>
-                        <button id="diaGenerateBtn" class="btn btn-primary">Generate Audio</button>
-                        <span id="diaStatus" class="ms-3"></span>
-                        <div class="mt-4" id="diaPlayerContainer" style="display:none;">
-                            <audio id="diaAudio" controls class="w-100"></audio>
-                            <a id="diaDownload" class="btn btn-success mt-2" download="dia_tts.mp3">Download</a>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- Dia TTS with Script Tab -->
@@ -617,13 +594,18 @@ document.addEventListener('DOMContentLoaded', function() {
     fetch('/api/ai_models')
         .then(res => res.json())
         .then(models => {
-            const select = document.getElementById('llmModel');
-            select.innerHTML = '<option value="">Select a model</option>';
+            const llmSelect = document.getElementById('llmModel');
+            const diaSelect = document.getElementById('diaLlmModel');
+            if (llmSelect) {
+                llmSelect.innerHTML = '<option value="">Select a model</option>';
+            }
+            if (diaSelect) {
+                diaSelect.innerHTML = '<option value="">Select a model</option>';
+            }
             models.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m.name;
-                opt.textContent = `${m.name} (${m.provider})`;
-                select.appendChild(opt);
+                const opt1 = new Option(`${m.name} (${m.provider})`, m.name, false, false);
+                if (llmSelect) llmSelect.appendChild(opt1);
+                if (diaSelect) diaSelect.appendChild(opt1.cloneNode(true));
             });
         })
         .catch(err => console.error('Error loading AI models', err));
@@ -1508,11 +1490,12 @@ document.getElementById('ttsForm').addEventListener('submit', async (e) => {
             similarity_boost: 0.75,
             style: 0.0,
             use_speaker_boost: true,
-            speed: 1.0
+            speed: parseFloat(document.getElementById('voiceSpeed').value || '1')
         },
         model: document.getElementById('llmModel').value,
         podcast_name: document.getElementById('podcastName').value,
-        episode_title: document.getElementById('episodeTitle').value
+        episode_title: document.getElementById('episodeTitle').value,
+        voice_speed: parseFloat(document.getElementById('voiceSpeed').value || '1')
     };
 
     try {
@@ -1576,6 +1559,7 @@ async function loadDefaults() {
         if (data.podcast_name) document.getElementById('podcastName').value = data.podcast_name;
         if (data.episode_title) document.getElementById('episodeTitle').value = data.episode_title;
         if (data.duration) document.getElementById('ttsDuration').value = data.duration;
+        if (data.voice_speed) document.getElementById('voiceSpeed').value = data.voice_speed;
     } catch (err) { console.error('Error loading defaults', err); }
 }
 
@@ -1590,7 +1574,8 @@ document.getElementById('saveDefaultsBtn').addEventListener('click', async () =>
             model: document.getElementById('llmModel').value,
             podcast_name: document.getElementById('podcastName').value,
             episode_title: document.getElementById('episodeTitle').value,
-            duration: document.getElementById('ttsDuration').value
+            duration: document.getElementById('ttsDuration').value,
+            voice_speed: parseFloat(document.getElementById('voiceSpeed').value || '1')
         }
     };
     try {
@@ -1664,34 +1649,6 @@ document.getElementById('diaDeleteBtn').addEventListener('click', async () => {
 
 // Load on startup
 loadDiaConfig();
-
-// Dia quick TTS generation
-$('#diaGenerateBtn').on('click', async function () {
-    const text = $('#diaScript').val();
-    if (!text.trim()) {
-        alert('Enter a script first');
-        return;
-    }
-    $('#diaStatus').text('Generating...');
-    try {
-        const res = await fetch('/api/dia/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: text, output_format: $('#diaFormat').val() })
-        });
-        if (!res.ok) throw new Error('Request failed');
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        $('#diaAudio').attr('src', url)[0].load();
-        $('#diaDownload').attr('href', url);
-        $('#diaPlayerContainer').show();
-        $('#diaStatus').text('Done');
-    } catch (err) {
-        console.error(err);
-        $('#diaStatus').text('Error');
-        alert('Dia generation failed');
-    }
-});
 </script>
 
 <style>
