@@ -842,28 +842,32 @@ function initializeEventListeners() {
         if (!diaEditor) { alert('Editor not ready'); return; }
         const text = diaEditor.getValue();
         if (!text.trim()) { alert('Generate or write a script first'); return; }
-        $('#diaTtsStatus').text('Generating...');
+        // Show global progress section similar to ElevenLabs flow
+        const progressSection = document.getElementById('progressSection');
+        const resultSection = document.getElementById('resultSection');
+        progressSection.style.display = 'block';
+        resultSection.style.display = 'none';
+
         try {
-            const res = await fetch('/api/dia/tts', {
+            const payload = {
+                podcast_name: $('#diaPodcastName').val(),
+                episode_title: $('#diaEpisodeTitle').val(),
+                text,
+                speed_factor: parseFloat($('#diaSpeedFactor').val() || '1'),
+                output_format: $('#diaOutputFormat').val()
+            };
+
+            const res = await fetch('/api/dia/generate_podcast', {
                 method: 'POST',
                 headers: {'Content-Type':'application/json'},
-                body: JSON.stringify({
-                    text,
-                    output_format: $('#diaOutputFormat').val(),
-                    speed_factor: parseFloat($('#diaSpeedFactor').val() || '1')
-                })
+                body: JSON.stringify(payload)
             });
             if (!res.ok) throw new Error('Failed');
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            $('#diaTtsAudio').attr('src', url)[0].load();
-            $('#diaTtsDownload').attr('href', url);
-            $('#diaTtsPlayerContainer').show();
-            $('#diaTtsStatus').text('Done');
+            const data = await res.json();
+            pollPodcastStatus(data.podcast_id);
         } catch (err) {
             console.error(err);
-            $('#diaTtsStatus').text('Error');
-            alert('Dia generation failed');
+            document.getElementById('progressStatus').innerHTML = `<div class="alert alert-danger">Dia generation failed</div>`;
         }
     });
 

@@ -1414,6 +1414,198 @@ async def dia_tts_endpoint(req: DiaTTSRequest):
         raise HTTPException(status_code=500, detail=str(exc))
 
 # ---------------------------------------------------------------------------
+# Full Dia podcast generation (background) – similar flow to ElevenLabs
+# ---------------------------------------------------------------------------
+
+
+class DiaPodcastRequest(BaseModel):
+    """Payload for Dia podcast generation (with background worker).
+
+    We keep the structure minimal – only script text is required.  If the
+    script is omitted but *article_uris* are supplied, we auto-generate the
+    script via the same LLM helper that ElevenLabs uses.
+    """
+
+    # Core metadata
+    podcast_name: str = "Aunoo News"
+    episode_title: str = "Untitled Episode"
+
+    # Either ready script or articles list
+    text: Optional[str] = None  # final Dia-formatted script (preferred)
+    article_uris: Optional[List[str]] = None  # to auto-generate if text empty
+
+    # Generation params
+    speed_factor: float = 0.94
+    seed: Optional[int] = None
+    max_tokens: Optional[int] = None
+    audio_prompt: Optional[str] = None  # base64 / URL handled upstream
+    output_format: str = "mp3"
+
+    # Script generation fallback extras
+    model: str = "gpt-4o"
+    duration: str = "medium"
+    host_name: Optional[str] = "Aunoo"
+    guest_name: Optional[str] = "Auspex"
+    guest_title: Optional[str] = "Guest"
+    mode: str = "conversation"  # conversation | bulletin
+
+
+@router.post("/dia/generate_podcast")
+async def dia_generate_podcast(request: DiaPodcastRequest):
+    """Launch Dia podcast generation in the background (returns podcast_id)."""
+
+    podcast_id = str(uuid.uuid4())
+
+    # Pre-insert DB row so UI can poll status
+    try:
+        db = get_database_instance()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO podcasts (
+                    id, title, status, created_at, transcript, metadata
+                ) VALUES (?, ?, 'processing', CURRENT_TIMESTAMP, ?, ?)
+                """,
+                (
+                    podcast_id,
+                    f"{request.podcast_name} - {request.episode_title}",
+                    request.text or "",
+                    json.dumps({}),
+                ),
+            )
+            conn.commit()
+
+        # Run heavy generation in background thread so HTTP returns fast
+        threading.Thread(
+            target=lambda: asyncio.run(_run_dia_podcast_worker(podcast_id, request)),
+            daemon=True,
+        ).start()
+
+        return {"success": True, "podcast_id": podcast_id, "status": "processing"}
+
+    except Exception as exc:
+        logger.error("Failed enqueue Dia podcast: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
+    """Background job that generates a Dia TTS podcast and stores result."""
+
+    logger.info("[DiaWorker] Start podcast %s", podcast_id)
+    try:
+        # Step 1 – ensure script text
+        script_text = (req.text or "").strip()
+        if not script_text and req.article_uris:
+            # Auto-generate via same helper
+            db = get_database_instance()
+            articles = [db.get_article(u) for u in req.article_uris]
+            articles = [a for a in articles if a]
+            if not articles:
+                raise ValueError("No articles found for provided URIs")
+
+            script_text = _generate_script_from_articles(
+                podcast_name=req.podcast_name,
+                episode_title=req.episode_title,
+                host_name=req.host_name or "Aunoo",
+                guest_name=req.guest_name or "Auspex",
+                guest_title=req.guest_title or "Guest",
+                duration=req.duration,
+                mode=req.mode,
+                articles=articles,
+                llm_model=req.model,
+            )
+
+        if not script_text:
+            raise ValueError("Empty script text for Dia podcast")
+
+        # Ensure Dia tag format
+        if not script_text.strip().startswith("[S1]"):
+            script_text = to_dia_tags(script_text)
+
+        # Prepare chunks (Dia ~30 s limit)
+        chunks = (
+            [script_text]
+            if len(script_text) <= 2500
+            else split_into_chunks(script_text, max_chars=2500)
+        )
+
+        # Ensure audio directory exists
+        if not ensure_audio_directory():
+            raise RuntimeError("Unable to create audio directory")
+
+        from app.services import dia_client
+
+        seed = req.seed or random.randint(1, 2**31 - 1)
+
+        audio_parts: list[bytes] = []
+        for chunk in chunks:
+            part = await dia_client.tts(
+                chunk,
+                output_format=req.output_format,
+                speed_factor=req.speed_factor,
+                seed=seed,
+                max_tokens=req.max_tokens,
+                audio_prompt=req.audio_prompt,
+            )
+            audio_parts.append(part)
+
+        # Merge
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"dia_{podcast_id}_{timestamp}.{req.output_format}"
+
+        duration = combine_audio_files(audio_parts, output_filename)
+
+        meta = {
+            "duration": round(duration / 60, 2),
+            "podcast_name": req.podcast_name,
+            "episode_title": req.episode_title,
+            "mode": req.mode,
+            "seed": seed,
+        }
+
+        db = get_database_instance()
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE podcasts
+                SET status = 'completed',
+                    audio_url = ?,
+                    completed_at = CURRENT_TIMESTAMP,
+                    error = NULL,
+                    metadata = ?
+                WHERE id = ?
+                """,
+                (
+                    f"/static/audio/{output_filename}",
+                    json.dumps(meta),
+                    podcast_id,
+                ),
+            )
+            conn.commit()
+
+        logger.info("[DiaWorker] Podcast %s completed", podcast_id)
+
+    except Exception as err:
+        logger.error("[DiaWorker] Error %s: %s", podcast_id, err, exc_info=True)
+        try:
+            db = get_database_instance()
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE podcasts
+                    SET status = 'error', error = ?, completed_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (str(err), podcast_id),
+                )
+                conn.commit()
+        except Exception as db_err:
+            logger.error("[DiaWorker] DB update fail %s: %s", podcast_id, db_err)
+
+# ---------------------------------------------------------------------------
 # Post-processing helpers
 # ---------------------------------------------------------------------------
 
