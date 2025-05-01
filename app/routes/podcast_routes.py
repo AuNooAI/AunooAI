@@ -567,7 +567,7 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
 
                 first_close_idx = stripped.find("]")
                 header = stripped[1:first_close_idx]
-                parts = re.split(r"\s*[\-‑–—]\s*", header, maxsplit=1)
+                parts = re.split(r"\s*[\-\u2010-\u2015]\s*", header, maxsplit=1)
                 speaker = parts[0]
                 role = parts[1] if len(parts) > 1 else None
 
@@ -1242,3 +1242,111 @@ def _generate_script_from_articles(
         raise RuntimeError("LLM returned empty script")
 
     return script 
+
+def to_dia_tags(script: str) -> str:
+    """Convert a markdown-like podcast script to Dia format.
+
+    • Prepend alternating `[S1]` / `[S2]` tags for each non-blank paragraph.
+    • Retain speaker names (if we can detect them) before the text so Dia can
+      still voice-switch by tag while listeners hear the real name.
+    • Emotional cues such as `(laughs)` are kept untouched.
+    """
+
+    speaker_tag = "S1"
+    out_lines: list[str] = []
+
+    for raw in script.splitlines():
+        text = raw.rstrip()
+
+        # Skip fenced-code markers that sometimes remain at start/end
+        if re.match(r"^(\[S[12]\]\s*)?```(?:markdown)?\s*$", text, re.I):
+            continue
+
+        # Remove leading/trailing bold/italic markers (**, __, *, _)
+        text = re.sub(r"^\s*(\*\*|__|\*|_)+", "", text)
+        text = re.sub(r"(\*\*|__|\*|_)+\s*$", "", text)
+
+        name: str | None = None
+
+        # Pattern 1: [Name - Role] ... optional second bracket for emotion
+        m = re.match(r"^\[([^\]]+?)\]", text)
+        if m:
+            bracket_content = m.group(1)
+            # Split on any Unicode dash (hyphen, figure dash, en/em, non-breaking, etc.)
+            name = re.split(r"\s*[\-\u2010-\u2015]\s*", bracket_content, maxsplit=1)[0].strip()
+            text = text[m.end():].lstrip()
+
+        # Pattern 2: **Name:** dialogue
+        if name is None:
+            m = re.match(r"^\*\*(.+?)\*\*\s*:\s*(.*)", text)
+            if m:
+                name = m.group(1).strip()
+                text = m.group(2).strip()
+
+        # Pattern 3: Name: dialogue
+        if name is None:
+            m = re.match(r"^([A-Z][A-Za-z0-9 _\-]+?)\s*:\s*(.*)", text)
+            if m:
+                name = m.group(1).strip()
+                text = m.group(2).strip()
+
+        # After stripping speaker prefix, ignore if text now becomes empty or a structural heading
+        if not text or re.match(r"^#", text) or re.match(r"^(intro|conclusion)[:\s]*$", text, re.I) or re.match(r"^segment\s+\d+[:\s]*$", text, re.I):
+            continue
+
+        # Assemble final line
+        if name:
+            out_lines.append(f"[{speaker_tag}] {name}: {text}")
+        else:
+            out_lines.append(f"[{speaker_tag}] {text}")
+
+        speaker_tag = "S2" if speaker_tag == "S1" else "S1"
+
+    return "\n".join(out_lines)
+
+# ---------------------------------------------------------------------------
+# Dia format helper API
+# ---------------------------------------------------------------------------
+
+class DiaConvertRequest(BaseModel):
+    script: str
+
+@router.post("/dia/convert")
+async def dia_convert_endpoint(req: DiaConvertRequest):
+    """Return script converted to Dia `[S1]`/`[S2]` format."""
+    if not req.script.strip():
+        raise HTTPException(status_code=400, detail="Empty script")
+    try:
+        converted = to_dia_tags(req.script)
+        return {"script": converted}
+    except Exception as exc:
+        logger.error("Dia convert error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+# ---------------------------------------------------------------------------
+# Simple Dia TTS proxy endpoint (front-end script editor)
+# ---------------------------------------------------------------------------
+
+class DiaTTSRequest(BaseModel):
+    text: str
+    output_format: str = "mp3"
+
+@router.post("/dia/tts")
+async def dia_tts_endpoint(req: DiaTTSRequest):
+    """Proxy call to Dia service; returns raw audio bytes."""
+    try:
+        from app.services import dia_client
+        if not req.text.strip():
+            raise HTTPException(status_code=400, detail="Empty text")
+        text = req.text
+        if not text.strip().startswith("[S1]"):
+            text = to_dia_tags(text)
+        audio = await dia_client.tts(text, output_format=req.output_format)
+        media_type = "audio/mpeg" if req.output_format.startswith("mp3") else "application/octet-stream"
+        from fastapi.responses import Response
+        return Response(content=audio, media_type=media_type)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Dia TTS endpoint error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)) 

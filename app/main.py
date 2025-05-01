@@ -243,6 +243,15 @@ class NewsAPIConfig(BaseModel):
         alias_generator = lambda string: string.lower()
         populate_by_name = True
 
+class DiaAPIConfig(BaseModel):
+    """Configuration payload for Dia TTS service (API key + base URL)."""
+    api_key: str = Field(..., min_length=1, alias="api_key")
+    url: str = Field(..., min_length=1, alias="url")
+
+    class Config:
+        alias_generator = lambda s: s.lower()
+        populate_by_name = True
+
 # Only add HTTPS redirect in production
 if os.getenv('ENVIRONMENT') == 'production':
     app.add_middleware(HTTPSRedirectMiddleware)
@@ -3184,6 +3193,68 @@ async def get_flow_data(
     ]
     logger.info("Returning %d flow records", len(data))
     return JSONResponse(content=data)
+
+@app.post("/config/dia")
+async def save_dia_config(config: DiaAPIConfig):
+    """Persist Dia API key and base URL to the .env file and runtime env."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        lines = []
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                lines = f.readlines()
+        # Filter out old DIA_* entries
+        lines = [l for l in lines if not l.startswith("DIA_API_KEY=") and not l.startswith("DIA_TTS_URL=")]
+        # Append new values
+        lines.append(f"DIA_API_KEY={config.api_key}\n")
+        lines.append(f"DIA_TTS_URL={config.url}\n")
+        with open(env_path, 'w') as f:
+            f.writelines(lines)
+        # Update in-memory environment
+        os.environ["DIA_API_KEY"] = config.api_key
+        os.environ["DIA_TTS_URL"] = config.url
+        return JSONResponse(content={"message": "Dia API configuration saved successfully"})
+    except Exception as e:
+        logger.error(f"Error saving Dia config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/config/dia")
+async def get_dia_config():
+    """Return Dia configuration status and current URL (if set)."""
+    try:
+        dia_key = os.getenv("DIA_API_KEY")
+        dia_url = os.getenv("DIA_TTS_URL")
+        return JSONResponse(
+            content={
+                "configured": bool(dia_key and dia_url),
+                "url": dia_url or "",
+                "message": "Dia API is configured" if dia_key and dia_url else "Dia API is not configured"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting Dia config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/config/dia")
+async def remove_dia_config():
+    """Remove Dia configuration from .env and runtime environment."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        if os.path.exists(env_path):
+            with open(env_path, 'r') as f:
+                lines = f.readlines()
+            lines = [l for l in lines if not l.startswith("DIA_API_KEY=") and not l.startswith("DIA_TTS_URL=")]
+            with open(env_path, 'w') as f:
+                f.writelines(lines)
+        # Clear runtime env vars
+        os.environ.pop("DIA_API_KEY", None)
+        os.environ.pop("DIA_TTS_URL", None)
+        return JSONResponse(content={"message": "Dia API configuration removed"})
+    except Exception as e:
+        logger.error(f"Error removing Dia config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
