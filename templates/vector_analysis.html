@@ -52,23 +52,31 @@
         <h5>Filters</h5>
         <!-- Dynamic Facets from search response -->
         <div id="facetList" class="mb-3 small"></div>
-        <small class="text-muted">Use <code>filter(field="value")</code> in the
-            search bar to refine, e.g. <code>agi filter(category="AI Business")</code>
+        <small class="text-muted">
+            Type <em>anything</em> for natural-language search, then add inline filters like
+            <code>attribute=value</code> &nbsp;→&nbsp; <code>category="AI Business" sentiment=positive</code>.<br>
+            Operators: <code>=</code>, <code>!=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code>,
+            range <code>..</code>, set <code>in(...)</code>, existence <code>has:field</code>.<br>
+            Extras: boost <code>^n</code> (e.g.&nbsp;<code>vector^2.5</code>, <code>category^3="AI"</code>),
+            sort <code>sort:field[:asc|desc]</code>, limit <code>limit:n</code>, phrase <code>"foundation model"</code>,
+            proximity <code>"open source"~5</code>, neighbours <code>similar:id</code>, cluster filter <code>cluster=7</code>.<br>
+            Combine expressions with <code>AND</code>, <code>OR</code>, <code>NOT</code>.
         </small>
         <hr>
-        <div class="mb-3">
-            <label class="form-label small">Max results</label>
-            <input type="number" id="topK" class="form-control form-control-sm" value="100" min="1" max="500" style="width:100px;">
-        </div>
-        <button id="generateReportBtn" class="btn btn-secondary w-100 mb-2" disabled>Generate Report</button>
-        <button id="generatePodcastBtn" class="btn btn-secondary w-100" disabled>Generate Podcast</button>
     </div>
 
     <!-- Center Main Content -->
     <div class="main">
         <div class="sticky-top bg-white pt-2" style="z-index:2;">
             <div class="input-group mb-2">
-                <input type="text" id="searchInput" class="form-control" placeholder="Search news…">
+                <input type="text" id="searchInput" class="form-control" placeholder="Search news…" list="attrList">
+                <select id="perPage" class="form-select form-select-sm" style="width:90px;max-width:90px;">
+                    <option value="50">50</option>
+                    <option value="100" selected>100</option>
+                    <option value="200">200</option>
+                    <option value="500">500</option>
+                    <option value="0">All</option>
+                </select>
                 <div class="btn-group me-2">
                     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" id="searchModeBtn">Fuzzy</button>
                     <ul class="dropdown-menu dropdown-menu-end small">
@@ -81,9 +89,9 @@
             <div id="activeFilters" class="mb-2"></div>
             <!-- Tabs -->
             <ul class="nav nav-tabs small mb-2" id="resultTabs" role="tablist">
-              <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#eventsPane" type="button" role="tab">Events</button></li>
+              <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#eventsPane" type="button" role="tab">Data Points</button></li>
               <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#patternsPane" type="button" role="tab">Patterns</button></li>
-              <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#vizPane" type="button" role="tab">Visualization</button></li>
+              <li class="nav-item" role="presentation"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#vizPane" type="button" role="tab">Visuals</button></li>
             </ul>
             <div class="tab-content">
               <div class="tab-pane fade show active" id="eventsPane" role="tabpanel">
@@ -104,6 +112,13 @@
                     <input class="form-check-input" type="checkbox" id="embed3d">
                     <label class="form-check-label" for="embed3d">3D</label>
                   </div>
+                  <select id="colorMode" class="form-select form-select-sm me-2" style="width:160px;">
+                    <option value="cluster" selected>Color: cluster</option>
+                    <option value="sentiment">Color: sentiment</option>
+                    <option value="driver_type">Color: driver_type</option>
+                    <option value="category">Color: category</option>
+                    <option value="time_to_impact">Color: time_to_impact</option>
+                  </select>
                   <div id="clusterLegend" class="small flex-wrap"></div>
                 </div>
                 <div id="scatter" style="width:100%;height:600px;display:none;"></div>
@@ -125,14 +140,20 @@ async function runSearch() {
     const raw = document.getElementById('searchInput').value;
     if (!raw) return;
 
-    const {cleaned, metadata} = parseQuery(raw);
+    let parsed=parseQuery(raw);
+    const metaExtra=extractMetaTokens(parsed);
+    parsed.cleaned=metaExtra.cleaned;
+    const metadata=parsed.metadata;
+    const extra=metaExtra.extra;
 
-    const topK = document.getElementById('topK').value;
+    const perSel=document.getElementById('perPage');
+    let topK = perSel.value==='0'?10000:perSel.value;
+    if(extra.limit){topK=extra.limit;}
     const mode = document.getElementById('searchModeBtn').dataset.mode || 'fuzzy';
     let data;
     if(mode==='keyword'){
         const params=new URLSearchParams({
-            keyword: cleaned,
+            keyword: parsed.cleaned,
             per_page: topK,
             search_fields: 'title,summary,tags',
         });
@@ -159,23 +180,25 @@ async function runSearch() {
         });
         data={results:kwResults,facets,timeline};
     }else{
-        const params = new URLSearchParams({ q: cleaned, top_k: topK });
+        const params = new URLSearchParams({ q: parsed.cleaned, top_k: topK });
+        if(extra.sort){params.append('sort',extra.sort.join(':'));}
         Object.entries(metadata).forEach(([k,v])=>params.append(k, v));
         const res = await fetch(`/api/vector-search?${params.toString()}`);
         data = await res.json();
     }
-    lastResults = data.results;
+    currentIndex=0;
+    lastResults=data.results;
     selectedUris.clear();
     updateActionButtons();
-    renderResults(data.results);
+    renderNextPage();
     renderFacets(data.facets || {});
     renderTimeline(data.timeline || {});
     updateActiveChips();
 }
 
-function renderResults(results) {
+function renderResults(results, reset=false) {
     const container = document.getElementById('results');
-    container.innerHTML = '';
+    if(reset){container.innerHTML='';}
     results.forEach(r => {
         const card = document.createElement('div');
         card.className = 'card mb-2 position-relative ps-5';
@@ -267,11 +290,14 @@ function renderFacets(facets) {
             evt.preventDefault();
             const { field, value } = a.dataset;
             const input=document.getElementById('searchInput');
-            const expr=`filter(${field}="${value}")`;
-            if(input.value.includes(expr)){
-                input.value=input.value.replace(expr,'').trim();
+            const simple=`${field}="${value}"`;
+            const legacy=`filter(${field}="${value}")`;
+            if(input.value.includes(simple)){
+                input.value=input.value.replace(simple,'').trim();
+            }else if(input.value.includes(legacy)){
+                input.value=input.value.replace(legacy,'').trim();
             }else{
-                input.value=`${input.value} ${expr}`.trim();
+                input.value=`${input.value} ${simple}`.trim();
             }
             runSearch();
         });
@@ -371,7 +397,10 @@ function renderMetadata(meta){
             e.preventDefault();
             const { field, val } = a.dataset;
             const input=document.getElementById('searchInput');
-            input.value=`${input.value} filter(${field}="${val}")`.trim();
+            const token=`${field}="${val}"`;
+            if(!input.value.includes(token)){
+                input.value=`${input.value} ${token}`.trim();
+            }
             runSearch();
         });
     });
@@ -395,7 +424,38 @@ function parseQuery(q){
             metadata[p[1]]=p[2];
         }
     }
+    // ----------------------------------------------
+    // 2. Simple attribute operators (field op value)
+    // ----------------------------------------------
+    // Supported ops: = != >= <= > <
+    // We only forward equality to the backend for now – others stay in *cleaned* for full-text search / future use.
+    // Copy of the query to safely scan attribute tokens without mutating in-place
+    const scan = cleaned;
+    const attrRe = /(\b\w+)\s*(=|!=|>=|<=|>|<)\s*("[^"]+"|[^\s]+)/g;
+    let match;
+    while((match = attrRe.exec(scan)) !== null){
+        const [full, field, op, rawVal] = match;
+        let val = rawVal;
+        if(val.startsWith('"') && val.endsWith('"')){
+            val = val.slice(1,-1);
+        }
+        if(op === '='){
+            metadata[field] = val;
+            cleaned = cleaned.replace(full,'').trim();
+        }
+    }
     return {cleaned, metadata};
+}
+
+// Helper to extract limit & sort tokens; augment parseQuery externally
+function extractMetaTokens(qObj){
+  const extra={};
+  let {cleaned}=qObj;
+  // limit:n
+  cleaned=cleaned.replace(/\blimit:(\d+)\b/i,(m,n)=>{extra.limit=parseInt(n);return '';});
+  // sort:field[:dir]
+  cleaned=cleaned.replace(/\bsort:([\w_]+)(?::(asc|desc))?/i,(m,f,d)=>{extra.sort=[f,d||'asc'];return ''});
+  return {cleaned:cleaned.trim(), extra};
 }
 
 function updateActiveChips() {
@@ -410,7 +470,9 @@ function updateActiveChips() {
         chip.textContent = `${field}: ${value} ×`;
         chip.addEventListener('click', () => {
             const raw = document.getElementById('searchInput').value;
-            document.getElementById('searchInput').value = raw.replace(`filter(${field}="${value}")`,'').trim();
+            let updated = raw.replace(`filter(${field}="${value}")`,'');
+            updated = updated.replace(`${field}="${value}"`, '').replace(`${field}=${value}`,'');
+            document.getElementById('searchInput').value = updated.trim();
             runSearch();
         });
         container.appendChild(chip);
@@ -420,30 +482,9 @@ function updateActiveChips() {
     }
 }
 
-// Selected uris and action buttons
+// Selected URIs – retained for potential future actions
 const selectedUris = new Set();
-function updateActionButtons() {
-    document.getElementById('generateReportBtn').disabled = selectedUris.size === 0;
-    document.getElementById('generatePodcastBtn').disabled = selectedUris.size === 0;
-}
-
-document.getElementById('generateReportBtn').addEventListener('click', async ()=>{
-    if(!selectedUris.size) return;
-    const res = await fetch('/api/generate_report',{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ article_ids:[...selectedUris] })
-    });
-    if(res.ok){alert('Report generation started');}
-});
-
-document.getElementById('generatePodcastBtn').addEventListener('click', async ()=>{
-    if(!selectedUris.size) return;
-    const res = await fetch('/api/generate_tts_podcast',{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ article_uris:[...selectedUris] })
-    });
-    if(res.ok){alert('Podcast generation started');}
-});
+function updateActionButtons() {/* no-op – legacy buttons removed */}
 
 document.getElementById('searchBtn').addEventListener('click', runSearch);
 
@@ -562,6 +603,7 @@ async function updateScatter(){
     const params=new URLSearchParams();
     Object.entries(metadata).forEach(([k,v])=>params.append(k,v));
     const dims3d=document.getElementById('embed3d').checked;
+    const colorMode=document.getElementById('colorMode').value;
     params.append('method',document.getElementById('embedMethod').value);
     params.append('dims',dims3d?'3':'2');
     const res=await fetch(`/api/embedding_projection?${params.toString()}`);
@@ -576,6 +618,23 @@ async function updateScatter(){
 
     const custom=pts.map(p=>(window.clusterExplain[p.cluster]||[]).join(', '));
 
+    const colorSentiment=false;
+    let legendItems;
+    let colourMap=new Map();
+    let pointColors;
+
+    if(colorMode!=='cluster'){
+        legendItems=[...new Set(pts.map(p=>(p[colorMode]||'unknown')))].sort();
+        const colours=palette(legendItems.length);
+        legendItems.forEach((s,idx)=>colourMap.set(s,colours[idx]));
+        pointColors=pts.map(p=>colourMap.get(p[colorMode]||'unknown'));
+    }else{
+        legendItems=[...new Set(pts.map(p=>p.cluster))].sort((a,b)=>a-b);
+        const colours=palette(legendItems.length);
+        legendItems.forEach((c,idx)=>colourMap.set(c,colours[idx]));
+        pointColors=pts.map(p=>colourMap.get(p.cluster));
+    }
+
     let trace;
     let layout;
     if(dims3d){
@@ -584,10 +643,10 @@ async function updateScatter(){
           x:pts.map(p=>p.x),
           y:pts.map(p=>p.y),
           z:pts.map(p=>p.z||0),
-          marker:{size:3,color:pts.map(p=>p.cluster),colorscale:'Viridis',opacity:0.8},
+          marker:{size:3,color:pointColors,opacity:0.8},
           text:pts.map(p=>p.title||''),
           customdata:custom,
-          hovertemplate:'%{text}<br><small>%{customdata}</small><extra>cluster=%{marker.color}</extra>'
+          hovertemplate:'%{text}<br><small>%{customdata}</small><extra></extra>'
         };
         layout={margin:{t:0,l:0,r:0,b:0},scene:{aspectmode:'data'}};
     }else{
@@ -595,18 +654,17 @@ async function updateScatter(){
           type:'scattergl',mode:'markers',
           x:pts.map(p=>p.x),
           y:pts.map(p=>p.y),
-          marker:{size:7,color:pts.map(p=>p.cluster),colorscale:'Viridis',opacity:0.9},
+          marker:{size:7,color:pointColors,opacity:0.9},
           text:pts.map(p=>p.title||''),
           customdata:custom,
-          hovertemplate:'%{text}<br><small>%{customdata}</small><extra>cluster=%{marker.color}</extra>'
+          hovertemplate:'%{text}<br><small>%{customdata}</small><extra></extra>'
         };
         layout={margin:{t:0,l:0,r:0,b:0},hovermode:'closest'};
     }
     Plotly.react(div,[trace],layout);
 
     // Build legend after fetching points
-    const cls=[...new Set(pts.map(p=>p.cluster))].sort((a,b)=>a-b);
-    rebuildLegend(cls);
+    rebuildLegend(legendItems, colourMap, colorMode!=='cluster', colorMode);
 
     loading.style.display='none';
 }
@@ -688,20 +746,43 @@ document.getElementById('embed3d').addEventListener('change',()=>{
   if(scatterLoaded){updateScatter();}
 });
 
-function rebuildLegend(clusters){
+document.getElementById('colorMode').addEventListener('change',()=>{
+  if(scatterLoaded){updateScatter();}
+});
+
+function rebuildLegend(items, colourMap, nonCluster=false, colorMode='cluster'){
   const container=document.getElementById('clusterLegend');
   container.innerHTML='';
-  clusters.forEach(idx=>{
+  items.forEach(idx=>{
     const span=document.createElement('span');
     span.className='badge me-1';
-    span.style.background='#6c63ff';
+    span.style.background=colourMap.get(idx)||'#6c63ff';
     span.style.cursor='pointer';
-    span.textContent=`Cluster ${idx}`;
-    const kw=(window.clusterExplain||{})[idx];
-    if(kw){span.title=kw.join(', ');}  // tooltip
+    let label;
+    if(nonCluster){
+      label=idx;
+    }else{
+      const kw=(window.clusterExplain||{})[idx]||[];
+      label=kw.length?kw.slice(0,2).join(', '):`Cluster ${idx}`;
+      if(kw.length){span.title=kw.join(', ');}  // tooltip for cluster mode
+    }
+    span.textContent=label;
     span.addEventListener('click',()=>{
-      const style=window.scatterPoints.map(p=>p.cluster===idx?1:0.1);
+      window._activeLabel=window._activeLabel||null;
+      if(window._activeLabel===idx){
+        // toggle off – reset all
+        Plotly.restyle('scatter',{'marker.opacity':[window.scatterPoints.map(()=>0.9)]});
+        window._activeLabel=null;
+        return;
+      }
+      const style=window.scatterPoints.map(p=>{
+        if(colorMode!=='cluster'){
+            return (p[colorMode]||'unknown')===idx?1:0.15;
+        }
+        return p.cluster===idx?1:0.15;
+      });
       Plotly.restyle('scatter',{'marker.opacity':[style]});
+      window._activeLabel=idx;
     });
     container.appendChild(span);
   });
@@ -714,6 +795,28 @@ function palette(n){
   const colours = [];
   for (let i = 0; i < n; i++) colours.push(base[i % base.length]);
   return colours;
+}
+
+// Pagination helpers
+let currentIndex=0;
+const loadMoreBtn=document.createElement('button');
+loadMoreBtn.textContent='Load more';
+loadMoreBtn.className='btn btn-outline-primary w-100 my-2';
+loadMoreBtn.style.display='none';
+loadMoreBtn.addEventListener('click',()=>renderNextPage());
+document.getElementById('results').after(loadMoreBtn);
+
+function renderNextPage(){
+  const per=parseInt(document.getElementById('perPage').value)||lastResults.length;
+  const slice=lastResults.slice(currentIndex, per?currentIndex+per:lastResults.length);
+  if(!slice){return;}
+  renderResults(slice, currentIndex===0);
+  currentIndex+=slice.length;
+  if(currentIndex>=lastResults.length){
+      loadMoreBtn.style.display='none';
+  }else{
+      loadMoreBtn.style.display='block';
+  }
 }
 </script>
 {% endblock %} 
