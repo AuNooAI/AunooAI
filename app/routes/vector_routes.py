@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api", tags=["vector-search"])
 @router.get("/vector-search")
 def vector_search_endpoint(
     q: str = Query(..., description="Search query"),
-    top_k: int = Query(100, ge=1, le=500),
+    top_k: int = Query(100, ge=1),
     topic: Optional[str] = None,
     category: Optional[str] = None,
     future_signal: Optional[str] = None,
@@ -325,6 +325,10 @@ def embedding_projection(
             "y": float(coords[i, 1]),
             "cluster": int(clusters[i]),
             "title": meta.get("title"),
+            "sentiment": meta.get("sentiment"),
+            "driver_type": meta.get("driver_type"),
+            "category": meta.get("category"),
+            "time_to_impact": meta.get("time_to_impact"),
         }
         if dims == 3:
             point["z"] = float(coords[i, 2])
