@@ -179,6 +179,12 @@ def embedding_projection(
         regex="^(umap|tsne|pca)$",
         description="Dimensionality reduction method",
     ),
+    dims: int = Query(
+        2,
+        ge=2,
+        le=3,
+        description="Output dimensionality (2 or 3)",
+    ),
     top_k: int = Query(
         2500,
         ge=10,
@@ -232,7 +238,7 @@ def embedding_projection(
         from sklearn.manifold import TSNE  # type: ignore
 
         reducer = TSNE(
-            n_components=2,
+            n_components=dims,
             metric="cosine",
             random_state=42,
             init="random",
@@ -242,12 +248,16 @@ def embedding_projection(
     elif method == "pca":
         from sklearn.decomposition import PCA  # type: ignore
 
-        reducer = PCA(n_components=2, random_state=42)
+        reducer = PCA(n_components=dims, random_state=42)
         coords = reducer.fit_transform(vectors)
     else:  # default UMAP
         import umap  # type: ignore  # pylint: disable=import-error
 
-        reducer = umap.UMAP(metric="cosine", random_state=42)
+        reducer = umap.UMAP(
+            n_components=dims,
+            metric="cosine",
+            random_state=42,
+        )
         coords = reducer.fit_transform(vectors)
 
     # ------------------
@@ -271,16 +281,23 @@ def embedding_projection(
     clusters = km.fit_predict(vec_for_cluster)
 
     # ------------------ Explainability helpers ------------------
-    from collections import Counter, defaultdict
     import re
+    from collections import Counter, defaultdict
     import numpy as np  # type: ignore
+    from sklearn.feature_extraction import text as _sk_text  # type: ignore
+    STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
 
     tokens_by_cluster: dict[int, list[str]] = defaultdict(list)
+
     for idx, lbl in enumerate(clusters):
         meta = metas[idx] if idx < len(metas) else {}
         text = f"{meta.get('title', '')} {meta.get('summary', '')}"
-        # Basic tokenisation – keep words ≥3 chars
-        toks = re.findall(r"\b\w{3,}\b", text.lower())
+        # Tokenise and drop common stop-words, keep words ≥3 chars.
+        toks = [
+            t.lower()
+            for t in re.findall(r"\b\w{3,}\b", text)
+            if t.lower() not in STOP_WORDS
+        ]
         tokens_by_cluster[int(lbl)].extend(toks)
 
     explain: Dict[int, list[str]] = {}
@@ -288,28 +305,30 @@ def embedding_projection(
         most_common = Counter(toks).most_common(5)
         explain[lbl] = [w for w, _ in most_common]
 
-    # Centroids in 2-D plot space (for potential label placement)
+    # Centroids only make sense for 2-D visualisations.
     centroids: Dict[int, list[float]] = {}
-    for lbl in set(clusters):
-        idxs = np.where(clusters == lbl)[0]
-        if idxs.size:
-            centroids[int(lbl)] = [
-                float(coords[idxs, 0].mean()),
-                float(coords[idxs, 1].mean()),
-            ]
+    if dims == 2:
+        for lbl in set(clusters):
+            idxs = np.where(clusters == lbl)[0]
+            if idxs.size:
+                centroids[int(lbl)] = [
+                    float(coords[idxs, 0].mean()),
+                    float(coords[idxs, 1].mean()),
+                ]
 
     points: list[dict] = []
     for i, _id in enumerate(ids):
         meta = metas[i] if i < len(metas) else {}
-        points.append(
-            {
-                "id": _id,
-                "x": float(coords[i, 0]),
-                "y": float(coords[i, 1]),
-                "cluster": int(clusters[i]),
-                "title": meta.get("title"),
-            }
-        )
+        point: dict[str, Any] = {
+            "id": _id,
+            "x": float(coords[i, 0]),
+            "y": float(coords[i, 1]),
+            "cluster": int(clusters[i]),
+            "title": meta.get("title"),
+        }
+        if dims == 3:
+            point["z"] = float(coords[i, 2])
+        points.append(point)
 
     return {
         "points": points,
@@ -382,6 +401,9 @@ def patterns_endpoint(
 
     from collections import Counter, defaultdict
     import re
+    from sklearn.feature_extraction import text as _sk_text  # type: ignore
+
+    STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
 
     unigram_counts: Counter[str] = Counter()
     bigram_counts: Counter[str] = Counter()
@@ -399,7 +421,9 @@ def patterns_endpoint(
         text = " ".join([t for t in text_parts if t])
         # Basic tokenisation – alphanum words, lowercase, length >=2
         tokens = [
-            t.lower() for t in re.findall(r"\b\w{2,}\b", text)
+            t.lower()
+            for t in re.findall(r"\b\w{3,}\b", text)
+            if t.lower() not in STOP_WORDS
         ]
         if not tokens:
             continue

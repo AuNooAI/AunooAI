@@ -100,6 +100,10 @@
                     <option value="tsne">t-SNE</option>
                     <option value="pca">PCA</option>
                   </select>
+                  <div class="form-check me-2 small">
+                    <input class="form-check-input" type="checkbox" id="embed3d">
+                    <label class="form-check-label" for="embed3d">3D</label>
+                  </div>
                   <div id="clusterLegend" class="small flex-wrap"></div>
                 </div>
                 <div id="scatter" style="width:100%;height:600px;display:none;"></div>
@@ -557,7 +561,9 @@ async function updateScatter(){
     const { metadata } = parseQuery(document.getElementById('searchInput').value);
     const params=new URLSearchParams();
     Object.entries(metadata).forEach(([k,v])=>params.append(k,v));
+    const dims3d=document.getElementById('embed3d').checked;
     params.append('method',document.getElementById('embedMethod').value);
+    params.append('dims',dims3d?'3':'2');
     const res=await fetch(`/api/embedding_projection?${params.toString()}`);
     const data=await res.json();
 
@@ -570,16 +576,33 @@ async function updateScatter(){
 
     const custom=pts.map(p=>(window.clusterExplain[p.cluster]||[]).join(', '));
 
-    const trace={
-        type:'scattergl',mode:'markers',
-        x:pts.map(p=>p.x),
-        y:pts.map(p=>p.y),
-        marker:{size:7,color:pts.map(p=>p.cluster),colorscale:'Viridis',opacity:0.9},
-        text:pts.map(p=>p.title||''),
-        customdata:custom,
-        hovertemplate:'%{text}<br><small>%{customdata}</small><extra>cluster=%{marker.color}</extra>'
-    };
-    Plotly.react(div,[trace],{margin:{t:0,l:0,r:0,b:0},hovermode:'closest',plugins:{legend:{display:true,position:'right'}}});
+    let trace;
+    let layout;
+    if(dims3d){
+        trace={
+          type:'scatter3d',mode:'markers',
+          x:pts.map(p=>p.x),
+          y:pts.map(p=>p.y),
+          z:pts.map(p=>p.z||0),
+          marker:{size:3,color:pts.map(p=>p.cluster),colorscale:'Viridis',opacity:0.8},
+          text:pts.map(p=>p.title||''),
+          customdata:custom,
+          hovertemplate:'%{text}<br><small>%{customdata}</small><extra>cluster=%{marker.color}</extra>'
+        };
+        layout={margin:{t:0,l:0,r:0,b:0},scene:{aspectmode:'data'}};
+    }else{
+        trace={
+          type:'scattergl',mode:'markers',
+          x:pts.map(p=>p.x),
+          y:pts.map(p=>p.y),
+          marker:{size:7,color:pts.map(p=>p.cluster),colorscale:'Viridis',opacity:0.9},
+          text:pts.map(p=>p.title||''),
+          customdata:custom,
+          hovertemplate:'%{text}<br><small>%{customdata}</small><extra>cluster=%{marker.color}</extra>'
+        };
+        layout={margin:{t:0,l:0,r:0,b:0},hovermode:'closest'};
+    }
+    Plotly.react(div,[trace],layout);
 
     // Build legend after fetching points
     const cls=[...new Set(pts.map(p=>p.cluster))].sort((a,b)=>a-b);
@@ -658,6 +681,10 @@ async function loadPatterns(){
 // Visualization helpers – method dropdown & legend
 // ---------------------------
 document.getElementById('embedMethod').addEventListener('change',()=>{
+  if(scatterLoaded){updateScatter();}
+});
+
+document.getElementById('embed3d').addEventListener('change',()=>{
   if(scatterLoaded){updateScatter();}
 });
 
