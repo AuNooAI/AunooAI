@@ -580,6 +580,7 @@ async function initScatter(){
     // click handler
     div.on('plotly_click',async ev=>{
         const idx=ev.points[0].pointIndex;
+        if(!window.scatterPoints || !window.scatterPoints[idx]){return;}
         const selId=window.scatterPoints[idx].id;
         const neighbours=await fetch(`/api/embedding_neighbours?id=${encodeURIComponent(selId)}&top_k=5`).then(r=>r.json());
         const ids=[selId,...neighbours.map(n=>n.id)];
