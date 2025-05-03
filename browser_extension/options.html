@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Aunoo Extension Settings</title>
+  <style>
+    body{font:14px system-ui;margin:20px;max-width:400px}
+    label{display:block;margin-top:12px;font-weight:600}
+    input,select{width:100%;padding:6px;box-sizing:border-box}
+    button{margin-top:16px;padding:8px;width:100%}
+    .brand{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+    .brand-name{font-size:18px;font-weight:700}
+    .tagline{font-size:12px;color:#555;margin-bottom:12px}
+    .help{cursor:pointer;border-bottom:1px dotted #666;color:#666}
+    .footer{margin-top:24px;text-align:center;font-size:11px;color:#777}
+  </style>
+</head>
+<body>
+  <header class="brand">
+    <img src="icon128.png" alt="Aunoo Logo" width="32" height="32" />
+    <span class="brand-name">Aunoo Bulk-Research Helper</span>
+  </header>
+  <p class="tagline">Configure how the extension talks to your self-hosted Aunoo instance.</p>
+
+  <label for="apiUrl">API Base URL <span class="help" title="Root address of your Aunoo backend, e.g. https://app.aunoo.ai or http://localhost:10000">?</span></label>
+  <input type="text" id="apiUrl" placeholder="https://app.aunoo.ai" />
+
+  <label for="defaultTopic">Default Topic <span class="help" title="Articles will be saved under this topic unless you choose a different one in the HUD.">?</span></label>
+  <select id="defaultTopic"></select>
+
+  <label for="summaryLen">Summary Length (words) <span class="help" title="Approximate number of words in generated summaries.">?</span></label>
+  <input type="number" id="summaryLen" min="10" max="200" step="10" />
+
+  <label for="summaryVoice">Summary Voice <span class="help" title="Tone or style of the generated summary.">?</span></label>
+  <select id="summaryVoice">
+    <option value="Business Analyst">Business Analyst</option>
+    <option value="Neutral">Neutral</option>
+    <option value="Conversational">Conversational</option>
+  </select>
+
+  <button id="saveBtn">Save</button>
+
+  <footer class="footer">
+    <small>Built with ♥ by <strong>Aunoo</strong>. Need help? <a href="https://github.com/aunoo-ai" target="_blank" rel="noopener">Docs & Issues</a></small>
+  </footer>
+
+  <script src="options.js"></script>
+</body>
+</html> 

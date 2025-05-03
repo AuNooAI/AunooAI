@@ -1,0 +1,27 @@
+{
+  "name": "Aunoo Bulk Research",
+  "description": "Send the current page or link to Aunoo's Bulk Research API and review the analysis before saving.",
+  "version": "0.0.1",
+  "manifest_version": 3,
+  "permissions": [
+    "contextMenus",
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://app.aunoo.ai/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "128": "icon128.png"
+  },
+  "options_page": "options.html"
+} 
