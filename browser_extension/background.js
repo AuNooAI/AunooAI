@@ -3,6 +3,18 @@
 let API_BASE = "https://app.aunoo.ai"; // will be overridden by stored value
 chrome.storage.sync.get("apiBase",({apiBase})=>{if(apiBase) API_BASE=apiBase.replace(/\/+$/,'');});
 
+// insert helper near top after API_BASE definitions
+async function ensureHostPermission() {
+  const origin = new URL(API_BASE).origin + "/*";
+  const perm = { origins: [origin] };
+  return new Promise((resolve) => {
+    chrome.permissions.contains(perm, (has) => {
+      if (has) return resolve(true);
+      chrome.permissions.request(perm, (granted) => resolve(granted));
+    });
+  });
+}
+
 // helper to build full URL
 function api(path) {
   if (path.startsWith("/")) return `${API_BASE}${path}`;
@@ -21,6 +33,11 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.contextMenus.onClicked.addListener(async (info) => {
   const url = info.linkUrl || info.pageUrl;
   if (!url) return;
+
+  // Ask for host permission first
+  if (!(await ensureHostPermission())) {
+    return; // user denied – do nothing
+  }
 
   const payload = await new Promise((resolve)=>{
     chrome.storage.sync.get(["defaultTopic","summaryLen","summaryVoice"],({defaultTopic,summaryLen,summaryVoice})=>{
