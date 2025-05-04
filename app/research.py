@@ -9,6 +9,9 @@ from app.env_loader import load_environment, ensure_model_env_vars
 from app.analyzers.article_analyzer import ArticleAnalyzer
 from dotenv import load_dotenv
 
+# Add import for the collector factory
+from app.collectors.collector_factory import CollectorFactory
+
 # Set up logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -259,6 +262,13 @@ class Research:
                 return False
             return False
 
+    def is_bluesky_url(self, uri: str) -> bool:
+        """Check if a URL is from the Bluesky platform."""
+        parsed_uri = urlparse(uri)
+        domain = parsed_uri.netloc.lower()
+        # Check for bsky.app domain or any subdomain ending with .bsky.social
+        return domain == 'bsky.app' or domain.endswith('.bsky.social')
+
     async def fetch_article_content(self, uri: str, save_with_topic=False):
         """Fetch article content using Firecrawl or from the database if available."""
         try:
@@ -294,11 +304,81 @@ class Research:
                 return {
                     "content": existing_article.get('raw_markdown', ""),
                     "source": self.extract_source(uri),
-                    "publication_date": existing_article.get('submission_date', datetime.now(timezone.utc).date().isoformat()),
+                    "publication_date": existing_article.get(
+                        'submission_date', 
+                        datetime.now(timezone.utc).date().isoformat()
+                    ),
                     "exists": True
                 }
             
-            # If article doesn't exist, try to scrape it
+            # Check if this is a Bluesky URL
+            if self.is_bluesky_url(uri):
+                logger.info(f"Detected Bluesky URL: {uri}")
+                try:
+                    # Get the BlueskyCollector from the factory
+                    bluesky_collector = CollectorFactory.get_collector('bluesky')
+                    
+                    # Fetch the content using the collector
+                    content_result = await bluesky_collector.fetch_article_content(uri)
+                    
+                    if content_result:
+                        # Format the result to match expected structure
+                        content = content_result.get('content', '')
+                        
+                        # Extract publication date or use the one from result
+                        publication_date = content_result.get(
+                            'published_date', 
+                            self.article_analyzer.extract_publication_date(content)
+                        )
+                        
+                        # Save to database if requested
+                        if save_with_topic and content:
+                            try:
+                                logger.debug(
+                                    f"Saving Bluesky content to database for URI: {uri}"
+                                )
+                                # Create placeholder article entry if needed
+                                cursor = self.db.get_connection().cursor()
+                                cursor.execute(
+                                    "SELECT 1 FROM articles WHERE uri = ?", 
+                                    (uri,)
+                                )
+                                if not cursor.fetchone():
+                                    cursor.execute("""
+                                        INSERT INTO articles 
+                                        (uri, title, news_source, submission_date, topic, analyzed)
+                                        VALUES (?, 'Placeholder', ?, datetime('now'), ?, ?)
+                                    """, (uri, self.extract_source(uri), 
+                                          self.current_topic, False))
+                                
+                                # Save raw content
+                                self.db.save_raw_article(uri, content, self.current_topic)
+                                logger.info(
+                                    f"Successfully saved Bluesky content: {self.current_topic}"
+                                )
+                            except Exception as save_error:
+                                logger.error(
+                                    f"Failed to save Bluesky content: {str(save_error)}"
+                                )
+                        
+                        return {
+                            "content": content,
+                            "source": content_result.get('source', self.extract_source(uri)),
+                            "publication_date": publication_date,
+                            "exists": False
+                        }
+                    else:
+                        logger.warning(f"BlueskyCollector returned no content for {uri}")
+                except Exception as bluesky_error:
+                    logger.error(f"Error using BlueskyCollector: {str(bluesky_error)}")
+                    return {
+                        "content": f"Failed to fetch Bluesky content: {str(bluesky_error)}",
+                        "source": self.extract_source(uri),
+                        "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                        "error": str(bluesky_error)
+                    }
+            
+            # If article doesn't exist and it's not Bluesky, try to scrape it with Firecrawl
             # Check if Firecrawl is available or try to initialize it
             if not self.firecrawl_app:
                 logger.info("Firecrawl not initialized, attempting to initialize")
@@ -689,6 +769,70 @@ class Research:
         try:
             logger.info(f"Starting article scrape for URI: {uri}")
             
+            # Check if this is a Bluesky URL
+            if self.is_bluesky_url(uri):
+                logger.info(f"Detected Bluesky URL: {uri}")
+                try:
+                    # Get the BlueskyCollector from the factory
+                    bluesky_collector = CollectorFactory.get_collector('bluesky')
+                    
+                    # Fetch the content using the collector
+                    content_result = await bluesky_collector.fetch_article_content(uri)
+                    
+                    if content_result:
+                        # Format the result to match expected structure
+                        content = content_result.get('content', '')
+                        title = content_result.get('title', '')
+                        
+                        # Extract publication date or use the one from result
+                        publication_date = content_result.get(
+                            'published_date',
+                            self.article_analyzer.extract_publication_date(content)
+                        )
+                        
+                        # Try to save the article but don't fail if it can't be saved
+                        try:
+                            self.db.save_raw_article(uri, content, self.current_topic)
+                            logger.info(
+                                f"Successfully saved Bluesky content: {self.current_topic}"
+                            )
+                        except Exception as save_error:
+                            logger.error(
+                                f"Failed to save Bluesky content: {str(save_error)}"
+                            )
+                        
+                        # Get metadata
+                        metadata = {
+                            'title': title,
+                            'published_date': publication_date,
+                            'author': (content_result.get('authors', [''])[0] 
+                                      if content_result.get('authors') else '')
+                        }
+                        
+                        return {
+                            "content": content,
+                            "source": content_result.get('source', self.extract_source(uri)),
+                            "publication_date": publication_date,
+                            "metadata": metadata
+                        }
+                    else:
+                        logger.warning(f"BlueskyCollector returned no content for {uri}")
+                        return {
+                            "content": "Failed to fetch Bluesky content. No content returned.",
+                            "source": self.extract_source(uri),
+                            "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                            "error": "No content returned from Bluesky collector"
+                        }
+                except Exception as bluesky_error:
+                    logger.error(f"Error using BlueskyCollector: {str(bluesky_error)}")
+                    return {
+                        "content": f"Failed to fetch Bluesky content: {str(bluesky_error)}",
+                        "source": self.extract_source(uri),
+                        "publication_date": datetime.now(timezone.utc).date().isoformat(),
+                        "error": str(bluesky_error)
+                    }
+            
+            # If not Bluesky, proceed with Firecrawl
             # Reload environment and check if Firecrawl is available
             if not self.firecrawl_app:
                 logger.info("Firecrawl not configured, attempting to initialize")

@@ -5,6 +5,7 @@ from app.research import Research
 from app.database import Database
 from app.ai_models import get_ai_model
 from app.analyzers.article_analyzer import ArticleAnalyzer
+from app.collectors.collector_factory import CollectorFactory
 import logging
 import traceback
 import datetime
@@ -47,6 +48,13 @@ class BulkResearch:
             logger.error(traceback.format_exc())
             raise
 
+    def is_bluesky_url(self, uri: str) -> bool:
+        """Check if a URL is from the Bluesky platform."""
+        parsed_uri = urlparse(uri)
+        domain = parsed_uri.netloc.lower()
+        # Check for bsky.app domain or any subdomain ending with .bsky.social
+        return domain == 'bsky.app' or domain.endswith('.bsky.social')
+
     async def analyze_bulk_urls(self, urls: List[str], summary_type: str, 
                                  model_name: str, summary_length: int, 
                                  summary_voice: str, topic: str) -> List[Dict]:
@@ -64,6 +72,14 @@ class BulkResearch:
             # Initialize ArticleAnalyzer with the AI model and caching
             self.article_analyzer = ArticleAnalyzer(self.research.ai_model, use_cache=True)
             
+            # Initialize BlueskyCollector for handling Bluesky URLs
+            self.bluesky_collector = None
+            try:
+                self.bluesky_collector = CollectorFactory.get_collector('bluesky')
+                logger.info("BlueskyCollector initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize BlueskyCollector: {str(e)}")
+            
         except Exception as e:
             logger.error(f"Error setting up analysis: {str(e)}")
             raise ValueError(f"Error in setup: {str(e)}")
@@ -72,34 +88,63 @@ class BulkResearch:
             try:
                 logger.debug(f"Processing URL: {url} for topic: {topic}")
                 
-                # Fetch article content - use try/except to handle potential database errors
-                try:
-                    logger.debug(f"Fetching article content for URL: {url}")
-                    article_content = await self.research.fetch_article_content(url, save_with_topic=True)
-                    
-                    # Log the result of the fetch operation
-                    if article_content and article_content.get("content"):
-                        logger.debug(f"Successfully fetched content for {url}, length: {len(article_content['content'])}")
-                    else:
-                        logger.error(f"Failed to fetch valid content for URL: {url}")
-                        logger.debug(f"Article content response: {article_content}")
-                        raise ValueError(f"Failed to fetch valid content for URL: {url}")
-                    
-                except Exception as fetch_error:
-                    logger.error(f"Error in fetch_article_content for {url}: {str(fetch_error)}")
-                    
-                    # If there was a foreign key constraint error, try direct scraping
-                    if "FOREIGN KEY constraint failed" in str(fetch_error):
-                        logger.info(f"Database constraint error encountered - trying direct scraping for {url}")
-                        # Use the _direct_scrape method that bypasses database operations
+                # Check if this is a Bluesky URL
+                if self.is_bluesky_url(url) and self.bluesky_collector:
+                    logger.info(f"Detected Bluesky URL: {url}, using BlueskyCollector")
+                    try:
+                        # Fetch content using BlueskyCollector
+                        content_result = await self.bluesky_collector.fetch_article_content(url)
+                        
+                        if not content_result:
+                            logger.error(f"Failed to fetch Bluesky content for {url}")
+                            raise ValueError(f"Failed to fetch Bluesky content for {url}")
+                            
+                        article_content = {
+                            "content": content_result.get("content", ""),
+                            "source": content_result.get("source", self.extract_source(url)),
+                            "publication_date": content_result.get("published_date", 
+                                                datetime.datetime.now().date().isoformat()),
+                            "title": content_result.get("title", "")
+                        }
+                        
+                        # Save raw article with topic if needed
                         try:
-                            article_content = await self._direct_scrape(url)
-                        except Exception as direct_scrape_error:
-                            logger.error(f"Direct scraping also failed for {url}: {str(direct_scrape_error)}")
-                            raise ValueError(f"Both fetch methods failed for {url}")
-                    else:
-                        # For other errors, reraise
-                        raise
+                            self.db.save_raw_article(url, article_content["content"], topic)
+                            logger.info(f"Successfully saved Bluesky content with topic: {topic}")
+                        except Exception as save_error:
+                            logger.error(f"Failed to save Bluesky content, continuing: {str(save_error)}")
+                    except Exception as bluesky_error:
+                        logger.error(f"Error with BlueskyCollector: {str(bluesky_error)}")
+                        raise ValueError(f"Failed to process Bluesky URL: {str(bluesky_error)}")
+                else:
+                    # Fetch article content using the research component's method
+                    try:
+                        logger.debug(f"Fetching article content for URL: {url}")
+                        article_content = await self.research.fetch_article_content(url, save_with_topic=True)
+                        
+                        # Log the result of the fetch operation
+                        if article_content and article_content.get("content"):
+                            logger.debug(f"Successfully fetched content for {url}, length: {len(article_content['content'])}")
+                        else:
+                            logger.error(f"Failed to fetch valid content for URL: {url}")
+                            logger.debug(f"Article content response: {article_content}")
+                            raise ValueError(f"Failed to fetch valid content for URL: {url}")
+                        
+                    except Exception as fetch_error:
+                        logger.error(f"Error in fetch_article_content for {url}: {str(fetch_error)}")
+                        
+                        # If there was a foreign key constraint error, try direct scraping
+                        if "FOREIGN KEY constraint failed" in str(fetch_error):
+                            logger.info(f"Database constraint error encountered - trying direct scraping for {url}")
+                            # Use the _direct_scrape method that bypasses database operations
+                            try:
+                                article_content = await self._direct_scrape(url)
+                            except Exception as direct_scrape_error:
+                                logger.error(f"Direct scraping also failed for {url}: {str(direct_scrape_error)}")
+                                raise ValueError(f"Both fetch methods failed for {url}")
+                        else:
+                            # For other errors, reraise
+                            raise
                 
                 # Validate the article content before proceeding
                 if (
@@ -119,14 +164,16 @@ class BulkResearch:
                     logger.debug(f"Extracted title for {url}: {title}")
 
                 # Get publication date from article_content
-                publication_date = self.article_analyzer.extract_publication_date(article_content["content"])
+                publication_date = article_content.get("publication_date")
+                if not publication_date:
+                    publication_date = self.article_analyzer.extract_publication_date(article_content["content"])
                 logger.debug(f"Extracted publication date for {url}: {publication_date}")
 
                 # Analyze article using ArticleAnalyzer
                 result = self.article_analyzer.analyze_content(
                     article_text=article_content["content"],
                     title=title,
-                    source=self.extract_source(url),
+                    source=article_content.get("source", self.extract_source(url)),
                     uri=url,
                     summary_length=summary_length,
                     summary_voice=summary_voice,
@@ -139,7 +186,7 @@ class BulkResearch:
                 )
 
                 # Add news source, publication date and submission date
-                result["news_source"] = self.extract_source(url)
+                result["news_source"] = article_content.get("source", self.extract_source(url))
                 result["publication_date"] = publication_date
                 result["submission_date"] = datetime.datetime.now().date().isoformat()
                 result["uri"] = url  # Ensure URL is included
