@@ -2,8 +2,9 @@ from typing import Optional, Dict, Any
 import logging
 from dateutil.parser import parse as dt_parse  # add top of file
 
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query, Depends, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from app.vector_store import (
     search_articles,
@@ -668,4 +669,117 @@ def embedding_anomalies(
             "metadata": metas[i],
         }
         for i in idx_sorted
-    ] 
+    ]
+
+# ------------------------------------------------------------------
+# Auspex summarisation endpoint – summarise arbitrary article IDs
+# ------------------------------------------------------------------
+
+
+class _SummaryRequest(BaseModel):
+    """Payload for /vector-summary."""
+
+    ids: list[str] = Field(..., description="IDs")
+    model: str | None = Field(None, description="LLM name (optional)")
+
+
+@router.post("/vector-summary")
+async def vector_summary(req: _SummaryRequest):
+    """Return a markdown summary of the supplied *ids* using the configured AI.
+
+    The endpoint fetches article metadata (title, summary etc.) from Chroma's
+    metadatas and feeds a condensed context to the LLM.  We cap the context
+    to 100 articles server-side to avoid prompt explosions.  Use the *ids*
+    parameter to control the subset.
+    """
+
+    from textwrap import shorten  # noqa: E501
+
+    # --------------------------------------------------------------------------------
+    # 1. Fetch metadata for the requested IDs from the vector store (Chroma)
+    # --------------------------------------------------------------------------------
+    collection = _vector_collection()
+    try:
+        # Fetch metadata for the requested IDs (max 100)
+        res = collection.get(  # type: ignore[arg-type]
+            ids=req.ids[:100],
+            include=["metadatas"],
+        )
+    except Exception as exc:
+        logger = logging.getLogger(__name__)
+        logger.error("Chroma get failed for summary: %s", exc)
+        raise HTTPException(status_code=500, detail="Vector store error")
+
+    metas: list[dict] = res.get("metadatas", [])
+
+    if not metas:
+        raise HTTPException(
+            status_code=404,
+            detail="No metadata found for the given ids",
+        )
+
+    # --------------------------------------------------------------------------------
+    # 2. Build a concise context – send only fields relevant for summary
+    # --------------------------------------------------------------------------------
+    lines: list[str] = []
+    for idx, m in enumerate(metas, start=1):
+        title = m.get("title") or "Untitled"
+        summary = m.get("summary") or ""
+        summary_short = shorten(summary, width=300, placeholder="…")
+        cat = m.get("category") or "?"
+        sentiment = m.get("sentiment") or "?"
+        lines.append(
+            f"{idx}. {title} "
+            f"(category: {cat}, sentiment: {sentiment})\n"
+            f"{summary_short}\n"
+        )
+
+    joined = "\n".join(lines)
+
+    # --------------------------------------------------------------------------------
+    # 3. Query Auspex (LLM) – pick requested or default model
+    # --------------------------------------------------------------------------------
+    from app.ai_models import (
+        get_ai_model,
+        ai_get_available_models,  # type: ignore
+    )
+
+    # Use provided model or default to gpt-4o-mini (lightweight)
+    model_name = req.model or "gpt-4o-mini"
+
+    # ai_get_available_models() returns a list of dicts → extract the names
+    available_models = ai_get_available_models()
+    available_names = [m["name"] for m in available_models]
+
+    if model_name not in available_names:
+        # Fallback to the first configured model name (if any)
+        model_name = available_names[0] if available_names else "gpt-3.5-turbo"
+
+    model = get_ai_model(model_name)
+    if model is None:
+        raise HTTPException(status_code=500, detail="AI model not configured")
+
+    # Long but readable prompt – ignore line-length linting  # noqa: E501
+    system_msg = (
+        "You are Auspex – an expert analyst. "
+        "The user supplied a set of news articles in bullet-point form. "
+        "Provide a concise markdown summary covering key insights, recurring "
+        "themes, outliers and trends. Start with a one-sentence summary. "
+        "Then use bullet points and short sections (Key Themes, Sentiment, "
+        "Notable Articles). Limit to about 300 words."
+    )
+
+    messages = [
+        {"role": "system", "content": system_msg},
+        {"role": "user", "content": f"Here are the articles:\n\n{joined}"},
+    ]
+
+    try:
+        summary = model.generate_response(messages)
+    except Exception as exc:
+        logging.getLogger(__name__).error(
+            "LLM summary failed: %s", exc,
+        )
+        raise HTTPException(status_code=500, detail="LLM error")
+
+    return {"response": summary} 

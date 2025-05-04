@@ -3,6 +3,7 @@
 
 {% block content %}
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/awesomplete@1.1.5/awesomplete.css" />
 <style>
     .layout {
         display: grid;
@@ -23,6 +24,7 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        min-width: 0;
     }
     #results {
         flex: 1;
@@ -44,47 +46,136 @@
     .meta table {width:100%; font-size:0.85rem;}
     .meta th{color:var(--primary-color); font-weight:500; white-space:nowrap;}
     .meta td{word-break:break-word;}
+    /* toolbar tweaks */
+    .input-group>.btn-icon {
+        width: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+    }
+    .input-group .form-select-sm {
+        padding-right: 0.5rem;
+        padding-left: 0.5rem;
+    }
+    /* let the search field consume all remaining width */
+    #searchInput {
+        flex: 1 1 auto; /* grow to fill remaining space */
+        min-width: 150px; /* ensure reasonable starting width */
+        width: 100%; /* allow long text without clipping */
+    }
+    #searchGroup {
+        flex: 1 1 0;
+    }
+    /* Awesomplete dropdown above everything */
+    .awesomplete > ul {
+        z-index: 1055; /* above Bootstrap modal backdrop */
+    }
+    /* filter sidebar improvements */
+    .filter-group {
+        margin-bottom: 1.25rem;
+    }
+    .filter-group h6 {
+        font-weight: 600;
+        color: var(--primary-color);
+        margin-bottom: 0.5rem;
+    }
+    .filter-section {
+        margin-bottom: 0.75rem;
+    }
+    .filter-item {
+        background: rgba(255,255,255,0.7);
+        border-radius: 4px;
+        padding: 3px 6px;
+        display: inline-block;
+        margin-right: 5px;
+        margin-bottom: 5px;
+        font-size: 0.9rem;
+        border: 1px solid #eaeaea;
+        cursor: pointer;
+    }
+    .filter-item:hover {
+        background: white;
+        border-color: var(--primary-color);
+    }
+    .filter-code {
+        font-family: monospace;
+        font-size: 0.9em;
+        padding: 1px 3px;
+        background: rgba(0,0,0,0.05);
+        border-radius: 3px;
+    }
 </style>
 
 <div class="layout">
     <!-- Left Sidebar -->
     <div class="sidebar">
-        <h5>Filters</h5>
+        <h5 class="mb-3 text-primary">Active Filters</h5>
+        
         <!-- Dynamic Facets from search response -->
-        <div id="facetList" class="mb-3 small"></div>
-        <small class="text-muted">
-            Type <em>anything</em> for natural-language search, then add inline filters like
-            <code>attribute=value</code> &nbsp;→&nbsp; <code>category="AI Business" sentiment=positive</code>.<br>
-            Operators: <code>=</code>, <code>!=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code>,
-            range <code>..</code>, set <code>in(...)</code>, existence <code>has:field</code>.<br>
-            Extras: boost <code>^n</code> (e.g.&nbsp;<code>vector^2.5</code>, <code>category^3="AI"</code>),
-            sort <code>sort:field[:asc|desc]</code>, limit <code>limit:n</code>, phrase <code>"foundation model"</code>,
-            proximity <code>"open source"~5</code>, neighbours <code>similar:id</code>, cluster filter <code>cluster=7</code>.<br>
-            Combine expressions with <code>AND</code>, <code>OR</code>, <code>NOT</code>.
-        </small>
-        <hr>
+        <div id="facetList" class="mb-4 small"></div>
+        
+        <h6 class="text-pink" style="color:#ff6384">Search & Filter Help</h6>
+        <p class="small mb-2">Type <em>anything</em> for natural-language search, plus add filters:</p>
+        
+        <div class="mb-3">
+            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value+=' category=&quot;AI Business&quot;'">
+                category="AI Business"
+            </div>
+            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value+=' sentiment=positive'">
+                sentiment=positive
+            </div>
+            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value+=' has:driver_type'">
+                has:driver_type
+            </div>
+        </div>
+        
+        <h6 class="mt-4 text-primary">Operators</h6>
+        <p class="mb-1 small">
+            <code>=</code> / <code>equal</code> same as,<br>
+            <code>!=</code> / <code>not&nbsp;equal</code> different from,<br>
+            <code>&gt;</code> <code>&gt;=</code> <code>&lt;</code> <code>&lt;=</code> compare values
+        </p>
+        <h6 class="mt-3 text-primary">Logic Operators</h6>
+        <p class="mb-1 small">
+            <code>AND</code> all terms match<br>
+            <code>OR</code> any term matches<br> 
+            <code>NOT</code> exclude following term
+        </p>
+        <p class="mb-1 small">
+            <code>in(a,b,c)</code> set membership<br>
+            <code>has:field</code> existence check<br>
+            <code>field=min..max</code> range
+        </p>
+        <details class="mb-2">
+          <summary class="small fw-semibold text-primary">Meta Controls &amp; Enhancement Examples</summary>
+          <div class="mt-2 small">
+            <h6 class="text-primary">Meta Controls</h6>
+            <p class="mb-1">
+              <code>sort:field[:asc|desc]</code> — sort results, e.g. <code>sort:publication_date:desc</code><br>
+              <code>limit:n</code> — cap number of results, e.g. <code>limit:50</code><br>
+              <code>similar:id</code> — find items like given id, e.g. <code>similar:abc123</code><br>
+              <code>cluster=n</code> — restrict to cluster, e.g. <code>cluster=4</code>
+            </p>
+            <h6 class="text-primary mt-3">Enhancement</h6>
+            <p class="mb-1">
+              <code>^n</code> — boost term weight, e.g. <code>AI^3</code><br>
+              <code>"exact phrase"</code> — exact match, e.g. <code>"artificial intelligence"</code><br>
+              <code>"near phrase"~5</code> — proximity, e.g. <code>"climate change"~3</code>
+            </p>
+          </div>
+        </details>
     </div>
 
     <!-- Center Main Content -->
     <div class="main">
         <div class="sticky-top bg-white pt-2" style="z-index:2;">
-            <div class="input-group mb-2">
-                <input type="text" id="searchInput" class="form-control" placeholder="Search news…" list="attrList">
-                <select id="perPage" class="form-select form-select-sm" style="width:90px;max-width:90px;">
-                    <option value="50">50</option>
-                    <option value="100" selected>100</option>
-                    <option value="200">200</option>
-                    <option value="500">500</option>
-                    <option value="0">All</option>
-                </select>
-                <div class="btn-group me-2">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" id="searchModeBtn">Fuzzy</button>
-                    <ul class="dropdown-menu dropdown-menu-end small">
-                        <li><a class="dropdown-item mode-select" data-mode="fuzzy" href="#">Fuzzy</a></li>
-                        <li><a class="dropdown-item mode-select" data-mode="keyword" href="#">Keyword</a></li>
-                    </ul>
+            <div class="d-flex w-100 mb-2 align-items-center">
+                <div class="d-flex border rounded flex-grow-1" style="flex:1 1 auto; min-width:0;">
+                    <span class="input-group-text border-0 bg-transparent" id="searchIcon" style="cursor:pointer;" title="Search"><i class="fas fa-search"></i></span>
+                    <input type="text" id="searchInput" class="form-control border-0 shadow-none" placeholder="Search news…" style="flex:1 1 auto; min-width:0;">
                 </div>
-                <button id="searchBtn" class="btn btn-primary">Search</button>
+                <button id="askAuspexBtn" class="btn btn-sm btn-outline-primary ms-2" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;" title="Ask Auspex"><i class="fas fa-comment-dots"></i></button>
             </div>
             <div id="activeFilters" class="mb-2"></div>
             <!-- Tabs -->
@@ -135,6 +226,23 @@
     </div>
 </div>
 
+<!-- Auspex summary modal -->
+<div class="modal fade" id="auspexModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Auspex Summary</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="auspexContent">
+        <div class="text-muted">Waiting for Auspex…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/awesomplete@1.1.5/awesomplete.min.js"></script>
 <script>
 async function runSearch() {
     const raw = document.getElementById('searchInput').value;
@@ -146,14 +254,21 @@ async function runSearch() {
     const metadata=parsed.metadata;
     const extra=metaExtra.extra;
 
-    const perSel=document.getElementById('perPage');
-    let topK = perSel.value==='0'?10000:perSel.value;
-    if(extra.limit){topK=extra.limit;}
-    const mode = document.getElementById('searchModeBtn').dataset.mode || 'fuzzy';
+    // Determine result cap (topK) and pagination size from limit operator or defaults
+    let topK = extra.limit ?? 100; // default 100 if not specified
+    if(topK === 0){topK = 10000;} // treat 0 as unlimited (legacy behaviour)
+    // Store page size globally for pagination
+    window._pageSize = topK;
+
     let data;
-    if(mode==='keyword'){
+
+    // Keyword operator – runs full-text keyword search pathway
+    if(parsed.metadata.keyword){
+        const kw = parsed.metadata.keyword;
+        delete parsed.metadata.keyword; // do not forward as vector filter
+
         const params=new URLSearchParams({
-            keyword: parsed.cleaned,
+            keyword: kw,
             per_page: topK,
             search_fields: 'title,summary,tags',
         });
@@ -191,7 +306,9 @@ async function runSearch() {
     selectedUris.clear();
     updateActionButtons();
     renderNextPage();
-    renderFacets(data.facets || {});
+    const facets=data.facets || {};
+    renderFacets(facets);
+    updateAttrSuggestions(facets);
     renderTimeline(data.timeline || {});
     updateActiveChips();
 }
@@ -424,6 +541,14 @@ function parseQuery(q){
             metadata[p[1]]=p[2];
         }
     }
+    // ---------------------------------------------------
+    // Natural-language operator synonyms → symbolic form
+    // Ex: "status equal active" → "status = active"
+    //     "status not equal inactive" → "status != inactive"
+    // We normalise textual operators before regex parsing.
+    cleaned = cleaned
+        .replace(/(\b\w+)\s+not\s+equal(?:s)?\b/gi, '$1 !=')
+        .replace(/(\b\w+)\s+(?:equals?|equal|is|compare)\b/gi, '$1 =');
     // ----------------------------------------------
     // 2. Simple attribute operators (field op value)
     // ----------------------------------------------
@@ -486,7 +611,9 @@ function updateActiveChips() {
 const selectedUris = new Set();
 function updateActionButtons() {/* no-op – legacy buttons removed */}
 
-document.getElementById('searchBtn').addEventListener('click', runSearch);
+document.getElementById('searchIcon').addEventListener('click', runSearch);
+// Trigger search on Enter key inside input
+document.getElementById('searchInput').addEventListener('keydown',e=>{if(e.key==='Enter'){runSearch();}});
 
 // Annotation modal appended at end of body when DOM ready
 if(!document.getElementById('noteModal')){
@@ -539,14 +666,7 @@ document.body.addEventListener('click',async e=>{
 });
 
 // Search mode dropdown handlers
-document.querySelectorAll('.mode-select').forEach(el=>{
-    el.addEventListener('click',e=>{
-        e.preventDefault();
-        const mode=el.dataset.mode;
-        document.getElementById('searchModeBtn').textContent=mode.charAt(0).toUpperCase()+mode.slice(1);
-        document.getElementById('searchModeBtn').dataset.mode=mode;
-    });
-});
+// (search mode dropdown removed – keyword search handled via keyword= operator)
 
 // ---------------------------
 // Embedding visualisation (Plotly)
@@ -808,7 +928,7 @@ loadMoreBtn.addEventListener('click',()=>renderNextPage());
 document.getElementById('results').after(loadMoreBtn);
 
 function renderNextPage(){
-  const per=parseInt(document.getElementById('perPage').value)||lastResults.length;
+  const per = window._pageSize || lastResults.length;
   const slice=lastResults.slice(currentIndex, per?currentIndex+per:lastResults.length);
   if(!slice){return;}
   renderResults(slice, currentIndex===0);
@@ -817,6 +937,56 @@ function renderNextPage(){
       loadMoreBtn.style.display='none';
   }else{
       loadMoreBtn.style.display='block';
+  }
+}
+
+// ---------------------------
+// Autosuggest / autocomplete helpers (Awesomplete)
+// ---------------------------
+const awesomplete = new Awesomplete(
+  document.getElementById('searchInput'),
+  { minChars: 1, maxItems: 20, autoFirst: true }
+);
+// Seed with base tokens so autocomplete works before first search
+updateAttrSuggestions({});
+
+function updateAttrSuggestions(facets){
+  const seen=new Set();
+  const addVal=v=>{if(!seen.has(v)){seen.add(v);} };
+  ['keyword=','topic=','category=','sentiment=','driver_type=','future_signal=',
+   'news_source=','has:','similar:','cluster=',
+   'sort:','limit:','AND','OR','NOT',
+   '^','!=','>=','<=','>','<'].forEach(addVal);
+  Object.entries(facets||{}).forEach(([field,vals])=>{
+    Object.keys(vals).slice(0,50).forEach(val=>addVal(`${field}="${val}"`));
+  });
+  awesomplete.list=[...seen];
+}
+
+// ---------------------------
+// Auspex integration – summarise results
+// ---------------------------
+document.getElementById('askAuspexBtn').addEventListener('click', askAuspex);
+
+async function askAuspex(){
+  if(!window.lastResults || !window.lastResults.length){alert('Run a search first');return;}
+  const idsSelected=Array.from(window.selectedUris||[]);
+  const ids=(idsSelected.length?idsSelected:window.lastResults.map(r=>r.id)).slice(0,100);
+  try{
+    document.getElementById('auspexContent').innerHTML='<div class="text-muted">Querying Auspex…</div>';
+    const modalObj=new bootstrap.Modal(document.getElementById('auspexModal'));
+    modalObj.show();
+    const res=await fetch('/api/vector-summary',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ids:ids})
+    });
+    if(!res.ok){throw new Error(await res.text());}
+    const json=await res.json();
+    const txt=json.response||json.error||'No response';
+    document.getElementById('auspexContent').innerHTML=marked.parse(txt);
+  }catch(err){
+    document.getElementById('auspexContent').innerHTML=`<div class="text-danger">${err}</div>`;
   }
 }
 </script>
