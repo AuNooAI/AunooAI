@@ -1,6 +1,8 @@
 from typing import Optional, Dict, Any
 import logging
 from dateutil.parser import parse as dt_parse  # add top of file
+import json
+from pathlib import Path
 
 from fastapi import APIRouter, Query, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -268,9 +270,16 @@ def embedding_projection(
     # ------------------
     from sklearn.decomposition import PCA  # type: ignore
 
+    # Reduce dimensionality before clustering (up to 50 components)
     if vectors.shape[1] > 50:
-        pca50 = PCA(n_components=50, random_state=42)
-        vec_for_cluster = pca50.fit_transform(vectors)
+        # n_components must be <= min(n_samples, n_features)
+        max_comps = min(50, vectors.shape[0], vectors.shape[1])
+        try:
+            pca50 = PCA(n_components=max_comps, random_state=42)
+            vec_for_cluster = pca50.fit_transform(vectors)
+        except ValueError:
+            # Fallback to original vectors if PCA fails (e.g., too few samples)
+            vec_for_cluster = vectors
     else:
         # The original space is already small; use it directly.
         vec_for_cluster = vectors
@@ -763,10 +772,12 @@ async def vector_summary(req: _SummaryRequest):
     system_msg = (
         "You are Auspex – an expert analyst. "
         "The user supplied a set of news articles in bullet-point form. "
-        "Provide a concise markdown summary covering key insights, recurring "
-        "themes, outliers and trends. Start with a one-sentence summary. "
-        "Then use bullet points and short sections (Key Themes, Sentiment, "
-        "Notable Articles). Limit to about 300 words."
+        "The articles are part of a cluster determined by a cluster analysis."
+        "The user wants to know more about the cluster."
+        "Provide a concise markdown summary covering key insights, any "
+        "recurring themes, trends, or outliers. Start with a "
+        "one-sentence summary. Then use bullet points and short sections "
+        "(Key Themes, Sentiment, Notable Articles). Limit to about 500 words."
     )
 
     messages = [
@@ -782,4 +793,64 @@ async def vector_summary(req: _SummaryRequest):
         )
         raise HTTPException(status_code=500, detail="LLM error")
 
-    return {"response": summary} 
+    return {"response": summary}
+
+
+# ------------------------------------------------------------------
+# Endpoint for retrieving fun news facts
+# ------------------------------------------------------------------
+
+# Determine the absolute path to the config directory
+_CONFIG_DIR = Path(__file__).parent.parent / "config"
+_NEWS_FACTS_FILE = _CONFIG_DIR / "news_facts.json"
+
+@router.get("/news-facts")
+async def get_news_facts():
+    """Return a list of interesting facts about news and journalism."""
+    logger = logging.getLogger(__name__)
+    try:
+        logger.info(f"Attempting to read news facts from: {_NEWS_FACTS_FILE}")
+        if not _NEWS_FACTS_FILE.is_file():
+            logger.error(
+                f"News facts file not found at path: {_NEWS_FACTS_FILE}"
+            )
+            raise FileNotFoundError(
+                f"Facts file not found at {_NEWS_FACTS_FILE}"
+            )
+        with open(_NEWS_FACTS_FILE, "r", encoding="utf-8") as f:
+            logger.info("News facts file opened successfully.")
+            data = json.load(f)
+            logger.info("News facts JSON parsed successfully.")
+        if "facts" not in data or not isinstance(data["facts"], list):
+            logger.error(
+                "Invalid format in news_facts.json: "
+                "'facts' key missing or not a list."
+            )
+            raise ValueError(
+                "Invalid format: 'facts' key missing or not a list."
+            )
+        return data  # Return the whole structure {"facts": [...]}
+    except FileNotFoundError as exc:
+        logger.error("News facts file error: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="News facts configuration file not found."
+        )
+    except json.JSONDecodeError as exc:
+        logger.error("News facts JSON decode error: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Error reading news facts configuration."
+        )
+    except ValueError as exc:
+        logger.error("News facts file format error: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Invalid format in news facts file."
+        )
+    except Exception as exc:
+        logger.error("Failed to get news facts: %s", exc)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred retrieving news facts."
+        ) 
