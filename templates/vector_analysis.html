@@ -24,7 +24,6 @@
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        min-width: 0;
     }
     #results {
         flex: 1;
@@ -60,9 +59,8 @@
     }
     /* let the search field consume all remaining width */
     #searchInput {
-        flex: 1 1 auto; /* grow to fill remaining space */
-        min-width: 150px; /* ensure reasonable starting width */
-        width: 100%; /* allow long text without clipping */
+        /* flex property removed */
+        /* min-width removed */
     }
     #searchGroup {
         flex: 1 1 0;
@@ -170,12 +168,10 @@
     <!-- Center Main Content -->
     <div class="main">
         <div class="sticky-top bg-white pt-2" style="z-index:2;">
-            <div class="d-flex w-100 mb-2 align-items-center">
-                <div class="d-flex border rounded flex-grow-1" style="flex:1 1 auto; min-width:0;">
-                    <span class="input-group-text border-0 bg-transparent" id="searchIcon" style="cursor:pointer;" title="Search"><i class="fas fa-search"></i></span>
-                    <input type="text" id="searchInput" class="form-control border-0 shadow-none" placeholder="Search news…" style="flex:1 1 auto; min-width:0;">
-                </div>
-                <button id="askAuspexBtn" class="btn btn-sm btn-outline-primary ms-2" style="width:34px;height:34px;padding:0;display:flex;align-items:center;justify-content:center;" title="Ask Auspex"><i class="fas fa-comment-dots"></i></button>
+            <div class="input-group w-100 mb-2">
+                <span class="input-group-text border-0 bg-transparent" id="searchIcon" style="cursor:pointer;" title="Search"><i class="fas fa-search"></i></span>
+                <input type="text" id="searchInput" class="form-control border-0 shadow-none flex-grow-1" placeholder="Search news…">
+                <button id="askAuspexBtn" class="btn btn-sm btn-outline-primary" style="height:34px;padding:0 .5rem;display:flex;align-items:center;justify-content:center;" title="Ask Auspex"><i class="fas fa-comment-dots"></i></button>
             </div>
             <div id="activeFilters" class="mb-2"></div>
             <!-- Tabs -->
@@ -244,6 +240,8 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/awesomplete@1.1.5/awesomplete.min.js"></script>
 <script>
+const DEFAULT_PAGE_SIZE = 20; // Number of results per page for pagination
+
 async function runSearch() {
     const raw = document.getElementById('searchInput').value;
     if (!raw) return;
@@ -254,11 +252,21 @@ async function runSearch() {
     const metadata=parsed.metadata;
     const extra=metaExtra.extra;
 
-    // Determine result cap (topK) and pagination size from limit operator or defaults
-    let topK = extra.limit ?? 100; // default 100 if not specified
-    if(topK === 0){topK = 10000;} // treat 0 as unlimited (legacy behaviour)
-    // Store page size globally for pagination
-    window._pageSize = topK;
+    // Determine result cap (topK) and pagination size
+    let topK = 10000; // default 10000 (effectively unlimited)
+    let pageSize = DEFAULT_PAGE_SIZE;
+
+    if (extra.limit !== undefined) {
+        topK = extra.limit;
+        if (topK === 0) { // treat 0 as unlimited
+            topK = 10000;
+            pageSize = DEFAULT_PAGE_SIZE; // Use default pagination for unlimited
+        } else {
+            pageSize = topK; // Fetch N, display N - no pagination needed
+        }
+    }
+    // Store page size globally for pagination rendering
+    window._pageSize = pageSize;
 
     let data;
 
@@ -269,7 +277,7 @@ async function runSearch() {
 
         const params=new URLSearchParams({
             keyword: kw,
-            per_page: topK,
+            per_page: topK, // Use topK for API limit
             search_fields: 'title,summary,tags',
         });
         const res=await fetch(`/api/search_articles?${params.toString()}`);
@@ -295,7 +303,7 @@ async function runSearch() {
         });
         data={results:kwResults,facets,timeline};
     }else{
-        const params = new URLSearchParams({ q: parsed.cleaned, top_k: topK });
+        const params = new URLSearchParams({ q: parsed.cleaned, top_k: topK }); // Use topK for API limit
         if(extra.sort){params.append('sort',extra.sort.join(':'));}
         Object.entries(metadata).forEach(([k,v])=>params.append(k, v));
         const res = await fetch(`/api/vector-search?${params.toString()}`);
@@ -928,9 +936,12 @@ loadMoreBtn.addEventListener('click',()=>renderNextPage());
 document.getElementById('results').after(loadMoreBtn);
 
 function renderNextPage(){
-  const per = window._pageSize || lastResults.length;
-  const slice=lastResults.slice(currentIndex, per?currentIndex+per:lastResults.length);
-  if(!slice){return;}
+  const per = window._pageSize;
+  const slice=lastResults.slice(currentIndex, currentIndex + per);
+  if(!slice.length){
+    loadMoreBtn.style.display='none';
+    return;
+  }
   renderResults(slice, currentIndex===0);
   currentIndex+=slice.length;
   if(currentIndex>=lastResults.length){
