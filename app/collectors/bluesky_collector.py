@@ -66,7 +66,14 @@ class BlueskyCollector(ArticleCollector):
         topic: str,
         max_results: int = 10,
         start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
+        end_date: Optional[datetime] = None,
+        language: str = None,
+        sort_by: str = None,
+        limit_to_followed: bool = False,
+        search_fields: Optional[List[str]] = None,
+        domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        **kwargs
     ) -> List[Dict]:
         """
         Search for Bluesky posts based on query and topic.
@@ -77,6 +84,13 @@ class BlueskyCollector(ArticleCollector):
             max_results: Maximum number of results to return
             start_date: Optional start date for filtering
             end_date: Optional end date for filtering
+            language: Optional language filter (not used in Bluesky API)
+            sort_by: Optional sorting method
+            limit_to_followed: Only show posts from followed accounts
+            search_fields: Optional fields to search in (not used in Bluesky API)
+            domains: Optional domains to include (not used in Bluesky API)
+            exclude_domains: Optional domains to exclude (not used in Bluesky API)
+            **kwargs: Additional parameters (ignored)
             
         Returns:
             List of standardized article dictionaries
@@ -93,6 +107,26 @@ class BlueskyCollector(ArticleCollector):
                 "q": query,
                 "limit": max_results
             }
+            
+            # Add sort_by if specified (latest, trending, relevant)
+            if sort_by:
+                # Map sort options to what Bluesky API expects
+                sort_mapping = {
+                    "latest": "latest",
+                    "trending": "trending", 
+                    "relevant": "relevance",
+                    "relevancy": "relevance"
+                }
+                if sort_by.lower() in sort_mapping:
+                    params["sort"] = sort_mapping[sort_by.lower()]
+            
+            # Set limit_to_followed if specified
+            if limit_to_followed:
+                params["followersOf"] = self.client.me.did
+                
+            # Log the search parameters
+            logger.debug(f"Searching Bluesky with params: {params}")
+            
             response = self.client.app.bsky.feed.search_posts(params=params)
             
             if not response or not hasattr(response, 'posts'):
