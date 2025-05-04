@@ -22,7 +22,7 @@ except ImportError:
 from pathlib import Path
 from datetime import datetime
 import shutil
-from config.settings import DATABASE_DIR
+from app.config.settings import DATABASE_DIR
 
 # Set up logging
 logger = logging.getLogger(__name__)

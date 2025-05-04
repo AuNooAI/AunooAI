@@ -3,6 +3,7 @@ from .base_collector import ArticleCollector
 from .arxiv_collector import ArxivCollector
 from .newsapi_collector import NewsAPICollector
 from .thenewsapi_collector import TheNewsAPICollector
+from .bluesky_collector import BlueskyCollector
 from app.database import Database
 
 class CollectorFactory:
@@ -11,7 +12,8 @@ class CollectorFactory:
     _collectors: Dict[str, Type[ArticleCollector]] = {
         'arxiv': ArxivCollector,
         'newsapi': NewsAPICollector,
-        'thenewsapi': TheNewsAPICollector
+        'thenewsapi': TheNewsAPICollector,
+        'bluesky': BlueskyCollector
     }
 
     @classmethod

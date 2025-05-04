@@ -347,7 +347,7 @@
                         <div class="content-section">
                             <div class="section-title">
                                 <div class="section-title-row">
-                                    <span>News</span>
+                                    <span>Bluesky Posts</span>
                                     <div class="keyword-badge">
                                         <span id="newsKeyword-{{ topic.topic }}">{{ topic.news_query }}</span>
                                         <button class="btn-edit" onclick="editKeyword('news', '{{ topic.topic }}')">
@@ -355,6 +355,11 @@
                                         </button>
                                     </div>
                                     <div class="section-controls">
+                                        <div class="btn-group me-2">
+                                            <button type="button" class="btn btn-sm btn-outline-primary active" id="sourceBluesky-{{ topic.topic }}" onclick="setSource('{{ topic.topic }}', 'bluesky')">
+                                                <i class="fab fa-at"></i> Bluesky
+                                            </button>
+                                        </div>
                                         <select class="form-control form-control-sm sort-select" 
                                                 id="newsSort-{{ topic.topic }}"
                                                 onchange="loadArticles('{{ topic.topic }}')">
@@ -408,6 +413,20 @@
 </div>
 
 <script>
+// Store the current data source for each topic
+const dataSources = {};
+
+function setSource(topicId, source) {
+    // Update the data source for this topic
+    dataSources[topicId] = source;
+    
+    // Update button active states
+    document.getElementById(`sourceBluesky-${topicId}`).classList.toggle('active', source === 'bluesky');
+    
+    // Reload the articles with the new source
+    loadArticles(topicId);
+}
+
 function loadArticles(topicId, type = 'both') {
     const countElement = document.getElementById(`articleCount-${topicId}`);
     const sortByElement = document.getElementById(`newsSort-${topicId}`);
@@ -419,6 +438,9 @@ function loadArticles(topicId, type = 'both') {
 
     const baseCount = parseInt(countElement.value);
     const sortBy = sortByElement.value;
+    
+    // Get current data source for this topic (default to bluesky)
+    const dataSource = dataSources[topicId] || 'bluesky';
     
     // Get hidden articles to calculate additional articles needed
     const hiddenArticles = JSON.parse(localStorage.getItem('hiddenArticles') || '{}');
@@ -443,7 +465,91 @@ function loadArticles(topicId, type = 'both') {
         `;
     });
     
-    fetch(`/api/latest-news-and-papers?topicId=${encodeURIComponent(topicId)}&count=${Math.max(extraNewsCount, extraPapersCount)}&sortBy=${sortBy}`)
+    if (dataSource === 'bluesky' && (type === 'both' || type === 'news')) {
+        // Use Bluesky API
+        const newsKeyword = document.getElementById(`newsKeyword-${topicId}`).textContent;
+        
+        // Make sure we don't send an empty query
+        const query = newsKeyword.trim() || topicId;
+        
+        fetch(`/api/keyword-monitor/bluesky-posts?query=${encodeURIComponent(query)}&topic=${encodeURIComponent(topicId)}&count=${extraNewsCount}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                // Log the response for debugging
+                console.log('Bluesky data received:', data);
+                
+                // Filter out hidden posts
+                const filteredNews = data.filter(post => {
+                    return !topicHiddenArticles.news?.includes(post.url);
+                });
+                
+                if (type === 'both' || type === 'news') {
+                    updateNewsContainer(topicId, filteredNews);
+                }
+                
+                // Continue with papers loading
+                if (type === 'both') {
+                    loadPapers(topicId, extraPapersCount, sortBy);
+                }
+            })
+            .catch(error => {
+                console.error('Error loading Bluesky posts:', error);
+                document.getElementById(`latestNews-${topicId}`).innerHTML = `
+                    <div class="alert alert-info">
+                        <i class="fab fa-at me-2"></i> No Bluesky posts found.
+                        <div class="mt-2">
+                            <small>
+                                Make sure you've configured Bluesky credentials in the 
+                                <a href="/config" class="alert-link">configuration page</a>.
+                            </small>
+                        </div>
+                    </div>
+                `;
+                
+                // Continue with papers even if Bluesky fails
+                if (type === 'both') {
+                    loadPapers(topicId, extraPapersCount, sortBy);
+                }
+            });
+    } else if (type === 'both' || type === 'news') {
+        // Use original API endpoint for both sources
+        fetch(`/api/latest-news-and-papers?topicId=${encodeURIComponent(topicId)}&count=${Math.max(extraNewsCount, extraPapersCount)}&sortBy=${sortBy}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (!data || !data.latest_news || !data.latest_papers) {
+                    throw new Error('Invalid data format received from server');
+                }
+                updateArticlesDisplay(topicId, data, type);
+            })
+            .catch(error => {
+                console.error('Error loading articles:', error);
+                containersToUpdate.forEach(containerId => {
+                    document.getElementById(`${containerId}-${topicId}`).innerHTML = `
+                        <div class="alert alert-danger">
+                            Error loading articles. Please try again.
+                        </div>
+                    `;
+                });
+            });
+    } else if (type === 'papers') {
+        // Only load papers
+        loadPapers(topicId, extraPapersCount, sortBy);
+    }
+}
+
+function loadPapers(topicId, count, sortBy) {
+    // Load only papers
+    fetch(`/api/latest-news-and-papers?topicId=${encodeURIComponent(topicId)}&count=${count}&sortBy=${sortBy}`)
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -451,20 +557,29 @@ function loadArticles(topicId, type = 'both') {
             return response.json();
         })
         .then(data => {
-            if (!data || !data.latest_news || !data.latest_papers) {
+            if (!data || !data.latest_papers) {
                 throw new Error('Invalid data format received from server');
             }
-            updateArticlesDisplay(topicId, data, type);
+            
+            // Get hidden articles
+            const hiddenArticles = JSON.parse(localStorage.getItem('hiddenArticles') || '{}');
+            const topicHiddenArticles = hiddenArticles[topicId] || { news: [], papers: [] };
+            
+            // Filter papers
+            const filteredPapers = data.latest_papers.filter(article => {
+                return !topicHiddenArticles.papers?.includes(article.url);
+            });
+            
+            // Update papers container
+            updatePapersContainer(topicId, filteredPapers);
         })
         .catch(error => {
-            console.error('Error loading articles:', error);
-            containersToUpdate.forEach(containerId => {
-                document.getElementById(`${containerId}-${topicId}`).innerHTML = `
-                    <div class="alert alert-danger">
-                        Error loading articles. Please try again.
-                    </div>
-                `;
-            });
+            console.error('Error loading papers:', error);
+            document.getElementById(`latestPapers-${topicId}`).innerHTML = `
+                <div class="alert alert-danger">
+                    Error loading papers. Please try again.
+                </div>
+            `;
         });
 }
 
@@ -530,41 +645,66 @@ function updateArticlesDisplay(topicId, data, type = 'both') {
 // Helper function to update news container
 function updateNewsContainer(topicId, articles) {
     const container = document.getElementById(`latestNews-${topicId}`);
-    container.innerHTML = articles.length ? articles.map(article => `
-        <div class="article-item" data-article-url="${article.url}">
+    
+    // Log what we're getting
+    console.log(`Updating news container for ${topicId} with:`, articles);
+    
+    if (!articles || articles.length === 0) {
+        container.innerHTML = `
+            <div class="alert alert-info">
+                <i class="fab fa-at me-2"></i> No Bluesky posts found.
+                <div class="mt-2">
+                    <small>
+                        Make sure you've configured Bluesky credentials in the 
+                        <a href="/config" class="alert-link">configuration page</a>.
+                    </small>
+                </div>
+            </div>
+        `;
+        return;
+    }
+    
+    // Safely access properties with fallbacks
+    container.innerHTML = articles.map(article => {
+        // Make sure required properties exist with fallbacks
+        const title = article.title || 'Untitled Post';
+        const url = article.url || '#';
+        const source = article.source || 'Bluesky';
+        const date = article.date || '';
+        const author = article.author || 'Unknown';
+        const summary = article.summary || 'No content';
+        const imageUrl = article.image_url || null;
+        
+        return `
+        <div class="article-item" data-article-url="${url}">
             <div class="row">
-                ${article.image_url ? `
+                ${imageUrl ? `
                     <div class="col-md-3">
-                        <img src="${article.image_url}" class="img-fluid rounded" alt="Article image">
+                        <img src="${imageUrl}" class="img-fluid rounded" alt="Article image">
                     </div>
                     <div class="col-md-9">
                 ` : '<div class="col-12">'}
                     <h3 class="article-title">
-                        <a href="${article.url}" target="_blank" rel="noopener noreferrer">
-                            ${article.title}
+                        <a href="${url}" target="_blank" rel="noopener noreferrer">
+                            ${title}
                         </a>
                     </h3>
                     <div class="article-meta">
-                        <span><i class="fas fa-newspaper"></i> ${article.source}</span>
-                        <span><i class="fas fa-calendar"></i> ${article.date}</span>
-                        ${article.author ? `<span><i class="fas fa-user"></i> ${article.author}</span>` : ''}
+                        <span><i class="fab fa-at"></i> ${source}</span>
+                        ${date ? `<span><i class="fas fa-calendar"></i> ${date}</span>` : ''}
+                        ${author ? `<span><i class="fas fa-user"></i> ${author}</span>` : ''}
                     </div>
-                    <p class="article-summary">${article.summary}</p>
+                    <p class="article-summary">${summary}</p>
                     <div class="mt-2">
-                        <a href="${article.url}" target="_blank" rel="noopener noreferrer" 
+                        <a href="${url}" target="_blank" rel="noopener noreferrer" 
                            class="btn btn-sm btn-outline-primary me-2">
-                            <i class="fas fa-external-link-alt"></i> View
+                            <i class="fas fa-external-link-alt"></i> View on Bluesky
                         </a>
-                        <a href="https://archive.is/${encodeURIComponent(article.url)}" 
-                           target="_blank" rel="noopener noreferrer"
-                           class="btn btn-sm btn-outline-secondary me-2">
-                            <i class="fas fa-unlock"></i> Bypass Paywall
-                        </a>
-                        <a href="/research?url=${encodeURIComponent(article.url)}&topic=${encodeURIComponent(topicId)}" 
+                        <a href="/research?url=${encodeURIComponent(url)}&topic=${encodeURIComponent(topicId)}" 
                            class="btn btn-sm btn-outline-success me-2">
                             <i class="fas fa-microscope"></i> Analyze
                         </a>
-                        <button onclick="hideArticle('${article.url}', '${topicId}', 'news')"
+                        <button onclick="hideArticle('${url}', '${topicId}', 'news')"
                                 class="btn btn-sm btn-outline-danger">
                             <i class="fas fa-eye-slash"></i> Hide
                         </button>
@@ -572,7 +712,8 @@ function updateNewsContainer(topicId, articles) {
                 </div>
             </div>
         </div>
-    `).join('') : '<div class="alert alert-info">No news articles found</div>';
+        `;
+    }).join('');
 }
 
 // Helper function to update papers container
@@ -685,14 +826,15 @@ async function deleteTopic(topicId) {
         if (remainingTopics.length === 0) {
             const container = document.querySelector('.dashboard-container');
             container.insertAdjacentHTML('beforeend', `
-                <div class="alert alert-info mt-4">
-                    No topics available. <a href="/create_topic">Create a new topic</a>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    No topics left.
                 </div>
             `);
         }
     } catch (error) {
         console.error('Error deleting topic:', error);
-        alert('Failed to delete topic: ' + error.message);
+        alert('Failed to delete topic');
     }
 }
 
@@ -705,28 +847,32 @@ async function updateRequestStatus() {
             const requestCount = document.getElementById('requestCount');
             const requestLimit = document.getElementById('requestLimit');
             
-            if (settings.last_error && (
-                settings.last_error.includes("Rate limit exceeded") || 
-                settings.last_error.includes("limit reached")
-            )) {
-                requestCount.textContent = settings.daily_request_limit;
-                requestCount.parentElement.classList.add('text-warning');
-                
-                // Show rate limit message if not already shown
-                if (!document.querySelector('.alert-warning')) {
-                    const statusDiv = document.querySelector('.d-flex.flex-column.gap-2');
-                    const alert = document.createElement('div');
-                    alert.className = 'alert alert-warning d-flex align-items-center';
-                    alert.innerHTML = `
-                        <i class="fas fa-exclamation-circle me-2"></i>
-                        API daily request limit reached. Some content may be unavailable.
-                    `;
-                    statusDiv.prepend(alert);
+            if (requestCount && requestLimit) {
+                if (settings.last_error && (
+                    settings.last_error.includes("Rate limit exceeded") || 
+                    settings.last_error.includes("limit reached")
+                )) {
+                    requestCount.textContent = settings.daily_request_limit;
+                    requestCount.parentElement.classList.add('text-warning');
+                    
+                    // Show rate limit message if not already shown
+                    if (!document.querySelector('.alert-warning')) {
+                        const statusDiv = document.querySelector('.d-flex.flex-column.gap-2');
+                        if (statusDiv) {
+                            const alert = document.createElement('div');
+                            alert.className = 'alert alert-warning d-flex align-items-center';
+                            alert.innerHTML = `
+                                <i class="fas fa-exclamation-circle me-2"></i>
+                                API daily request limit reached. Some content may be unavailable.
+                            `;
+                            statusDiv.prepend(alert);
+                        }
+                    }
+                } else {
+                    requestCount.textContent = settings.requests_today;
+                    requestLimit.textContent = settings.daily_request_limit;
+                    requestCount.parentElement.classList.remove('text-warning');
                 }
-            } else {
-                requestCount.textContent = settings.requests_today;
-                requestLimit.textContent = settings.daily_request_limit;
-                requestCount.parentElement.classList.remove('text-warning');
             }
         }
     } catch (error) {
@@ -781,4 +927,4 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(updateClocks, 1000);
 });
 </script>
-{% endblock %} 
+{% endblock %}

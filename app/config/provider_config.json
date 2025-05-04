@@ -29,6 +29,26 @@
       "enabled": true
     },
     {
+      "name": "bluesky",
+      "display_name": "Bluesky",
+      "config_type": "api_key",
+      "description": "Access posts from the Bluesky social network",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_BLUESKY_USERNAME",
+      "api_key_description": "Your Bluesky username and password",
+      "api_key_placeholder": "Enter your Bluesky handle",
+      "api_key_help": "Your Bluesky handle (e.g. example.bsky.social or email)",
+      "extra_fields": [
+        {
+          "field": "PROVIDER_BLUESKY_PASSWORD",
+          "label": "Password",
+          "placeholder": "Enter your Bluesky password",
+          "type": "password"
+        }
+      ]
+    },
+    {
       "name": "elevenlabs",
       "display_name": "ElevenLabs",
       "config_type": "api_key",
