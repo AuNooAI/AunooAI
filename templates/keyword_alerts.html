@@ -710,9 +710,12 @@ async function checkKeywords() {
         button.disabled = true;
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
         
+        console.log("Sending check-now request to API...");
         const response = await fetch('/api/keyword-monitor/check-now', {
             method: 'POST'
         });
+        
+        console.log("API response received:", response.status);
         
         if (response.status === 429) {
             showAlert('API daily request limit reached. Please try again tomorrow.', 'warning');
@@ -720,15 +723,26 @@ async function checkKeywords() {
         }
         
         if (!response.ok) {
-            throw new Error('Failed to check keywords');
+            const errorData = await response.json().catch(() => ({}));
+            console.error("API error:", errorData);
+            throw new Error(errorData.detail || 'Failed to check keywords');
         }
         
-        // Reload the page to show all new alerts
-        window.location.reload();
+        const result = await response.json();
+        console.log("API check complete:", result);
+        
+        // Show success message
+        showAlert('Keyword check completed successfully. Refreshing page...', 'success');
+        
+        // Wait a moment to ensure database operations complete
+        setTimeout(() => {
+            console.log("Reloading page to show updated results");
+            window.location.reload();
+        }, 1500);
         
     } catch (error) {
         console.error('Error:', error);
-        showAlert('Failed to check keywords. Please try again.', 'danger');
+        showAlert('Failed to check keywords: ' + error.message, 'danger');
     } finally {
         button.disabled = false;
         button.innerHTML = originalHtml;
