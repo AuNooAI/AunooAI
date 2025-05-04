@@ -164,10 +164,25 @@ async def mark_alert_read(alert_id: int, db=Depends(get_database_instance)):
 async def check_now(db=Depends(get_database_instance)):
     """Trigger an immediate keyword check"""
     try:
+        # Log number of keywords being monitored
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM monitored_keywords")
+            keyword_count = cursor.fetchone()[0]
+            logger.info(f"Running manual keyword check - {keyword_count} keywords configured")
+        
         monitor = KeywordMonitor(db)
-        await monitor.check_keywords()
-        return {"status": "success"}
+        result = await monitor.check_keywords()
+        
+        if result.get("success", False):
+            logger.info(f"Keyword check completed successfully: {result.get('new_articles', 0)} new articles found")
+            return result
+        else:
+            logger.error(f"Keyword check failed: {result.get('error', 'Unknown error')}")
+            raise HTTPException(status_code=500, detail=result.get('error', 'Unknown error'))
+            
     except ValueError as e:
+        logger.error(f"Value error in check_now: {str(e)}")
         if "Rate limit exceeded" in str(e) or "request limit reached" in str(e):
             # Return a specific status code for rate limiting
             raise HTTPException(
@@ -177,6 +192,7 @@ async def check_now(db=Depends(get_database_instance)):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error checking keywords: {str(e)}")
+        logger.error(traceback.format_exc())  # Log the full traceback
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/alerts")

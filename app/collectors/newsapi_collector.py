@@ -66,6 +66,42 @@ class NewsAPICollector(ArticleCollector):
             logger.error(f"Error initializing request counter: {str(e)}")
             self.requests_today = 0
 
+    def _update_request_counter(self):
+        """Update request counter in the database after a successful API call"""
+        try:
+            # Increment the in-memory counter
+            self.requests_today += 1
+            
+            # Update in database
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                today = datetime.now().date().isoformat()
+                
+                # Make sure we have a row in the status table with today's date
+                cursor.execute("""
+                    INSERT OR REPLACE INTO keyword_monitor_status 
+                    (id, requests_today, last_check_time, last_reset_date)
+                    VALUES (1, ?, datetime('now'), ?)
+                """, (self.requests_today, today))
+                conn.commit()
+                
+                logger.debug(f"Updated NewsAPI request count to {self.requests_today}")
+                
+                # Check if we're at or near the limit
+                # Default limit is 100 (NewsAPI free tier)
+                daily_limit = 100
+                
+                # Get configured limit if available
+                cursor.execute("SELECT daily_request_limit FROM keyword_monitor_settings WHERE id = 1")
+                limit_row = cursor.fetchone()
+                if limit_row and limit_row[0]:
+                    daily_limit = limit_row[0]
+                
+                if self.requests_today >= daily_limit:
+                    logger.warning(f"NewsAPI request limit reached: {self.requests_today}/{daily_limit}")
+        except Exception as e:
+            logger.error(f"Error updating request counter: {str(e)}")
+
     async def fetch_article_content(self, url: str) -> Optional[Dict]:
         """Implement abstract method from ArticleCollector"""
         try:
@@ -102,49 +138,41 @@ class NewsAPICollector(ArticleCollector):
         page: int = 1
     ) -> List[Dict]:
         try:
-            # Check if we're already at the limit before making request
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT requests_today FROM keyword_monitor_status WHERE id = 1")
-                row = cursor.fetchone()
-                current_requests = row[0] if row else 0
-                
-                if current_requests >= 100:  # Hard limit from NewsAPI
-                    error_msg = "NewsAPI daily request limit reached (100/100 requests used)"
-                    cursor.execute("""
-                        UPDATE keyword_monitor_status 
-                        SET last_error = ?,
-                            requests_today = 100
-                        WHERE id = 1
-                    """, (error_msg,))
-                    conn.commit()
-                    raise ValueError(error_msg)
-
-            params = {
-                'q': query,
-                'apiKey': self.api_key,
-                'pageSize': max_results,
-                'language': language,
-                'sortBy': sort_by or 'publishedAt',
-                'page': page
-            }
-
-            # Map abbreviated search fields to full names
+            logger.info(f"NewsAPI search request - query: '{query}', topic: '{topic}', requests_today: {self.requests_today}")
+            
+            # Map field abbreviations to their full names
             search_field_mapping = {
-                't': 'title',
                 'title': 'title',
-                'd': 'description',
                 'desc': 'description',
                 'description': 'description',
-                'c': 'content',
                 'content': 'content'
             }
+            
+            # Set up base params
+            params = {
+                'apiKey': self.api_key,
+                'q': query,
+                'page': page,
+                'pageSize': max_results,
+            }
+            
+            # Add language if provided
+            if language:
+                params['language'] = language
+            
+            # Add sortBy if provided
+            if sort_by:
+                params['sortBy'] = sort_by
 
             # Add optional parameters if provided
             if search_fields:
+                # Handle string input (comma-separated list)
+                if isinstance(search_fields, str):
+                    search_fields = search_fields.split(',')
+                
                 # Map any abbreviated fields to their full names
                 mapped_fields = [
-                    search_field_mapping.get(field.lower(), field)
+                    search_field_mapping.get(field.lower().strip(), field.strip())
                     for field in search_fields
                 ]
                 # Filter out any invalid fields
@@ -154,6 +182,7 @@ class NewsAPICollector(ArticleCollector):
                 ]
                 if valid_fields:
                     params['searchIn'] = ','.join(valid_fields)
+                    logger.debug(f"Using searchIn parameter: {params['searchIn']}")
 
             if domains:
                 params['domains'] = ','.join(domains)
@@ -166,12 +195,14 @@ class NewsAPICollector(ArticleCollector):
                 if isinstance(start_date, str):
                     start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
                 params['from'] = start_date.strftime('%Y-%m-%d')
+                logger.debug(f"Using from date: {params['from']}")
 
             # Handle end_date
             if end_date:
                 if isinstance(end_date, str):
                     end_date = datetime.fromisoformat(end_date.replace('Z', '+00:00'))
                 params['to'] = end_date.strftime('%Y-%m-%d')
+                logger.debug(f"Using to date: {params['to']}")
 
             # Add more debug logging
             logger.debug(f"Making NewsAPI request with params: {params}")
@@ -184,42 +215,31 @@ class NewsAPICollector(ArticleCollector):
 
             logger.info(f"Making NewsAPI request: query='{query}', requests_today={self.requests_today}")
             
+            # Update request counter in the database
+            self._update_request_counter()
+            
+            # Make the API request
             async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"{self.base_url}/everything",
-                    params=params
-                ) as response:
-                    data = await response.json()
+                async with session.get(f"{self.base_url}/everything", params=params) as response:
                     status = response.status
+                    data = await response.json()
                     
-                    # Log the complete API response for debugging
-                    logger.info(
-                        f"NewsAPI response: status={status}, "
-                        f"headers={dict(response.headers)}, "
-                        f"data={json.dumps(data, indent=2)}"
-                    )
+                    # Log API response for debugging
+                    logger.debug(f"NewsAPI response status: {status}")
+                    logger.debug(f"NewsAPI response: {data.get('status')}, total results: {data.get('totalResults', 0)}")
                     
-                    if status == 200:
-                        # Track successful request
-                        self.requests_today += 1
+                    if status == 200 and data.get('status') == 'ok':
+                        # Successful response
+                        articles = data.get('articles', [])
+                        logger.info(f"NewsAPI returned {len(articles)} articles for query '{query}'")
                         
-                        # Update request count in database
-                        with self.db.get_connection() as conn:
-                            cursor = conn.cursor()
-                            # Make sure we have a row in the status table
-                            cursor.execute("""
-                                INSERT OR REPLACE INTO keyword_monitor_status 
-                                (id, requests_today, last_check_time, last_reset_date)
-                                VALUES (1, ?, ?, date('now'))
-                            """, (self.requests_today, datetime.now().isoformat()))
-                            conn.commit()
-                            logger.info(f"Updated request count to {self.requests_today}")
-                        
-                        articles = data.get("articles", [])
-                        logger.info(
-                            f"NewsAPI search successful: found {len(articles)} articles "
-                            f"for query '{query}' (request {self.requests_today}/100)"
-                        )
+                        if len(articles) == 0:
+                            logger.warning(f"NewsAPI returned 0 articles for query '{query}' - check search parameters")
+                        else:
+                            # Log first article for debugging
+                            if articles:
+                                first_article = articles[0]
+                                logger.debug(f"First article: {first_article.get('title')} - {first_article.get('publishedAt')}")
                         
                         # Transform to our standard format, maintaining compatibility
                         return [{
@@ -249,25 +269,13 @@ class NewsAPICollector(ArticleCollector):
                             f"message={error_msg}, query='{query}'"
                         )
                         return []
-
-        except ValueError as e:
-            if "Rate limit exceeded" in str(e) or "limit reached" in str(e):
-                # Always ensure the counter shows 100 when rate limited
-                with self.db.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        UPDATE keyword_monitor_status 
-                        SET requests_today = 100,
-                            last_error = ?
-                        WHERE id = 1
-                    """, (str(e),))
-                    conn.commit()
-                    self.requests_today = 100  # Update in-memory counter too
-                raise
-            logger.error(f"Error searching NewsAPI: {str(e)}, query='{query}'")
+                        
+        except aiohttp.ClientError as e:
+            logger.error(f"HTTP error when calling NewsAPI: {str(e)}")
             return []
         except Exception as e:
-            logger.error(f"Error searching NewsAPI: {str(e)}, query='{query}'")
+            logger.error(f"Unexpected error in NewsAPI search: {str(e)}")
+            logger.exception("Full exception traceback:")
             return []
 
     async def get_article(self, url: str) -> Optional[Dict]:

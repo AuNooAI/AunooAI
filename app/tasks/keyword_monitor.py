@@ -198,9 +198,12 @@ class KeywordMonitor:
     async def check_keywords(self):
         """Check all keywords for new matches"""
         logger.info("Starting keyword check...")
+        new_articles_count = 0
+        processed_keywords = 0
+        
         if not self._init_collector():
             logger.error("Failed to initialize collector, skipping check")
-            return
+            return {"success": False, "error": "Failed to initialize collector", "new_articles": 0}
         
         try:
             with self.db.get_connection() as conn:
@@ -228,6 +231,7 @@ class KeywordMonitor:
                 
                 for keyword in keywords:
                     keyword_id, keyword_text, last_checked, topic = keyword
+                    processed_keywords += 1
                     logger.info(
                         f"Checking keyword: {keyword_text} (topic: {topic}, "
                         f"requests_today: {self.collector.requests_today}/100)"
@@ -237,6 +241,7 @@ class KeywordMonitor:
                         # Calculate start_date based on search_date_range instead of last_checked
                         start_date = datetime.now() - timedelta(days=self.search_date_range)
                         
+                        logger.debug(f"Searching for articles with keyword: '{keyword_text}', topic: '{topic}', start_date: {start_date.isoformat()}")
                         articles = await self.collector.search_articles(
                             query=keyword_text,
                             topic=topic,
@@ -252,6 +257,9 @@ class KeywordMonitor:
                             continue
 
                         logger.info(f"Found {len(articles)} new articles for keyword: {keyword_text}")
+                        # Log details of first few articles to help debug
+                        for i, article in enumerate(articles[:3]):  # Log up to first 3 articles
+                            logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
                         
                         # Process each article
                         for article in articles:
@@ -269,6 +277,7 @@ class KeywordMonitor:
                                 conn.execute("BEGIN IMMEDIATE")
                                 
                                 try:
+                                    inserted_new_article = False
                                     if not article_exists:
                                         # Save new article
                                         cursor.execute("""
@@ -285,6 +294,7 @@ class KeywordMonitor:
                                             topic,
                                             False  # Explicitly mark as not analyzed
                                         ))
+                                        inserted_new_article = True
                                     
                                     # Create alert
                                     cursor.execute("""
@@ -293,6 +303,8 @@ class KeywordMonitor:
                                         ) VALUES (?, ?)
                                         ON CONFLICT DO NOTHING
                                     """, (keyword_id, article_url))
+                                    
+                                    alert_inserted = cursor.rowcount > 0
                                     
                                     # Get the group_id for this keyword
                                     cursor.execute("""
@@ -308,6 +320,7 @@ class KeywordMonitor:
                                     """, (article_url, group_id))
                                     
                                     existing_match = cursor.fetchone()
+                                    match_updated = False
                                     
                                     if existing_match:
                                         # Update the existing match with the new keyword
@@ -322,6 +335,7 @@ class KeywordMonitor:
                                                 SET keyword_ids = ?
                                                 WHERE id = ?
                                             """, (updated_keyword_ids, match_id))
+                                            match_updated = True
                                     else:
                                         # Create a new match
                                         cursor.execute("""
@@ -329,6 +343,12 @@ class KeywordMonitor:
                                                 article_uri, keyword_ids, group_id
                                             ) VALUES (?, ?, ?)
                                         """, (article_url, str(keyword_id), group_id))
+                                        match_updated = True
+                                    
+                                    # Only count as new if we actually inserted or updated something
+                                    if inserted_new_article or alert_inserted or match_updated:
+                                        new_articles_count += 1
+                                        logger.info(f"Added/updated article: {article_url}")
                                     
                                     # Commit transaction
                                     conn.commit()
@@ -369,9 +389,16 @@ class KeywordMonitor:
                             raise ValueError(error_msg)
                         raise
                 
+                # Return summary results
+                return {
+                    "success": True, 
+                    "new_articles": new_articles_count,
+                    "keywords_processed": processed_keywords
+                }
+                
         except Exception as e:
             logger.error(f"Error checking keywords: {str(e)}")
-            raise
+            return {"success": False, "error": str(e), "new_articles": new_articles_count}
 
 async def run_keyword_monitor():
     """Background task to periodically check keywords"""
