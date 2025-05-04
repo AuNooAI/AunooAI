@@ -216,6 +216,7 @@
                     <h2>Article Provider Configuration</h2>
                     <p class="text-muted mb-4">Configure API keys for different news and article providers.</p>
                     
+                    <!-- Standard API Key Provider Form -->
                     <form id="provider-config-form">
                         <div class="form-group">
                             <label for="provider-name" class="form-label">Provider</label>
@@ -236,6 +237,32 @@
 
                         <button type="submit" class="mt-3">
                             <i class="fas fa-plus"></i> Add Provider
+                        </button>
+                    </form>
+                    
+                    <!-- Bluesky-specific Provider Form -->
+                    <form id="bluesky-config-form" class="mt-5">
+                        <h3>Bluesky Configuration</h3>
+                        <p class="text-muted small mb-3">Configure your Bluesky credentials for post collection</p>
+                        
+                        <div class="form-group">
+                            <label for="bluesky-username" class="form-label">Bluesky Username</label>
+                            <input type="text" id="bluesky-username" placeholder="Enter your Bluesky handle" required 
+                                   class="form-control"
+                                   data-tooltip="Your Bluesky handle (e.g. username.bsky.social or email)">
+                            <small class="form-text text-muted">Enter your Bluesky handle or email</small>
+                        </div>
+
+                        <div class="form-group mt-3">
+                            <label for="bluesky-password" class="form-label">Bluesky Password</label>
+                            <input type="password" id="bluesky-password" placeholder="Enter your Bluesky password" required 
+                                   class="form-control"
+                                   data-tooltip="Your Bluesky account password">
+                            <small class="form-text text-muted">Account password or app-specific password</small>
+                        </div>
+
+                        <button type="submit" class="mt-3">
+                            <i class="fas fa-plus"></i> Set Bluesky Credentials
                         </button>
                     </form>
                     
@@ -1276,15 +1303,9 @@
         console.log('DOMContentLoaded event fired');  // Debug log
         loadAIModels();
         loadAvailableModels();
-    });
-
-    // Consolidated DOMContentLoaded event listener at the bottom
-    document.addEventListener('DOMContentLoaded', function() {
-        // Load all configurations
-        loadAIModels();
-        loadAvailableModels();
         loadProviderOptions();
         loadAvailableProviders();
+        loadBlueskyCredentials();
     });
 
     // Add this function to reload the configuration after key changes
@@ -1333,7 +1354,7 @@
         }
     });
 
-    // Update loadAvailableProviders with the correct URL
+    // Update loadAvailableProviders with special handling for Bluesky
     async function loadAvailableProviders() {
         try {
             const response = await fetch('/api/providers');
@@ -1363,6 +1384,48 @@
                 '<li>Error loading providers. Please try again later.</li>';
         }
     }
+
+    // Add Bluesky form submission handler
+    document.getElementById('bluesky-config-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const username = document.getElementById('bluesky-username').value;
+        const password = document.getElementById('bluesky-password').value;
+        
+        if (!username || !password) {
+            alert('Please enter both username and password for Bluesky');
+            return;
+        }
+        
+        try {
+            const response = await fetch('/config/bluesky', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    username: username,
+                    password: password
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.detail || 'Failed to save Bluesky credentials');
+            }
+            
+            alert('Bluesky credentials saved successfully');
+            document.getElementById('bluesky-username').value = '';
+            document.getElementById('bluesky-password').value = '';
+            
+            // Reload the configuration after saving
+            await reloadConfiguration();
+            
+        } catch (error) {
+            console.error('Error saving Bluesky credentials:', error);
+            alert(`Error saving Bluesky credentials: ${error.message}`);
+        }
+    });
 
     // Update removeProviderConfig to match removeModel pattern
     async function removeProviderConfig(providerName) {
@@ -1829,6 +1892,33 @@
                 });
             }, 3000);
         });
+    }
+
+    // Add a function to load the current Bluesky credentials
+    async function loadBlueskyCredentials() {
+        try {
+            const response = await fetch('/config/bluesky');
+            const data = await response.json();
+            
+            if (response.ok && data.configured) {
+                // If credentials exist, show a message but don't populate the password field for security
+                document.getElementById('bluesky-username').value = data.username || '';
+                // Don't populate password field for security reasons
+                
+                const blueskyForm = document.getElementById('bluesky-config-form');
+                if (!blueskyForm.querySelector('.credentials-info')) {
+                    const infoDiv = document.createElement('div');
+                    infoDiv.className = 'alert alert-info mt-3 credentials-info';
+                    infoDiv.innerHTML = `
+                        <i class="fas fa-info-circle me-2"></i>
+                        Bluesky credentials are configured. You can update them by entering new values.
+                    `;
+                    blueskyForm.insertBefore(infoDiv, blueskyForm.querySelector('button'));
+                }
+            }
+        } catch (error) {
+            console.error('Error loading Bluesky credentials:', error);
+        }
     }
 </script>{% endblock %}
 

@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from app.collectors.newsapi_collector import NewsAPICollector
 from app.collectors.arxiv_collector import ArxivCollector
+from app.collectors.bluesky_collector import BlueskyCollector
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from app.database import Database, get_database_instance
 from app.research import Research
@@ -599,13 +600,31 @@ async def report_route(request: Request, session=Depends(verify_session)):
 
 @app.get("/config", response_class=HTMLResponse)
 async def config_page(request: Request, session=Depends(verify_session)):
-    models = ai_get_available_models()
-    return templates.TemplateResponse(
-        "config.html", 
-        get_template_context(request, {
-            "models": models
-        })
-    )
+    """Display configuration page"""
+    try:
+        models = load_ai_models_config()
+        
+        # Get currently configured providers
+        providers = get_providers()
+        
+        # Check if Bluesky is configured
+        bluesky_configured = (
+            os.getenv('PROVIDER_BLUESKY_USERNAME') is not None and
+            os.getenv('PROVIDER_BLUESKY_PASSWORD') is not None
+        )
+        
+        return templates.TemplateResponse(
+            "config.html",
+            get_template_context(request, {
+                "models": models,
+                "providers": providers,
+                "session": session,
+                "bluesky_configured": bluesky_configured
+            })
+        )
+    except Exception as e:
+        logger.error(f"Error loading config page: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/config/add_model")
 async def add_model(model_data: AddModelRequest):
@@ -2005,7 +2024,6 @@ async def get_latest_news_and_papers(
 ):
     try:
         # Initialize collectors with database instance
-        news_collector = NewsAPICollector(db)
         arxiv_collector = ArxivCollector()
         
         # Get news query for topic
@@ -2020,37 +2038,49 @@ async def get_latest_news_and_papers(
 
         latest_news_formatted = []
         try:
-            # Get news articles
-            latest_news = await news_collector.search_articles(
-                query=news_query,
-                max_results=count,
-                sort_by=sortBy
-            )
-            
-            # Format news articles
-            for article in latest_news:
-                try:
-                    raw_data = article.get('raw_data', {})
-                    formatted_article = {
-                        "title": article.get('title', 'No title'),
-                        "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y %I:%M %p"),
-                        "source": article.get('news_source', 'Unknown'),
-                        "summary": article.get('summary', 'No summary available'),
-                        "url": article.get('url', '#'),
-                        "author": raw_data.get('author', 'Unknown author'),
-                        "image_url": raw_data.get('url_to_image')
-                    }
-                    latest_news_formatted.append(formatted_article)
-                except Exception as e:
-                    logger.error(f"Error formatting news article: {e}")
-                    continue
+            # Try to initialize BlueskyCollector
+            try:
+                bluesky_collector = BlueskyCollector()
+                
+                # Get Bluesky posts
+                latest_news = await bluesky_collector.search_articles(
+                    query=news_query,
+                    topic=topicId,
+                    max_results=count
+                )
+                
+                # Format Bluesky posts
+                for article in latest_news:
+                    try:
+                        raw_data = article.get('raw_data', {})
+                        formatted_article = {
+                            "title": article.get('title', 'No title'),
+                            "date": datetime.fromisoformat(article.get('published_date', datetime.now().isoformat())).strftime("%B %d, %Y %I:%M %p"),
+                            "source": "Bluesky",
+                            "summary": article.get('summary', 'No summary available'),
+                            "url": article.get('url', '#'),
+                            "author": article.get('authors', ['Unknown author'])[0] if article.get('authors') else 'Unknown author',
+                            "image_url": None  # Bluesky doesn't provide image URLs in the same way
+                        }
+                        
+                        # Add image URLs if available
+                        if raw_data.get('images') and len(raw_data['images']) > 0:
+                            formatted_article["image_url"] = raw_data['images'][0].get('url', None)
+                            
+                        latest_news_formatted.append(formatted_article)
+                    except Exception as e:
+                        logger.error(f"Error formatting Bluesky post: {e}")
+                        continue
                     
-        except ValueError as e:
-            if "Rate limit exceeded" in str(e) or "limit reached" in str(e):
-                # Log the rate limit but continue with papers
-                logger.warning(f"NewsAPI rate limit reached: {str(e)}")
-            else:
-                raise
+            except ValueError as e:
+                if "credentials not configured" in str(e):
+                    logger.warning("Bluesky credentials not configured - returning empty news results")
+                else:
+                    logger.error(f"Error with Bluesky collector: {str(e)}")
+                        
+        except Exception as e:
+            logger.error(f"Error fetching Bluesky posts: {str(e)}")
+            # Continue with papers even if Bluesky fails
 
         # Get papers (continue even if news failed)
         latest_papers_formatted = []
@@ -3373,6 +3403,127 @@ async def remove_elevenlabs_config():
     except Exception as exc:
         logger.error("Error removing ElevenLabs configuration: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
+
+class BlueskyConfig(BaseModel):
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+    class Config:
+        alias_generator = lambda string: string.lower()
+        populate_by_name = True
+
+@app.post("/config/bluesky")
+async def save_bluesky_config(config: BlueskyConfig):
+    """Save Bluesky configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        username_var = 'PROVIDER_BLUESKY_USERNAME'
+        password_var = 'PROVIDER_BLUESKY_PASSWORD'
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Update or add the username
+        username_line = f'{username_var}="{config.username}"\n'
+        username_found = False
+
+        # Update or add the password
+        password_line = f'{password_var}="{config.password}"\n'
+        password_found = False
+
+        for i, line in enumerate(lines):
+            if line.startswith(f'{username_var}='):
+                lines[i] = username_line
+                username_found = True
+            elif line.startswith(f'{password_var}='):
+                lines[i] = password_line
+                password_found = True
+
+        if not username_found:
+            lines.append(username_line)
+        if not password_found:
+            lines.append(password_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment
+        os.environ[username_var] = config.username
+        os.environ[password_var] = config.password
+        
+        return JSONResponse(
+            status_code=200,
+            content={"message": "Bluesky configuration saved successfully"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error saving Bluesky configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/bluesky")
+async def get_bluesky_config():
+    """Get Bluesky configuration."""
+    try:
+        username = os.environ.get("PROVIDER_BLUESKY_USERNAME", "")
+        password = os.environ.get("PROVIDER_BLUESKY_PASSWORD", "")
+        configured = bool(username and password)
+        
+        # Return the username and whether password exists, but not the password itself
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": configured,
+                "username": username if configured else "",
+                "has_password": bool(password),
+                "message": "Bluesky is configured" if configured else "Bluesky is not configured"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting Bluesky configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/bluesky")
+async def remove_bluesky_config():
+    """Remove Bluesky configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        username_var = 'PROVIDER_BLUESKY_USERNAME'
+        password_var = 'PROVIDER_BLUESKY_PASSWORD'
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Remove the config lines
+        new_lines = [line for line in lines if not (line.startswith(f'{username_var}=') or 
+                                                   line.startswith(f'{password_var}='))]
+        
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(new_lines)
+            
+        # Remove from environment
+        if username_var in os.environ:
+            del os.environ[username_var]
+        if password_var in os.environ:
+            del os.environ[password_var]
+            
+        return JSONResponse(
+            status_code=200,
+            content={"message": "Bluesky configuration removed successfully"}
+        )
+            
+    except Exception as e:
+        logger.error(f"Error removing Bluesky configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

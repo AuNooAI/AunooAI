@@ -6,7 +6,8 @@
     "Security Data Fabric": "\"Security Data Fabric\"",
     "Threat Modeling": "\"Threat Modeling\"",
     "Embedded Systems": "\"Embedded Systems\"",
-    "Cloud Repatriation": "\"Cloud Repatriation\""
+    "Cloud Repatriation": "\"Cloud Repatriation\"",
+    "Competitor Analysis": "Disinformation"
   },
   "paper_filters": {
     "AI and Machine Learning": "LLM",
@@ -15,6 +16,7 @@
     "Security Data Fabric": "\"Security Data\"",
     "Threat Modeling": "\"Threat Modeling\"",
     "Embedded Systems": "\"Embedded Systems\"",
-    "Cloud Repatriation": "\"Cloud Repatriation\""
+    "Cloud Repatriation": "\"Cloud Repatriation\"",
+    "Competitor Analysis": "Disinformation"
   }
 }

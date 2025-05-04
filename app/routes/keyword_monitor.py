@@ -14,6 +14,7 @@ import io
 import csv
 from pathlib import Path
 import sqlite3
+from fastapi.responses import JSONResponse
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -992,4 +993,93 @@ async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_inst
             return {"success": True, "articles_deleted": deleted_count}
     except Exception as e:
         logging.error(f"Error deleting articles for topic {topic_name}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/bluesky-posts")
+async def get_bluesky_posts(
+    query: str,
+    topic: str,
+    count: int = 10,
+    db: Database = Depends(get_database_instance)
+):
+    """Fetch Bluesky posts for a given query and topic."""
+    try:
+        # Log what we're receiving in the request
+        logger.debug(f"Bluesky posts request: query='{query}', topic='{topic}', count={count}")
+        
+        # Import the collector here to avoid circular imports
+        from app.collectors.bluesky_collector import BlueskyCollector
+        
+        try:
+            bluesky_collector = BlueskyCollector()
+            posts = await bluesky_collector.search_articles(
+                query=query,
+                topic=topic,
+                max_results=count
+            )
+            
+            # Log the raw data for debugging
+            logger.debug(f"Bluesky returned {len(posts)} posts")
+            
+            # Format the posts for display with safer access to fields
+            formatted_posts = []
+            for post in posts:
+                try:
+                    # Create a post with defaults for all required fields
+                    formatted_post = {
+                        "title": "Untitled Post",
+                        "date": "",
+                        "source": "Bluesky",
+                        "summary": "No content available",
+                        "url": "#",
+                        "author": "Unknown",
+                        "image_url": None
+                    }
+                    
+                    # Safely update each field if available
+                    if post.get('title'):
+                        formatted_post["title"] = post.get('title')
+                        
+                    if post.get('published_date'):
+                        formatted_post["date"] = post.get('published_date')
+                        
+                    if post.get('summary'):
+                        formatted_post["summary"] = post.get('summary')
+                        
+                    if post.get('url'):
+                        formatted_post["url"] = post.get('url')
+                    
+                    # Handle authors safely
+                    authors = post.get('authors', [])
+                    if authors and len(authors) > 0:
+                        formatted_post["author"] = authors[0]
+                    
+                    # Handle images safely
+                    raw_data = post.get('raw_data', {})
+                    images = raw_data.get('images', [])
+                    if images and len(images) > 0 and isinstance(images[0], dict):
+                        url = images[0].get('url')
+                        if url:
+                            formatted_post["image_url"] = url
+                    
+                    formatted_posts.append(formatted_post)
+                except Exception as post_error:
+                    # Log any errors processing individual posts but continue
+                    logger.error(f"Error formatting Bluesky post: {str(post_error)}")
+                    continue
+            
+            # Return the posts we were able to process
+            return JSONResponse(content=formatted_posts)
+        
+        except ValueError as e:
+            if "credentials not configured" in str(e):
+                logger.warning("Bluesky credentials not configured - returning empty results")
+                return JSONResponse(content=[])
+            else:
+                logger.error(f"Bluesky collector error: {str(e)}")
+                raise HTTPException(status_code=500, detail=f"Error with Bluesky collector: {str(e)}")
+                
+    except Exception as e:
+        logger.error(f"Error fetching Bluesky posts: {str(e)}")
+        logger.exception("Full exception details:")
         raise HTTPException(status_code=500, detail=str(e)) 
