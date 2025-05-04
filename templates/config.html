@@ -882,6 +882,74 @@
     .status-indicator.inactive::before {
         background-color: #dc3545;
     }
+
+    .provider-separator {
+        margin: 20px 0;
+        border-top: 1px solid var(--medium-gray);
+        padding-top: 15px;
+        list-style-type: none;
+    }
+    
+    .provider-separator h4 {
+        margin-bottom: 10px;
+        color: var(--dark-gray);
+        font-size: 0.95rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    
+    .special-provider {
+        background-color: rgba(255, 105, 180, 0.05) !important;
+        border-left: 3px solid var(--primary-color) !important;
+    }
+    
+    .provider-info {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 5px;
+    }
+    
+    .provider-name {
+        font-weight: 600;
+    }
+    
+    .provider-note {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--dark-gray);
+        margin-bottom: 10px;
+        opacity: 0.7;
+    }
+
+    .provider-placeholder {
+        padding: 10px;
+        color: #6c757d;
+        font-style: italic;
+        background-color: rgba(0, 0, 0, 0.02);
+        border-radius: 6px;
+        text-align: center;
+        margin-bottom: 15px;
+        font-size: 0.9rem;
+    }
+
+    .provider-category {
+        margin: 20px 0 10px 0;
+        padding: 0;
+        list-style-type: none;
+        border-bottom: 1px solid var(--medium-gray);
+    }
+    
+    .provider-category:first-child {
+        margin-top: 0;
+    }
+    
+    .provider-category h4 {
+        color: var(--primary-color);
+        font-size: 1rem;
+        margin-bottom: 8px;
+        font-weight: 600;
+    }
 </style>
 
 <script>
@@ -1362,26 +1430,149 @@
             const providerList = document.getElementById('provider-list');
             providerList.innerHTML = '';
             
-            for (const provider of data.providers.filter(p => p.config_type === 'api_key')) {
-                const configResponse = await fetch(`/config/${provider.name}`);
-                const configData = await configResponse.json();
+            // Define provider categories and order
+            const categories = [
+                {
+                    name: "News Feeds",
+                    providers: ["newsapi", "thenewsapi"]
+                },
+                {
+                    name: "Scrapers",
+                    providers: ["firecrawl"]
+                },
+                {
+                    name: "Text-to-Speech",
+                    providers: ["elevenlabs", "dia"]
+                },
+                {
+                    name: "Social Media",
+                    providers: ["bluesky"]
+                }
+            ];
+            
+            // Group providers by category
+            for (const category of categories) {
+                // Create category header - always show headers even if empty
+                const categoryHeader = document.createElement('li');
+                categoryHeader.className = 'provider-category';
+                categoryHeader.innerHTML = `<h4>${category.name}</h4>`;
+                providerList.appendChild(categoryHeader);
                 
-                const li = document.createElement('li');
-                li.innerHTML = `
-                    ${provider.display_name}
-                    <span class="status-badge ${configData.configured ? 'configured' : 'not-configured'}">
-                        ${configData.configured ? 'Configured' : 'Not Configured'}
-                    </span>
-                    ${configData.configured ? 
-                        `<button onclick="removeProviderConfig('${provider.name}')">Remove</button>` : 
-                        ''}
-                `;
-                providerList.appendChild(li);
+                // Flag to track if we found any providers in this category
+                let foundProviders = false;
+                
+                // Add providers in this category
+                for (const providerName of category.providers) {
+                    // Try to find the provider in the data
+                    const provider = data.providers.find(p => p.name === providerName);
+                    if (!provider) continue;
+                    
+                    // Mark that we found at least one provider
+                    foundProviders = true;
+                    
+                    // Special handling for Bluesky
+                    if (provider.name === 'bluesky') {
+                        try {
+                            const blueskyResponse = await fetch('/config/bluesky');
+                            const blueskyData = await blueskyResponse.json();
+                            
+                            const blueskyLi = document.createElement('li');
+                            blueskyLi.className = 'special-provider';
+                            blueskyLi.innerHTML = `
+                                <div class="provider-info">
+                                    <span class="provider-name">Bluesky</span>
+                                    <span class="status-badge ${blueskyData.configured ? 'configured' : 'not-configured'}">
+                                        ${blueskyData.configured ? 'Configured' : 'Not Configured'}
+                                    </span>
+                                </div>
+                                <small class="provider-note">Uses username/password authentication</small>
+                                ${blueskyData.configured ? 
+                                    `<button onclick="removeBlueskyConfig()" class="mt-2">Remove Credentials</button>` : 
+                                    ''}
+                            `;
+                            providerList.appendChild(blueskyLi);
+                        } catch (error) {
+                            console.error('Error loading Bluesky status:', error);
+                            // Add a placeholder for Bluesky with error state
+                            const errorLi = document.createElement('li');
+                            errorLi.className = 'special-provider';
+                            errorLi.innerHTML = `
+                                <div class="provider-info">
+                                    <span class="provider-name">Bluesky</span>
+                                    <span class="status-badge not-configured">Error</span>
+                                </div>
+                                <small class="provider-note text-danger">Error loading Bluesky status</small>
+                            `;
+                            providerList.appendChild(errorLi);
+                        }
+                        continue;
+                    }
+                    
+                    // Standard API key providers
+                    if (provider.config_type === 'api_key') {
+                        try {
+                            const configResponse = await fetch(`/config/${provider.name}`);
+                            const configData = await configResponse.json();
+                            
+                            const li = document.createElement('li');
+                            li.innerHTML = `
+                                ${provider.display_name}
+                                <span class="status-badge ${configData.configured ? 'configured' : 'not-configured'}">
+                                    ${configData.configured ? 'Configured' : 'Not Configured'}
+                                </span>
+                                ${configData.configured ? 
+                                    `<button onclick="removeProviderConfig('${provider.name}')">Remove</button>` : 
+                                    ''}
+                            `;
+                            providerList.appendChild(li);
+                        } catch (error) {
+                            console.error(`Error loading status for ${provider.name}:`, error);
+                        }
+                    }
+                }
+                
+                // If no providers were found in this category, add a placeholder
+                if (!foundProviders) {
+                    const placeholderLi = document.createElement('li');
+                    placeholderLi.className = 'provider-placeholder';
+                    placeholderLi.textContent = 'No providers configured in this category';
+                    providerList.appendChild(placeholderLi);
+                }
             }
         } catch (error) {
             console.error('Error loading providers:', error);
             document.getElementById('provider-list').innerHTML = 
                 '<li>Error loading providers. Please try again later.</li>';
+        }
+    }
+    
+    // Add function to remove Bluesky credentials
+    async function removeBlueskyConfig() {
+        if (confirm('Are you sure you want to remove the Bluesky credentials?')) {
+            try {
+                const response = await fetch('/config/bluesky', {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to remove Bluesky credentials');
+                }
+                
+                // Clear the username field
+                document.getElementById('bluesky-username').value = '';
+                
+                // Remove info message if present
+                const infoDiv = document.querySelector('#bluesky-config-form .credentials-info');
+                if (infoDiv) {
+                    infoDiv.remove();
+                }
+                
+                await loadAvailableProviders();
+                showAlert('Bluesky credentials removed successfully', 'success');
+            } catch (error) {
+                console.error('Error removing Bluesky credentials:', error);
+                showAlert(`Error removing Bluesky credentials: ${error.message}`, 'danger');
+            }
         }
     }
 
@@ -1414,8 +1605,7 @@
                 throw new Error(data.detail || 'Failed to save Bluesky credentials');
             }
             
-            alert('Bluesky credentials saved successfully');
-            document.getElementById('bluesky-username').value = '';
+            showAlert('Bluesky credentials saved successfully', 'success');
             document.getElementById('bluesky-password').value = '';
             
             // Reload the configuration after saving
@@ -1423,7 +1613,7 @@
             
         } catch (error) {
             console.error('Error saving Bluesky credentials:', error);
-            alert(`Error saving Bluesky credentials: ${error.message}`);
+            showAlert(`Error saving Bluesky credentials: ${error.message}`, 'danger');
         }
     });
 
@@ -1440,32 +1630,11 @@
                 }
                 
                 await loadAvailableProviders();
+                showAlert(`Successfully removed ${providerName} key`, 'success');
             } catch (error) {
                 console.error(`Error removing ${providerName} key:`, error);
-                alert(`Error removing ${providerName} key: ${error.message}`);
+                showAlert(`Error removing ${providerName} key: ${error.message}`, 'danger');
             }
-        }
-    }
-
-    // Add this function to load providers from provider_config.json
-    async function loadProviderOptions() {
-        try {
-            const response = await fetch('/api/providers');
-            const data = await response.json();
-            const providerSelect = document.getElementById('provider-name');
-            providerSelect.innerHTML = '<option value="">Select a provider</option>';
-            
-            data.providers
-                .filter(provider => provider.config_type === 'api_key')  // Only show providers needing API key
-                .forEach(provider => {
-                const option = document.createElement('option');
-                option.value = provider.name;
-                option.textContent = provider.display_name;
-                option.dataset.configType = provider.config_type;
-                providerSelect.appendChild(option);
-            });
-        } catch (error) {
-            console.error('Error loading providers:', error);
         }
     }
 
@@ -1918,6 +2087,66 @@
             }
         } catch (error) {
             console.error('Error loading Bluesky credentials:', error);
+        }
+    }
+
+    // Add this function to load providers from provider_config.json
+    async function loadProviderOptions() {
+        try {
+            const response = await fetch('/api/providers');
+            const data = await response.json();
+            const providerSelect = document.getElementById('provider-name');
+            providerSelect.innerHTML = '<option value="">Select a provider</option>';
+            
+            // Define provider categories and order (same as in loadAvailableProviders)
+            const categories = [
+                {
+                    name: "News Feeds",
+                    providers: ["newsapi", "thenewsapi"]
+                },
+                {
+                    name: "Scrapers",
+                    providers: ["firecrawl"]
+                },
+                {
+                    name: "Text-to-Speech",
+                    providers: ["elevenlabs", "dia"]
+                }
+                // Don't include Social Media/Bluesky here since it uses a different auth method
+            ];
+            
+            // Loop through categories and add options in groups
+            for (const category of categories) {
+                // Create option group
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = category.name;
+                
+                // Add providers from this category
+                let hasProvidersInCategory = false;
+                for (const providerName of category.providers) {
+                    const provider = data.providers.find(p => 
+                        p.name === providerName && 
+                        p.config_type === 'api_key' && 
+                        p.name !== 'bluesky'
+                    );
+                    
+                    if (provider) {
+                        const option = document.createElement('option');
+                        option.value = provider.name;
+                        option.textContent = provider.display_name;
+                        option.dataset.configType = provider.config_type;
+                        optgroup.appendChild(option);
+                        hasProvidersInCategory = true;
+                    }
+                }
+                
+                // Only add the optgroup if it contains providers
+                if (hasProvidersInCategory) {
+                    providerSelect.appendChild(optgroup);
+                }
+            }
+        } catch (error) {
+            console.error('Error loading providers:', error);
         }
     }
 </script>{% endblock %}
