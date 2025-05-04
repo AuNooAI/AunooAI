@@ -103,6 +103,19 @@
         background: rgba(0,0,0,0.05);
         border-radius: 3px;
     }
+    /* Make individual pattern cards scrollable */
+    .pattern-card-body {
+        max-height: 200px; /* Adjust height as needed */
+        overflow-y: auto;
+    }
+    /* Ensure Summarized badge is visible */
+    .fw-bold .badge.bg-success-subtle.text-success-emphasis {
+        background-color: #198754 !important; /* Force Bootstrap success green background */
+        color: white !important; /* Force white text */
+        opacity: 1 !important; /* Ensure visible */
+        visibility: visible !important; /* Ensure visible */
+        margin-left: 5px; /* Add spacing */
+    }
 </style>
 
 <div class="layout">
@@ -233,6 +246,10 @@
       <div class="modal-body" id="auspexContent">
         <div class="text-muted">Waiting for Auspex…</div>
       </div>
+      <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" id="exportSummaryBtn" style="display: none;">Export Markdown</button>
+          <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Close</button>
+      </div>
     </div>
   </div>
 </div>
@@ -240,6 +257,24 @@
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/awesomplete@1.1.5/awesomplete.min.js"></script>
 <script>
+// Global storage for summaries and associated articles
+window._clusterSummaries = {};
+window._clusterArticles = {};
+
+// Interval IDs for rotating facts
+let patternsLoadingIntervalId = null;
+let vizLoadingIntervalId = null;
+let auspexLoadingIntervalId = null;
+// Interval IDs for countdown timers
+let patternsCountdownId = null;
+let vizCountdownId = null;
+let auspexCountdownId = null;
+// Fact rotation interval in seconds
+const FACT_ROTATION_SECONDS = 18;
+
+// Global storage for news facts
+window._newsFacts = [];
+
 const DEFAULT_PAGE_SIZE = 20; // Number of results per page for pagination
 
 async function runSearch() {
@@ -264,6 +299,11 @@ async function runSearch() {
         } else {
             pageSize = topK; // Fetch N, display N - no pagination needed
         }
+    } else if (extra.cluster !== undefined) {
+        // If filtering by cluster, fetch more initially to ensure the cluster is likely represented
+        // Let pagination handle display limit.
+        topK = 1000; // Fetch more if filtering by cluster
+        pageSize = DEFAULT_PAGE_SIZE;
     }
     // Store page size globally for pagination rendering
     window._pageSize = pageSize;
@@ -305,6 +345,7 @@ async function runSearch() {
     }else{
         const params = new URLSearchParams({ q: parsed.cleaned, top_k: topK }); // Use topK for API limit
         if(extra.sort){params.append('sort',extra.sort.join(':'));}
+        if (extra.cluster !== undefined) { params.append('cluster', extra.cluster); }
         Object.entries(metadata).forEach(([k,v])=>params.append(k, v));
         const res = await fetch(`/api/vector-search?${params.toString()}`);
         data = await res.json();
@@ -577,6 +618,8 @@ function parseQuery(q){
             cleaned = cleaned.replace(full,'').trim();
         }
     }
+    // cluster:n or cluster=n
+    cleaned=cleaned.replace(/\bcluster(?:=|:)(\d+)\b/i,(m,n)=>{extra.cluster=parseInt(n);return '';});
     return {cleaned, metadata};
 }
 
@@ -588,6 +631,8 @@ function extractMetaTokens(qObj){
   cleaned=cleaned.replace(/\blimit:(\d+)\b/i,(m,n)=>{extra.limit=parseInt(n);return '';});
   // sort:field[:dir]
   cleaned=cleaned.replace(/\bsort:([\w_]+)(?::(asc|desc))?/i,(m,f,d)=>{extra.sort=[f,d||'asc'];return ''});
+  // cluster:n or cluster=n
+  cleaned=cleaned.replace(/\bcluster(?:=|:)(\d+)\b/i,(m,n)=>{extra.cluster=parseInt(n);return '';});
   return {cleaned:cleaned.trim(), extra};
 }
 
@@ -724,8 +769,54 @@ async function initScatter(){
 async function updateScatter(){
     const loading=document.getElementById('vizLoading');
     const div=document.getElementById('scatter');
-    loading.textContent='Loading…';
-    loading.style.display='block';
+
+    // Show spinner and random fact
+    let randomFact = window._newsFacts.length > 0 ? window._newsFacts[Math.floor(Math.random() * window._newsFacts.length)] : 'Generating visualization...';
+    // Clear previous interval if any
+    if (vizLoadingIntervalId) clearInterval(vizLoadingIntervalId);
+    // Clear any existing countdown
+    if (vizCountdownId) {
+      clearInterval(vizCountdownId);
+      vizCountdownId = null;
+    }
+
+    loading.innerHTML = `
+        <div class="d-flex justify-content-center align-items-center p-4 my-4">
+            <div class="spinner-border text-primary me-3" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <div id="viz-loading-fact" class="fs-6">
+                <strong>Did you know?...</strong> ${randomFact}
+                <span id="viz-countdown" class="badge rounded-pill bg-secondary ms-2">${FACT_ROTATION_SECONDS}s</span>
+            </div>
+        </div>`;
+    loading.style.display = 'block';
+    div.style.display = 'none'; // Hide plot while loading
+
+    // Start countdown timer (updates every second)
+    let secondsLeft = FACT_ROTATION_SECONDS;
+    vizCountdownId = setInterval(() => {
+      secondsLeft -= 1;
+      const countdownEl = document.getElementById('viz-countdown');
+      if (countdownEl) {
+        countdownEl.textContent = `${secondsLeft}s`;
+      }
+      if (secondsLeft <= 0) {
+        secondsLeft = FACT_ROTATION_SECONDS; // Reset when a new fact appears
+      }
+    }, 1000);
+
+    // Start interval to rotate facts
+    vizLoadingIntervalId = setInterval(() => {
+        const factElement = document.getElementById('viz-loading-fact');
+        if (factElement && window._newsFacts.length > 0) {
+            let newFact = window._newsFacts[Math.floor(Math.random() * window._newsFacts.length)];
+            factElement.innerHTML = `<strong>Did you know?...</strong> ${newFact}
+                <span id="viz-countdown" class="badge rounded-pill bg-secondary ms-2">${FACT_ROTATION_SECONDS}s</span>`;
+            // Reset the countdown
+            secondsLeft = FACT_ROTATION_SECONDS;
+        }
+    }, FACT_ROTATION_SECONDS * 1000);
 
     // Build filter params
     const { metadata } = parseQuery(document.getElementById('searchInput').value);
@@ -796,6 +887,17 @@ async function updateScatter(){
     rebuildLegend(legendItems, colourMap, colorMode!=='cluster', colorMode);
 
     loading.style.display='none';
+    // Clear the interval timer now that viz is loaded
+    if (vizLoadingIntervalId) {
+       clearInterval(vizLoadingIntervalId);
+       vizLoadingIntervalId = null;
+    }
+    // Also clear the countdown
+    if (vizCountdownId) {
+      clearInterval(vizCountdownId);
+      vizCountdownId = null;
+    }
+    div.style.display = 'block'; // Show plot again
 }
 
 // Utility to build filter params object
@@ -824,44 +926,179 @@ document.querySelector('button[data-bs-target="#patternsPane"]').addEventListene
 });
 
 async function loadPatterns(){
-  const res = await fetch(`/api/patterns?${buildQueryParams()}`);
-  const data = await res.json();
-
   const list = document.getElementById('patternList');
-  let html = '<h6>Top keywords</h6><div class="mb-2">';
-  (data.ngrams||[]).slice(0,20).forEach(ng=>{
-     html+=`<span class="badge bg-secondary me-1 mb-1">${ng.text} (${ng.count})</span>`;
-  });
-  html+='</div><h6 class="mt-3">Outliers</h6>';
+  
+  // Show spinner and random fact
+  let randomFact = window._newsFacts.length > 0 ? 
+      window._newsFacts[Math.floor(Math.random() * window._newsFacts.length)] : 
+      'Generating patterns...';
+  
+  // Clear any existing interval
+  if (patternsLoadingIntervalId) {
+    clearInterval(patternsLoadingIntervalId);
+    patternsLoadingIntervalId = null;
+  }
+  // Clear any existing countdown
+  if (patternsCountdownId) {
+    clearInterval(patternsCountdownId);
+    patternsCountdownId = null;
+  }
+  
+  // Set loading indicator with spinner and fact
+  list.innerHTML = `
+    <div class="d-flex justify-content-center align-items-center p-4 my-4">
+      <div class="spinner-border text-primary me-3" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <div id="patterns-loading-fact" class="fs-6">
+        <strong>Did you know?...</strong> ${randomFact}
+        <span id="patterns-countdown" class="badge rounded-pill bg-secondary ms-2">${FACT_ROTATION_SECONDS}s</span>
+      </div>
+    </div>`;
+  
+  // Start countdown timer (updates every second)
+  let secondsLeft = FACT_ROTATION_SECONDS;
+  patternsCountdownId = setInterval(() => {
+    secondsLeft -= 1;
+    const countdownEl = document.getElementById('patterns-countdown');
+    if (countdownEl) {
+      countdownEl.textContent = `${secondsLeft}s`;
+    }
+    if (secondsLeft <= 0) {
+      secondsLeft = FACT_ROTATION_SECONDS; // Reset when a new fact appears
+    }
+  }, 1000);
 
-  // Fetch top anomalies (embedding space outliers)
-  const anoRes = await fetch(`/api/embedding_anomalies?${buildQueryParams()}`);
-  const anomalies = await anoRes.json();
-  html += anomalies.map(a=>`
-       <div class="border-bottom py-1">
+  // Start interval to rotate facts
+  patternsLoadingIntervalId = setInterval(() => {
+    const factElement = document.getElementById('patterns-loading-fact');
+    if (factElement && window._newsFacts.length > 0) {
+      let newFact = window._newsFacts[Math.floor(Math.random() * window._newsFacts.length)];
+      factElement.innerHTML = `<strong>Did you know?...</strong> ${newFact}
+        <span id="patterns-countdown" class="badge rounded-pill bg-secondary ms-2">${FACT_ROTATION_SECONDS}s</span>`;
+      // Reset the countdown
+      secondsLeft = FACT_ROTATION_SECONDS;
+    }
+  }, FACT_ROTATION_SECONDS * 1000);
+  
+  try {
+    // Fetch data
+    const queryParams = buildQueryParams();
+    
+    // Fetch ngrams and outliers (existing logic)
+    const patternsRes = await fetch(`/api/patterns?${queryParams}`);
+    const patternsData = await patternsRes.json();
+    
+    // Fetch cluster data
+    const clusterRes = await fetch(`/api/embedding_projection?dims=2&${queryParams}`);
+    const clusterData = await clusterRes.json();
+    const clusterExplain = clusterData.explain || {};
+    const points = clusterData.points || [];
+    const clusterCounts = {};
+    // Store article IDs per cluster for actions
+    const clusterMemberIds = {};
+    
+    points.forEach(p => {
+      clusterCounts[p.cluster] = (clusterCounts[p.cluster] || 0) + 1;
+      if (!clusterMemberIds[p.cluster]) {
+        clusterMemberIds[p.cluster] = [];
+      }
+      clusterMemberIds[p.cluster].push(p.id);
+    });
+    
+    // Card for Top Keywords
+    let keywordsHtml = '<div class="card mb-3"><div class="card-header">Top Keywords</div><div class="card-body pattern-card-body">';
+    (patternsData.ngrams||[]).slice(0,20).forEach(ng => {
+      keywordsHtml += `<span class="badge bg-secondary me-1 mb-1">${ng.text} (${ng.count})</span>`;
+    });
+    keywordsHtml += '</div></div>'; // Close keywords card
+    
+    // Card for Cluster Summary
+    let clustersHtml = '<div class="card mb-3"><div class="card-header">Cluster Summary</div><div class="card-body pattern-card-body">';
+    if (Object.keys(clusterExplain).length > 0) {
+      clustersHtml += '<div class="list-group list-group-flush">';
+      Object.entries(clusterExplain).sort(([idA], [idB]) => parseInt(idA) - parseInt(idB)).forEach(([id, keywords]) => {
+        const count = clusterCounts[id] || 0;
+        const hasSummary = window._clusterSummaries && window._clusterSummaries[id];
+        clustersHtml += `
+          <div class="list-group-item d-flex justify-content-between align-items-start py-1 px-0">
+            <div class="ms-2 me-auto flex-grow-1">
+              <div class="fw-bold">Cluster ${id} 
+                <span class="badge bg-light text-dark rounded-pill me-1">${count} items</span>
+                ${hasSummary ? '<span class="badge bg-success-subtle text-success-emphasis rounded-pill">Summarized</span>' : ''}
+              </div>
+              <small class="text-muted d-block mb-1">${keywords.slice(0, 5).join(', ')}</small>
+            </div>
+            <div class="ms-2">
+              <button class="btn btn-sm btn-outline-secondary p-1 filter-cluster-btn" data-cluster-id="${id}" title="Filter by this cluster">
+                <i class="fas fa-filter fa-xs"></i>
+              </button>
+              <button class="btn btn-sm btn-outline-primary p-1 summarize-cluster-btn" data-cluster-id="${id}" title="Summarize with Auspex">
+                <i class="fas fa-comment-dots fa-xs"></i>
+              </button>
+            </div>
+          </div>`;
+      });
+      clustersHtml += '</div>';
+    } else {
+      clustersHtml += '<small class="text-muted">No cluster data available.</small>';
+    }
+    clustersHtml += '</div></div>'; // Close clusters card
+    
+    // Card for Outliers
+    let outliersHtml = '<div class="card mb-3"><div class="card-header">Outliers</div><div class="card-body pattern-card-body">';
+    // Fetch top anomalies
+    const anoRes = await fetch(`/api/embedding_anomalies?${queryParams}`);
+    const anomalies = await anoRes.json();
+    if (anomalies.length > 0) {
+      outliersHtml += anomalies.map(a => `
+        <div class="border-bottom py-1">
           <a href="#" class="outlier-link" data-id="${a.id}">${a.metadata.title || 'Untitled'}</a>
           <small class="text-muted">score ${a.score.toFixed(3)}</small>
-       </div>`).join('');
-
-  list.innerHTML = html;
-
-  // click to open metadata
-  list.querySelectorAll('.outlier-link').forEach(link=>{
-      link.addEventListener('click',async e=>{
-          e.preventDefault();
-          const id=link.dataset.id;
-          let target=(window.lastResults||[]).find(r=>r.id===id);
-          if(!target){
-               const res=await fetch(`/api/article?uri=${encodeURIComponent(id)}`);
-               if(res.ok){
-                   const meta=await res.json();
-                   renderMetadata(meta);
-                   return;
-               }
+        </div>`).join('');
+    } else {
+      outliersHtml += '<small class="text-muted">No outliers found.</small>';
+    }
+    outliersHtml += '</div></div>'; // Close outliers card
+    
+    // Combine HTML for all cards
+    list.innerHTML = keywordsHtml + clustersHtml + outliersHtml;
+    
+    // Store cluster member IDs globally for event handlers
+    window._clusterMemberIds = clusterMemberIds;
+    
+    // click to open metadata
+    list.querySelectorAll('.outlier-link').forEach(link => {
+      link.addEventListener('click', async e => {
+        e.preventDefault();
+        const id = link.dataset.id;
+        let target = (window.lastResults || []).find(r => r.id === id);
+        if (!target) {
+          const res = await fetch(`/api/article?uri=${encodeURIComponent(id)}`);
+          if (res.ok) {
+            const meta = await res.json();
+            renderMetadata(meta);
+            return;
           }
-          if(target){renderMetadata(target.metadata);}            
+        }
+        if (target) { renderMetadata(target.metadata); }
       });
-  });
+    });
+  } catch (error) {
+    console.error("Error loading patterns:", error);
+    list.innerHTML = `<div class="alert alert-danger">Error loading patterns: ${error.message}</div>`;
+  } finally {
+    // Always clear the interval, even on error
+    if (patternsLoadingIntervalId) {
+      clearInterval(patternsLoadingIntervalId);
+      patternsLoadingIntervalId = null;
+    }
+    // Also clear the countdown
+    if (patternsCountdownId) {
+      clearInterval(patternsCountdownId);
+      patternsCountdownId = null;
+    }
+  }
 }
 
 // ---------------------------
@@ -977,28 +1214,269 @@ function updateAttrSuggestions(facets){
 // ---------------------------
 // Auspex integration – summarise results
 // ---------------------------
-document.getElementById('askAuspexBtn').addEventListener('click', askAuspex);
+document.getElementById('askAuspexBtn').addEventListener('click', () => askAuspex()); // Call without args for general summary
 
-async function askAuspex(){
-  if(!window.lastResults || !window.lastResults.length){alert('Run a search first');return;}
-  const idsSelected=Array.from(window.selectedUris||[]);
-  const ids=(idsSelected.length?idsSelected:window.lastResults.map(r=>r.id)).slice(0,100);
-  try{
-    document.getElementById('auspexContent').innerHTML='<div class="text-muted">Querying Auspex…</div>';
-    const modalObj=new bootstrap.Modal(document.getElementById('auspexModal'));
-    modalObj.show();
-    const res=await fetch('/api/vector-summary',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ids:ids})
-    });
-    if(!res.ok){throw new Error(await res.text());}
-    const json=await res.json();
-    const txt=json.response||json.error||'No response';
-    document.getElementById('auspexContent').innerHTML=marked.parse(txt);
-  }catch(err){
-    document.getElementById('auspexContent').innerHTML=`<div class="text-danger">${err}</div>`;
-  }
+async function askAuspex(idsToSummarize = null, clusterId = null, modelName = null) {
+    // If no specific IDs are passed, use selection or all results
+    let ids = idsToSummarize;
+    if (!ids) {
+        if(!window.lastResults || !window.lastResults.length){alert('Run a search first');return;}
+        const idsSelected = Array.from(window.selectedUris || []);
+        ids = (idsSelected.length ? idsSelected : window.lastResults.map(r => r.id)).slice(0, 100);
+        clusterId = null; // Ensure clusterId is null for general summary
+    }
+
+    const auspexContent = document.getElementById('auspexContent');
+    const exportBtn = document.getElementById('exportSummaryBtn');
+    const modalElement = document.getElementById('auspexModal');
+    modalElement.dataset.clusterId = clusterId; // Store clusterId for export
+    exportBtn.style.display = 'none'; // Hide export button initially
+
+    // Clear previous interval if any
+    if (auspexLoadingIntervalId) clearInterval(auspexLoadingIntervalId);
+    // Clear any existing countdown
+    if (auspexCountdownId) {
+      clearInterval(auspexCountdownId);
+      auspexCountdownId = null;
+    }
+
+    try{
+        // Show progress indicator with rotating fact
+        let randomFact = window._newsFacts.length > 0 ? window._newsFacts[Math.floor(Math.random() * window._newsFacts.length)] : 'Querying Auspex...';
+        auspexContent.innerHTML = `
+            <div class="d-flex justify-content-center align-items-center p-4 my-4">
+                <div class="spinner-border text-primary me-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div id="auspex-loading-fact" class="fs-6">
+                    <strong>Did you know?...</strong> ${randomFact}
+                    <span id="auspex-countdown" class="badge rounded-pill bg-secondary ms-2">${FACT_ROTATION_SECONDS}s</span>
+                </div>
+            </div>`;
+
+        const modalObj=new bootstrap.Modal(document.getElementById('auspexModal'));
+        modalObj.show();
+
+        // Start countdown timer (updates every second)
+        let secondsLeft = FACT_ROTATION_SECONDS;
+        auspexCountdownId = setInterval(() => {
+          secondsLeft -= 1;
+          const countdownEl = document.getElementById('auspex-countdown');
+          if (countdownEl) {
+            countdownEl.textContent = `${secondsLeft}s`;
+          }
+          if (secondsLeft <= 0) {
+            secondsLeft = FACT_ROTATION_SECONDS; // Reset when a new fact appears
+          }
+        }, 1000);
+
+        // Start interval to rotate facts
+        auspexLoadingIntervalId = setInterval(() => {
+            const factElement = document.getElementById('auspex-loading-fact');
+            if (factElement && window._newsFacts.length > 0) {
+                let newFact = window._newsFacts[Math.floor(Math.random() * window._newsFacts.length)];
+                factElement.innerHTML = `<strong>Did you know?...</strong> ${newFact}
+                    <span id="auspex-countdown" class="badge rounded-pill bg-secondary ms-2">${FACT_ROTATION_SECONDS}s</span>`;
+                // Reset the countdown
+                secondsLeft = FACT_ROTATION_SECONDS;
+            }
+        }, FACT_ROTATION_SECONDS * 1000);
+
+        const res=await fetch('/api/vector-summary',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({ids:ids, model: modelName}) // Pass model name if provided
+        });
+
+        // Clear the interval timer now that fetch is complete
+        if (auspexLoadingIntervalId) {
+           clearInterval(auspexLoadingIntervalId);
+           auspexLoadingIntervalId = null;
+        }
+        // Also clear the countdown
+        if (auspexCountdownId) {
+          clearInterval(auspexCountdownId);
+          auspexCountdownId = null;
+        }
+
+        if(!res.ok){throw new Error(await res.text());}
+        const json=await res.json();
+        const txt=json.response||json.error||'No response';
+
+        // Store summary if it came from a cluster request
+        if (clusterId !== null) {
+            window._clusterSummaries[clusterId] = txt;
+            // Find and store articles for this cluster
+            const memberIds = (window._clusterMemberIds || {})[clusterId] || [];
+            window._clusterArticles[clusterId] = (window.lastResults || []).filter(r => memberIds.includes(r.id))
+                .map(r => ({ title: r.metadata.title || 'Untitled', uri: r.metadata.uri }));
+
+            console.log(`[askAuspex] Summary received for clusterId: ${clusterId}`);
+            console.log(`[askAuspex] Stored summary: ${window._clusterSummaries[clusterId] ? 'Yes' : 'No'}`);
+
+            // Find the specific cluster list item and add the badge directly
+            const patternList = document.getElementById('patternList');
+            console.log(`[askAuspex] patternList element found: ${patternList ? 'Yes' : 'No'}`);
+            if (patternList) {
+                const summaryButton = patternList.querySelector(`.summarize-cluster-btn[data-cluster-id="${clusterId}"]`);
+                console.log(`[askAuspex] Summary button found for cluster ${clusterId}: ${summaryButton ? 'Yes' : 'No'}`);
+                const clusterItem = summaryButton?.closest('.list-group-item');
+                console.log(`[askAuspex] clusterItem element found: ${clusterItem ? 'Yes' : 'No'}`);
+                if (clusterItem) {
+                    const titleDiv = clusterItem.querySelector('.fw-bold');
+                    console.log(`[askAuspex] titleDiv element found: ${titleDiv ? 'Yes' : 'No'}`);
+                    if (titleDiv && !titleDiv.querySelector('.badge.bg-success-subtle')) { // Avoid adding duplicate badges
+                        console.log(`[askAuspex] Adding 'Summarized' badge to cluster ${clusterId}`);
+                        titleDiv.insertAdjacentHTML('beforeend', ' <span class="badge bg-success-subtle text-success-emphasis rounded-pill">Summarized</span>');
+                    }
+                }
+            }
+        }
+
+        // Use the helper function to render the modal content
+        renderAuspexModalContent(txt, window._clusterArticles[clusterId] || [], clusterId);
+
+    }catch(err){
+        auspexContent.innerHTML=`<div class="text-danger">${err}</div>`;
+        exportBtn.style.display = 'none';
+        // Clear intervals on error too
+        if (auspexLoadingIntervalId) {
+            clearInterval(auspexLoadingIntervalId);
+            auspexLoadingIntervalId = null;
+        }
+        if (auspexCountdownId) {
+            clearInterval(auspexCountdownId);
+            auspexCountdownId = null;
+        }
+    }
 }
+
+function downloadMarkdown(filename, text) {
+    const element = document.createElement('a');
+    element.setAttribute('href', 'data:text/markdown;charset=utf-8,' + encodeURIComponent(text));
+    element.setAttribute('download', filename);
+    element.style.display = 'none';
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+}
+
+document.getElementById('exportSummaryBtn').addEventListener('click', () => {
+    const modalElement = document.getElementById('auspexModal');
+    const clusterId = modalElement.dataset.clusterId;
+    if (clusterId === null || clusterId === undefined || clusterId === 'null') {
+        console.warn('No cluster ID found for export.');
+        return;
+    }
+    const summary = window._clusterSummaries[clusterId] || 'No summary available.';
+    const articles = window._clusterArticles[clusterId] || [];
+
+    let markdownContent = `# Cluster ${clusterId} Summary\n\n`;
+    markdownContent += `${summary}\n\n`;
+    markdownContent += `## Articles\n\n`;
+    if (articles.length > 0) {
+        articles.forEach(article => {
+            markdownContent += `- [${article.title}](${article.uri})\n`;
+        });
+    } else {
+        markdownContent += `No articles found for this cluster.\n`;
+    }
+
+    downloadMarkdown(`cluster_${clusterId}_summary.md`, markdownContent);
+});
+
+// Event delegation for cluster actions within the patterns tab
+document.getElementById('patternsPane').addEventListener('click', async (e) => {
+    const filterBtn = e.target.closest('.filter-cluster-btn');
+    const summarizeBtn = e.target.closest('.summarize-cluster-btn');
+
+    if (filterBtn) {
+        e.preventDefault(); // Prevent potential default button actions
+        const clusterId = filterBtn.dataset.clusterId;
+        const input = document.getElementById('searchInput');
+        let currentQuery = input.value;
+        // Remove existing cluster filter (regex handles cluster:n or cluster=n)
+        currentQuery = currentQuery.replace(/\bcluster(?:=|:)\d+\b/i, '').trim();
+        // Add new cluster filter
+        input.value = `${currentQuery} cluster=${clusterId}`.trim();
+        runSearch();
+        // Optionally switch back to Data Points tab
+        bootstrap.Tab.getOrCreateInstance(document.querySelector('button[data-bs-target="#eventsPane"]')).show();
+    }
+
+    if (summarizeBtn) {
+        const clusterId = summarizeBtn.dataset.clusterId;
+        const ids = (window._clusterMemberIds || {})[clusterId] || [];
+
+        // Check if summary already exists
+        if (window._clusterSummaries && window._clusterSummaries[clusterId]) {
+            console.log(`[Cluster ${clusterId}] Found existing summary. Rendering directly.`);
+            const existingSummary = window._clusterSummaries[clusterId];
+            const existingArticles = window._clusterArticles[clusterId] || [];
+            renderAuspexModalContent(existingSummary, existingArticles, clusterId);
+        } else {
+            // No summary exists, proceed to fetch
+            if (ids.length > 0) {
+                askAuspex(ids, clusterId); // Pass IDs and clusterId
+            } else {
+                alert('Could not find members for this cluster.');
+            }
+        }
+    }
+});
+
+// Helper function to render content in the Auspex modal
+function renderAuspexModalContent(summaryText, articles = [], clusterId = null) {
+   const auspexContent = document.getElementById('auspexContent');
+   const exportBtn = document.getElementById('exportSummaryBtn');
+   const modalElement = document.getElementById('auspexModal');
+   modalElement.dataset.clusterId = clusterId; // Store clusterId for export
+
+   let modalHtml = marked.parse(summaryText || 'No summary available.');
+
+   // Add article list if provided
+   if (clusterId !== null && articles && articles.length > 0) {
+       modalHtml += '<hr><h6>Cluster Articles</h6><div style="max-height: 200px; overflow-y: auto; font-size: 0.9rem;">';
+       articles.forEach(article => {
+           modalHtml += `<div><a href="${article.uri}" target="_blank" rel="noopener">${article.title}</a></div>`;
+       });
+       modalHtml += '</div>';
+       exportBtn.style.display = 'block'; // Show export button
+   } else {
+       exportBtn.style.display = 'none'; // Hide if not a cluster or no articles
+   }
+
+   auspexContent.innerHTML = modalHtml;
+   // Ensure the modal is shown if not already
+   const modalInstance = bootstrap.Modal.getOrCreateInstance(modalElement);
+   modalInstance.show();
+}
+
+// Add listener to handle focus after modal closes (Accessibility fix)
+document.getElementById('auspexModal').addEventListener('hidden.bs.modal', function () {
+   // Return focus to a sensible element, e.g., the search input
+   document.getElementById('searchInput')?.focus();
+});
+
+// Fetch news facts once on page load
+async function fetchNewsFacts() {
+   try {
+       const res = await fetch('/api/news-facts');
+       if (res.ok) {
+           const data = await res.json();
+           if (data && data.facts && Array.isArray(data.facts)) {
+               window._newsFacts = data.facts;
+               console.log(`Fetched ${window._newsFacts.length} news facts.`);
+           } else {
+               console.error('Invalid format received from /api/news-facts');
+           }
+       } else {
+           console.error('Failed to fetch news facts:', res.status);
+       }
+   } catch (err) {
+       console.error('Error fetching news facts:', err);
+   }
+}
+document.addEventListener('DOMContentLoaded', fetchNewsFacts);
 </script>
 {% endblock %} 
