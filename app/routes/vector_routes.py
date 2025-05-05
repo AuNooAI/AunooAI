@@ -34,68 +34,88 @@ def vector_search_endpoint(
     future_signal: Optional[str] = None,
     sentiment: Optional[str] = None,
     news_source: Optional[str] = None,
+    cluster: Optional[int] = None,
 ):
     """Semantic search endpoint backed by ChromaDB.
 
     Optional topic, category, future_signal and sentiment parameters map to
-    metadata filters to narrow the search space.
+    metadata filters to narrow the search space. The query string can include
+    KISSQL syntax for advanced filtering and logic operations.
     """
-    metadata_filter: Dict[str, Any] = {}
-    if topic:
-        metadata_filter["topic"] = topic
-    if category:
-        metadata_filter["category"] = category
-    if future_signal:
-        metadata_filter["future_signal"] = future_signal
-    if sentiment:
-        metadata_filter["sentiment"] = sentiment
-    if news_source:
-        metadata_filter["news_source"] = news_source
-
-    results = search_articles(q, top_k=top_k, metadata_filter=metadata_filter)
-
-    # ------------------------------------------------------------------
-    # Aggregate stats – mimic Splunk left-hand field list & time histogram
-    # ------------------------------------------------------------------
-    from collections import Counter, defaultdict
-    from datetime import datetime
-
-    facets: dict[str, dict[str, int]] = defaultdict(  # type: ignore[arg-type]
-        Counter
+    # Import the KISSQL module
+    from app.kissql.parser import parse_full_query, Constraint, MetaControl
+    from app.kissql.executor import execute_query
+    
+    # Parse the query using KISSQL
+    query_obj = parse_full_query(q)
+    
+    # Log the incoming parameters and parsed query for debugging
+    logger = logging.getLogger(__name__)
+    logger.info(
+        "Vector search: q=%s, topic=%s, category=%s, sentiment=%s",
+        q, topic, category, sentiment
     )
-    # category -> Counter(date)
-    timeline: dict[str, dict[str, int]] = defaultdict(Counter)
+    logger.info(
+        "Also news_source=%s, cluster=%s",
+        news_source, cluster
+    )
+    logger.info(
+        "Parsed %d constraints and %d meta controls", 
+        len(query_obj.constraints), 
+        len(query_obj.meta_controls)
+    )
+    
+    # Check if parameters are already in constraints to avoid double filtering
+    existing_fields = {
+        constraint.field.lower(): constraint.value 
+        for constraint in query_obj.constraints 
+        if constraint.operator == '='
+    }
+    
+    # Add any query parameters that were passed explicitly and not already 
+    # present
+    if topic and 'topic' not in existing_fields:
+        query_obj.constraints.append(
+            Constraint(field="topic", operator="=", value=topic)
+        )
+    if category and 'category' not in existing_fields:
+        query_obj.constraints.append(
+            Constraint(field="category", operator="=", value=category)
+        )
+    if future_signal and 'future_signal' not in existing_fields:
+        query_obj.constraints.append(
+            Constraint(
+                field="future_signal", 
+                operator="=", 
+                value=future_signal
+            )
+        )
+    if sentiment and 'sentiment' not in existing_fields:
+        query_obj.constraints.append(
+            Constraint(field="sentiment", operator="=", value=sentiment)
+        )
+    if news_source and 'news_source' not in existing_fields:
+        query_obj.constraints.append(
+            Constraint(field="news_source", operator="=", value=news_source)
+        )
+    
+    # Add the cluster parameter if it was passed explicitly
+    if cluster is not None:
+        query_obj.meta_controls.append(
+            MetaControl(name='cluster', value=str(cluster))
+        )
 
-    for hit in results:
-        meta = hit.get("metadata", {})
-        # Facets for quick filters
-        for field in (
-            "topic",
-            "category",
-            "news_source",
-            "driver_type",
-            "sentiment",
-        ):
-            val = meta.get(field)
-            if val:
-                facets[field][str(val)] += 1
-
-        # Simple day-level histogram by publication_date (YYYY-MM-DD)
-        pub_date = meta.get("publication_date")
-        if pub_date:
-            try:
-                date_obj = datetime.fromisoformat(str(pub_date))
-                bucket = date_obj.date().isoformat()
-                cat_key = meta.get("category", "Uncategorized")
-                timeline[cat_key][bucket] += 1
-            except Exception:
-                pass
-
+    # Execute the query using the KISSQL executor
+    result = execute_query(query_obj, top_k=top_k)
+    
+    # Ensure we return a JSON response with the expected structure
     return JSONResponse(
         content={
-            "results": results,
-            "facets": facets,
-            "timeline": timeline,
+            "results": result.get("results", []),
+            "facets": result.get("facets", {}),
+            "timeline": result.get("timeline", {}),
+            "comparison": result.get("comparison", {}),
+            "filtered_facets": result.get("filtered_facets", {})
         }
     )
 
@@ -803,6 +823,7 @@ async def vector_summary(req: _SummaryRequest):
 # Determine the absolute path to the config directory
 _CONFIG_DIR = Path(__file__).parent.parent / "config"
 _NEWS_FACTS_FILE = _CONFIG_DIR / "news_facts.json"
+
 
 @router.get("/news-facts")
 async def get_news_facts():
