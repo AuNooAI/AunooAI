@@ -3,6 +3,7 @@ import logging
 from dateutil.parser import parse as dt_parse  # add top of file
 import json
 from pathlib import Path
+import os
 
 from fastapi import APIRouter, Query, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -197,6 +198,7 @@ def _fetch_vectors(
 
 @router.get("/embedding_projection")
 def embedding_projection(
+    q: Optional[str] = Query(None, description="Search query"),
     method: str = Query(
         "umap",
         regex="^(umap|tsne|pca)$",
@@ -211,7 +213,7 @@ def embedding_projection(
     top_k: int = Query(
         2500,
         ge=10,
-        le=5000,
+        le=10000,
         description="Number of points to project",
     ),
     n_clusters: int = Query(
@@ -232,143 +234,195 @@ def embedding_projection(
     containing ``id``, ``x``, ``y``, ``cluster`` and a couple of handy
     metadata fields (currently ``title``).
     """
-    # Build optional metadata filter using same semantics as vector-search
-    where: Dict[str, Any] | None = None
-    if any([topic, category, sentiment, news_source, future_signal]):
-        where = {}
-        if topic:
-            where["topic"] = topic
-        if category:
-            where["category"] = category
-        if sentiment:
-            where["sentiment"] = sentiment
-        if news_source:
-            where["news_source"] = news_source
-        if future_signal:
-            where["future_signal"] = future_signal
+    try:
+        # Set up logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Embedding projection called with query: {q or 'None'}")
+        
+        # Build metadata filter 
+        where = None
+        if any([topic, category, sentiment, news_source, future_signal]):
+            where = {}
+            if topic:
+                where["topic"] = topic
+            if category:
+                where["category"] = category
+            if sentiment:
+                where["sentiment"] = sentiment
+            if news_source:
+                where["news_source"] = news_source
+            if future_signal:
+                where["future_signal"] = future_signal
+        
+        # Handle pipe operators through executor if present
+        if q and "|" in q:
+            from app.kissql.parser import parse_full_query
+            from app.kissql.executor import execute_query
+            
+            logger.info("Query contains pipe operators")
+            query_obj = parse_full_query(q)
+            result = execute_query(query_obj, top_k=5000)
+            
+            # Extract IDs from the results
+            filtered_results = result.get("results", [])
+            filtered_ids = [r["id"] for r in filtered_results]
+            
+            # Add URI filter
+            if not filtered_ids:
+                logger.warning("No results after pipe filtering")
+                return {"points": [], "explain": {}, "centroids": {}}
+                
+            # Add URI filter to where clause
+            if where is None:
+                where = {}
+            where["uri"] = {"$in": filtered_ids}
+            
+            logger.info(f"Applied pipe filtering: {len(filtered_ids)} results")
 
-    vectors, metas, ids = _fetch_vectors(
-        limit=top_k,
-        where=where,
-    )
-    if vectors.size == 0:
-        return {}
+        # Handle pipe operators if present
+        if q and "|" in q:
+            from app.kissql.parser import parse_full_query
+            from app.kissql.executor import execute_query
+            
+            logger.info("Query contains pipe operators")
+            
+            # Parse and execute the query with KISSQL
+            query_obj = parse_full_query(q)
+            result = execute_query(query_obj, top_k=top_k)
+            
+            # Extract IDs from the filtered results
+            filtered_results = result.get("results", [])
+            filtered_ids = [r["id"] for r in filtered_results]
+            
+            # Handle case with no results after filtering
+            if not filtered_ids:
+                logger.warning("No results after pipe filtering")
+                return {"points": [], "explain": {}, "centroids": {}}
+                
+            # Add URI filter to where clause
+            if where is None:
+                where = {}
+            where["uri"] = {"$in": filtered_ids}
+            
+            logger.info(f"Applied pipe filtering: {len(filtered_ids)} results")
 
-    from sklearn.cluster import MiniBatchKMeans  # type: ignore
-
-    # 2-D projection ---------------------------------------------------------
-    if method == "tsne":
-        from sklearn.manifold import TSNE  # type: ignore
-
-        reducer = TSNE(
-            n_components=dims,
-            metric="cosine",
-            random_state=42,
-            init="random",
-            learning_rate="auto",
-        )
+        # Get vectors from Chroma
+        vectors, metas, ids = _fetch_vectors(limit=top_k, where=where)
+        
+        if vectors.size == 0:
+            return {"points": [], "explain": {}, "centroids": {}}
+        
+        # Projection
+        from sklearn.cluster import MiniBatchKMeans
+        import numpy as np
+        
+        # Choose reducer based on method
+        if method == "tsne":
+            from sklearn.manifold import TSNE
+            reducer = TSNE(
+                n_components=dims,
+                metric="cosine",
+                random_state=42,
+                init="random",
+                learning_rate="auto",
+            )
+        elif method == "pca":
+            from sklearn.decomposition import PCA
+            reducer = PCA(n_components=dims, random_state=42)
+        else:  # default UMAP
+            import umap
+            reducer = umap.UMAP(
+                n_components=dims,
+                metric="cosine",
+                random_state=42,
+            )
+        
+        # Do dimensionality reduction
         coords = reducer.fit_transform(vectors)
-    elif method == "pca":
-        from sklearn.decomposition import PCA  # type: ignore
-
-        reducer = PCA(n_components=dims, random_state=42)
-        coords = reducer.fit_transform(vectors)
-    else:  # default UMAP
-        import umap  # type: ignore  # pylint: disable=import-error
-
-        reducer = umap.UMAP(
-            n_components=dims,
-            metric="cosine",
-            random_state=42,
-        )
-        coords = reducer.fit_transform(vectors)
-
-    # ------------------
-    # Clustering (PCA-50  →  k-means).
-    # Keep UMAP/t-SNE/PCA 2-D *coords* for the plot but cluster on a
-    # higher-dimensional representation to preserve structure.
-    # ------------------
-    from sklearn.decomposition import PCA  # type: ignore
-
-    # Reduce dimensionality before clustering (up to 50 components)
-    if vectors.shape[1] > 50:
-        # n_components must be <= min(n_samples, n_features)
-        max_comps = min(50, vectors.shape[0], vectors.shape[1])
-        try:
-            pca50 = PCA(n_components=max_comps, random_state=42)
-            vec_for_cluster = pca50.fit_transform(vectors)
-        except ValueError:
-            # Fallback to original vectors if PCA fails (e.g., too few samples)
+        
+        # Clustering
+        from sklearn.decomposition import PCA
+        
+        # Dimensionality reduction for clustering
+        if vectors.shape[1] > 50:
+            max_comps = min(50, vectors.shape[0], vectors.shape[1])
+            try:
+                pca50 = PCA(n_components=max_comps, random_state=42)
+                vec_for_cluster = pca50.fit_transform(vectors)
+            except ValueError:
+                vec_for_cluster = vectors
+        else:
             vec_for_cluster = vectors
-    else:
-        # The original space is already small; use it directly.
-        vec_for_cluster = vectors
-
-    # Use user-supplied cluster count capped by dataset size
-    n_clusters = max(2, min(n_clusters, len(vec_for_cluster)))
-
-    km = MiniBatchKMeans(n_clusters=n_clusters, random_state=42)
-    clusters = km.fit_predict(vec_for_cluster)
-
-    # ------------------ Explainability helpers ------------------
-    import re
-    from collections import Counter, defaultdict
-    import numpy as np  # type: ignore
-    from sklearn.feature_extraction import text as _sk_text  # type: ignore
-    STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
-
-    tokens_by_cluster: dict[int, list[str]] = defaultdict(list)
-
-    for idx, lbl in enumerate(clusters):
-        meta = metas[idx] if idx < len(metas) else {}
-        text = f"{meta.get('title', '')} {meta.get('summary', '')}"
-        # Tokenise and drop common stop-words, keep words ≥3 chars.
-        toks = [
-            t.lower()
-            for t in re.findall(r"\b\w{3,}\b", text)
-            if t.lower() not in STOP_WORDS
-        ]
-        tokens_by_cluster[int(lbl)].extend(toks)
-
-    explain: Dict[int, list[str]] = {}
-    for lbl, toks in tokens_by_cluster.items():
-        most_common = Counter(toks).most_common(5)
-        explain[lbl] = [w for w, _ in most_common]
-
-    # Centroids only make sense for 2-D visualisations.
-    centroids: Dict[int, list[float]] = {}
-    if dims == 2:
-        for lbl in set(clusters):
-            idxs = np.where(clusters == lbl)[0]
-            if idxs.size:
-                centroids[int(lbl)] = [
-                    float(coords[idxs, 0].mean()),
-                    float(coords[idxs, 1].mean()),
-                ]
-
-    points: list[dict] = []
-    for i, _id in enumerate(ids):
-        meta = metas[i] if i < len(metas) else {}
-        point: dict[str, Any] = {
-            "id": _id,
-            "x": float(coords[i, 0]),
-            "y": float(coords[i, 1]),
-            "cluster": int(clusters[i]),
-            "title": meta.get("title"),
-            "sentiment": meta.get("sentiment"),
-            "driver_type": meta.get("driver_type"),
-            "category": meta.get("category"),
-            "time_to_impact": meta.get("time_to_impact"),
+        
+        # K-means clustering
+        n_clusters = max(2, min(n_clusters, len(vec_for_cluster)))
+        km = MiniBatchKMeans(n_clusters=n_clusters, random_state=42)
+        clusters = km.fit_predict(vec_for_cluster)
+        
+        # Generate cluster explanations
+        import re
+        from collections import Counter, defaultdict
+        from sklearn.feature_extraction import text as _sk_text
+        
+        STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
+        tokens_by_cluster = defaultdict(list)
+        
+        for idx, lbl in enumerate(clusters):
+            meta = metas[idx] if idx < len(metas) else {}
+            text = f"{meta.get('title', '')} {meta.get('summary', '')}"
+            toks = [
+                t.lower()
+                for t in re.findall(r"\b\w{3,}\b", text)
+                if t.lower() not in STOP_WORDS
+            ]
+            tokens_by_cluster[int(lbl)].extend(toks)
+        
+        # Extract keywords for each cluster
+        explain = {}
+        for lbl, toks in tokens_by_cluster.items():
+            most_common = Counter(toks).most_common(5)
+            explain[lbl] = [w for w, _ in most_common]
+        
+        # Calculate centroids
+        centroids = {}
+        if dims == 2:
+            for lbl in set(clusters):
+                idxs = np.where(clusters == lbl)[0]
+                if idxs.size:
+                    centroids[int(lbl)] = [
+                        float(coords[idxs, 0].mean()),
+                        float(coords[idxs, 1].mean()),
+                    ]
+        
+        # Generate final points
+        points = []
+        for i, _id in enumerate(ids):
+            meta = metas[i] if i < len(metas) else {}
+            point = {
+                "id": _id,
+                "x": float(coords[i, 0]),
+                "y": float(coords[i, 1]),
+                "cluster": int(clusters[i]),
+                "title": meta.get("title"),
+                "sentiment": meta.get("sentiment"),
+                "driver_type": meta.get("driver_type"),
+                "category": meta.get("category"),
+                "time_to_impact": meta.get("time_to_impact"),
+            }
+            if dims == 3:
+                point["z"] = float(coords[i, 2])
+            points.append(point)
+        
+        logger.info(f"Generated projection with {len(points)} points")
+        return {
+            "points": points,
+            "explain": explain,
+            "centroids": centroids,
         }
-        if dims == 3:
-            point["z"] = float(coords[i, 2])
-        points.append(point)
-
-    return {
-        "points": points,
-        "explain": explain,
-        "centroids": centroids,
-    }
+    except Exception as e:
+        logger.exception(f"Error in embedding projection: {e}")
+        # Return valid response even on error
+        return {"points": [], "explain": {}, "centroids": {}, "error": str(e)}
 
 
 @router.get("/embedding_neighbours")
@@ -408,110 +462,131 @@ def patterns_endpoint(
     """Return simple textual pattern stats.
 
     We compute top unigrams/bigrams and a tiny co-occurrence matrix.
-    The pattern extraction logic
-    works only on *title* and *summary* and avoids heavy NLP dependencies.
+    The pattern extraction logic works only on *title* and *summary*.
     """
-    # --- Gather articles -----------------------------------------------------
-    meta_filter: Dict[str, Any] = {}
-    if topic:
-        meta_filter["topic"] = topic
-    if category:
-        meta_filter["category"] = category
-    if future_signal:
-        meta_filter["future_signal"] = future_signal
-    if sentiment:
-        meta_filter["sentiment"] = sentiment
-    if news_source:
-        meta_filter["news_source"] = news_source
-
-    # When *q* is empty we still want some material –
-    # fall back to a broad fetch
-    query_str = q or "*"
-    articles = search_articles(
-        query_str,
-        top_k=top_k,
-        metadata_filter=meta_filter,
-    )
-
-    from collections import Counter, defaultdict
-    import re
-    from sklearn.feature_extraction import text as _sk_text  # type: ignore
-
-    STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
-
-    unigram_counts: Counter[str] = Counter()
-    bigram_counts: Counter[str] = Counter()
-    # ``term -> Counter(co-occurring term)``
-    cooc_mat: dict[str, Counter[str]] = defaultdict(Counter)
-    tag_counts: Counter[str] = Counter()
-    tag_sentiment: dict[str, Counter[str]] = defaultdict(Counter)
-
-    for art in articles:
-        meta = art["metadata"]
-        text_parts = [
-            meta.get("title", ""),
-            meta.get("summary", ""),
+    try:
+        logger = logging.getLogger(__name__)
+        logger.info(f"Patterns endpoint called with query: {q or 'None'}")
+        
+        # Build metadata filter
+        meta_filter = {}
+        if topic:
+            meta_filter["topic"] = topic
+        if category:
+            meta_filter["category"] = category
+        if future_signal:
+            meta_filter["future_signal"] = future_signal
+        if sentiment:
+            meta_filter["sentiment"] = sentiment
+        if news_source:
+            meta_filter["news_source"] = news_source
+    
+        # Get base articles
+        query_str = q or "*"
+        
+        # Handle pipe operators through executor if present
+        if q and "|" in q:
+            from app.kissql.parser import parse_full_query
+            from app.kissql.executor import execute_query
+            
+            logger.info("Query contains pipe operators")
+            query_obj = parse_full_query(q)
+            result = execute_query(query_obj, top_k=top_k)
+            articles = result.get("results", [])
+            logger.info(f"Applied pipe filtering: {len(articles)} articles")
+        else:
+            # Standard search without pipe operators
+            articles = search_articles(
+                query_str,
+                top_k=top_k,
+                metadata_filter=meta_filter,
+            )
+    
+        # Process articles to extract patterns
+        from collections import Counter, defaultdict
+        import re
+        from sklearn.feature_extraction import text as _sk_text
+    
+        STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
+        unigram_counts = Counter()
+        bigram_counts = Counter()
+        cooc_mat = defaultdict(Counter)
+        tag_counts = Counter()
+        tag_sentiment = defaultdict(Counter)
+    
+        for art in articles:
+            meta = art["metadata"]
+            text_parts = [
+                meta.get("title", ""),
+                meta.get("summary", ""),
+            ]
+            text = " ".join([t for t in text_parts if t])
+            tokens = [
+                t.lower()
+                for t in re.findall(r"\b\w{3,}\b", text)
+                if t.lower() not in STOP_WORDS
+            ]
+            if not tokens:
+                continue
+    
+            # Update counts
+            unigram_counts.update(tokens)
+            bigram_counts.update(
+                " ".join(pair) for pair in zip(tokens, tokens[1:])
+            )
+    
+            # Co-occurrence
+            uniq = set(tokens)
+            for t1 in uniq:
+                for t2 in uniq:
+                    if t1 == t2:
+                        continue
+                    cooc_mat[t1][t2] += 1
+    
+            # Tags
+            tags_raw = meta.get("tags")
+            if tags_raw:
+                tags = (tags_raw if isinstance(tags_raw, list)
+                        else [t.strip() for t in tags_raw.split(",")])
+                tag_counts.update(tags)
+                for tg in tags:
+                    tag_sentiment[tg][meta.get("sentiment", "unknown")] += 1
+    
+        # Generate final result
+        top_unigrams = unigram_counts.most_common(20)
+        top_bigrams = bigram_counts.most_common(20)
+        ngrams = [
+            {"text": w, "count": c} for w, c in (top_unigrams + top_bigrams)
         ]
-        text = " ".join([t for t in text_parts if t])
-        # Basic tokenisation – alphanum words, lowercase, length >=2
-        tokens = [
-            t.lower()
-            for t in re.findall(r"\b\w{3,}\b", text)
-            if t.lower() not in STOP_WORDS
-        ]
-        if not tokens:
-            continue
-
-        # Update unigram and bigram counts
-        unigram_counts.update(tokens)
-        bigram_counts.update(
-            " ".join(pair) for pair in zip(tokens, tokens[1:])
-        )
-
-        # Co-occurrence: consider unique terms per article to avoid huge counts
-        uniq = set(tokens)
-        for t1 in uniq:
-            for t2 in uniq:
-                if t1 == t2:
-                    continue
-                cooc_mat[t1][t2] += 1
-
-        tags_raw = meta.get("tags")
-        if tags_raw:
-            tags = (tags_raw if isinstance(tags_raw, list)
-                    else [t.strip() for t in tags_raw.split(",")])
-            tag_counts.update(tags)
-            for tg in tags:
-                tag_sentiment[tg][meta.get("sentiment", "unknown")] += 1
-
-    # Select most common n-grams
-    top_unigrams = unigram_counts.most_common(20)
-    top_bigrams = bigram_counts.most_common(20)
-    ngrams = [
-        {"text": w, "count": c} for w, c in (top_unigrams + top_bigrams)
-    ]
-
-    # Restrict co-occurrence output: keep 10 seed terms &
-    # their top 5 neighbours
-    top_terms = [w for w, _ in unigram_counts.most_common(10)]
-    cooccurrence: Dict[str, Dict[str, int]] = {}
-    for term in top_terms:
-        neigh = cooc_mat.get(term, {})
-        cooccurrence[term] = dict(neigh.most_common(5))
-
-    tag_stats = {
-        tg: {
-            "total": cnt,
-            "sentiment": dict(tag_sentiment[tg]),
+    
+        top_terms = [w for w, _ in unigram_counts.most_common(10)]
+        cooccurrence = {}
+        for term in top_terms:
+            neigh = cooc_mat.get(term, {})
+            cooccurrence[term] = dict(neigh.most_common(5))
+    
+        tag_stats = {
+            tg: {
+                "total": cnt,
+                "sentiment": dict(tag_sentiment[tg]),
+            }
+            for tg, cnt in tag_counts.most_common(30)
         }
-        for tg, cnt in tag_counts.most_common(30)
-    }
-
-    return {
-        "ngrams": ngrams,
-        "cooccurrence": cooccurrence,
-        "tag_stats": tag_stats,
-    }
+    
+        logger.info(f"Generated patterns with {len(ngrams)} ngrams")
+        return {
+            "ngrams": ngrams,
+            "cooccurrence": cooccurrence,
+            "tag_stats": tag_stats,
+        }
+    except Exception as e:
+        logger.exception(f"Error in patterns endpoint: {e}")
+        return {
+            "ngrams": [],
+            "cooccurrence": {},
+            "tag_stats": {},
+            "error": str(e)
+        }
 
 
 @router.get("/statistics")
@@ -652,6 +727,7 @@ async def clean_collection():
 
 @router.get("/embedding_anomalies")
 def embedding_anomalies(
+    q: Optional[str] = Query(None, description="Optional search query"),
     top_k: int = Query(20, ge=1, le=200),
     topic: Optional[str] = None,
     category: Optional[str] = None,
@@ -661,44 +737,78 @@ def embedding_anomalies(
     """Return the *top_k* most isolated articles within the filter scope.
 
     Isolation Forest runs on the raw vectors (high-dim).  The *score*
-    returned is the anomaly score.
-    Higher values mean the point is more anomalous.
+    returned is the anomaly score. Higher values mean more anomalous.
     """
-
-    where: Dict[str, Any] | None = None
-    if any([topic, category, sentiment, news_source]):
-        where = {}
-        if topic:
-            where["topic"] = topic
-        if category:
-            where["category"] = category
-        if sentiment:
-            where["sentiment"] = sentiment
-        if news_source:
-            where["news_source"] = news_source
-
-    vecs, metas, ids = _fetch_vectors(limit=5000, where=where)
-    if vecs.size == 0:
-        return []
-
-    from sklearn.ensemble import IsolationForest  # type: ignore
-    import numpy as np  # lazy import for typing
-
-    iso = IsolationForest(contamination=0.02, random_state=42)
-    # decision_function gives an anomaly score.
-    # Higher values mean the point is more anomalous.
-    anomaly_score = -iso.fit(vecs).decision_function(vecs)
-
-    idx_sorted = np.argsort(anomaly_score)[::-1][:top_k]
-
-    return [
-        {
-            "id": ids[i],
-            "score": float(anomaly_score[i]),
-            "metadata": metas[i],
-        }
-        for i in idx_sorted
-    ]
+    try:
+        logger = logging.getLogger(__name__)
+        logger.info(f"Anomalies endpoint called with query: {q or 'None'}")
+        
+        # Build where filter
+        where = None
+        if any([topic, category, sentiment, news_source]):
+            where = {}
+            if topic:
+                where["topic"] = topic
+            if category:
+                where["category"] = category
+            if sentiment:
+                where["sentiment"] = sentiment
+            if news_source:
+                where["news_source"] = news_source
+    
+        # Handle pipe operators through executor if present
+        if q and "|" in q:
+            from app.kissql.parser import parse_full_query
+            from app.kissql.executor import execute_query
+            
+            logger.info("Query contains pipe operators")
+            query_obj = parse_full_query(q)
+            result = execute_query(query_obj, top_k=5000)
+            
+            # Extract IDs from the results
+            filtered_results = result.get("results", [])
+            filtered_ids = [r["id"] for r in filtered_results]
+            
+            # Add URI filter
+            if not filtered_ids:
+                logger.warning("No results after pipe filtering")
+                return []
+                
+            # Add URI filter to where clause
+            if where is None:
+                where = {}
+            where["uri"] = {"$in": filtered_ids}
+            
+            logger.info(f"Applied pipe filtering: {len(filtered_ids)} results")
+    
+        # Get vectors from Chroma
+        vecs, metas, ids = _fetch_vectors(limit=5000, where=where)
+        if vecs.size == 0:
+            return []
+    
+        # Run anomaly detection
+        from sklearn.ensemble import IsolationForest
+        import numpy as np
+    
+        iso = IsolationForest(contamination=0.02, random_state=42)
+        anomaly_score = -iso.fit(vecs).decision_function(vecs)
+    
+        idx_sorted = np.argsort(anomaly_score)[::-1][:top_k]
+    
+        anomaly_results = [
+            {
+                "id": ids[i],
+                "score": float(anomaly_score[i]),
+                "metadata": metas[i],
+            }
+            for i in idx_sorted
+        ]
+        
+        logger.info(f"Generated {len(anomaly_results)} anomaly results")
+        return anomaly_results
+    except Exception as e:
+        logger.exception(f"Error in anomalies endpoint: {e}")
+        return [{"error": str(e)}]
 
 # ------------------------------------------------------------------
 # Auspex summarisation endpoint – summarise arbitrary article IDs
@@ -874,4 +984,24 @@ async def get_news_facts():
         raise HTTPException(
             status_code=500,
             detail="An unexpected error occurred retrieving news facts."
-        ) 
+        )
+
+@router.get("/api/news-facts")
+async def get_news_facts_endpoint():
+    """Return facts about news data from the facts JSON file."""
+    try:
+        facts_path = os.path.join("app", "config", "news_facts.json")
+        if not os.path.exists(facts_path):
+            return {"facts": ["News facts file not found."]}
+        
+        with open(facts_path, "r") as f:
+            facts_data = json.load(f)
+        
+        return {"facts": facts_data.get("facts", [])}
+    except Exception as e:
+        logging.getLogger(__name__).error(
+            "Error loading news facts: %s", str(e)
+        )
+        return {
+            "facts": ["Did you know? There was an error loading news facts."]
+        } 

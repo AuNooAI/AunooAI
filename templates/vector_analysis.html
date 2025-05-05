@@ -59,13 +59,63 @@
         padding-right: 0.5rem;
         padding-left: 0.5rem;
     }
-    /* let the search field consume all remaining width */
+    /* Fix search bar layout */
+    .search-bar-container {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .search-icon {
+        padding: 6px 12px;
+        background: transparent;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
     #searchInput {
-        /* flex property removed */
-        /* min-width removed */
+        flex: 1 1 auto;
+        min-width: 0;
+        border: none;
+        box-shadow: none;
+        padding: 6px 12px;
     }
     #searchGroup {
         flex: 1 1 0;
+    }
+    .search-controls {
+        display: flex;
+        align-items: center;
+        margin-left: auto;
+    }
+    /* Force search button icons to right */
+    .search-controls button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 34px;
+        padding: 0 0.5rem;
+        border: 0;
+    }
+    /* let the search field consume all remaining width */
+    #searchInput {
+        flex: 1 1 auto;
+        min-width: 0;
+        border: none;
+        box-shadow: none;
+        padding: 6px 12px;
+    }
+    #searchGroup {
+        flex: 1 1 0;
+    }
+    /* Search input group button layout fix */
+    .search-controls {
+        display: flex;
+        align-items: center;
+        margin-left: auto;
     }
     /* Awesomplete dropdown above everything */
     .awesomplete > ul {
@@ -171,6 +221,14 @@
 <div class="layout">
     <!-- Left Sidebar -->
     <div class="sidebar">
+        <h5 class="mb-3 text-primary">Explorations</h5>
+        <div class="mb-3">
+            <select id="explorationsDropdown" class="form-select form-select-sm mb-2">
+                <option value="">Select a saved search...</option>
+            </select>
+        </div>
+        <div id="explorationsContainer" class="mb-4 small"></div>
+        
         <h5 class="mb-3 text-primary">Active Filters</h5>
         
         <!-- Filter Impact Box - Highly visible -->
@@ -194,31 +252,7 @@
             </div>
         </div>
         
-        <h6 class="mt-3 text-primary">Tested Examples</h6>
-        <div class="mb-3">
-            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value='AI AND category=&quot;AI Business&quot;'">
-                <code>AI AND category="AI Business"</code>
-                <small class="d-block text-muted">Find AI articles in business category</small>
-            </div>
-            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value='category=&quot;AI and Society&quot; NOT sentiment=&quot;Negative&quot; sort:publication_date:desc'">
-                <code>category="AI and Society" change NOT sentiment="Negative" sort:publication_date:desc</code>
-                <small class="d-block text-muted">Recent AI and Society articles excluding negative sentiment content</small>
-            </div>
-            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value='has:driver_type sentiment=Positive'">
-                <code>has:driver_type sentiment=Positive</code>
-                <small class="d-block text-muted">Positive articles with driver classification</small>
-            </div>
-            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value='&quot;artificial intelligence&quot; limit:50'">
-                <code>"artificial intelligence" limit:50</code>
-                <small class="d-block text-muted">Exact phrase with result limit</small>
-            </div>
-            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value='topic=&quot;AI and Machine Learning&quot; AND future_signal=&quot;AI is Hype&quot;'">
-                <code>topic="AI and Machine Learning" AND future_signal="AI is Hype"</code>
-                <small class="d-block text-muted">Articles from the Topic AI and Machine Learning with future signal AI is Hype</small>
-            </div>
-        </div>
-        
-        <h6 class="mt-4 text-primary">Operators</h6>
+        <h6 class="mt-3 text-primary">Operators</h6>
         <p class="mb-1 small">
             <code>=</code> / <code>equal</code> same as,<br>
             <code>!=</code> / <code>not&nbsp;equal</code> different from,<br>
@@ -234,6 +268,12 @@
             <code>in(a,b,c)</code> set membership<br>
             <code>has:field</code> existence check<br>
             <code>field=min..max</code> range
+        </p>
+        <h6 class="mt-3 text-primary">Pipe Operators</h6>
+        <p class="mb-1 small">
+            <code>| HEAD&nbsp;n</code> first n results (default 100)<br>
+            <code>| TAIL&nbsp;n</code> last n results<br>
+            <code>| SAMPLE&nbsp;n</code> random sample of n results
         </p>
         <details class="mb-2">
           <summary class="small fw-semibold text-primary">Meta Controls &amp; Enhancement Examples</summary>
@@ -263,10 +303,23 @@
     <!-- Center Main Content -->
     <div class="main">
         <div class="sticky-top bg-white pt-2" style="z-index:2;">
-            <div class="input-group w-100 mb-2">
-                <span class="input-group-text border-0 bg-transparent" id="searchIcon" style="cursor:pointer;" title="Search"><i class="fas fa-search"></i></span>
-                <input type="text" id="searchInput" class="form-control border-0 shadow-none flex-grow-1" placeholder="Search news…">
-                <button id="askAuspexBtn" class="btn btn-sm btn-outline-primary" style="height:34px;padding:0 .5rem;display:flex;align-items:center;justify-content:center;" title="Ask Auspex"><i class="fas fa-comment-dots"></i></button>
+            <!-- Completely new search bar structure -->
+            <div class="search-bar-container mb-2">
+                <div class="search-icon" id="searchIcon">
+                    <i class="fas fa-search"></i>
+                </div>
+                <input type="text" id="searchInput" class="form-control" placeholder="Search news…">
+                <div class="search-controls">
+                    <button id="clearSearchBtn" class="btn btn-sm btn-link text-muted" style="display:none;" title="Clear search">
+                        <i class="fas fa-times"></i>
+                    </button>
+                    <button id="saveSearchBtn" class="btn btn-sm btn-outline-secondary" title="Save Search">
+                        <i class="fas fa-save"></i>
+                    </button>
+                    <button id="askAuspexBtn" class="btn btn-sm btn-outline-primary" title="Ask Auspex">
+                        <i class="fas fa-comment-dots"></i>
+                    </button>
+                </div>
             </div>
             <div id="activeFilters" class="mb-2"></div>
             <!-- Sort controls -->
@@ -352,6 +405,40 @@
       <div class="modal-footer">
           <button type="button" class="btn btn-secondary" id="exportSummaryBtn" style="display: none;">Export Markdown</button>
           <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Save Search Modal -->
+<div class="modal fade" id="saveSearchModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Save Search</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="saveSearchForm">
+          <div class="mb-3">
+            <label for="searchName" class="form-label">Name</label>
+            <input type="text" class="form-control" id="searchName" required>
+          </div>
+          <div class="mb-3">
+            <label for="searchDescription" class="form-label">Description</label>
+            <textarea class="form-control" id="searchDescription" rows="2"></textarea>
+          </div>
+          <div class="mb-3">
+            <label for="searchTags" class="form-label">Tags (comma separated)</label>
+            <input type="text" class="form-control" id="searchTags">
+          </div>
+          <input type="hidden" id="searchId">
+          <input type="hidden" id="searchQuery">
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="saveSearchSubmitBtn">Save</button>
       </div>
     </div>
   </div>
@@ -474,6 +561,11 @@ async function runSearch() {
             const res = await fetch(`/api/vector-search?${params.toString()}`);
             data = await res.json();
             console.log("Received data from API:", data); // Debug: Log received data
+            
+            // Store the complete search query and params for other components
+            // This is critical for sharing the filtered dataset
+            window._lastSearchParams = params.toString();
+            window._lastSearchQuery = raw;
         }
         
         currentIndex=0;
@@ -504,6 +596,17 @@ async function runSearch() {
         updateAttrSuggestions(facets);
         renderTimeline(data.timeline || {});
         updateActiveChips();
+        
+        // Force Patterns and Visuals to refresh if they've been loaded
+        if (scatterLoaded) {
+            console.log("Refreshing scatter plot with new filtered dataset");
+            updateScatter(true); // Force refresh
+        }
+        
+        if (patternsLoaded) {
+            console.log("Refreshing patterns with new filtered dataset");
+            loadPatterns(true); // Force refresh
+        }
     } catch (error) {
         console.error("Search error:", error);
         alert("An error occurred during search. Please try again.");
@@ -849,6 +952,23 @@ function updateActiveChips() {
         });
         container.appendChild(sortChip);
     }
+    
+    // Check for pipe operators 
+    const pipeMatches = Array.from(document.getElementById('searchInput').value.matchAll(/\|\s*(HEAD|TAIL|SAMPLE)(?:\s+(\d+))?/g));
+    pipeMatches.forEach(match => {
+        const [fullMatch, operation, count] = match;
+        const pipeChip = document.createElement('span');
+        pipeChip.className = 'badge bg-warning text-dark me-1';
+        pipeChip.style.cursor = 'pointer';
+        const displayText = count ? `${operation}(${count})` : operation;
+        pipeChip.innerHTML = `<i class="fas fa-filter me-1"></i>${displayText} ×`;
+        pipeChip.addEventListener('click', () => {
+            const input = document.getElementById('searchInput');
+            input.value = input.value.replace(fullMatch, '').trim();
+            runSearch();
+        });
+        container.appendChild(pipeChip);
+    });
 
     // Add chips for metadata from the query input
     Object.entries(metadata).forEach(([field, value]) => {
@@ -913,6 +1033,27 @@ function updateActionButtons() {/* no-op – legacy buttons removed */}
 document.getElementById('searchIcon').addEventListener('click', runSearch);
 // Trigger search on Enter key inside input
 document.getElementById('searchInput').addEventListener('keydown',e=>{if(e.key==='Enter'){runSearch();}});
+
+// Handle clear search button
+document.getElementById('clearSearchBtn').addEventListener('click', () => {
+    document.getElementById('searchInput').value = '';
+    document.getElementById('clearSearchBtn').style.display = 'none';
+    // Reset results
+    document.getElementById('results').innerHTML = '';
+});
+
+// Show/hide clear button based on search input content
+document.getElementById('searchInput').addEventListener('input', function() {
+    document.getElementById('clearSearchBtn').style.display = this.value ? 'block' : 'none';
+});
+
+// Initial check for search input on page load
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput.value) {
+        document.getElementById('clearSearchBtn').style.display = 'block';
+    }
+});
 
 // Annotation modal appended at end of body when DOM ready
 if(!document.getElementById('noteModal')){
@@ -992,27 +1133,16 @@ async function initScatter(){
         });
     }
 
-    // Initial fetch
+    // Initial fetch - removed event handler (moved to updateScatter)
     window.scatterPoints=[];
     await updateScatter();
-
-    // click handler
-    div.on('plotly_click',async ev=>{
-        const idx=ev.points[0].pointIndex;
-        if(!window.scatterPoints || !window.scatterPoints[idx]){return;}
-        const selId=window.scatterPoints[idx].id;
-        const neighbours=await fetch(`/api/embedding_neighbours?id=${encodeURIComponent(selId)}&top_k=5`).then(r=>r.json());
-        const ids=[selId,...neighbours.map(n=>n.id)];
-        const style=window.scatterPoints.map(p=>ids.includes(p.id)?1:0.15);
-        Plotly.restyle(div,{ 'marker.opacity':[style] });
-    });
 
     loading.style.display='none';
     div.style.display='block';
 }
 
 // Refresh scatter with current filters
-async function updateScatter(){
+async function updateScatter(forceRefresh = false){
     const loading=document.getElementById('vizLoading');
     const div=document.getElementById('scatter');
 
@@ -1064,94 +1194,147 @@ async function updateScatter(){
         }
     }, FACT_ROTATION_SECONDS * 1000);
 
-    // Build filter params
-    const { metadata } = parseQuery(document.getElementById('searchInput').value);
-    const params=new URLSearchParams();
-    Object.entries(metadata).forEach(([k,v])=>params.append(k,v));
-    const dims3d=document.getElementById('embed3d').checked;
-    const colorMode=document.getElementById('colorMode').value;
-    params.append('method',document.getElementById('embedMethod').value);
-    params.append('dims',dims3d?'3':'2');
-    const res=await fetch(`/api/embedding_projection?${params.toString()}`);
-    const data=await res.json();
-
-    const pts = data.points || data;
-    if(!pts.length){loading.textContent='No data';return;}
-
-    window.scatterPoints=pts;
-    window.clusterExplain=data.explain||{};
-    window.clusterCentroids=data.centroids||{};
-
-    const custom=pts.map(p=>(window.clusterExplain[p.cluster]||[]).join(', '));
-
-    const colorSentiment=false;
-    let legendItems;
-    let colourMap=new Map();
-    let pointColors;
-
-    if(colorMode!=='cluster'){
-        legendItems=[...new Set(pts.map(p=>(p[colorMode]||'unknown')))].sort();
-        const colours=palette(legendItems.length);
-        legendItems.forEach((s,idx)=>colourMap.set(s,colours[idx]));
-        pointColors=pts.map(p=>colourMap.get(p[colorMode]||'unknown'));
-    }else{
-        legendItems=[...new Set(pts.map(p=>p.cluster))].sort((a,b)=>a-b);
-        const colours=palette(legendItems.length);
-        legendItems.forEach((c,idx)=>colourMap.set(c,colours[idx]));
-        pointColors=pts.map(p=>colourMap.get(p.cluster));
+    // Use same query params as main search for consistency with filtering
+    // This is critical to ensure the same pipe filtering applies to visualizations
+    let params = new URLSearchParams(window._lastSearchParams || "");
+    if (!params.toString()) {
+        params = buildQueryParams();
     }
+    
+    console.log("Loading visualization with params:", params.toString());
+    
+    // Add visualization specific parameters
+    const dims3d = document.getElementById('embed3d').checked;
+    const colorMode = document.getElementById('colorMode').value;
+    params.append('method', document.getElementById('embedMethod').value);
+    params.append('dims', dims3d ? '3' : '2');
+    
+    try {
+        const res = await fetch(`/api/embedding_projection?${params.toString()}`);
+        if (!res.ok) {
+            loading.innerHTML = `<div class="alert alert-danger">Error: ${res.status} ${res.statusText}</div>`;
+            return;
+        }
+        const data = await res.json();
+        
+        const pts = data.points || data;
+        if(!pts.length){
+            loading.textContent='No data';
+            return;
+        }
 
-    let trace;
-    let layout;
-    if(dims3d){
-        trace={
-          type:'scatter3d',mode:'markers',
-          x:pts.map(p=>p.x),
-          y:pts.map(p=>p.y),
-          z:pts.map(p=>p.z||0),
-          marker:{size:3,color:pointColors,opacity:0.8},
-          text:pts.map(p=>p.title||''),
-          customdata:custom,
-          hovertemplate:'%{text}<br><small>%{customdata}</small><extra></extra>'
-        };
-        layout={margin:{t:0,l:0,r:0,b:0},scene:{aspectmode:'data'}};
-    }else{
-        trace={
-          type:'scattergl',mode:'markers',
-          x:pts.map(p=>p.x),
-          y:pts.map(p=>p.y),
-          marker:{size:7,color:pointColors,opacity:0.9},
-          text:pts.map(p=>p.title||''),
-          customdata:custom,
-          hovertemplate:'%{text}<br><small>%{customdata}</small><extra></extra>'
-        };
-        layout={margin:{t:0,l:0,r:0,b:0},hovermode:'closest'};
-    }
-    Plotly.react(div,[trace],layout);
+        window.scatterPoints=pts;
+        window.clusterExplain=data.explain||{};
+        window.clusterCentroids=data.centroids||{};
 
-    // Build legend after fetching points
-    rebuildLegend(legendItems, colourMap, colorMode!=='cluster', colorMode);
+        const custom=pts.map(p=>(window.clusterExplain[p.cluster]||[]).join(', '));
 
-    loading.style.display='none';
-    // Clear the interval timer now that viz is loaded
-    if (vizLoadingIntervalId) {
-       clearInterval(vizLoadingIntervalId);
-       vizLoadingIntervalId = null;
+        const colorSentiment=false;
+        let legendItems;
+        let colourMap=new Map();
+        let pointColors;
+
+        if(colorMode!=='cluster'){
+            legendItems=[...new Set(pts.map(p=>(p[colorMode]||'unknown')))].sort();
+            const colours=palette(legendItems.length);
+            legendItems.forEach((s,idx)=>colourMap.set(s,colours[idx]));
+            pointColors=pts.map(p=>colourMap.get(p[colorMode]||'unknown'));
+        }else{
+            legendItems=[...new Set(pts.map(p=>p.cluster))].sort((a,b)=>a-b);
+            const colours=palette(legendItems.length);
+            legendItems.forEach((c,idx)=>colourMap.set(c,colours[idx]));
+            pointColors=pts.map(p=>colourMap.get(p.cluster));
+        }
+
+        let trace;
+        let layout;
+        if(dims3d){
+            trace={
+              type:'scatter3d',mode:'markers',
+              x:pts.map(p=>p.x),
+              y:pts.map(p=>p.y),
+              z:pts.map(p=>p.z||0),
+              marker:{size:3,color:pointColors,opacity:0.8},
+              text:pts.map(p=>p.title||''),
+              customdata:custom,
+              hovertemplate:'%{text}<br><small>%{customdata}</small><extra></extra>'
+            };
+            layout={margin:{t:0,l:0,r:0,b:0},scene:{aspectmode:'data'}};
+        }else{
+            trace={
+              type:'scattergl',mode:'markers',
+              x:pts.map(p=>p.x),
+              y:pts.map(p=>p.y),
+              marker:{size:7,color:pointColors,opacity:0.9},
+              text:pts.map(p=>p.title||''),
+              customdata:custom,
+              hovertemplate:'%{text}<br><small>%{customdata}</small><extra></extra>'
+            };
+            layout={margin:{t:0,l:0,r:0,b:0},hovermode:'closest'};
+        }
+        
+        // Create the plot
+        Plotly.react(div,[trace],layout);
+        
+        // Now attach click event after the plot is initialized
+        div.removeAttribute('on');  // Clear any existing handlers
+        div.onclick = null;  // Also clear standard handlers
+        
+        // Attach the click handler to the plot
+        div.addEventListener('plotly_click', async (ev) => {
+            if (!ev || !ev.points || ev.points.length === 0) return;
+            const idx = ev.points[0].pointIndex;
+            if (!window.scatterPoints || !window.scatterPoints[idx]) return;
+            
+            const selId = window.scatterPoints[idx].id;
+            try {
+                const response = await fetch(`/api/embedding_neighbours?id=${encodeURIComponent(selId)}&top_k=5`);
+                const neighbours = await response.json();
+                const ids = [selId, ...neighbours.map(n => n.id)];
+                const style = window.scatterPoints.map(p => ids.includes(p.id) ? 1 : 0.15);
+                Plotly.restyle(div, {'marker.opacity': [style]});
+            } catch (error) {
+                console.error("Error fetching neighbours:", error);
+            }
+        });
+
+        // Build legend after fetching points
+        rebuildLegend(legendItems, colourMap, colorMode!=='cluster', colorMode);
+
+    } catch (error) {
+        console.error("Error in visualization:", error);
+        loading.innerHTML = `<div class="alert alert-danger">Error loading visualization: ${error.message}</div>`;
+    } finally {
+        loading.style.display='none';
+        // Clear the interval timer now that viz is loaded
+        if (vizLoadingIntervalId) {
+           clearInterval(vizLoadingIntervalId);
+           vizLoadingIntervalId = null;
+        }
+        // Also clear the countdown
+        if (vizCountdownId) {
+          clearInterval(vizCountdownId);
+          vizCountdownId = null;
+        }
+        div.style.display = 'block'; // Show plot again
     }
-    // Also clear the countdown
-    if (vizCountdownId) {
-      clearInterval(vizCountdownId);
-      vizCountdownId = null;
-    }
-    div.style.display = 'block'; // Show plot again
 }
 
 // Utility to build filter params object
 function buildQueryParams(){
-  const { cleaned, metadata } = parseQuery(document.getElementById('searchInput').value);
-  const p=new URLSearchParams();
-  if(cleaned){p.append('q', cleaned);}
-  Object.entries(metadata).forEach(([k,v])=>p.append(k,v));
+  // Use the raw query to preserve pipe operators
+  const rawQuery = document.getElementById('searchInput').value;
+  const p = new URLSearchParams();
+  
+  // Pass the complete raw query to ensure pipe operators are included
+  if (rawQuery) {
+    p.append('q', rawQuery);
+  }
+  
+  // Also extract metadata filters for backward compatibility
+  const { metadata } = parseQuery(rawQuery);
+  Object.entries(metadata).forEach(([k,v]) => p.append(k, v));
+  
   return p;
 }
 
@@ -1171,8 +1354,14 @@ document.querySelector('button[data-bs-target="#patternsPane"]').addEventListene
   patternsLoaded=true;
 });
 
-async function loadPatterns(){
+async function loadPatterns(forceRefresh = false){
   const list = document.getElementById('patternList');
+  
+  // If patterns already loaded and not a forced refresh, just return
+  if (patternsLoaded && !forceRefresh) {
+    console.log("Patterns already loaded, skipping.");
+    return;
+  }
   
   // Show spinner and random fact
   let randomFact = window._newsFacts.length > 0 ? 
@@ -1228,8 +1417,10 @@ async function loadPatterns(){
   }, FACT_ROTATION_SECONDS * 1000);
   
   try {
-    // Fetch data
-    const queryParams = buildQueryParams();
+    // Use the same query parameters as the main search for consistency
+    // This is critical to ensure the same filtering applies to patterns
+    const queryParams = window._lastSearchParams || buildQueryParams().toString();
+    console.log("Loading patterns with params:", queryParams);
     
     // Fetch ngrams and outliers (existing logic)
     const patternsRes = await fetch(`/api/patterns?${queryParams}`);
@@ -1741,7 +1932,7 @@ function initializePageElements() {
     if (impactContainer) {
         impactContainer.innerHTML = `<div class="impact-box">
             <div class="text-center text-muted small">
-                <i class="fas fa-filter me-1"></i> Run a search to see filter impact
+                <i class="fas fa-filter me-1"></i> 0 of 0 results (0%)
             </div>
         </div>`;
     }
@@ -1773,12 +1964,274 @@ function initializePageElements() {
         // Run search with the constructed input
         setTimeout(() => runSearch(), 100); // Small delay to ensure DOM is ready
     }
+    
+    // Load saved searches
+    loadSavedSearches();
+}
+
+// --------------------------
+// Saved Searches Management
+// --------------------------
+
+// Initialize saved searches
+let savedSearches = [];
+let currentlySelectedSearchId = null;
+
+// Load saved searches from server
+async function loadSavedSearches() {
+    try {
+        const res = await fetch('/api/saved-searches');
+        if (res.ok) {
+            savedSearches = await res.json();
+            renderSavedSearches();
+        }
+    } catch (err) {
+        console.error('Error loading saved searches:', err);
+    }
+}
+
+// Render saved searches in the sidebar
+function renderSavedSearches() {
+    const container = document.getElementById('explorationsContainer');
+    const dropdown = document.getElementById('explorationsDropdown');
+    
+    // Clear existing options except the first placeholder
+    while (dropdown.options.length > 1) {
+        dropdown.remove(1);
+    }
+    
+    if (!savedSearches || savedSearches.length === 0) {
+        container.innerHTML = '<div class="text-muted small">No saved searches yet</div>';
+        return;
+    }
+    
+    // Populate dropdown
+    savedSearches.forEach(search => {
+        const option = document.createElement('option');
+        option.value = search.id;
+        option.textContent = search.name;
+        dropdown.appendChild(option);
+    });
+    
+    // Set dropdown to currently selected search
+    if (currentlySelectedSearchId) {
+        dropdown.value = currentlySelectedSearchId;
+    }
+    
+    // Only display the currently selected search
+    if (currentlySelectedSearchId) {
+        const selectedSearch = savedSearches.find(s => s.id === currentlySelectedSearchId);
+        if (selectedSearch) {
+            const searchHtml = `
+                <div class="mb-2 p-2 border rounded bg-white position-relative">
+                    <div class="fw-bold" style="padding-right: 60px;">${selectedSearch.name}</div>
+                    <div class="small text-muted">${selectedSearch.description || ''}</div>
+                    ${selectedSearch.tags ? `<div class="small mt-1">${selectedSearch.tags.split(',').map(tag => 
+                        `<span class="badge bg-light text-dark me-1">${tag.trim()}</span>`).join('')}</div>` : ''}
+                    <div class="position-absolute" style="top:6px; right:6px;">
+                        <button class="btn btn-sm btn-outline-primary py-0 px-1 me-1" onclick="editSavedSearch('${selectedSearch.id}')" title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger py-0 px-1" onclick="deleteSavedSearch('${selectedSearch.id}')" title="Delete">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            container.innerHTML = searchHtml;
+        } else {
+            container.innerHTML = '<div class="text-muted small">No search selected</div>';
+        }
+    } else {
+        container.innerHTML = '<div class="text-muted small">Select a saved search from the dropdown</div>';
+    }
+}
+
+// Apply a saved search to the current search input
+function applySavedSearch(id) {
+    const search = savedSearches.find(s => s.id === id);
+    if (search) {
+        currentlySelectedSearchId = id; // Track the selected search
+        document.getElementById('searchInput').value = search.query;
+        renderSavedSearches(); // Update the display to show only the selected search
+        runSearch();
+    }
+}
+
+// Edit a saved search
+function editSavedSearch(id) {
+    const search = savedSearches.find(s => s.id === id);
+    if (search) {
+        // Populate the form with the search data
+        document.getElementById('searchId').value = search.id;
+        document.getElementById('searchName').value = search.name;
+        document.getElementById('searchDescription').value = search.description || '';
+        document.getElementById('searchTags').value = search.tags || '';
+        document.getElementById('searchQuery').value = search.query;
+        
+        // Show the modal
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('saveSearchModal')).show();
+    }
+}
+
+// Delete a saved search
+async function deleteSavedSearch(id) {
+    try {
+        const res = await fetch(`/api/saved-searches/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (res.ok) {
+            // If the deleted search was the selected one, clear the selection
+            if (currentlySelectedSearchId === id) {
+                currentlySelectedSearchId = null;
+            }
+            
+            savedSearches = savedSearches.filter(s => s.id !== id);
+            renderSavedSearches();
+        } else {
+            console.error('Failed to delete saved search');
+        }
+    } catch (err) {
+        console.error('Error deleting saved search:', err);
+    }
+}
+
+// Save search handler
+document.getElementById('saveSearchBtn').addEventListener('click', () => {
+    const query = document.getElementById('searchInput').value.trim();
+    
+    if (!query) {
+        alert('Please enter a search query first');
+        return;
+    }
+    
+    // Reset form
+    document.getElementById('searchId').value = '';
+    document.getElementById('searchName').value = '';
+    document.getElementById('searchDescription').value = '';
+    document.getElementById('searchTags').value = '';
+    document.getElementById('searchQuery').value = query;
+    
+    // Show modal
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('saveSearchModal')).show();
+});
+
+// Save search submit handler
+document.getElementById('saveSearchSubmitBtn').addEventListener('click', async () => {
+    const form = document.getElementById('saveSearchForm');
+    
+    // Basic form validation
+    if (!document.getElementById('searchName').value.trim()) {
+        alert('Please enter a name for your search');
+        return;
+    }
+    
+    // Gather form data
+    const search = {
+        id: document.getElementById('searchId').value || generateId(),
+        name: document.getElementById('searchName').value.trim(),
+        description: document.getElementById('searchDescription').value.trim(),
+        tags: document.getElementById('searchTags').value.trim(),
+        query: document.getElementById('searchQuery').value.trim(),
+        created_at: new Date().toISOString()
+    };
+    
+    try {
+        const res = await fetch('/api/saved-searches', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(search)
+        });
+        
+        if (res.ok) {
+            // Add to local cache or update existing
+            const existingIndex = savedSearches.findIndex(s => s.id === search.id);
+            if (existingIndex >= 0) {
+                savedSearches[existingIndex] = search;
+            } else {
+                savedSearches.push(search);
+            }
+            
+            renderSavedSearches();
+            bootstrap.Modal.getInstance(document.getElementById('saveSearchModal')).hide();
+        } else {
+            alert('Failed to save search. Please try again.');
+        }
+    } catch (err) {
+        console.error('Error saving search:', err);
+        alert('An error occurred while saving your search');
+    }
+});
+
+// Helper to generate a unique ID for new searches
+function generateId() {
+    return 'search_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+}
+
+// Initialize page elements
+function initializePageElements() {
+    // Set up filter impact box with initial placeholder
+    const impactContainer = document.getElementById('filterImpact');
+    if (impactContainer) {
+        impactContainer.innerHTML = `<div class="impact-box">
+            <div class="text-center text-muted small">
+                <i class="fas fa-filter me-1"></i> 0 of 0 results (0%)
+            </div>
+        </div>`;
+    }
+    
+    // Check if URL has any search parameters that should trigger a search
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlFilterFields = ['category', 'topic', 'sentiment', 'news_source', 'future_signal', 'q'];
+    const hasSearchParams = urlFilterFields.some(field => urlParams.has(field));
+    
+    if (hasSearchParams) {
+        console.log('Found search parameters in URL, running initial search');
+        
+        // If q parameter exists, set it as the search input
+        if (urlParams.has('q')) {
+            document.getElementById('searchInput').value = urlParams.get('q');
+        }
+        
+        // Add filter tokens to search input for each filter parameter
+        urlFilterFields.filter(f => f !== 'q').forEach(field => {
+            if (urlParams.has(field)) {
+                const value = urlParams.get(field);
+                const input = document.getElementById('searchInput');
+                if (!input.value.includes(`${field}=`) && !input.value.includes(`${field}"`)) {
+                    input.value = `${input.value} ${field}="${value}"`.trim();
+                }
+            }
+        });
+        
+        // Run search with the constructed input
+        setTimeout(() => runSearch(), 100); // Small delay to ensure DOM is ready
+    }
+    
+    // Load saved searches
+    loadSavedSearches();
 }
 
 // Initialize everything when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     fetchNewsFacts();
     initializePageElements();
+    
+    // Add dropdown handler for saved searches
+    document.getElementById('explorationsDropdown').addEventListener('change', function() {
+        const selectedId = this.value;
+        if (selectedId) {
+            applySavedSearch(selectedId);
+            // Don't reset to empty since we want to show the current selection
+        } else {
+            // If empty option selected, clear the current selection
+            currentlySelectedSearchId = null;
+            renderSavedSearches();
+        }
+    });
     
     // Add event handler to check for sort state on page load
     const input = document.getElementById('searchInput');
@@ -1811,14 +2264,21 @@ function renderFilterImpact(comparison, filteredFacets) {
     const impactClass = percentRetained > 75 ? 'impact-positive' : 
                        percentRetained < 25 ? 'impact-negative' : '';
     
-    // Build the impact header
-    let impactHtml = `<div class="impact-box">
-        <div class="impact-summary ${impactClass}">
-            Filter Impact: ${totalAfter} of ${totalBefore} results (${percentRetained}%)
-        </div>`;
+    // Simplified view - just show X of Y (X%)
+    const simpleSummary = `${totalAfter} of ${totalBefore} results (${percentRetained}%)`;
     
-    // Add detailed impact info (always visible now)
-    impactHtml += `<div class="impact-details">`;
+    // Build the HTML with debug toggle
+    let impactHtml = `
+        <div class="impact-box">
+            <div class="impact-summary ${impactClass}">
+                <span>${simpleSummary}</span>
+                <button id="toggleDebugBtn" class="btn btn-sm btn-link p-0 ms-2" title="Toggle debug info">
+                    <i class="fas fa-bug"></i>
+                </button>
+            </div>`;
+    
+    // Add detailed impact info (initially hidden)
+    impactHtml += `<div class="impact-details" id="impactDebugDetails" style="display:none;">`;
     
     // For each facet type, show the top impacted values
     Object.entries(comparison.facet_impact).forEach(([field, values]) => {
@@ -1842,6 +2302,15 @@ function renderFilterImpact(comparison, filteredFacets) {
     
     impactHtml += `</div></div>`;
     impactContainer.innerHTML = impactHtml;
+    
+    // Add event listener for debug toggle button
+    document.getElementById('toggleDebugBtn')?.addEventListener('click', function() {
+        const debugDetails = document.getElementById('impactDebugDetails');
+        if (debugDetails) {
+            const isVisible = debugDetails.style.display !== 'none';
+            debugDetails.style.display = isVisible ? 'none' : 'block';
+        }
+    });
 }
 
 // Add a helper function to apply sorts

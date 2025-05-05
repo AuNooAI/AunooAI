@@ -7,6 +7,7 @@ import logging
 from typing import Dict, Any, List, Optional
 
 from app.kissql.parser import Query, Constraint
+from app.kissql.pipe_operators import apply_pipe_operations
 from app.vector_store import search_articles, similar_articles
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,19 @@ def execute_query(query: Query, top_k: int = 100) -> Dict[str, Any]:
     Returns:
         A dict with search results, facets, and timeline
     """
+    # Extract pipe operations for later use
+    pipe_ops = []
+    for op in query.pipe_operations:
+        pipe_op = {
+            'operation': op.operation,
+        }
+        if op.params and len(op.params) > 0:
+            try:
+                pipe_op['count'] = int(op.params[0])
+            except (ValueError, TypeError):
+                pass
+        pipe_ops.append(pipe_op)
+    
     # Check for special meta controls
     limit = top_k
     cluster_id = None
@@ -56,6 +70,18 @@ def execute_query(query: Query, top_k: int = 100) -> Dict[str, Any]:
     # Handle similar-to queries
     if similar_to:
         similar_results = similar_articles(similar_to, top_k=limit)
+        
+        # Apply pipe operations even for similar results
+        if pipe_ops:
+            logger.info(
+                "Applying %d pipe operations to similar results", 
+                len(pipe_ops)
+            )
+            similar_results = apply_pipe_operations(
+                similar_results, 
+                pipe_ops
+            )
+            
         return {
             "results": similar_results,
             "facets": {},  # Could compute facets from results if needed
@@ -157,7 +183,23 @@ def execute_query(query: Query, top_k: int = 100) -> Dict[str, Any]:
         len(filtered_results)
     )
     
+    # Apply pipe operations immediately after filtering but before clustering or other processing
+    if pipe_ops:
+        logger.info(
+            "Applying %d pipe operations", 
+            len(pipe_ops)
+        )
+        filtered_results = apply_pipe_operations(
+            filtered_results, 
+            pipe_ops
+        )
+        logger.info(
+            "After pipe operations: %d results", 
+            len(filtered_results)
+        )
+    
     # Apply clustering filter if requested
+    # IMPORTANT: Clustering should run on the already pipe-filtered results
     if cluster_id is not None:
         try:
             from sklearn.cluster import MiniBatchKMeans

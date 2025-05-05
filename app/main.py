@@ -55,6 +55,7 @@ from app.routes.onboarding_routes import router as onboarding_router
 from app.startup import initialize_application
 from app.routes.podcast_routes import router as podcast_router
 from app.routes.vector_routes import router as vector_router
+from app.routes.saved_searches import router as saved_searches_router
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -273,6 +274,7 @@ app.include_router(web_router)  # Web routes at root level
 app.include_router(topic_router)  # Topic routes
 app.include_router(keyword_monitor_router)
 app.include_router(onboarding_router)
+app.include_router(saved_searches_router)  # Saved searches
 
 def get_template_context(request: Request, additional_context: dict = None) -> dict:
     """Create a base template context with common variables."""

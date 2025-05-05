@@ -36,6 +36,22 @@ KISSQL is a simple but powerful query language designed for searching and filter
 - `has:field` - field must exist
 - `field=min..max` - range operation (inclusive)
 
+### Pipe Operators
+
+| Operator | Purpose | Default |
+|----------|---------|---------|
+| `| HEAD n`    | Keep only the first *n* results | `n = 100` |
+| `| TAIL n`    | Keep only the last *n* results  | `n = 100` |
+| `| SAMPLE n`  | Keep a random sample of *n* results | – |
+
+Pipe operators are executed after all filtering and ranking. They are chainable, e.g.:
+
+```text
+"artificial intelligence" | HEAD 500 | SAMPLE 50
+```
+
+The above returns a random sample of 50 from the first 500 results.
+
 ## Meta Controls
 
 - `sort:field[:asc|desc]` - sort results by field, e.g., `sort:publication_date:desc`
@@ -74,6 +90,11 @@ KISSQL is a simple but powerful query language designed for searching and filter
 5. Combining multiple features:
    ```
    "artificial intelligence"^3 AND category="AI Business" NOT price<10 sort:score:desc
+   ```
+
+6. Pipe operator:
+   ```
+   AGI | HEAD 20 | TAIL 5
    ```
 
 ## Usage in Code
