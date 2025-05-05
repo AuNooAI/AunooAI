@@ -1,7 +1,11 @@
 """Tests for the KISSQL parser module."""
 
 import unittest
-from app.kissql.parser import tokenize, parse_query, parse_full_query, Token, Query
+from app.kissql.parser import (
+    tokenize, 
+    parse_query, 
+    parse_full_query,
+)
 
 
 class TestKissqlParser(unittest.TestCase):
@@ -108,6 +112,69 @@ class TestKissqlParser(unittest.TestCase):
         _, _, extra = parse_query(query)
         
         self.assertEqual({'cluster': 0}, extra)
+        
+    def test_pipe_operator_tokenization(self):
+        """Test tokenizing pipe operators."""
+        query = 'AGI | HEAD'
+        tokens = tokenize(query)
+        
+        self.assertEqual(2, len(tokens))
+        self.assertEqual('WORD', tokens[0].type)
+        self.assertEqual('AGI', tokens[0].value)
+        self.assertEqual('PIPE_OP', tokens[1].type)
+        self.assertEqual('| HEAD', tokens[1].value)
+        
+    def test_pipe_operator_with_count(self):
+        """Test tokenizing pipe operators with count."""
+        query = 'AGI | HEAD 20'
+        tokens = tokenize(query)
+        
+        self.assertEqual(2, len(tokens))
+        self.assertEqual('WORD', tokens[0].type)
+        self.assertEqual('AGI', tokens[0].value)
+        self.assertEqual('PIPE_OP', tokens[1].type)
+        self.assertEqual('| HEAD 20', tokens[1].value)
+        
+    def test_parse_query_with_pipe(self):
+        """Test parsing query with pipe operators."""
+        query = 'AGI | HEAD 20 | TAIL 5'
+        cleaned, metadata, extra = parse_query(query)
+        
+        self.assertEqual('AGI', cleaned)
+        self.assertEqual({}, metadata)
+        self.assertTrue('pipe' in extra)
+        self.assertEqual(2, len(extra['pipe']))
+        self.assertEqual('HEAD', extra['pipe'][0]['operation'])
+        self.assertEqual(20, extra['pipe'][0]['count'])
+        self.assertEqual('TAIL', extra['pipe'][1]['operation'])
+        self.assertEqual(5, extra['pipe'][1]['count'])
+        
+    def test_parse_full_query_with_pipe(self):
+        """Test parse_full_query with pipe operators."""
+        query = 'AGI category="AI" | SAMPLE 10'
+        parsed = parse_full_query(query)
+        
+        self.assertEqual('AGI', parsed.text)
+        self.assertEqual(1, len(parsed.constraints))
+        self.assertEqual('category', parsed.constraints[0].field)
+        self.assertEqual('AI', parsed.constraints[0].value)
+        self.assertEqual(1, len(parsed.pipe_operations))
+        self.assertEqual('SAMPLE', parsed.pipe_operations[0].operation)
+        self.assertEqual(['10'], parsed.pipe_operations[0].params)
+        
+    def test_multiple_pipe_operators(self):
+        """Test parsing multiple pipe operators."""
+        query = 'AGI | HEAD 50 | SAMPLE 20 | TAIL 10'
+        parsed = parse_full_query(query)
+        
+        self.assertEqual('AGI', parsed.text)
+        self.assertEqual(3, len(parsed.pipe_operations))
+        self.assertEqual('HEAD', parsed.pipe_operations[0].operation)
+        self.assertEqual(['50'], parsed.pipe_operations[0].params)
+        self.assertEqual('SAMPLE', parsed.pipe_operations[1].operation)
+        self.assertEqual(['20'], parsed.pipe_operations[1].params)
+        self.assertEqual('TAIL', parsed.pipe_operations[2].operation)
+        self.assertEqual(['10'], parsed.pipe_operations[2].params)
 
 
 if __name__ == '__main__':

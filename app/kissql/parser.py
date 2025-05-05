@@ -27,6 +27,14 @@ class MetaControl:
 
 
 @dataclass
+class PipeOperation:
+    """Represents a pipe operation in the query."""
+    
+    operation: str
+    params: List[str] = field(default_factory=list)
+
+
+@dataclass
 class Constraint:
     """Represents a constraint in the query."""
     
@@ -43,10 +51,14 @@ class Query:
     constraints: List[Constraint] = field(default_factory=list)
     meta_controls: List[MetaControl] = field(default_factory=list)
     logic_operators: List[Dict[str, Any]] = field(default_factory=list)
+    pipe_operations: List[PipeOperation] = field(default_factory=list)
     
 
 # Token patterns
 TOKEN_PATTERNS = [
+    # Pipe operator (must come before other operators to properly tokenize)
+    (r'\|\s*(HEAD|TAIL|SAMPLE)(?:\s+(\d+))?', 'PIPE_OP'),
+    
     # Meta controls - these come first now for clarity
     (r'sort:(\w+)(?::(\w+))?', 'META_SORT'),
     (r'limit:(\d+)', 'META_LIMIT'),
@@ -157,6 +169,23 @@ def parse_query(query_string: str) -> Tuple[str, Dict[str, Any], Dict[str, Any]]
             # Keep boost operators in the cleaned text
             cleaned_parts.append(token.value)
             
+        # Pipe operators are stored in extra but not in cleaned text
+        elif token.type == 'PIPE_OP':
+            match = re.match(
+                r'\|\s*(HEAD|TAIL|SAMPLE)(?:\s+(\d+))?', 
+                token.value
+            )
+            if match:
+                operation, count = match.groups()
+                # Store pipe operations in extra
+                if 'pipe' not in extra:
+                    extra['pipe'] = []
+                
+                pipe_op = {'operation': operation}
+                if count:
+                    pipe_op['count'] = int(count)
+                extra['pipe'].append(pipe_op)
+        
         # Process constraints
         elif token.type == 'CONSTRAINT_EQ_QUOTED':
             match = re.match(r'(\w+)\s*=\s*"([^"]+)"', token.value)
@@ -262,6 +291,22 @@ def parse_full_query(query_string: str) -> Query:
         elif token.type == 'ENHANCE_BOOST':
             text_parts.append(token.value)
             
+        # Process PIPE operations
+        elif token.type == 'PIPE_OP':
+            match = re.match(
+                r'\|\s*(HEAD|TAIL|SAMPLE)(?:\s+(\d+))?', 
+                token.value
+            )
+            if match:
+                operation, count = match.groups()
+                params = []
+                if count:
+                    params.append(count)
+                # Pipe operations are not part of the search text
+                query.pipe_operations.append(
+                    PipeOperation(operation=operation, params=params)
+                )
+                
         # Process constraints
         elif token.type == 'CONSTRAINT_EQ_QUOTED':
             match = re.match(r'(\w+)\s*=\s*"([^"]+)"', token.value)

@@ -1,0 +1,18 @@
+[
+  {
+    "id": "search_mabg6f2k9tus3",
+    "name": "Top 25 Results",
+    "description": "Displays the Top 25 Results Score",
+    "tags": "top",
+    "query": "HEAD 25",
+    "created_at": "2025-05-05T19:02:14.732Z"
+  },
+  {
+    "id": "search_mabgaf70xhr0i",
+    "name": "Analyzed",
+    "description": "Filters on articles that have been categorized and enriched",
+    "tags": "basic",
+    "query": "has:category",
+    "created_at": "2025-05-05T19:05:21.516Z"
+  }
+]
