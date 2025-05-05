@@ -319,7 +319,8 @@
                     <button id="askAuspexBtn" class="btn btn-sm btn-outline-primary" title="Ask Auspex">
                         <i class="fas fa-comment-dots"></i>
                     </button>
-                </div>
+                    <!-- (buttons relocated) -->
+                 </div>
             </div>
             <div id="activeFilters" class="mb-2"></div>
             <!-- Sort controls -->
@@ -381,6 +382,16 @@
               </div>
             </div>
         </div>
+        <!-- Selection toolbar -->
+        <div id="selectionToolbar" class="d-flex align-items-center gap-2 mb-2">
+            <button id="selectAllBtn" class="btn btn-sm btn-outline-secondary" title="Select / Deselect all">
+                <i class="fas fa-check-square"></i> Select All
+            </button>
+            <button id="reportBtn" class="btn btn-sm btn-outline-success" title="Generate report from selected" disabled>
+                <i class="fas fa-file-alt"></i> Report
+            </button>
+        </div>
+
         <div id="results"></div>
     </div>
 
@@ -1028,7 +1039,36 @@ function updateActiveChips() {
 
 // Selected URIs – retained for potential future actions
 const selectedUris = new Set();
-function updateActionButtons() {/* no-op – legacy buttons removed */}
+// Expose so askAuspex() can read the set via window.selectedUris
+window.selectedUris = selectedUris;
+
+function updateActionButtons(){
+  const reportBtn = document.getElementById('reportBtn');
+  if(reportBtn){
+    reportBtn.disabled = selectedUris.size === 0;
+  }
+}
+
+// Toggle all checkboxes in the current result list
+function toggleSelectAll(){
+  const checkboxes = document.querySelectorAll('#results .card input[type="checkbox"]');
+  if(!checkboxes.length) return;
+  const allSelected = [...checkboxes].every(cb=>cb.checked);
+  checkboxes.forEach(cb=>{
+      cb.checked = !allSelected;
+      // Fire change so the regular handler updates the Set & buttons
+      cb.dispatchEvent(new Event('change'));
+  });
+}
+
+// Attach UI handlers after DOM is ready
+document.getElementById('selectAllBtn').addEventListener('click',toggleSelectAll);
+document.getElementById('reportBtn').addEventListener('click',()=>{
+  const ids = Array.from(selectedUris);
+  if(!ids.length){return;}
+  // Re-use the Auspex summary generator as a simple report for now
+  askAuspex(ids,null);
+});
 
 document.getElementById('searchIcon').addEventListener('click', runSearch);
 // Trigger search on Enter key inside input
@@ -1604,7 +1644,8 @@ function palette(n){
 let currentIndex=0;
 const loadMoreBtn=document.createElement('button');
 loadMoreBtn.textContent='Load more';
-loadMoreBtn.className='btn btn-outline-primary w-100 my-2';
+// Visually centre the button and keep a consistent width
+loadMoreBtn.className='btn btn-outline-primary my-3 d-block mx-auto';
 loadMoreBtn.style.display='none';
 loadMoreBtn.addEventListener('click',()=>renderNextPage());
 document.getElementById('results').after(loadMoreBtn);
