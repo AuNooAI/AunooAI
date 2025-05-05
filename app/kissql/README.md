@@ -1,6 +1,35 @@
 # KISSQL - Keep It Simple, Stupid Query Language
 
-KISSQL is a simple but powerful query language designed for searching and filtering articles in the AunooAI semantic vector store.
+## Language Overview
+
+KISSQL draws inspiration from search syntaxes such as Lucene and SQL **while deliberately staying lightweight and CLI-friendly**.  A query is composed of up to three ordered parts:
+
+1. **Free-text** – plain words and quoted phrases that are matched through vector or keyword search.  
+2. **Constraints** – structured filters written as simple expressions (`field = value`, `price > 10`, `has:tag`).  
+3. **Post-filters (pipe operators)** – result-trimming commands (`| HEAD 100`) that run _after_ ranking.
+
+The grammar is intentionally minimal:
+
+| Category        | Syntax examples                                    |
+|-----------------|----------------------------------------------------|
+| Logic           | `AND` `OR` `NOT`                                   |
+| Comparison      | `=` `!=` `>` `>=` `<` `<=`                         |
+| Range           | `field = 10..20`                                   |
+| Existence       | `has:field`                                        |
+| Set / In-list   | `in(a,b,c)`                                        |
+| Meta controls   | `sort:field:desc` &nbsp; `limit:50` `cluster=3`    |
+| Enhancement     | `^3` (boost) &nbsp; `"exact phrase"`              |
+| Pipe operators  | `| HEAD 100` &nbsp; `| TAIL 50` &nbsp; `| SAMPLE 5` |
+
+Parsing is whitespace-insensitive (except inside quotes).  Order of evaluation is:
+
+```
+text search  ➜  constraints  ➜  ranking  ➜  pipe operators
+```
+
+This keeps the mental model simple – pipes never influence scoring, they only trim the final ranked list.
+
+Below you will find full operator tables, meta controls and examples.
 
 ## ✅ Implemented Features
 
