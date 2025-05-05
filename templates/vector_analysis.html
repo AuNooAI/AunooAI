@@ -12,18 +12,20 @@
         margin-top: 1.5rem;
         /* keep sidebars fixed, results scroll inside */
         height: calc(100vh - 120px);
-        overflow: hidden;
+        overflow: auto; /* Changed from 'hidden' to 'auto' to allow scrolling */
     }
     .sidebar, .meta {
         background: var(--light-gray);
         padding: 1rem;
         border-radius: 8px;
         overflow-y: auto;
+        max-height: calc(100vh - 140px); /* Add max-height to ensure sidebar contents can scroll */
     }
     .main {
         display: flex;
         flex-direction: column;
-        overflow: hidden;
+        overflow: auto; /* Changed from 'hidden' to 'auto' */
+        max-height: calc(100vh - 140px); /* Ensure main content area has a max height */
     }
     #results {
         flex: 1;
@@ -103,6 +105,54 @@
         background: rgba(0,0,0,0.05);
         border-radius: 3px;
     }
+    /* Filter impact display */
+    .impact-box {
+        background-color: #f8f9fa;
+        border-radius: 4px;
+        padding: 8px 10px;
+        margin-bottom: 10px;
+        border: 1px solid #dee2e6;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        font-size: 0.9rem;
+    }
+    .impact-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+    .impact-badge.positive { 
+        background-color: #d1e7dd; 
+        color: #0a5132;
+    }
+    .impact-badge.negative { 
+        background-color: #f8d7da; 
+        color: #842029;
+    }
+    .impact-badge.neutral { 
+        background-color: #e2e3e5; 
+        color: #41464b;
+    }
+    .impact-details {
+        max-height: 150px;
+        overflow-y: auto;
+        margin-top: 8px;
+    }
+    /* Filter impact summary line */
+    .impact-summary {
+        background-color: #f0f0f0;
+        border-left: 3px solid #5a6268;
+        padding: 6px 8px;
+        margin-bottom: 8px;
+        font-weight: 500;
+    }
+    .impact-positive {
+        border-left-color: #28a745;
+    }
+    .impact-negative {
+        border-left-color: #dc3545;
+    }
     /* Make individual pattern cards scrollable */
     .pattern-card-body {
         max-height: 200px; /* Adjust height as needed */
@@ -123,6 +173,9 @@
     <div class="sidebar">
         <h5 class="mb-3 text-primary">Active Filters</h5>
         
+        <!-- Filter Impact Box - Highly visible -->
+        <div id="filterImpact" class="mb-4 border rounded bg-light shadow-sm"></div>
+        
         <!-- Dynamic Facets from search response -->
         <div id="facetList" class="mb-4 small"></div>
         
@@ -133,11 +186,35 @@
             <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value+=' category=&quot;AI Business&quot;'">
                 category="AI Business"
             </div>
-            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value+=' sentiment=positive'">
-                sentiment=positive
+            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value+=' sentiment=Positive'">
+                sentiment="Positive"
             </div>
             <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value+=' has:driver_type'">
                 has:driver_type
+            </div>
+        </div>
+        
+        <h6 class="mt-3 text-primary">Tested Examples</h6>
+        <div class="mb-3">
+            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value='AI AND category=&quot;AI Business&quot;'">
+                <code>AI AND category="AI Business"</code>
+                <small class="d-block text-muted">Find AI articles in business category</small>
+            </div>
+            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value='category=&quot;AI and Society&quot; NOT sentiment=&quot;Negative&quot; sort:publication_date:desc'">
+                <code>category="AI and Society" change NOT sentiment="Negative" sort:publication_date:desc</code>
+                <small class="d-block text-muted">Recent AI and Society articles excluding negative sentiment content</small>
+            </div>
+            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value='has:driver_type sentiment=Positive'">
+                <code>has:driver_type sentiment=Positive</code>
+                <small class="d-block text-muted">Positive articles with driver classification</small>
+            </div>
+            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value='&quot;artificial intelligence&quot; limit:50'">
+                <code>"artificial intelligence" limit:50</code>
+                <small class="d-block text-muted">Exact phrase with result limit</small>
+            </div>
+            <div class="mb-2 px-2 py-1 border rounded bg-white" style="cursor:pointer" onclick="document.getElementById('searchInput').value='topic=&quot;AI and Machine Learning&quot; AND future_signal=&quot;AI is Hype&quot;'">
+                <code>topic="AI and Machine Learning" AND future_signal="AI is Hype"</code>
+                <small class="d-block text-muted">Articles from the Topic AI and Machine Learning with future signal AI is Hype</small>
             </div>
         </div>
         
@@ -171,8 +248,13 @@
             <h6 class="text-primary mt-3">Enhancement</h6>
             <p class="mb-1">
               <code>^n</code> — boost term weight, e.g. <code>AI^3</code><br>
-              <code>"exact phrase"</code> — exact match, e.g. <code>"artificial intelligence"</code><br>
-              <code>"near phrase"~5</code> — proximity, e.g. <code>"climate change"~3</code>
+              <code>"exact phrase"</code> — exact match, e.g. <code>"artificial intelligence"</code>
+            </p>
+            <h6 class="text-primary mt-3">Example Queries</h6>
+            <p class="mb-1">
+              <code>AI AND category="AI Business" sentiment=Positive</code><br>
+              <code>AI NOT Google has:driver_type</code><br>
+              <code>"artificial intelligence" sort:publication_date:desc limit:50</code><br>
             </p>
           </div>
         </details>
@@ -187,6 +269,27 @@
                 <button id="askAuspexBtn" class="btn btn-sm btn-outline-primary" style="height:34px;padding:0 .5rem;display:flex;align-items:center;justify-content:center;" title="Ask Auspex"><i class="fas fa-comment-dots"></i></button>
             </div>
             <div id="activeFilters" class="mb-2"></div>
+            <!-- Sort controls -->
+            <div class="d-flex justify-content-end mb-2">
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="sortDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-sort me-1"></i> Sort
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="sortDropdown">
+                        <li><h6 class="dropdown-header">Sort by</h6></li>
+                        <li><button class="dropdown-item" onclick="applySortToSearch('publication_date', 'desc')">Date (newest first)</button></li>
+                        <li><button class="dropdown-item" onclick="applySortToSearch('publication_date', 'asc')">Date (oldest first)</button></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><button class="dropdown-item" onclick="applySortToSearch('sentiment')">Sentiment</button></li>
+                        <li><button class="dropdown-item" onclick="applySortToSearch('category')">Category</button></li>
+                        <li><button class="dropdown-item" onclick="applySortToSearch('news_source')">News Source</button></li>
+                        <li><button class="dropdown-item" onclick="applySortToSearch('future_signal')">Future Signal</button></li>
+                        <li><button class="dropdown-item" onclick="applySortToSearch('topic')">Topic</button></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><button class="dropdown-item" onclick="applySortToSearch('score', 'desc')">Relevance Score</button></li>
+                    </ul>
+                </div>
+            </div>
             <!-- Tabs -->
             <ul class="nav nav-tabs small mb-2" id="resultTabs" role="tablist">
               <li class="nav-item" role="presentation"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#eventsPane" type="button" role="tab">Data Points</button></li>
@@ -281,11 +384,24 @@ async function runSearch() {
     const raw = document.getElementById('searchInput').value;
     if (!raw) return;
 
-    let parsed=parseQuery(raw);
-    const metaExtra=extractMetaTokens(parsed);
-    parsed.cleaned=metaExtra.cleaned;
-    const metadata=parsed.metadata;
-    const extra=metaExtra.extra;
+    let parsed = parseQuery(raw);
+    const metaExtra = extractMetaTokens(parsed);
+    parsed.cleaned = metaExtra.cleaned;
+    const metadata = parsed.metadata;
+    const extra = metaExtra.extra;
+
+    // Also check URL parameters to apply filters from the URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlFilterFields = ['category', 'topic', 'sentiment', 'news_source', 'future_signal'];
+    
+    // Add URL parameters to metadata if they aren't already there
+    urlFilterFields.forEach(field => {
+        const urlValue = urlParams.get(field);
+        if (urlValue && !metadata[field]) {
+            metadata[field] = urlValue;
+            console.log(`Added filter from URL: ${field}="${urlValue}"`);
+        }
+    });
 
     // Determine result cap (topK) and pagination size
     let topK = 10000; // default 10000 (effectively unlimited)
@@ -310,56 +426,88 @@ async function runSearch() {
 
     let data;
 
-    // Keyword operator – runs full-text keyword search pathway
-    if(parsed.metadata.keyword){
-        const kw = parsed.metadata.keyword;
-        delete parsed.metadata.keyword; // do not forward as vector filter
+    try {
+        // Keyword operator – runs full-text keyword search pathway
+        if(parsed.metadata.keyword){
+            const kw = parsed.metadata.keyword;
+            delete parsed.metadata.keyword; // do not forward as vector filter
 
-        const params=new URLSearchParams({
-            keyword: kw,
-            per_page: topK, // Use topK for API limit
-            search_fields: 'title,summary,tags',
-        });
-        const res=await fetch(`/api/search_articles?${params.toString()}`);
-        const raw=await res.json();
-        const kwResults = raw.articles.map(a=>({id:a.uri,score:0,metadata:a}));
-        // Build facets and simple timeline (by category & date)
-        const facets = {};
-        const timeline = {};
-        kwResults.forEach(res=>{
-            const m=res.metadata;
-            ["topic","category","news_source","driver_type","sentiment"].forEach(f=>{
-                if(m[f]){
-                    facets[f]??={};
-                    facets[f][m[f]] = (facets[f][m[f]]||0)+1;
+            const params=new URLSearchParams({
+                keyword: kw,
+                per_page: topK, // Use topK for API limit
+                search_fields: 'title,summary,tags',
+            });
+            const res=await fetch(`/api/search_articles?${params.toString()}`);
+            const raw=await res.json();
+            const kwResults = raw.articles.map(a=>({id:a.uri,score:0,metadata:a}));
+            // Build facets and simple timeline (by category & date)
+            const facets = {};
+            const timeline = {};
+            kwResults.forEach(res=>{
+                const m=res.metadata;
+                ["topic","category","news_source","driver_type","sentiment"].forEach(f=>{
+                    if(m[f]){
+                        facets[f]??={};
+                        facets[f][m[f]] = (facets[f][m[f]]||0)+1;
+                    }
+                });
+                if(m.publication_date){
+                    const d=new Date(m.publication_date).toISOString().split('T')[0];
+                    const cat=m.category||'Uncategorized';
+                    timeline[cat]??={};
+                    timeline[cat][d]=(timeline[cat][d]||0)+1;
                 }
             });
-            if(m.publication_date){
-                const d=new Date(m.publication_date).toISOString().split('T')[0];
-                const cat=m.category||'Uncategorized';
-                timeline[cat]??={};
-                timeline[cat][d]=(timeline[cat][d]||0)+1;
+            data={results:kwResults,facets,timeline};
+        }else{
+            // Preserve the full original query for KISSQL processing
+            const params = new URLSearchParams({ q: raw, top_k: topK }); // Use raw query for KISSQL 
+            
+            // Add any parameters from metadata
+            Object.entries(metadata).forEach(([k, v]) => params.append(k, v));
+            
+            // Add cluster parameter if present
+            if (extra.cluster !== undefined) {
+                params.append('cluster', extra.cluster);
             }
-        });
-        data={results:kwResults,facets,timeline};
-    }else{
-        const params = new URLSearchParams({ q: parsed.cleaned, top_k: topK }); // Use topK for API limit
-        if(extra.sort){params.append('sort',extra.sort.join(':'));}
-        if (extra.cluster !== undefined) { params.append('cluster', extra.cluster); }
-        Object.entries(metadata).forEach(([k,v])=>params.append(k, v));
-        const res = await fetch(`/api/vector-search?${params.toString()}`);
-        data = await res.json();
+            
+            const res = await fetch(`/api/vector-search?${params.toString()}`);
+            data = await res.json();
+            console.log("Received data from API:", data); // Debug: Log received data
+        }
+        
+        currentIndex=0;
+        lastResults=data.results;
+        selectedUris.clear();
+        updateActionButtons();
+        renderNextPage();
+        const facets=data.facets || {};
+        renderFacets(facets);
+        
+        // Display filter impact if available
+        if (data.comparison) {
+            console.log("Rendering filter impact:", data.comparison); // Debug: Log comparison data
+            renderFilterImpact(data.comparison, data.filtered_facets || {});
+        } else {
+            console.log("No comparison data received"); // Debug: Log missing comparison
+            // Still show a placeholder impact message
+            const impactContainer = document.getElementById('filterImpact');
+            if (impactContainer) {
+                impactContainer.innerHTML = `<div class="impact-box">
+                    <div class="text-center text-muted small">
+                        <i class="fas fa-filter me-1"></i> No filter impact data available
+                    </div>
+                </div>`;
+            }
+        }
+        
+        updateAttrSuggestions(facets);
+        renderTimeline(data.timeline || {});
+        updateActiveChips();
+    } catch (error) {
+        console.error("Search error:", error);
+        alert("An error occurred during search. Please try again.");
     }
-    currentIndex=0;
-    lastResults=data.results;
-    selectedUris.clear();
-    updateActionButtons();
-    renderNextPage();
-    const facets=data.facets || {};
-    renderFacets(facets);
-    updateAttrSuggestions(facets);
-    renderTimeline(data.timeline || {});
-    updateActiveChips();
 }
 
 function renderResults(results, reset=false) {
@@ -390,12 +538,14 @@ function renderResults(results, reset=false) {
         const summary = (r.metadata.summary || '').slice(0, 160);
         const cat = r.metadata.category ? `Category: ${r.metadata.category}` : '';
         const topic = r.metadata.topic ? `Topic: ${r.metadata.topic}` : '';
+        const driver = r.metadata.driver_type ? `Driver: ${r.metadata.driver_type}` : '';
         const pub = r.metadata.publication_date ? new Date(r.metadata.publication_date).toISOString().split('T')[0] : '';
 
         body.innerHTML = `<h6 class="ms-4">${link}</h6>
             <p class='mb-1 ms-4'><small>${pub} · ${r.metadata.news_source || ''}</small></p>
             <p class='mb-1 text-muted small ms-4'>${summary}</p>
             <p class='mb-1 ms-4'><small>${cat}${cat && topic ? ' · ' : ''}${topic}</small></p>
+            <p class='mb-1 ms-4'><small>${driver}</small></p>
             <p class='mb-1 ms-4'><small>Score: ${r.score.toFixed(3)}</small></p>
             <div class='d-flex gap-1 ms-4 mb-1'>
               <button class="btn icon-btn view-db" data-uri="${r.id}" title="View / edit"><i class="fas fa-eye"></i></button>
@@ -455,16 +605,23 @@ function renderFacets(facets) {
         a.addEventListener('click', (evt) => {
             evt.preventDefault();
             const { field, value } = a.dataset;
-            const input=document.getElementById('searchInput');
-            const simple=`${field}="${value}"`;
-            const legacy=`filter(${field}="${value}")`;
-            if(input.value.includes(simple)){
-                input.value=input.value.replace(simple,'').trim();
-            }else if(input.value.includes(legacy)){
-                input.value=input.value.replace(legacy,'').trim();
-            }else{
-                input.value=`${input.value} ${simple}`.trim();
+            const input = document.getElementById('searchInput');
+            
+            // Create proper filter token ensuring quotes are used correctly
+            const cleanValue = value.replace(/["']/g, ''); // Remove any quotes
+            const simple = `${field}="${cleanValue}"`;
+            const legacy = `filter(${field}="${cleanValue}")`;
+            
+            // Check if this filter is already present
+            if (input.value.includes(simple)) {
+                input.value = input.value.replace(simple, '').trim();
+            } else if (input.value.includes(legacy)) {
+                input.value = input.value.replace(legacy, '').trim();
+            } else {
+                input.value = `${input.value} ${simple}`.trim();
             }
+            
+            console.log(`Added filter: ${field}="${cleanValue}"`);
             runSearch();
         });
     });
@@ -524,7 +681,7 @@ function renderMetadata(meta){
         if(k==='uri' || k==='url'){
             val = `<a href="${v}" target="_blank">link</a>`;
         }
-        if(['topic','category','news_source','sentiment'].includes(k)){
+        if(['topic','category','news_source','sentiment','driver_type'].includes(k)){
             val = `<a href="#" class="meta-filter" data-field="${k}" data-val="${v}">${v}</a>`;
         }
         return `<tr><th class='text-end pe-2'>${k}</th><td>${val ?? ''}</td></tr>`;
@@ -580,6 +737,9 @@ function parseQuery(q){
     const filterRegex = /filter\(([^)]+)\)/g;
     let cleaned=q;
     let m;
+    
+    console.log("Parsing query:", q);
+    
     while((m=filterRegex.exec(q))!==null){
         cleaned=cleaned.replace(m[0],'').trim();
         const inner=m[1];
@@ -588,8 +748,10 @@ function parseQuery(q){
         let p;
         while((p=pairRe.exec(inner))!==null){
             metadata[p[1]]=p[2];
+            console.log("Found filter (legacy format):", p[1], "=", p[2]);
         }
     }
+    
     // ---------------------------------------------------
     // Natural-language operator synonyms → symbolic form
     // Ex: "status equal active" → "status = active"
@@ -598,6 +760,7 @@ function parseQuery(q){
     cleaned = cleaned
         .replace(/(\b\w+)\s+not\s+equal(?:s)?\b/gi, '$1 !=')
         .replace(/(\b\w+)\s+(?:equals?|equal|is|compare)\b/gi, '$1 =');
+    
     // ----------------------------------------------
     // 2. Simple attribute operators (field op value)
     // ----------------------------------------------
@@ -605,19 +768,24 @@ function parseQuery(q){
     // We only forward equality to the backend for now – others stay in *cleaned* for full-text search / future use.
     // Copy of the query to safely scan attribute tokens without mutating in-place
     const scan = cleaned;
-    const attrRe = /(\b\w+)\s*(=|!=|>=|<=|>|<)\s*("[^"]+"|[^\s]+)/g;
+    // Fix: Improved regex to properly handle quoted values and prevent trailing quotes
+    const attrRe = /(\b\w+)\s*(=|!=|>=|<=|>|<)\s*(?:"([^"]*)"|([^\s"]+))/g;
     let match;
+    
     while((match = attrRe.exec(scan)) !== null){
-        const [full, field, op, rawVal] = match;
-        let val = rawVal;
-        if(val.startsWith('"') && val.endsWith('"')){
-            val = val.slice(1,-1);
-        }
+        const [full, field, op, quotedVal, unquotedVal] = match;
+        // Use the quoted value if it exists, otherwise use the unquoted value
+        const val = quotedVal !== undefined ? quotedVal : unquotedVal;
+        
         if(op === '='){
             metadata[field] = val;
             cleaned = cleaned.replace(full,'').trim();
+            console.log("Found filter:", field, "=", val);
         }
     }
+    
+    console.log("Extracted metadata:", metadata);
+    
     // cluster:n or cluster=n
     cleaned=cleaned.replace(/\bcluster(?:=|:)(\d+)\b/i,(m,n)=>{extra.cluster=parseInt(n);return '';});
     return {cleaned, metadata};
@@ -625,15 +793,35 @@ function parseQuery(q){
 
 // Helper to extract limit & sort tokens; augment parseQuery externally
 function extractMetaTokens(qObj){
-  const extra={};
-  let {cleaned}=qObj;
+  const extra = {};
+  let {cleaned} = qObj;
+  
+  console.log("Extracting meta tokens from:", cleaned);
+  
   // limit:n
-  cleaned=cleaned.replace(/\blimit:(\d+)\b/i,(m,n)=>{extra.limit=parseInt(n);return '';});
+  cleaned = cleaned.replace(/\blimit:(\d+)\b/i, (m, n) => {
+    extra.limit = parseInt(n);
+    console.log("Found limit token:", n);
+    return '';
+  });
+  
   // sort:field[:dir]
-  cleaned=cleaned.replace(/\bsort:([\w_]+)(?::(asc|desc))?/i,(m,f,d)=>{extra.sort=[f,d||'asc'];return ''});
+  cleaned = cleaned.replace(/\bsort:([\w_]+)(?::(asc|desc))?/i, (m, f, d) => {
+    extra.sort = [f, d || 'asc'];
+    console.log("Found sort token:", f, d || 'asc');
+    return '';
+  });
+  
   // cluster:n or cluster=n
-  cleaned=cleaned.replace(/\bcluster(?:=|:)(\d+)\b/i,(m,n)=>{extra.cluster=parseInt(n);return '';});
-  return {cleaned:cleaned.trim(), extra};
+  cleaned = cleaned.replace(/\bcluster(?:=|:)(\d+)\b/i, (m, n) => {
+    extra.cluster = parseInt(n);
+    console.log("Found cluster token:", n);
+    return '';
+  });
+  
+  console.log("Extracted meta tokens:", extra);
+  
+  return {cleaned: cleaned.trim(), extra};
 }
 
 function updateActiveChips() {
@@ -641,6 +829,28 @@ function updateActiveChips() {
     const { metadata } = parseQuery(document.getElementById('searchInput').value);
     container.innerHTML = '';
 
+    // Get URL search params to detect filters added via URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlFilterFields = ['category', 'topic', 'sentiment', 'news_source', 'future_signal'];
+    
+    // Check for sort controls in the search input
+    const sortMatch = document.getElementById('searchInput').value.match(/sort:(\w+)(?::(\w+))?/);
+    if (sortMatch) {
+        const sortField = sortMatch[1];
+        const sortDir = sortMatch[2] || 'asc';
+        const sortChip = document.createElement('span');
+        sortChip.className = 'badge bg-secondary me-1';
+        sortChip.style.cursor = 'pointer';
+        sortChip.innerHTML = `<i class="fas fa-sort-amount-${sortDir === 'asc' ? 'up' : 'down'}"></i> ${sortField} ×`;
+        sortChip.addEventListener('click', () => {
+            const input = document.getElementById('searchInput');
+            input.value = input.value.replace(sortMatch[0], '').trim();
+            runSearch();
+        });
+        container.appendChild(sortChip);
+    }
+
+    // Add chips for metadata from the query input
     Object.entries(metadata).forEach(([field, value]) => {
         const chip = document.createElement('span');
         chip.className = 'badge bg-primary me-1';
@@ -648,14 +858,50 @@ function updateActiveChips() {
         chip.textContent = `${field}: ${value} ×`;
         chip.addEventListener('click', () => {
             const raw = document.getElementById('searchInput').value;
-            let updated = raw.replace(`filter(${field}="${value}")`,'');
-            updated = updated.replace(`${field}="${value}"`, '').replace(`${field}=${value}`,'');
+            // Carefully remove filter tokens
+            const quotedPattern = `${field}="${value}"`;
+            const unquotedPattern = `${field}=${value}`;
+            const legacyPattern = `filter(${field}="${value}")`;
+            
+            let updated = raw;
+            if (raw.includes(quotedPattern)) {
+                updated = updated.replace(quotedPattern, '');
+            } else if (raw.includes(unquotedPattern)) {
+                updated = updated.replace(unquotedPattern, '');
+            } else if (raw.includes(legacyPattern)) {
+                updated = updated.replace(legacyPattern, '');
+            }
+            
             document.getElementById('searchInput').value = updated.trim();
             runSearch();
         });
         container.appendChild(chip);
     });
-    if (!Object.keys(metadata).length) {
+    
+    // Add chips for URL parameters that aren't already shown
+    urlFilterFields.forEach(field => {
+        const urlValue = urlParams.get(field);
+        if (urlValue && !metadata[field]) {
+            const chip = document.createElement('span');
+            chip.className = 'badge bg-info me-1';
+            chip.style.cursor = 'pointer';
+            chip.textContent = `${field}: ${urlValue} ×`;
+            chip.addEventListener('click', () => {
+                // Remove from URL and refresh
+                urlParams.delete(field);
+                window.location.search = urlParams.toString();
+            });
+            container.appendChild(chip);
+            
+            // Also add to the search input if not already there
+            const input = document.getElementById('searchInput');
+            if (!input.value.includes(`${field}=`) && !input.value.includes(`${field}"`)) {
+                input.value = `${input.value} ${field}="${urlValue}"`.trim();
+            }
+        }
+    });
+    
+    if (container.childNodes.length === 0) {
         container.innerHTML = '<small class="text-muted">No filters applied</small>';
     }
 }
@@ -1201,13 +1447,23 @@ updateAttrSuggestions({});
 function updateAttrSuggestions(facets){
   const seen=new Set();
   const addVal=v=>{if(!seen.has(v)){seen.add(v);} };
+  
+  // Add basic operators and field names
   ['keyword=','topic=','category=','sentiment=','driver_type=','future_signal=',
    'news_source=','has:','similar:','cluster=',
    'sort:','limit:','AND','OR','NOT',
    '^','!=','>=','<=','>','<'].forEach(addVal);
+  
+  // Add properly formatted facet values with quotes
   Object.entries(facets||{}).forEach(([field,vals])=>{
-    Object.keys(vals).slice(0,50).forEach(val=>addVal(`${field}="${val}"`));
+    Object.keys(vals).slice(0,50).forEach(val => {
+      // Ensure values with spaces are properly quoted
+      const cleanVal = val.trim().replace(/["']/g, ''); // Remove any existing quotes
+      const formattedToken = `${field}="${cleanVal}"`;
+      addVal(formattedToken);
+    });
   });
+  
   awesomplete.list=[...seen];
 }
 
@@ -1477,6 +1733,165 @@ async function fetchNewsFacts() {
        console.error('Error fetching news facts:', err);
    }
 }
-document.addEventListener('DOMContentLoaded', fetchNewsFacts);
+
+// Initialize page elements
+function initializePageElements() {
+    // Set up filter impact box with initial placeholder
+    const impactContainer = document.getElementById('filterImpact');
+    if (impactContainer) {
+        impactContainer.innerHTML = `<div class="impact-box">
+            <div class="text-center text-muted small">
+                <i class="fas fa-filter me-1"></i> Run a search to see filter impact
+            </div>
+        </div>`;
+    }
+    
+    // Check if URL has any search parameters that should trigger a search
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlFilterFields = ['category', 'topic', 'sentiment', 'news_source', 'future_signal', 'q'];
+    const hasSearchParams = urlFilterFields.some(field => urlParams.has(field));
+    
+    if (hasSearchParams) {
+        console.log('Found search parameters in URL, running initial search');
+        
+        // If q parameter exists, set it as the search input
+        if (urlParams.has('q')) {
+            document.getElementById('searchInput').value = urlParams.get('q');
+        }
+        
+        // Add filter tokens to search input for each filter parameter
+        urlFilterFields.filter(f => f !== 'q').forEach(field => {
+            if (urlParams.has(field)) {
+                const value = urlParams.get(field);
+                const input = document.getElementById('searchInput');
+                if (!input.value.includes(`${field}=`) && !input.value.includes(`${field}"`)) {
+                    input.value = `${input.value} ${field}="${value}"`.trim();
+                }
+            }
+        });
+        
+        // Run search with the constructed input
+        setTimeout(() => runSearch(), 100); // Small delay to ensure DOM is ready
+    }
+}
+
+// Initialize everything when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    fetchNewsFacts();
+    initializePageElements();
+    
+    // Add event handler to check for sort state on page load
+    const input = document.getElementById('searchInput');
+    const sortMatch = input.value.match(/\bsort:([\w_]+)(?::(?:asc|desc))?\b/i);
+    if (sortMatch) {
+        const field = sortMatch[1];
+        const direction = sortMatch[0].includes(':asc') ? 'asc' : 
+                          sortMatch[0].includes(':desc') ? 'desc' : 'asc';
+        
+        // Update the sort dropdown to show active sort
+        const sortDropdown = document.getElementById('sortDropdown');
+        if (sortDropdown) {
+            sortDropdown.classList.add('active');
+            const iconClass = direction === 'asc' ? 'fa-sort-amount-up' : 'fa-sort-amount-down';
+            sortDropdown.innerHTML = `<i class="fas ${iconClass} me-1"></i> ${field}`;
+        }
+    }
+});
+
+// Add this after the renderFacets function
+function renderFilterImpact(comparison, filteredFacets) {
+    // Get impact box (it's now a permanent element in the DOM)
+    const impactContainer = document.getElementById('filterImpact');
+    
+    const totalBefore = comparison.total_before;
+    const totalAfter = comparison.total_after;
+    const percentRetained = totalBefore ? Math.round((totalAfter / totalBefore) * 100) : 0;
+    
+    // Determine impact class based on percentage retained
+    const impactClass = percentRetained > 75 ? 'impact-positive' : 
+                       percentRetained < 25 ? 'impact-negative' : '';
+    
+    // Build the impact header
+    let impactHtml = `<div class="impact-box">
+        <div class="impact-summary ${impactClass}">
+            Filter Impact: ${totalAfter} of ${totalBefore} results (${percentRetained}%)
+        </div>`;
+    
+    // Add detailed impact info (always visible now)
+    impactHtml += `<div class="impact-details">`;
+    
+    // For each facet type, show the top impacted values
+    Object.entries(comparison.facet_impact).forEach(([field, values]) => {
+        const sortedImpacts = Object.entries(values)
+            .sort((a, b) => Math.abs(b[1].diff) - Math.abs(a[1].diff))
+            .slice(0, 5); // Show top 5 most impacted values
+        
+        if (sortedImpacts.length > 0) {
+            impactHtml += `<div class="mb-2"><strong>${field}</strong>: `;
+            sortedImpacts.forEach(([value, impact]) => {
+                const diffClass = impact.diff === 0 ? 'neutral' : 
+                                 impact.diff > 0 ? 'positive' : 'negative';
+                const diffText = impact.diff === 0 ? '0' : 
+                                impact.diff > 0 ? `+${impact.diff}` : impact.diff;
+                
+                impactHtml += `<span class="me-2">${value} <span class="impact-badge ${diffClass}">${diffText}</span></span>`;
+            });
+            impactHtml += `</div>`;
+        }
+    });
+    
+    impactHtml += `</div></div>`;
+    impactContainer.innerHTML = impactHtml;
+}
+
+// Add a helper function to apply sorts
+function applySortToSearch(field, dir) {
+    const input = document.getElementById('searchInput');
+    
+    // Check if we're already sorting by this field
+    const currentSortMatch = input.value.match(
+        new RegExp(`\\bsort:${field}(?::(?:asc|desc))?\\b`, 'i')
+    );
+    
+    if (currentSortMatch) {
+        // We're already sorting by this field, toggle direction if not specified
+        if (!dir) {
+            const currentSort = currentSortMatch[0];
+            // Check if a direction is specified
+            if (currentSort.includes(':asc')) {
+                dir = 'desc';
+            } else if (currentSort.includes(':desc')) {
+                dir = 'asc';
+            } else {
+                // Default was asc, switch to desc
+                dir = 'desc';
+            }
+        }
+        
+        // Remove the current sort token
+        input.value = input.value.replace(currentSortMatch[0], '').trim();
+    } else {
+        // Remove any existing sort tokens for other fields
+        input.value = input.value.replace(/\bsort:[\w_]+(?::(?:asc|desc))?\b/i, '').trim();
+    }
+    
+    // Use the specified direction or default to asc
+    const direction = dir || 'asc';
+    
+    // Add the new sort token
+    const sortToken = `sort:${field}:${direction}`;
+    input.value = `${input.value} ${sortToken}`.trim();
+    
+    // Run the search with the updated sort
+    runSearch();
+    
+    // Add a visual indicator that sorting has been applied
+    const sortDropdown = document.getElementById('sortDropdown');
+    sortDropdown.classList.add('active');
+    
+    // Update dropdown text to show active sort
+    const iconClass = direction === 'asc' ? 'fa-sort-amount-up' : 'fa-sort-amount-down';
+    sortDropdown.innerHTML = `<i class="fas ${iconClass} me-1"></i> ${field}`;
+}
 </script>
 {% endblock %} 

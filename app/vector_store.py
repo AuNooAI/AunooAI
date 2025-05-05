@@ -110,10 +110,11 @@ def _get_collection() -> chromadb.Collection:
         col = client.get_collection(name=_COLLECTION_NAME)
         # If the collection was created earlier without an embedder, attach one
         # dynamically so we no longer need to supply embeddings manually.
-        if col._embedding_function is None:  # type: ignore[attr-defined]
+        if col._embedding_function is None:  # type: ignore
             emb_fn = _get_embedding_function()
             if emb_fn is not None:
-                col.add_embedding_function(emb_fn)  # type: ignore[attr-defined]
+                # Cast to any to satisfy type checker - this is a valid ChromaDB operation
+                col.add_embedding_function(emb_fn)  # type: ignore
         return col
     except (ValueError, ChromaNotFoundError):  # Collection absent → create
         return client.create_collection(
@@ -132,14 +133,33 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
     vectors so the pipeline still works in dev scenarios without an embedding
     provider.
     """
+    # Ensure all texts are strings to prevent OpenAI API errors
+    texts = [str(text) for text in texts if text is not None]
+    
+    # Handle empty texts list
+    if not texts:
+        import numpy as np
+        logger.warning("Empty texts list passed to _embed_texts")
+        return np.random.rand(1, 1536).tolist()  # Return single random vector
+    
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key and openai:
         try:
+            # Log the texts being embedded for debugging
+            logger.debug("Embedding %d texts, first text (truncated): %s", 
+                        len(texts), 
+                        texts[0][:50] if texts else "")
+            
             if hasattr(openai, "OpenAI"):  # Official >=1.0 client
                 client = openai.OpenAI(api_key=api_key)  # type: ignore
+                
+                # Explicitly clean the input for the API
+                cleaned_texts = [text.strip() for text in texts]
+                
+                logger.debug("Calling OpenAI embedding API with %d texts", len(cleaned_texts))
                 resp = client.embeddings.create(
                     model="text-embedding-3-small",
-                    input=texts,
+                    input=cleaned_texts,
                 )
                 data = resp.data  # type: ignore[attr-defined]
             else:  # Legacy 0.x SDK
@@ -293,6 +313,7 @@ def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
         "tags": article.get("tags"),
         "summary": article.get("summary"),
         "uri": article.get("uri"),
+        "driver_type": article.get("driver_type"),
     }
     # Remove keys whose value is ``None`` – Chroma only accepts str, int, float bool.
     return {k: v for k, v in meta.items() if v is not None}
@@ -307,8 +328,43 @@ def search_articles(
 
     Returns a list of dictionaries with ``id``, ``score`` and ``metadata``.
     """
+    logger.info(
+        "Vector search called with query: '%s', top_k: %d, metadata_filter: %s",
+        query, top_k, metadata_filter
+    )
+    
     try:
         collection = _get_collection()
+        
+        # If we have filters, check what actual values exist in the database first
+        # This will help us construct an accurate filter
+        if metadata_filter:
+            # Inspect existing values for each filter field
+            for field in metadata_filter:
+                try:
+                    # Get distinct values for this field
+                    logger.info("Checking values for field: %s", field)
+                    # Get a sample of data to check actual field values
+                    sample = collection.get(limit=1000, include=["metadatas"])
+                    if not sample.get("metadatas"):
+                        logger.warning("No sample data found for field inspection")
+                        continue
+                        
+                    # Collect all values that exist for this field
+                    field_values = set()
+                    for meta in sample["metadatas"]:
+                        if field in meta and meta[field]:
+                            field_values.add(meta[field])
+                    
+                    if field_values:
+                        logger.info(
+                            "Field '%s' has %d unique values in DB: %s", 
+                            field, len(field_values), 
+                            list(field_values)[:20] if len(field_values) > 20 
+                            else list(field_values)
+                        )
+                except Exception as e:
+                    logger.error("Error inspecting field values: %s", e)
 
         # Build query kwargs dynamically to avoid passing an *empty* ``where``
         # dict – newer Chroma versions treat an empty filter as invalid and
@@ -318,11 +374,46 @@ def search_articles(
             "include": ["metadatas", "distances"],
         }
         if metadata_filter:
-            query_kwargs["where"] = (
-                metadata_filter
-                if len(metadata_filter) == 1
-                else {"$and": [{k: v} for k, v in metadata_filter.items()]}
-            )
+            # Log the incoming filter for debugging
+            logger.info("Processing metadata filter: %s", metadata_filter)
+            
+            # Special case handling for common values with known variants
+            processed_filter = {}
+            for k, v in metadata_filter.items():
+                # Exact value for most fields
+                processed_value = v
+                
+                # Special cases for known problematic values
+                if k.lower() == "category" and isinstance(v, str):
+                    v_lower = v.lower()
+                    # Handle common category variants
+                    if "ai business" in v_lower:
+                        processed_value = "AI Business"
+                    elif "ai at work" in v_lower or "ai and employment" in v_lower:
+                        processed_value = "AI at Work and Employment"
+                    elif "ai society" in v_lower:
+                        processed_value = "AI and Society"
+                    elif "ai trust" in v_lower or "risk" in v_lower:
+                        processed_value = "AI Trust, Risk, and Security Management"
+                    elif "data center" in v_lower:
+                        processed_value = "AI in the Data Center"
+                
+                processed_filter[k] = processed_value
+                
+                # Log if we changed the value
+                if processed_value != v:
+                    logger.info(
+                        "Normalized filter value for %s: '%s' -> '%s'", 
+                        k, v, processed_value
+                    )
+            
+            # Use the processed filters
+            query_kwargs["where"] = processed_filter
+            
+            # Log the actual where filter after processing
+            logger.info("Using Chroma where clause: %s", query_kwargs["where"])
+        else:
+            logger.info("No metadata filter applied")
 
         try:
             embeds = _embed_texts([query])
