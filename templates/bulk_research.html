@@ -106,10 +106,11 @@
     }
 </style>
 <h1>Bulk Research</h1>
-<script type="text/javascript">
-    var PREFILLED_URLS = {{ prefilled_urls|tojson|safe if prefilled_urls else 'null' }};
-    var SELECTED_TOPIC = {{ selected_topic|tojson|safe if selected_topic else 'null' }};
-</script>
+<!-- Hidden container storing initial data to avoid Jinja inside <script> -->
+<div id="bulkResearchData"
+     data-prefilled-urls='{{ prefilled_urls|tojson|safe if prefilled_urls else "null" }}'
+     data-selected-topic='{{ selected_topic|tojson|safe if selected_topic else "null" }}'
+     style="display:none;"></div>
 <form id="bulkResearchForm" enctype="multipart/form-data">
     <!-- Add Topic Selection -->
     <div class="mb-3">
@@ -177,97 +178,12 @@
 <!-- Add this results container -->
 <!-- <div id="results" class="mt-4"></div> -->
 
+<!-- Progress counter (updated dynamically) -->
+<div id="progressCounter" class="fw-bold my-3" style="display:none;"></div>
 <!-- Results table -->
 <div id="resultsTable" class="mt-4" style="display: none;">
     <h2>Analysis Results</h2>
-    <div id="resultsBody">
-        <!-- Example of a single article layout -->
-        <div class="article-entry">
-            <div class="row">
-                <div class="col">
-                    <label for="newsSource">News Source</label>
-                    <input type="text" id="newsSource" class="form-control" value="404media">
-                </div>
-                <div class="col">
-                    <label for="pubDate">Pub. Date</label>
-                    <input type="date" id="pubDate" class="form-control" value="2024-06-11">
-                </div>
-                <div class="col">
-                    <label for="subDate">Sub. Date</label>
-                    <input type="date" id="subDate" class="form-control" value="2024-06-11">
-                </div>
-            </div>
-            <div class="row">
-                <div class="col">
-                    <label for="title">Title</label>
-                    <input type="text" id="title" class="form-control" value="Northwell">
-                </div>
-            </div>
-            <div class="row">
-                <div class="col">
-                    <label for="summary">Summary</label>
-                    <textarea id="summary" class="form-control">Summary text here...</textarea>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col">
-                    <label for="category">Category</label>
-                    <select id="category" class="form-select">
-                        <!-- Options will be populated dynamically -->
-                    </select>
-                </div>
-                <div class="col">
-                    <label for="timeToImpact">Time to Impact</label>
-                    <select id="timeToImpact" class="form-select">
-                        <option value="Immediate">Immediate</option>
-                        <option value="Short-term">Short-term</option>
-                        <option value="Mid-term">Mid-term</option>
-                        <option value="Long-term">Long-term</option>
-                    </select>
-                </div>
-                <div class="col">
-                    <label for="timeToImpactExplanation">Time to Impact Explanation</label>
-                    <textarea id="timeToImpactExplanation" class="form-control">Explanation text here...</textarea>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col">
-                    <label for="sentiment">Sentiment</label>
-                    <input type="text" id="sentiment" class="form-control" value="Positive">
-                </div>
-                <div class="col">
-                    <label for="sentimentExplanation">Sentiment Explanation</label>
-                    <textarea id="sentimentExplanation" class="form-control">Explanation text here...</textarea>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col">
-                    <label for="futureSignal">Future Signal</label>
-                    <input type="text" id="futureSignal" class="form-control" value="AI will accelerate">
-                </div>
-                <div class="col">
-                    <label for="futureSignalExplanation">Future Signal Explanation</label>
-                    <textarea id="futureSignalExplanation" class="form-control">Explanation text here...</textarea>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col">
-                    <label for="driverType">Driver Type</label>
-                    <input type="text" id="driverType" class="form-control" value="Accelerator">
-                </div>
-                <div class="col">
-                    <label for="driverTypeExplanation">Driver Type Explanation</label>
-                    <textarea id="driverTypeExplanation" class="form-control">Explanation text here...</textarea>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col">
-                    <label for="url">URL</label>
-                    <input type="text" id="url" class="form-control" value="http://example.com">
-                </div>
-            </div>
-        </div>
-    </div>
+    <div id="resultsBody"></div>
     <button id="saveAllButton" class="btn btn-primary mt-3">Save All Articles</button>
 </div>
 
@@ -277,6 +193,14 @@
 
 
 document.addEventListener('DOMContentLoaded', function() {
+    const dataDiv = document.getElementById('bulkResearchData');
+    const PREFILLED_URLS = dataDiv?.dataset.prefilledUrls && dataDiv.dataset.prefilledUrls !== 'null'
+        ? JSON.parse(dataDiv.dataset.prefilledUrls)
+        : null;
+    const SELECTED_TOPIC = dataDiv?.dataset.selectedTopic && dataDiv.dataset.selectedTopic !== 'null'
+        ? JSON.parse(dataDiv.dataset.selectedTopic)
+        : null;
+
     const urlList = document.getElementById('urlList');
     if (PREFILLED_URLS) {
         urlList.value = PREFILLED_URLS;
@@ -295,7 +219,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadTopics();
     loadAvailableModels();
     setUpCustomFields();
-    document.getElementById('bulkResearchForm').addEventListener('submit', handleFormSubmit);
+    document.getElementById('bulkResearchForm').addEventListener('submit', handleBulkResearchSubmit);
     document.getElementById('saveAllButton').addEventListener('click', saveAllArticles);
 });
 
@@ -346,75 +270,74 @@ function setUpCustomFields() {
     });
 }
 
-// Add this helper function near other utility functions
 function removeProcessingIndicator() {
     const indicator = document.getElementById('processingIndicator');
     if (indicator) indicator.remove();
 }
 
 async function analyzeBulkUrls(requestData) {
-    try {
-        console.log('Sending request data:', requestData);
-        const response = await fetch('/api/bulk-research', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(requestData)
-        });
+    const results = [];
+    let firstChunkReceived = false;
+    const response = await fetch('/api/bulk-research-stream', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/x-ndjson'
+        },
+        body: JSON.stringify(requestData)
+    });
 
-        console.log('Response status:', response.status);
-        console.log('Response headers:', Object.fromEntries(response.headers));
-
-        const responseText = await response.text();
-        console.log('Raw response text:', responseText);
-
-        let data;
-        try {
-            data = JSON.parse(responseText);
-            console.log('Parsed response data:', data);
-        } catch (error) {
-            console.error('JSON parse error:', error);
-            // Remove processing indicator on JSON parse error
-            removeProcessingIndicator();
-            throw new Error(`Failed to parse response: ${responseText.substring(0, 100)}...`);
-        }
-
-        if (!response.ok) {
-            console.error('Response not OK:', data);
-            // Remove processing indicator on unsuccessful response
-            removeProcessingIndicator();
-            throw new Error(data.error || `Server error: ${response.status}`);
-        }
-
-        if (!data || typeof data !== 'object') {
-            console.error('Invalid response data type:', typeof data);
-            // Remove processing indicator on invalid data
-            removeProcessingIndicator();
-            throw new Error('Server returned invalid data type');
-        }
-
-        // Check if data is an array (direct results) or has a results property
-        const results = Array.isArray(data) ? data : data.results;
-        
-        if (!results) {
-            console.error('No results found in response:', data);
-            // Remove processing indicator when no results are found
-            removeProcessingIndicator();
-            throw new Error('Server returned no results array');
-        }
-
-        return results;
-    } catch (error) {
-        console.error('Error in analyzeBulkUrls:', error);
-        // Remove processing indicator on any caught error
-        removeProcessingIndicator();
-        throw error;
+    if (!response.ok || !response.body) {
+        throw new Error(`Server error: ${response.status}`);
     }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete line
+        for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+                const obj = JSON.parse(line);
+                results.push(obj);
+                // Incrementally render row in table
+                displayResultsTable([obj]);
+
+                if (!firstChunkReceived) {
+                    removeProcessingIndicator();
+                    firstChunkReceived = true;
+                }
+            } catch (e) {
+                console.error('Failed to parse NDJSON line', line, e);
+            }
+        }
+    }
+
+    // Render any remaining buffer
+    if (buffer.trim()) {
+        try {
+            const obj = JSON.parse(buffer);
+            results.push(obj);
+            displayResultsTable([obj]);
+            if (!firstChunkReceived) {
+                removeProcessingIndicator();
+                firstChunkReceived = true;
+            }
+        } catch (e) {
+            console.error('Failed to parse last NDJSON fragment', buffer, e);
+        }
+    }
+
+    return results;
 }
 
-async function handleFormSubmit(event) {
+async function handleBulkResearchSubmit(event) {
     event.preventDefault();
     const submitButton = document.querySelector('button[type="submit"]');
     const resultsContainer = document.getElementById('results');
@@ -444,6 +367,9 @@ async function handleFormSubmit(event) {
         }
         
         if (resultsTable) {
+            // Clear previous rows (including static example) and hide
+            const body = document.getElementById('resultsBody');
+            if (body) body.innerHTML = '';
             resultsTable.style.display = 'none';
         }
 
@@ -478,6 +404,14 @@ async function handleFormSubmit(event) {
             throw new Error('Too many URLs provided. Maximum 20 URLs allowed.');
         }
 
+        // Initialize progress counter
+        window._totalUrls = urls.length;
+        const progressCounter = document.getElementById('progressCounter');
+        if (progressCounter) {
+            progressCounter.style.display = 'block';
+            progressCounter.innerHTML = `Processed <span id="progressProcessed">0</span> / ${window._totalUrls} <span id="progressSpinner" class="spinner-border spinner-border-sm text-primary ms-2" role="status"></span>`;
+        }
+
         const requestData = {
             urls,
             summaryType: document.getElementById('summaryType').value,
@@ -498,9 +432,18 @@ async function handleFormSubmit(event) {
             resultsContainer.style.display = 'block';
         }
         if (resultsTable) {
-            displayResultsTable(results);
-            resultsTable.style.display = 'block';
+            // Table rows were already added incrementally during streaming
+            const resultsTableBody = document.getElementById('resultsTable');
+            if (resultsTableBody) {
+                resultsTableBody.style.display = 'block';
+            }
         }
+        
+        // Update counter and hide spinner
+        const processedSpanEnd=document.getElementById('progressProcessed');
+        if(processedSpanEnd){processedSpanEnd.textContent=document.getElementById('resultsBody').children.length;}
+        const spinnerEl=document.getElementById('progressSpinner');
+        if(spinnerEl){spinnerEl.style.display='none';}
         
     } catch (error) {
         console.error('Error:', error);
@@ -581,13 +524,16 @@ function displayResultsTable(results) {
     if (!resultsBody) return;
 
     const topic = document.getElementById('topicSelect').value;
-    resultsBody.innerHTML = '';
-    
-    results.forEach((result, index) => {
-        // Format dates to YYYY-MM-DD for input fields
-        const pubDate = result.publication_date ? result.publication_date.split('T')[0] : '';
-        const subDate = result.submission_date ? result.submission_date.split('T')[0] : '';
-        
+    // Do not clear existing rows – this function may be called incrementally
+    const resultsTable = document.getElementById('resultsTable');
+
+    // Ensure table is visible as soon as we have at least one result
+    if (resultsTable && resultsTable.style.display === 'none') {
+        resultsTable.style.display = 'block';
+    }
+
+    results.forEach((result) => {
+        const index = resultsBody.children.length; // Next index based on current rows
         const articleEntry = document.createElement('div');
         articleEntry.className = 'article-entry';
         articleEntry.id = `article-${index}`;
@@ -606,11 +552,11 @@ function displayResultsTable(results) {
                 </div>
                 <div class="col">
                     <label for="pubDate${index}">Pub. Date</label>
-                    <input type="date" id="pubDate${index}" class="form-control" value="${pubDate}">
+                    <input type="date" id="pubDate${index}" class="form-control" value="${result.publication_date ? result.publication_date.split('T')[0] : ''}">
                 </div>
                 <div class="col">
                     <label for="subDate${index}">Sub. Date</label>
-                    <input type="date" id="subDate${index}" class="form-control" value="${subDate}">
+                    <input type="date" id="subDate${index}" class="form-control" value="${result.submission_date ? result.submission_date.split('T')[0] : ''}">
                 </div>
             </div>
             <div class="row">
@@ -699,6 +645,12 @@ function displayResultsTable(results) {
         populateDropdown(`sentiment${index}`, '/api/sentiments', result.sentiment);
         populateDropdown(`futureSignal${index}`, '/api/future_signals', result.future_signal);
         populateDropdown(`driverType${index}`, '/api/driver_types', result.driver_type);
+
+        // update counter after each new row appended
+        const processedSpan=document.getElementById('progressProcessed');
+        if(processedSpan){processedSpan.textContent=resultsBody.children.length;}
+        const spinnerEl2=document.getElementById('progressSpinner');
+        if(spinnerEl2 && window._totalUrls && resultsBody.children.length===window._totalUrls){spinnerEl2.style.display='none';}
     });
 }
 
@@ -718,26 +670,43 @@ function discardArticle(index) {
 }
 
 function populateDropdown(elementId, apiUrl, selectedValue) {
-    // Get the current topic
+    // Simple in-memory cache to prevent duplicate network calls
+    window._dropdownCache = window._dropdownCache || {};
+
     const topic = document.getElementById('topicSelect').value;
+    const cacheKey = `${apiUrl}|${topic}`;
+
+    const applyOptions = (options) => {
+        const select = document.getElementById(elementId);
+        if (!select) return;
+        select.innerHTML = '';
+        options.forEach((opt) => {
+            const el = document.createElement('option');
+            el.value = opt;
+            el.textContent = opt;
+            if (opt === selectedValue) el.selected = true;
+            select.appendChild(el);
+        });
+    };
+
+    if (window._dropdownCache[cacheKey]) {
+        applyOptions(window._dropdownCache[cacheKey]);
+        return;
+    }
+
     const apiUrlWithTopic = topic ? `${apiUrl}?topic=${encodeURIComponent(topic)}` : apiUrl;
-    
+
     fetch(apiUrlWithTopic)
-        .then(response => response.json())
-        .then(data => {
-            const select = document.getElementById(elementId);
-            select.innerHTML = '';
-            data.forEach(option => {
-                const optionElement = document.createElement('option');
-                optionElement.value = option;
-                optionElement.textContent = option;
-                if (option === selectedValue) {
-                    optionElement.selected = true;
-                }
-                select.appendChild(optionElement);
-            });
+        .then((r) => r.json())
+        .then((data) => {
+            window._dropdownCache[cacheKey] = data;
+            applyOptions(data);
         })
-        .catch(error => console.error(`Error populating ${elementId}:`, error));
+        .catch((err) => {
+            console.error(`Error populating ${elementId}:`, err);
+            // fallback: use selected value only
+            applyOptions(selectedValue ? [selectedValue] : []);
+        });
 }
 
 function collectSelectedArticles() {
@@ -746,23 +715,29 @@ function collectSelectedArticles() {
     
     articleEntries.forEach((entry, index) => {
         if (entry.style.display !== 'none') {
+            const safeVal = (sel) => {
+                const el = entry.querySelector(sel);
+                if (!el) return '';
+                return (el.value ?? '').toString().trim();
+            };
+
             const article = {
-                uri: entry.querySelector(`input[id^="url"]`).value.trim(),
-                title: entry.querySelector(`input[id^="title"]`).value.trim(),
-                summary: entry.querySelector(`textarea[id^="summary"]`).value.trim(),
-                news_source: entry.querySelector(`input[id^="newsSource"]`).value.trim(),
-                category: entry.querySelector(`select[id^="category"]`).value,
-                time_to_impact: entry.querySelector(`select[id^="timeToImpact"]`).value,
-                time_to_impact_explanation: entry.querySelector(`textarea[id^="timeToImpactExplanation"]`).value.trim(),
-                sentiment: entry.querySelector(`select[id^="sentiment"]`).value,
-                sentiment_explanation: entry.querySelector(`textarea[id^="sentimentExplanation"]`).value.trim(),
-                future_signal: entry.querySelector(`select[id^="futureSignal"]`).value,
-                future_signal_explanation: entry.querySelector(`textarea[id^="futureSignalExplanation"]`).value.trim(),
-                driver_type: entry.querySelector(`select[id^="driverType"]`).value,
-                driver_type_explanation: entry.querySelector(`textarea[id^="driverTypeExplanation"]`).value.trim(),
-                publication_date: entry.querySelector(`input[id^="pubDate"]`).value.trim(),
-                submission_date: entry.querySelector(`input[id^="subDate"]`).value.trim(),
-                tags: entry.querySelector(`input[id^="tags"]`).value.split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
+                uri: safeVal(`input[id^="url"]`),
+                title: safeVal(`input[id^="title"]`),
+                summary: safeVal(`textarea[id^="summary"]`),
+                news_source: safeVal(`input[id^="newsSource"]`),
+                category: safeVal(`select[id^="category"]`),
+                time_to_impact: safeVal(`select[id^="timeToImpact"]`),
+                time_to_impact_explanation: safeVal(`textarea[id^="timeToImpactExplanation"]`),
+                sentiment: safeVal(`select[id^="sentiment"]`),
+                sentiment_explanation: safeVal(`textarea[id^="sentimentExplanation"]`),
+                future_signal: safeVal(`select[id^="futureSignal"]`),
+                future_signal_explanation: safeVal(`textarea[id^="futureSignalExplanation"]`),
+                driver_type: safeVal(`select[id^="driverType"]`),
+                driver_type_explanation: safeVal(`textarea[id^="driverTypeExplanation"]`),
+                publication_date: safeVal(`input[id^="pubDate"]`),
+                submission_date: safeVal(`input[id^="subDate"]`),
+                tags: safeVal(`input[id^="tags"]`).split(',').map(tag => tag.trim()).filter(tag => tag !== ''),
                 topic: document.getElementById('topicSelect').value,
                 analyzed: true
             };
