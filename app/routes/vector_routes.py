@@ -306,10 +306,12 @@ def embedding_projection(
             
             logger.info(f"Applied pipe filtering: {len(filtered_ids)} results")
 
-        # Get vectors from Chroma
-        vectors, metas, ids = _fetch_vectors(limit=top_k, where=where)
+        # Get vectors from Chroma – fetch a bit more than requested but cap at 10k
+        fetch_limit = min(max(top_k * 2, 5000), 10000)
+
+        vecs, metas, ids = _fetch_vectors(limit=fetch_limit, where=where)
         
-        if vectors.size == 0:
+        if vecs.size == 0:
             return {"points": [], "explain": {}, "centroids": {}}
         
         # Projection
@@ -338,21 +340,21 @@ def embedding_projection(
             )
         
         # Do dimensionality reduction
-        coords = reducer.fit_transform(vectors)
+        coords = reducer.fit_transform(vecs)
         
         # Clustering
         from sklearn.decomposition import PCA
         
         # Dimensionality reduction for clustering
-        if vectors.shape[1] > 50:
-            max_comps = min(50, vectors.shape[0], vectors.shape[1])
+        if vecs.shape[1] > 50:
+            max_comps = min(50, vecs.shape[0], vecs.shape[1])
             try:
                 pca50 = PCA(n_components=max_comps, random_state=42)
-                vec_for_cluster = pca50.fit_transform(vectors)
+                vec_for_cluster = pca50.fit_transform(vecs)
             except ValueError:
-                vec_for_cluster = vectors
+                vec_for_cluster = vecs
         else:
-            vec_for_cluster = vectors
+            vec_for_cluster = vecs
         
         # K-means clustering
         n_clusters = max(2, min(n_clusters, len(vec_for_cluster)))
@@ -451,7 +453,8 @@ def patterns_endpoint(
     top_k: int = Query(
         1000,
         ge=10,
-        le=5000,
+        le=10000,
+        description="Number of articles to analyse for patterns (max 10000)",
     ),
     topic: Optional[str] = None,
     category: Optional[str] = None,
@@ -484,6 +487,16 @@ def patterns_endpoint(
         # Get base articles
         query_str = q or "*"
         
+        MAX_TOP_K = 10000
+        if top_k > MAX_TOP_K:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Requested top_k={top_k} exceeds maximum {MAX_TOP_K}. "
+                    "Reduce the value or use paging."
+                ),
+            )
+
         # Handle pipe operators through executor if present
         if q and "|" in q:
             from app.kissql.parser import parse_full_query
@@ -728,7 +741,11 @@ async def clean_collection():
 @router.get("/embedding_anomalies")
 def embedding_anomalies(
     q: Optional[str] = Query(None, description="Optional search query"),
-    top_k: int = Query(20, ge=1, le=200),
+    top_k: int = Query(
+        2500,
+        ge=1,
+        description="Number of anomalies to return (max 5000)",
+    ),
     topic: Optional[str] = None,
     category: Optional[str] = None,
     sentiment: Optional[str] = None,
@@ -781,8 +798,21 @@ def embedding_anomalies(
             
             logger.info(f"Applied pipe filtering: {len(filtered_ids)} results")
     
-        # Get vectors from Chroma
-        vecs, metas, ids = _fetch_vectors(limit=5000, where=where)
+        # Enforce a sensible upper limit to protect the service
+        MAX_TOP_K = 5000  # hard ceiling for performance – tweak as needed
+        if top_k > MAX_TOP_K:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Requested top_k={top_k} exceeds maximum {MAX_TOP_K}. "
+                    "Reduce the value or use paging."
+                ),
+            )
+
+        # Fetch enough vectors for anomaly detection (cap at MAX_TOP_K)
+        fetch_limit = min(max(top_k * 2, 5000), MAX_TOP_K)
+
+        vecs, metas, ids = _fetch_vectors(limit=fetch_limit, where=where)
         if vecs.size == 0:
             return []
     
