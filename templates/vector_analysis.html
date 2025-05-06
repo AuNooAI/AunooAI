@@ -443,8 +443,12 @@
             <label for="searchTags" class="form-label">Tags (comma separated)</label>
             <input type="text" class="form-control" id="searchTags">
           </div>
+          <!-- Visible field to edit the actual command/query string -->
+          <div class="mb-3">
+            <label for="searchQuery" class="form-label">Command</label>
+            <textarea class="form-control" id="searchQuery" rows="2" required></textarea>
+          </div>
           <input type="hidden" id="searchId">
-          <input type="hidden" id="searchQuery">
         </form>
       </div>
       <div class="modal-footer">
@@ -1524,8 +1528,13 @@ async function loadPatterns(forceRefresh = false){
     
     // Card for Outliers
     let outliersHtml = '<div class="card mb-3"><div class="card-header">Outliers</div><div class="card-body pattern-card-body">';
-    // Fetch top anomalies
-    const anoRes = await fetch(`/api/embedding_anomalies?${queryParams}`);
+    // Fetch top anomalies – ensure top_k stays within API limits (≤200)
+    const anoParams = new URLSearchParams(queryParams);
+    const currentTopK = parseInt(anoParams.get('top_k') || '20', 10);
+    if (isNaN(currentTopK) || currentTopK > 200) {
+      anoParams.set('top_k', '200');
+    }
+    const anoRes = await fetch(`/api/embedding_anomalies?${anoParams.toString()}`);
     const anomalies = await anoRes.json();
     if (anomalies.length > 0) {
       outliersHtml += anomalies.map(a => `
