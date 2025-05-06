@@ -147,8 +147,25 @@ class Research:
             return
         
         if topic_name not in self.topic_configs:
-            logger.warning("Invalid topic received: %s. Retaining current topic '%s'", topic_name, self.current_topic)
-            return
+            # Attempt to reload configuration in case topics were added at runtime
+            logger.warning(
+                "Invalid topic received: %s. Attempting to reload configuration.",
+                topic_name,
+            )
+            try:
+                self.load_config()
+            except Exception as reload_err:
+                logger.error("Error reloading configuration: %s", str(reload_err))
+
+            # After reloading, check again
+            if topic_name not in self.topic_configs:
+                logger.warning(
+                    "Topic still not found after configuration reload: %s. "
+                    "Retaining current topic '%s'",
+                    topic_name,
+                    self.current_topic,
+                )
+                return
             
         if self.current_topic != topic_name:
             self.current_topic = topic_name

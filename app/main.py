@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from app.collectors.newsapi_collector import NewsAPICollector
 from app.collectors.arxiv_collector import ArxivCollector
 from app.collectors.bluesky_collector import BlueskyCollector
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from app.database import Database, get_database_instance
 from app.research import Research
 from app.analytics import Analytics
@@ -3527,6 +3527,61 @@ async def remove_bluesky_config():
         logger.error(f"Error removing Bluesky configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# ---------------------------------------------------------------------------
+# Streaming bulk research endpoint – returns NDJSON (one JSON per line)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/api/bulk-research-stream")
+async def bulk_research_stream(
+    request: Request,
+    research: Research = Depends(get_research),
+    db: Database = Depends(get_database_instance),
+):
+    """Stream article analyses as NDJSON so the client can render incrementally."""
+    try:
+        data = await request.json()
+
+        topic = data.get("topic")
+        if not topic:
+            raise HTTPException(status_code=400, detail="Topic is required")
+
+        model_name = data.get("model_name")
+        if not model_name:
+            available_models = research.get_available_models()
+            if not available_models:
+                raise HTTPException(status_code=400, detail="No AI models available")
+            model_name = available_models[0]["name"]
+
+        try:
+            summary_length = int(data.get("summary_length", 50))
+        except ValueError:
+            summary_length = 50
+
+        bulk_research = BulkResearch(db, research=research)
+
+        async def result_generator():
+            async for item in bulk_research.analyze_bulk_urls_stream(
+                urls=data.get("urls", []),
+                summary_type=data.get("summary_type", "curious_ai"),
+                model_name=model_name,
+                summary_length=summary_length,
+                summary_voice=data.get("summary_voice", "neutral"),
+                topic=topic,
+            ):
+                yield (json.dumps(item) + "\n").encode("utf-8")
+                # Give the event loop a chance to send the chunk immediately
+                await asyncio.sleep(0)
+
+        return StreamingResponse(result_generator(), media_type="application/x-ndjson")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"bulk-research-stream error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
 if __name__ == "__main__":
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_context.load_cert_chain('cert.pem', keyfile='key.pem')
@@ -3539,3 +3594,14 @@ if __name__ == "__main__":
         ssl_certfile="cert.pem",
         reload=True
     )
+
+# Insert near other config routes, e.g., after get_topics endpoint
+@app.get("/api/config", response_class=JSONResponse)
+async def api_get_full_config():
+    """Return the full application configuration (topics, providers, etc.)."""
+    try:
+        cfg = load_config()
+        return JSONResponse(content=cfg)
+    except Exception as exc:
+        logger.error("Error fetching full config: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
