@@ -519,9 +519,12 @@ def compose_prompt(scenario_id: int) -> Dict[str, str]:
         block_kind = block_row["kind"].lower()
         block_prompt_text = block_row["prompt"]
         block_options_list = (
-            _decode_options(block_row["options"]) if block_row["options"] else []
+            _decode_options(block_row["options"]) 
+            if block_row["options"] else []
         )
 
+        handled_specifically = False
+        # --- Start Block Processing --- 
         if block_kind == "summarization":
             parsed_opts = _parse_key_value_options(block_options_list)
             summary_details["length"] = parsed_opts.get(
@@ -529,6 +532,7 @@ def compose_prompt(scenario_id: int) -> Dict[str, str]:
             )
             summary_details["voice"] = parsed_opts.get("voice", DEFAULT_SUMMARY_VOICE)
             processed_block_ids_for_specific_handling.add(block_id)
+            handled_specifically = True
 
         elif block_kind == "categorization":
             options_str = (
@@ -541,6 +545,7 @@ def compose_prompt(scenario_id: int) -> Dict[str, str]:
             )
             user_prompt_analysis_sections.append({"title": "Category", "text": text})
             processed_block_ids_for_specific_handling.add(block_id)
+            handled_specifically = True
 
         elif block_kind == "classification":
             options_str = (
@@ -572,6 +577,7 @@ def compose_prompt(scenario_id: int) -> Dict[str, str]:
             if section_data:
                 user_prompt_analysis_sections.append(section_data)
                 processed_block_ids_for_specific_handling.add(block_id)
+                handled_specifically = True
 
         elif block_kind == "sentiment":
             options_str = (
@@ -583,23 +589,51 @@ def compose_prompt(scenario_id: int) -> Dict[str, str]:
             )
             user_prompt_analysis_sections.append({"title": "Sentiment", "text": text})
             processed_block_ids_for_specific_handling.add(block_id)
+            handled_specifically = True
 
-    # Second pass for generic blocks not handled above
+        # Use the new 'generation' kind
+        elif block_kind == "generation": 
+            # Default title is the block name, default text is the block prompt
+            title = block_name 
+            text = block_prompt_text
+            
+            # Special handling if it's the "Relevant Tags" generator
+            if block_name.lower() == "relevant tags":
+                title = "Relevant Tags" # Ensure consistent title for format mapping
+                default_tags_prompt = (
+                    "Generate 3-5 relevant tags for the article. These should be "
+                    "concise keywords or short phrases that capture the main topics "
+                    "or themes of the article."
+                )
+                text = block_prompt_text if block_prompt_text else default_tags_prompt
+            # Add other specific generator name checks here if needed
+            
+            user_prompt_analysis_sections.append({"title": title, "text": text})
+            processed_block_ids_for_specific_handling.add(block_id)
+            handled_specifically = True
+            
+        # --- End Block Processing --- 
+        
+    # Second pass for generic blocks (those whose kind wasn't specifically handled)
     for block_row in block_rows:
         block_id = block_row["id"]
         if block_id in processed_block_ids_for_specific_handling:
-            continue  # Skip if already handled
-
+            continue
+        
         block_name = block_row["name"]
+        block_kind = block_row["kind"].lower()
         block_prompt_text = block_row["prompt"]
-        # Add as a generic analysis item
-        if block_prompt_text:  # Only add if prompt text exists
-            user_prompt_analysis_sections.append(
-                {
-                    "title": block_name,  # Use the block's name as title
-                    "text": block_prompt_text,
-                }
-            )
+        
+        # Exclude 'keywords' kind entirely from the prompt
+        if block_kind == "keywords":
+            continue
+            
+        # Add other unhandled blocks
+        if block_prompt_text: 
+            user_prompt_analysis_sections.append({
+                "title": block_name, # Use the block's name as title
+                "text": block_prompt_text
+            })
 
     if summary_details:
         summary_voice = summary_details["voice"]
