@@ -14,4 +14,12 @@
 
 #selected-list .block-card {
   background: #f8f9fa;
+}
+
+#block-list,
+#selected-list {
+  /* Keep the block lists within the viewport so they don\'t spill over
+     into the Saved Scenarios accordion */
+  max-height: calc(100vh - 220px); /* adjust based on header height */
+  overflow-y: auto;
 } 
