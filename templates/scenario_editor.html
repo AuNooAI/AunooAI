@@ -1,0 +1,601 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{{ url_for('static', path='css/scenario_builder.css') }}">
+<style>
+  .block-card {
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .block-card.selected {
+    background: #0d6efd;
+    color: #fff;
+  }
+  #selected-list .block-card {
+    background: #f8f9fa;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <h1 class="h3 mb-4">Scenario Builder</h1>
+  <button class="btn btn-sm btn-outline-info mb-3" id="help-btn">Help</button>
+
+  <div class="row">
+    <!-- Available blocks -->
+    <div class="col-md-5 sticky-top" style="top: 80px;">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <div class="d-flex align-items-center gap-2">
+          <h5 class="m-0">Available Building-Blocks</h5>
+          <button id="refresh-blocks" class="btn btn-sm btn-outline-secondary" title="Refresh">&#x21bb;</button>
+        </div>
+        <button id="new-block" class="btn btn-sm btn-outline-primary">New</button>
+      </div>
+      <input id="search" class="form-control form-control-sm mb-2" placeholder="Search…" />
+      <div id="block-list"></div>
+    </div>
+
+    <!-- Selected blocks -->
+    <div class="col-md-5 offset-md-1">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="m-0">Selected Blocks <span id="sel-count" class="badge bg-secondary">0</span></h5>
+        <button id="clear-selection" class="btn btn-sm btn-outline-secondary">Clear</button>
+      </div>
+      <div id="selected-list"></div>
+
+      <form id="scenario-form" class="mt-4">
+        <div class="mb-2">
+          <label class="form-label">Scenario name</label>
+          <input required name="name" class="form-control" />
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Scenario Description <small class="text-muted">(markdown supported)</small></label>
+          <textarea required name="topic" rows="3" class="form-control" placeholder="Describe this scenario using basic markdown…"></textarea>
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-primary" type="submit">Save Scenario</button>
+          <button class="btn btn-outline-primary" id="generate-prompt" type="button" disabled>
+            Generate Prompt
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Saved scenarios sidebar -->
+    <div class="col-md-12 mt-4">
+      <div class="accordion" id="savedScenariosAcc">
+        <div class="accordion-item">
+          <h2 class="accordion-header" id="savedScenariosHdr">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#savedScenariosCollapse" aria-expanded="false" aria-controls="savedScenariosCollapse">
+              Saved Scenarios
+            </button>
+          </h2>
+          <div id="savedScenariosCollapse" class="accordion-collapse collapse" aria-labelledby="savedScenariosHdr" data-bs-parent="#savedScenariosAcc">
+            <div class="accordion-body p-0">
+              <ul id="scenario-list" class="list-group rounded-0"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal fade" id="blockModal" tabindex="-1" aria-labelledby="blockModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="blockModalLabel">New Block</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="block-form">
+          <input type="hidden" name="id" />
+          <div class="mb-2">
+            <label class="form-label">Name</label>
+            <input required name="name" class="form-control" />
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Kind</label>
+            <select required name="kind" class="form-select" id="kind-select"></select>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Prompt</label>
+            <textarea required name="prompt" rows="3" class="form-control"></textarea>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Options (one per line, optional)</label>
+            <textarea name="options" rows="3" class="form-control"></textarea>
+            <button id="auspex-btn" type="button" class="btn btn-sm btn-outline-secondary mt-2">Auspex</button>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button id="duplicate-block" type="button" class="btn btn-outline-secondary">Duplicate</button>
+        <button id="save-block" type="button" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+async function listBlocks() {
+  const r = await fetch('/api/building_blocks');
+  if (!r.ok) {
+    alert('Failed to load building blocks');
+    return [];
+  }
+  return await r.json();
+}
+
+function renderBlocks(blocks) {
+  const container = document.getElementById('block-list');
+  container.innerHTML = '';
+  blocks.forEach(b => {
+    const div = document.createElement('div');
+    div.className = 'block-card card card-body py-2 px-3 d-flex justify-content-between align-items-center';
+    div.setAttribute('role', 'button');
+    div.setAttribute('aria-pressed', 'false');
+    div.innerHTML = `<span>${b.name} (${b.kind})</span><span class="ms-2 text-danger delete-btn" title="Delete" data-id="${b.id}">&times;</span>`;
+    const tip = `${b.prompt || ''}\n\n${helpTexts[b.kind] || ''}`.trim();
+    div.setAttribute('title', tip);
+    div.setAttribute('data-bs-toggle', 'tooltip');
+    div.setAttribute('data-bs-placement', 'right');
+    div.dataset.id = b.id;
+    div.addEventListener('click', e => {
+      if (e.target.closest('.delete-btn')) return; // ignore clicks on delete icon
+      toggleSelect(div, b.id);
+    });
+    div.addEventListener('dblclick', e => {
+      if (e.target.closest('.delete-btn')) return;
+      openModal(b);
+    });
+    container.appendChild(div);
+  });
+
+  // Activate Bootstrap tooltips for newly added cards
+  container.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+    bootstrap.Tooltip.getOrCreateInstance(el);
+  });
+
+  // Bind delete buttons
+  document.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      if (!confirm('Delete this block?')) return;
+      const resp = await fetch(`/api/building_blocks/${id}`, { method: 'DELETE' });
+      if (resp.ok) {
+        blocksCache = blocksCache.filter(b => b.id != id);
+        renderBlocks(blocksCache);
+      } else {
+        const err = await resp.json();
+        alert('Error: ' + (err.detail || resp.statusText));
+      }
+    });
+  });
+}
+
+const selected = new Set();
+let blocksCache = [];
+const kinds = [
+  'categorization',
+  'sentiment',
+  'relationship',
+  'weighting',
+  'classification',
+  'summarization',
+  'keywords',
+];
+
+const helpTexts = {
+  categorization: 'Assigns the article to a predefined category list and explains if "Other".',
+  sentiment: 'Evaluates positive/negative/neutral sentiment toward the scenario/topic.',
+  relationship: 'Describes how the article relates to the topic (blocker, catalyst, etc.).',
+  weighting: 'Scores objectivity (0–1) with rationale – higher = more objective.',
+  classification: 'Classifies into provided classes with brief justification.',
+  summarization: 'Provide a summary with the following characteristics:\nLength: Maximum {summary_length} words\nVoice: {summary_voice}\nType: {summary_type}\n\nSummarise the content using these parameters. Return only the summary.',
+  keywords: 'Generates a handful of relevant keyword tags.'
+};
+
+const defaultPrompts = {
+  categorization:
+    'Classify the article into one of the provided categories. If none fit, choose "Other" and explain briefly.',
+  sentiment:
+    'Determine whether the article sentiment is Positive, Negative, or Neutral toward the topic and provide a short explanation.',
+  relationship:
+    'Does the article act as a blocker, catalyst, accelerator, initiator, or supporting datapoint for the topic? Explain why.',
+  weighting:
+    'On a scale of 0–1 how objective is this article? Return the number and one-sentence rationale.',
+  classification:
+    'Assign the article to one of the listed classes and justify the choice in one sentence.',
+  summarization:
+    'Summarise the article in three concise sentences from the perspective requested.',
+  keywords:
+    'Generate 3–5 relevant, concise keyword tags that capture the main themes of the article.',
+};
+
+// Populate kind select
+const kindSelect = document.getElementById('kind-select');
+kinds.forEach(k => {
+  const opt = document.createElement('option');
+  opt.value = k;
+  opt.textContent = k;
+  kindSelect.appendChild(opt);
+});
+
+function toggleSelect(el, id) {
+  if (selected.has(id)) {
+    selected.delete(id);
+    el.classList.remove('selected');
+    el.setAttribute('aria-pressed', 'false');
+  } else {
+    selected.add(id);
+    el.classList.add('selected');
+    el.setAttribute('aria-pressed', 'true');
+  }
+  syncSelectedList();
+}
+
+function syncSelectedList() {
+  const list = document.getElementById('selected-list');
+  list.innerHTML = '';
+  document.getElementById('sel-count').textContent = selected.size;
+
+  // Reflect selection state on left list cards
+  document.querySelectorAll('#block-list .block-card').forEach(el => {
+    const id = Number(el.dataset.id);
+    el.classList.toggle('selected', selected.has(id));
+  });
+
+  selected.forEach(id => {
+    const src = document.querySelector(`[data-id="${id}"]`);
+    const div = src.cloneNode(true);
+    div.classList.remove('selected');
+    div.querySelectorAll('.delete-btn, .selected-del').forEach(el => el.remove());
+    const x = document.createElement('span');
+    x.className = 'ms-2 text-danger fw-bold cursor-pointer selected-del';
+    x.innerHTML = '&times;';
+    div.appendChild(x);
+    x.addEventListener('click', () => {
+      selected.delete(id);
+      syncSelectedList();
+    });
+    div.addEventListener('dblclick', e => {
+      if (e.target.classList.contains('selected-del')) return;
+      const blk = blocksCache.find(b => b.id == id);
+      if (blk) openModal(blk, true, id);
+    });
+    list.appendChild(div);
+  });
+}
+
+// Live search filter
+const searchInput = document.getElementById('search');
+searchInput.addEventListener('input', () => {
+  const term = searchInput.value.toLowerCase();
+  document.querySelectorAll('#block-list .block-card').forEach(el => {
+    el.style.display = el.textContent.toLowerCase().includes(term) ? '' : 'none';
+  });
+});
+
+// Form submission
+const form = document.getElementById('scenario-form');
+form.addEventListener('submit', async e => {
+  e.preventDefault();
+  if (selected.size === 0) {
+    alert('Please select at least one block');
+    return;
+  }
+  const data = {
+    name: form.name.value.trim(),
+    topic: form.topic.value.trim(),
+    block_ids: Array.from(selected),
+  };
+  const res = await fetch('/api/scenarios', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (res.ok) {
+    // Reload whole page so left list & scenarios refresh
+    location.reload();
+  } else {
+    const err = await res.json();
+    alert('Error: ' + (err.detail || res.statusText));
+  }
+});
+
+let copySourceId = null;
+
+function openModal(block = null, asCopy = false, sourceId = null) {
+  const modalEl = document.getElementById('blockModal');
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  const form = document.getElementById('block-form');
+  form.reset();
+  if (block) {
+    form.id.value = asCopy ? '' : block.id;
+    form.name.value = block.name;
+    form.kind.value = block.kind;
+    form.prompt.value = block.prompt;
+    form.options.value = (block.options || []).join('\n');
+    document.getElementById('blockModalLabel').textContent = asCopy ? 'Copy Block' : 'Edit Block';
+    document.getElementById('duplicate-block').style.display = asCopy ? 'none' : 'inline-block';
+    if (asCopy) {
+      copySourceId = sourceId;
+    }
+  } else {
+    document.getElementById('blockModalLabel').textContent = 'New Block';
+    document.getElementById('duplicate-block').style.display = 'none';
+    copySourceId = null;
+  }
+  modal.show();
+  setTimeout(() => form.querySelector('[name="name"]').focus(), 200);
+}
+
+document.getElementById('new-block').addEventListener('click', () => openModal());
+
+document.getElementById('save-block').addEventListener('click', async () => {
+  const form = document.getElementById('block-form');
+  const data = {
+    name: form.name.value.trim(),
+    kind: form.kind.value.trim(),
+    prompt: form.prompt.value.trim(),
+    options: form.options.value
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean),
+  };
+  let resp;
+  if (form.id.value) {
+    // PATCH
+    resp = await fetch(`/api/building_blocks/${form.id.value}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+  } else {
+    // POST
+    resp = await fetch('/api/building_blocks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+  }
+  if (resp.ok) {
+    const dataResp = await resp.json();
+    bootstrap.Modal.getInstance(document.getElementById('blockModal')).hide();
+    blocksCache = await listBlocks();
+    renderBlocks(blocksCache);
+
+    // If we were copying from selected list, swap ids
+    if (copySourceId) {
+      selected.delete(copySourceId);
+      selected.add(dataResp.id);
+      copySourceId = null;
+      syncSelectedList();
+    }
+  } else {
+    const err = await resp.json();
+    alert('Error: ' + (err.detail || resp.statusText));
+  }
+});
+
+// Duplicate button copies current values but clears id to create new block
+document.getElementById('duplicate-block').addEventListener('click', () => {
+  const form = document.getElementById('block-form');
+  const data = {
+    name: form.name.value.trim() + ' Copy',
+    kind: form.kind.value,
+    prompt: form.prompt.value.trim(),
+    options: form.options.value
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean),
+  };
+  // send POST
+  fetch('/api/building_blocks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+    .then(r => r.ok ? r.json() : Promise.reject(r))
+    .then(async () => {
+      bootstrap.Modal.getInstance(document.getElementById('blockModal')).hide();
+      blocksCache = await listBlocks();
+      renderBlocks(blocksCache);
+    })
+    .catch(async errResp => {
+      const err = await errResp.json();
+      alert('Error: ' + (err.detail || errResp.statusText));
+    });
+});
+
+// Auto-populate options defaults when kind changes (only if textarea empty)
+kindSelect.addEventListener('change', () => {
+  const opts = document.querySelector('#block-form textarea[name="options"]');
+  // If user has manually edited, do not overwrite
+  const userEdited = opts.dataset.userEdited === '1';
+  if (!userEdited || opts.value.trim() === '' || opts.value.startsWith('Option 1')) {
+    opts.value = '';
+    opts.dataset.userEdited = '0';
+  }
+
+  // Prompt default (only if prompt empty or matches older default)
+  const promptField = document.querySelector('#block-form textarea[name="prompt"]');
+  if (
+    promptField.value.trim() === '' ||
+    Object.values(defaultPrompts).includes(promptField.value.trim())
+  ) {
+    promptField.value = defaultPrompts[kindSelect.value] || '';
+  }
+});
+
+// mark textarea dirty on manual input
+document.querySelector('#block-form textarea[name="options"]').addEventListener('input', e => {
+  e.target.dataset.userEdited = '1';
+});
+
+// Auspex suggestions
+document.getElementById('auspex-btn').addEventListener('click', async () => {
+  const form = document.getElementById('block-form');
+  const desc = document.querySelector('#scenario-form textarea[name="topic"]')?.value || '';
+  const body = {
+    kind: form.kind.value,
+    scenario_name: form.name.value || 'Scenario',
+    scenario_description: desc,
+  };
+  const res = await fetch('/api/auspex/block-options', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) {
+    const data = await res.json();
+    const optionsTA = form.options;
+    optionsTA.value = data.options.join('\n');
+    optionsTA.dataset.userEdited = '0';
+  } else {
+    alert('Auspex failed');
+  }
+});
+
+// Init
+listBlocks().then(blks => {
+  blocksCache = blks;
+  renderBlocks(blocksCache);
+});
+
+// Fetch and render scenarios
+async function loadScenarios() {
+  const res = await fetch('/api/scenarios');
+  if (!res.ok) return;
+  const scenarios = await res.json();
+  const ul = document.getElementById('scenario-list');
+  ul.innerHTML = '';
+  scenarios.forEach(s => {
+    const li = document.createElement('li');
+    li.className = 'list-group-item d-flex justify-content-between align-items-center';
+    li.innerHTML = `<span class="scenario-name">${s.name}</span><span class="ms-auto text-danger delete-scenario" data-id="${s.id}" title="Delete">&times;</span>`;
+    li.setAttribute('title', s.topic || '');
+    li.setAttribute('data-bs-toggle', 'tooltip');
+    li.setAttribute('data-bs-placement', 'right');
+    li.dataset.id = s.id;
+    li.addEventListener('click', async () => {
+      const res = await fetch(`/api/scenarios/${s.id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      selected.clear();
+      data.block_ids.forEach(bid => selected.add(bid));
+      form.name.value = data.name;
+      form.topic.value = data.topic;
+      currentScenarioId = data.id;
+      renderBlocks(blocksCache);
+      syncSelectedList();
+      document.getElementById('generate-prompt').disabled = false;
+    });
+    ul.appendChild(li);
+  });
+
+  // Activate tooltips on scenario list items
+  ul.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+    bootstrap.Tooltip.getOrCreateInstance(el);
+  });
+
+  // Bind delete buttons
+  ul.querySelectorAll('.delete-scenario').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      if (!confirm('Delete this scenario?')) return;
+      const resp = await fetch(`/api/scenarios/${id}`, { method: 'DELETE' });
+      if (resp.ok) {
+        loadScenarios();
+      } else {
+        const err = await resp.json();
+        alert('Error: ' + (err.detail || resp.statusText));
+      }
+    });
+  });
+}
+
+let currentScenarioId = null;
+
+document.getElementById('clear-selection').addEventListener('click', () => {
+  selected.clear();
+  syncSelectedList();
+});
+
+// Generate prompt button
+document.getElementById('generate-prompt').addEventListener('click', async () => {
+  if (!currentScenarioId) return;
+  const res = await fetch(`/api/scenarios/${currentScenarioId}/prompt`);
+  if (!res.ok) {
+    alert('Failed to generate prompt');
+    return;
+  }
+  const data = await res.json();
+  document.getElementById('promptSystem').value = data.system_prompt;
+  document.getElementById('promptUser').value = data.user_prompt;
+  promptModal.show();
+});
+
+loadScenarios();
+
+// Page-level help modal
+const helpModalHtml = `
+<div class="modal fade" id="helpModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Scenario Builder Help</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>This page lets you compose <strong>Scenarios</strong> by selecting one or more analysis "building-blocks".</p>
+        <ul>
+          ${kinds.map(k => `<li><strong>${k}</strong>: ${helpTexts[k]}</li>`).join('')}
+        </ul>
+        <p>The Scenario Description supports basic Markdown (e.g., *italic*, **bold**, lists).</p>
+      </div>
+    </div>
+  </div>
+</div>`;
+document.body.insertAdjacentHTML('beforeend', helpModalHtml);
+const helpModal = new bootstrap.Modal(document.getElementById('helpModal'));
+document.getElementById('help-btn').addEventListener('click', () => helpModal.show());
+
+// Prompt modal HTML inject
+const promptModalHtml = `
+<div class="modal fade" id="promptModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Generated Scenario Prompt</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">System Prompt</label>
+        <textarea id="promptSystem" class="form-control mb-3" rows="4" readonly></textarea>
+        <label class="form-label">User Prompt</label>
+        <textarea id="promptUser" class="form-control" rows="10" readonly></textarea>
+      </div>
+    </div>
+  </div>
+</div>`;
+document.body.insertAdjacentHTML('beforeend', promptModalHtml);
+const promptModal = new bootstrap.Modal(document.getElementById('promptModal'));
+
+document.getElementById('refresh-blocks').addEventListener('click', async () => {
+  blocksCache = await listBlocks();
+  renderBlocks(blocksCache);
+});
+</script>
+{% endblock %} 

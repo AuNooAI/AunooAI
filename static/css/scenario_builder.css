@@ -1,0 +1,17 @@
+.block-card {
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  padding: 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.block-card.selected {
+  background: #0d6efd;
+  color: #fff;
+}
+
+#selected-list .block-card {
+  background: #f8f9fa;
+} 

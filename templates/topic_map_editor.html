@@ -1,0 +1,224 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://unpkg.com/@jsplumb/community@5.13.1/css/jsPlumbToolkit.min.css">
+<style>
+    #canvas {
+        height: 80vh;
+        border: 1px dashed #bbb;
+        position: relative;
+        background: #fafafa;
+    }
+    .node {
+        position: absolute;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        cursor: move;
+        user-select: none;
+        font-size: 0.85rem;
+    }
+    .jtk-endpoint {
+        width: 10px;
+        height: 10px;
+        border-radius: 5px;
+        background: var(--primary-color, #007bff);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Topic Map Editor</h1>
+
+    <!-- Palette -->
+    <div class="d-flex gap-2 mb-3">
+        {% for kind in [
+            "categorization",
+            "relationship",
+            "weighting",
+            "sentiment",
+            "classification",
+            "summarization",
+        ] %}
+            <div class="btn btn-sm btn-outline-primary" draggable="true"
+                 data-kind="{{ kind }}">
+                {{ kind|capitalize }}
+            </div>
+        {% endfor %}
+    </div>
+
+    <!-- Canvas -->
+    <div id="canvas"></div>
+
+    <button class="btn btn-primary mt-3" id="saveBtn">Save Map</button>
+</div>
+
+<!-- Dependencies -->
+<!-- jsPlumb will be loaded dynamically in the module script below -->
+<script type="module">
+import { v4 as uuid } from "https://cdn.skypack.dev/uuid";
+
+// Ensure jsPlumb is available (dynamically load from cdnjs if not present)
+async function getJsPlumb() {
+    const urls = [
+        "https://cdn.jsdelivr.net/npm/jsplumb@2.15.6/dist/js/jsplumb.min.js",
+        "https://unpkg.com/jsplumb@2.15.6/dist/js/jsplumb.min.js",
+    ];
+    for (const url of urls) {
+        try {
+            await new Promise((resolve, reject) => {
+                const s = document.createElement("script");
+                s.src = url;
+                s.crossOrigin = "anonymous";
+                s.onload = () => resolve(true);
+                s.onerror = () => reject(new Error("load-failed"));
+                document.head.appendChild(s);
+            });
+            if (window.jsPlumb) break; // loaded successfully
+        } catch (_) {
+            console.warn(`jsPlumb load failed from ${url}`);
+        }
+    }
+    if (!window.jsPlumb) throw new Error("jsPlumb could not be loaded from CDN");
+
+    return window.jsPlumb;
+}
+
+const jsPlumbLib = await getJsPlumb();
+const jsp = jsPlumbLib.getInstance({ Container: "canvas" });
+const topicName = new URLSearchParams(location.search).get("topic") || "";
+const state = { nodes: [], edges: [] };
+
+function addNode(kind, x, y, existing = null) {
+    const id = existing?.id || uuid();
+    const label = existing?.label || kind;
+    const promptText = existing?.config?.prompt || "";
+
+    const div = document.createElement("div");
+    div.className = "node";
+    div.id = id;
+    div.textContent = label;
+    div.style.left = `${x}px`;
+    div.style.top = `${y}px`;
+    document.getElementById("canvas").appendChild(div);
+
+    // Enable dragging constrained to the canvas parent
+    jsp.draggable(div, {
+        containment: "parent", // stick inside #canvas boundary
+        grid: [5, 5], // optional snap-to-grid for easier alignment
+    });
+
+    // Add endpoints (left & right)
+    const epCommon = {
+        endpoint: "Dot",
+        paintStyle: { fill: "#007bff", radius: 5 },
+        isSource: true,
+        isTarget: true,
+        maxConnections: -1,
+        connector: [
+            "Flowchart",
+            { cornerRadius: 5, stub: 10, gap: 2, alwaysRespectStubs: true },
+        ],
+        connectorStyle: { stroke: "#5c5c5c", strokeWidth: 1.8 },
+        hoverPaintStyle: { fill: "#6610f2" },
+    };
+    // Continuous anchors for more forgiving connections
+    jsp.addEndpoint(div, { anchor: "Continuous" }, epCommon);
+
+    // Allow clicking on entire node body to start a connection (better UX)
+    jsp.makeSource(div, {
+        anchor: "Continuous",
+        allowLoopback: false,
+        ...epCommon,
+    });
+    jsp.makeTarget(div, {
+        anchor: "Continuous",
+        allowLoopback: false,
+        dropOptions: { hoverClass: "dragHover" },
+    });
+
+    // Double-click to edit label & prompt
+    div.ondblclick = () => {
+        const newLabel = window.prompt("Analysis name:", div.textContent) || div.textContent;
+        const newPrompt = window.prompt("Prompt for this analysis:", promptText) || promptText;
+        div.textContent = newLabel;
+
+        // Update state
+        const idx = state.nodes.findIndex((n) => n.id === id);
+        if (idx >= 0) {
+            state.nodes[idx].label = newLabel;
+            state.nodes[idx].config.prompt = newPrompt;
+        }
+    };
+
+    if (existing) {
+        // Loading from backend
+        state.nodes.push(existing);
+    } else {
+        // Newly created node via palette drag
+        state.nodes.push({ id, kind, label, config: { x, y, prompt: promptText } });
+    }
+}
+
+// Palette drag handling
+for (const btn of document.querySelectorAll('[draggable="true"]')) {
+    btn.addEventListener("dragstart", (e) => {
+        e.dataTransfer.setData("kind", btn.dataset.kind);
+    });
+}
+
+document.getElementById("canvas").addEventListener("dragover", (e) => e.preventDefault());
+document.getElementById("canvas").addEventListener("drop", (e) => {
+    e.preventDefault();
+    const kind = e.dataTransfer.getData("kind");
+    const rect = e.currentTarget.getBoundingClientRect();
+    addNode(kind, e.clientX - rect.left, e.clientY - rect.top);
+});
+
+// Track connections
+jsp.bind("connection", ({ sourceId, targetId }) => {
+    const exists = state.edges.some((e) => e.source === sourceId && e.target === targetId);
+    if (!exists) state.edges.push({ source: sourceId, target: targetId });
+});
+
+// Track drag move to update coordinates on stop
+jsp.bind("drag:stop", (p) => {
+    const { el, pos } = p;
+    const nodeId = el.id;
+    const idx = state.nodes.findIndex((n) => n.id === nodeId);
+    if (idx >= 0) {
+        state.nodes[idx].config.x = pos[0];
+        state.nodes[idx].config.y = pos[1];
+    }
+});
+
+// Save
+async function save() {
+    if (!topicName) {
+        alert("Topic name missing in query string (?topic=<name>)");
+        return;
+    }
+    const payload = { topic_name: topicName, nodes: state.nodes, edges: state.edges };
+    const res = await fetch("/api/topic-map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+    });
+    if (res.ok) alert("Saved!"); else alert("Save failed");
+}
+
+document.getElementById("saveBtn").addEventListener("click", save);
+
+// Load existing map
+(async () => {
+    if (!topicName) return;
+    const res = await fetch(`/api/topic-map/${encodeURIComponent(topicName)}`);
+    if (!res.ok) return;
+    const { nodes, edges } = await res.json();
+    nodes.forEach((n) => addNode(n.kind, n.config?.x || 50, n.config?.y || 50, n));
+    edges.forEach((e) => jsp.connect({ source: e.source, target: e.target }));
+})();
+</script>
+{% endblock %} 
