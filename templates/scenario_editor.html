@@ -45,11 +45,6 @@
     padding: 0.1rem 0.4rem;
     font-size: 0.8rem;
   }
-  /* Apply scrolling to the entire Available Blocks column */
-  /* #available-blocks-column {
-    max-height: calc(100vh - 100px); /* Adjust based on header/nav height + buffer */
-    overflow-y: auto;
-  } */
   .block-card.selected {
     border-color: var(--primary-color) !important;
   }
@@ -61,9 +56,28 @@
       padding-right: 5px; /* Add padding for scrollbar */
   }
 
-  /* Style for the currently loaded scenario in the list */
-  #scenario-list .list-group-item.active-scenario {
+  #available-blocks-column {
+    position: sticky;
+    top: 80px;
+    z-index: 2;
+    background: #fff;
+    padding-bottom: 24px; /* Add space at the bottom to avoid overlap */
+  }
 
+  #block-list {
+    max-height: calc(100vh - 280px); /* Already present, but ensure it's enough */
+    overflow-y: auto;
+    padding-right: 5px;
+  }
+
+  #saved-scenarios-column {
+    height: calc(100vh - 120px);
+    overflow-y: auto;
+    background: #f8f9fa;
+    border-right: 1px solid #dee2e6;
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+  }
 </style>
 {% endblock %}
 
@@ -73,6 +87,24 @@
   <button class="btn btn-sm btn-outline-info mb-3" id="help-btn">Help</button>
 
   <div class="row">
+    <!-- Saved Scenarios Sidebar -->
+    <div id="saved-scenarios-column" class="col-md-3">
+      <div class="accordion" id="savedScenariosAcc">
+        <div class="accordion-item">
+          <h2 class="accordion-header" id="savedScenariosHdr">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#savedScenariosCollapse" aria-expanded="false" aria-controls="savedScenariosCollapse">
+              Saved Scenarios
+            </button>
+          </h2>
+          <div id="savedScenariosCollapse" class="accordion-collapse collapse show" aria-labelledby="savedScenariosHdr" data-bs-parent="#savedScenariosAcc">
+            <div class="accordion-body p-0">
+              <ul id="scenario-list" class="list-group rounded-0"></ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Available blocks -->
     <div id="available-blocks-column" class="col-md-5 sticky-top" style="top: 80px;">
       
@@ -119,7 +151,7 @@
     </div>
 
     <!-- Selected blocks -->
-    <div class="col-md-5 offset-md-1">
+    <div class="col-md-4">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h5 class="m-0">Selected Blocks <span id="sel-count" class="badge bg-secondary">0</span></h5>
         <button id="clear-selection" class="btn btn-sm btn-outline-secondary">Clear</button>
@@ -142,24 +174,6 @@
           </button>
         </div>
       </form>
-    </div>
-
-    <!-- Saved scenarios sidebar -->
-    <div class="col-md-12 mt-4">
-      <div class="accordion" id="savedScenariosAcc">
-        <div class="accordion-item">
-          <h2 class="accordion-header" id="savedScenariosHdr">
-            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#savedScenariosCollapse" aria-expanded="false" aria-controls="savedScenariosCollapse">
-              Saved Scenarios
-            </button>
-          </h2>
-          <div id="savedScenariosCollapse" class="accordion-collapse collapse" aria-labelledby="savedScenariosHdr" data-bs-parent="#savedScenariosAcc">
-            <div class="accordion-body p-0">
-              <ul id="scenario-list" class="list-group rounded-0"></ul>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   </div>
 </div>
