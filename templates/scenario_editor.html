@@ -18,6 +18,33 @@
   #selected-list .block-card {
     background: #f8f9fa;
   }
+  /* Style for the currently loaded scenario in the list */
+  #scenario-list .list-group-item.active-scenario {
+    background-color: #e9ecef; /* A light grey for active indication */
+    font-weight: bold;
+  }
+  /* CSS for drag-and-drop in Selected Blocks */
+  #selected-list .block-card.dragging {
+    opacity: 0.5;
+    border: 1px dashed #007bff;
+  }
+  #selected-list .block-card.drag-over-placeholder {
+    /* Visual cue for where the item will be dropped: border on top */
+    border-top: 2px solid #0d6efd; 
+    /* background-color: #e0e0e0; */ /* Alternative cue */
+  }
+  /* New CSS for action buttons */
+  .block-card .block-actions {
+    display: none; /* Hidden by default */
+    gap: 0.25rem; /* Small gap between buttons */
+  }
+  .block-card:hover .block-actions {
+    display: flex; /* Shown on hover of the parent card */
+  }
+  .block-card .action-btn { /* Ensure buttons are small and fit well */
+    padding: 0.1rem 0.4rem;
+    font-size: 0.8rem;
+  }
 </style>
 {% endblock %}
 
@@ -37,6 +64,35 @@
         <button id="new-block" class="btn btn-sm btn-outline-primary">New</button>
       </div>
       <input id="search" class="form-control form-control-sm mb-2" placeholder="Search…" />
+      
+      <!-- Inline New Block Form Container -->
+      <div id="inline-new-block-form-container" style="display: none; border: 1px solid #ced4da; border-radius: 0.25rem; padding: 1rem; margin-bottom: 1rem; background-color: #f8f9fa;">
+        <h6 class="mb-3">Create New Block</h6>
+        <form id="inline-block-creator-form">
+          <div class="mb-2">
+            <label for="inline-block-name" class="form-label form-label-sm">Name</label>
+            <input required id="inline-block-name" name="name" class="form-control form-control-sm" />
+          </div>
+          <div class="mb-2">
+            <label for="inline-block-kind" class="form-label form-label-sm">Kind</label>
+            <select required id="inline-block-kind" name="kind" class="form-select form-select-sm"></select>
+          </div>
+          <div class="mb-2">
+            <label for="inline-block-prompt" class="form-label form-label-sm">Prompt</label>
+            <textarea required id="inline-block-prompt" name="prompt" rows="3" class="form-control form-control-sm"></textarea>
+          </div>
+          <div class="mb-2">
+            <label for="inline-block-options" class="form-label form-label-sm">Options (one per line, optional)</label>
+            <textarea id="inline-block-options" name="options" rows="3" class="form-control form-control-sm"></textarea>
+          </div>
+          <div class="d-flex justify-content-end gap-2 mt-3">
+            <button id="cancel-inline-block" type="button" class="btn btn-sm btn-outline-secondary">Cancel</button>
+            <button id="save-inline-block" type="button" class="btn btn-sm btn-primary">Save Block</button>
+          </div>
+        </form>
+      </div>
+      <!-- End Inline New Block Form Container -->
+
       <div id="block-list"></div>
     </div>
 
@@ -59,7 +115,7 @@
         </div>
         <div class="d-flex gap-2">
           <button class="btn btn-primary" type="submit">Save Scenario</button>
-          <button class="btn btn-outline-primary" id="generate-prompt" type="button" disabled>
+          <button class="btn btn-outline-primary" id="generate-prompt" type="button" disabled title="Save or load a scenario to generate a prompt">
             Generate Prompt
           </button>
         </div>
@@ -126,6 +182,8 @@
 </div>
 
 <script type="module">
+let draggedItemId = null; // Stores the ID of the block being dragged
+
 async function listBlocks() {
   const r = await fetch('/api/building_blocks');
   if (!r.ok) {
@@ -137,49 +195,97 @@ async function listBlocks() {
 
 function renderBlocks(blocks) {
   const container = document.getElementById('block-list');
-  container.innerHTML = '';
+  container.innerHTML = ''; // Clear previous blocks
+
   blocks.forEach(b => {
     const div = document.createElement('div');
-    div.className = 'block-card card card-body py-2 px-3 d-flex justify-content-between align-items-center';
-    div.setAttribute('role', 'button');
-    div.setAttribute('aria-pressed', 'false');
-    div.innerHTML = `<span>${b.name} (${b.kind})</span><span class="ms-2 text-danger delete-btn" title="Delete" data-id="${b.id}">&times;</span>`;
+    div.className = 'block-card card card-body py-2 px-3'; // Main card
+    div.setAttribute('role', 'group');
+    div.dataset.id = b.id; // Store block id on the card
+
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'd-flex justify-content-between align-items-center w-100';
+
+    const blockText = document.createElement('span');
+    blockText.innerHTML = `${b.name} (${b.kind})`; // Display name and kind
+    
+    // Set up tooltip for the main card (shows block prompt and help text)
     const tip = `${b.prompt || ''}\n\n${helpTexts[b.kind] || ''}`.trim();
     div.setAttribute('title', tip);
     div.setAttribute('data-bs-toggle', 'tooltip');
     div.setAttribute('data-bs-placement', 'right');
-    div.dataset.id = b.id;
-    div.addEventListener('click', e => {
-      if (e.target.closest('.delete-btn')) return; // ignore clicks on delete icon
-      toggleSelect(div, b.id);
+
+    const actionsContainer = document.createElement('div');
+    actionsContainer.className = 'block-actions ms-2'; // Container for action buttons
+
+    // "Add to Scenario" button
+    const addButton = document.createElement('button');
+    addButton.className = 'btn btn-sm btn-outline-success action-btn add-btn';
+    addButton.innerHTML = '&#10148;'; //➔
+    addButton.title = 'Add to Scenario';
+    addButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleSelect(div, b.id); // div is the block-card element
     });
-    div.addEventListener('dblclick', e => {
-      if (e.target.closest('.delete-btn')) return;
-      openModal(b);
+
+    // "Edit Block" button
+    const editButton = document.createElement('button');
+    editButton.className = 'btn btn-sm btn-outline-primary action-btn edit-btn';
+    editButton.innerHTML = '&#9998;'; // ✎
+    editButton.title = 'Edit Block';
+    editButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openModal(b); // Open modal for editing this block
     });
+
+    // "Delete Block" button
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'btn btn-sm btn-outline-danger action-btn delete-btn-new';
+    deleteButton.innerHTML = '&times;'; // ✕
+    deleteButton.title = 'Delete Block';
+    deleteButton.dataset.id = b.id; // Store id for the handler
+    deleteButton.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const idToDelete = Number(deleteButton.dataset.id); // Ensure numeric ID
+      if (!confirm('Delete this block?')) return;
+      
+      const resp = await fetch(`/api/building_blocks/${idToDelete}`, { method: 'DELETE' });
+      if (resp.ok) {
+        blocksCache = blocksCache.filter(block => block.id !== idToDelete);
+        if (selected.has(idToDelete)) {
+            selected.delete(idToDelete);
+        }
+        renderBlocks(blocksCache); // Re-render the list of available blocks
+        syncSelectedList();     // Update the "Selected Blocks" list
+      } else {
+        const errText = await resp.text(); // Get more detailed error
+        try {
+            const errJson = JSON.parse(errText);
+            alert('Error: ' + (errJson.detail || resp.statusText));
+        } catch {
+            alert('Error: ' + (resp.statusText || errText));
+        }
+      }
+    });
+
+    actionsContainer.appendChild(addButton);
+    actionsContainer.appendChild(editButton);
+    actionsContainer.appendChild(deleteButton);
+
+    contentWrapper.appendChild(blockText);
+    contentWrapper.appendChild(actionsContainer);
+    div.appendChild(contentWrapper);
+
     container.appendChild(div);
   });
 
-  // Activate Bootstrap tooltips for newly added cards
-  container.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+  // Activate Bootstrap tooltips for newly added cards and their action buttons
+  container.querySelectorAll('[data-bs-toggle="tooltip"], .action-btn[title]').forEach(el => {
+    const instance = bootstrap.Tooltip.getInstance(el);
+    if (instance) {
+      instance.dispose(); // Dispose of old tooltip if any to prevent duplicates
+    }
     bootstrap.Tooltip.getOrCreateInstance(el);
-  });
-
-  // Bind delete buttons
-  document.querySelectorAll('.delete-btn').forEach(btn => {
-    btn.addEventListener('click', async e => {
-      e.stopPropagation();
-      const id = btn.dataset.id;
-      if (!confirm('Delete this block?')) return;
-      const resp = await fetch(`/api/building_blocks/${id}`, { method: 'DELETE' });
-      if (resp.ok) {
-        blocksCache = blocksCache.filter(b => b.id != id);
-        renderBlocks(blocksCache);
-      } else {
-        const err = await resp.json();
-        alert('Error: ' + (err.detail || resp.statusText));
-      }
-    });
   });
 }
 
@@ -222,7 +328,43 @@ const defaultPrompts = {
     'Generate 3–5 relevant, concise keyword tags that capture the main themes of the article.',
 };
 
-// Populate kind select
+// Refactored: Sets up listeners on a form for kind-based default prompt/options behavior
+function setupKindBasedDefaults(formElement, kindSelectElement) {
+  const optionsTextarea = formElement.querySelector('textarea[name="options"]');
+  const promptTextarea = formElement.querySelector('textarea[name="prompt"]');
+
+  if (!optionsTextarea || !promptTextarea) {
+    console.error("Form elements for options or prompt not found in:", formElement);
+    return;
+  }
+
+  kindSelectElement.addEventListener('change', (e) => {
+    const selectedKind = e.target.value;
+
+    // Options: if user has manually edited, do not overwrite. Reset userEdited if empty.
+    const userEdited = optionsTextarea.dataset.userEdited === '1';
+    if (!userEdited || optionsTextarea.value.trim() === '' ) { 
+      // Note: The original code had a check for opts.value.startsWith('Option 1')
+      // which is omitted here for simplicity unless it's a crucial general behavior.
+      // Default options are not directly provided by `defaultPrompts` in the current setup,
+      // so we primarily manage the `userEdited` flag here.
+      optionsTextarea.value = ''; // Clear if not user-edited and empty, or if was default
+      optionsTextarea.dataset.userEdited = '0';
+    }
+
+    // Prompt: set default if prompt is empty or matches an existing default value
+    if (promptTextarea.value.trim() === '' || Object.values(defaultPrompts).includes(promptTextarea.value.trim())) {
+      promptTextarea.value = defaultPrompts[selectedKind] || '';
+    }
+  });
+
+  // Mark options textarea as dirty on manual input
+  optionsTextarea.addEventListener('input', e => {
+    e.target.dataset.userEdited = '1';
+  });
+}
+
+// Populate kind select (this is the modal's kind select)
 const kindSelect = document.getElementById('kind-select');
 kinds.forEach(k => {
   const opt = document.createElement('option');
@@ -230,6 +372,8 @@ kinds.forEach(k => {
   opt.textContent = k;
   kindSelect.appendChild(opt);
 });
+// Apply the refactored logic to the modal form
+setupKindBasedDefaults(document.getElementById('block-form'), kindSelect);
 
 function toggleSelect(el, id) {
   if (selected.has(id)) {
@@ -246,34 +390,157 @@ function toggleSelect(el, id) {
 
 function syncSelectedList() {
   const list = document.getElementById('selected-list');
-  list.innerHTML = '';
+  list.innerHTML = ''; // Clear current items
   document.getElementById('sel-count').textContent = selected.size;
 
-  // Reflect selection state on left list cards
+  // Update visual state of "Add to Scenario" buttons in the available blocks list
   document.querySelectorAll('#block-list .block-card').forEach(el => {
     const id = Number(el.dataset.id);
+    const addButton = el.querySelector('.add-btn'); // The specific add button
+    if (addButton) {
+      if (selected.has(id)) {
+        addButton.innerHTML = '&#10003;'; // Checkmark icon
+        addButton.title = 'Added (Click to remove from Scenario)';
+        addButton.classList.remove('btn-outline-success');
+        addButton.classList.add('btn-success');
+      } else {
+        addButton.innerHTML = '&#10148;'; // Arrow icon (➔)
+        addButton.title = 'Add to Scenario';
+        addButton.classList.remove('btn-success');
+        addButton.classList.add('btn-outline-success');
+      }
+    }
+    // Also update the general 'selected' class on the card in the available list if needed for other styling
     el.classList.toggle('selected', selected.has(id));
   });
 
-  selected.forEach(id => {
-    const src = document.querySelector(`[data-id="${id}"]`);
-    const div = src.cloneNode(true);
-    div.classList.remove('selected');
-    div.querySelectorAll('.delete-btn, .selected-del').forEach(el => el.remove());
-    const x = document.createElement('span');
-    x.className = 'ms-2 text-danger fw-bold cursor-pointer selected-del';
-    x.innerHTML = '&times;';
-    div.appendChild(x);
-    x.addEventListener('click', () => {
+  // Create items for the selected list based on the current order in the 'selected' Set
+  const orderedSelectedIds = Array.from(selected); // Sets maintain insertion order
+
+  orderedSelectedIds.forEach(id => {
+    const blockData = blocksCache.find(b => b.id === id);
+    if (!blockData) {
+      console.warn(`Block with ID ${id} not found in blocksCache. Skipping in selected list.`);
+      return;
+    }
+
+    const div = document.createElement('div');
+    div.className = 'block-card card card-body py-2 px-3 d-flex justify-content-between align-items-center';
+    div.dataset.id = id;
+    div.draggable = true;
+
+    const blockText = document.createElement('span');
+    blockText.textContent = `${blockData.name} (${blockData.kind})`;
+    div.appendChild(blockText);
+
+    const actionButtonsContainer = document.createElement('div');
+    actionButtonsContainer.className = 'ms-2 d-flex align-items-center gap-2'; // Use gap for spacing
+
+    // Edit button for selected block
+    const editSelectedButton = document.createElement('button');
+    editSelectedButton.className = 'btn btn-sm btn-outline-secondary p-0 lh-1 action-btn-selected-edit'; // Custom class for specific styling if needed
+    editSelectedButton.innerHTML = '&#9998;'; // ✎ Pencil icon
+    editSelectedButton.title = 'Edit Block';
+    editSelectedButton.setAttribute('data-bs-toggle', 'tooltip');
+    editSelectedButton.setAttribute('data-bs-placement', 'top');
+    editSelectedButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openModal(blockData, false); // Open modal for editing, asCopy = false
+    });
+    actionButtonsContainer.appendChild(editSelectedButton);
+
+    const removeButton = document.createElement('button'); // Changed span to button for consistency
+    removeButton.className = 'btn btn-sm btn-outline-danger p-0 lh-1 action-btn-selected-remove'; // Custom class
+    removeButton.innerHTML = '&times;';
+    removeButton.title = 'Remove from scenario';
+    removeButton.setAttribute('data-bs-toggle', 'tooltip');
+    removeButton.setAttribute('data-bs-placement', 'top');
+    removeButton.addEventListener('click', (e) => {
+      e.stopPropagation();
       selected.delete(id);
-      syncSelectedList();
+      syncSelectedList(); // Re-render this list and update left list button states
     });
-    div.addEventListener('dblclick', e => {
-      if (e.target.classList.contains('selected-del')) return;
-      const blk = blocksCache.find(b => b.id == id);
-      if (blk) openModal(blk, true, id);
+    actionButtonsContainer.appendChild(removeButton);
+    div.appendChild(actionButtonsContainer);
+
+    // Drag and Drop Event Listeners
+    div.addEventListener('dragstart', (e) => {
+      draggedItemId = id;
+      e.dataTransfer.setData('text/plain', id.toString());
+      e.dataTransfer.effectAllowed = 'move';
+      e.currentTarget.classList.add('dragging');
     });
+
+    div.addEventListener('dragend', (e) => {
+      e.currentTarget.classList.remove('dragging');
+      // Clean up any visual placeholders from all items after drag ends
+      list.querySelectorAll('.drag-over-placeholder').forEach(item => item.classList.remove('drag-over-placeholder'));
+      draggedItemId = null;
+    });
+
+    div.addEventListener('dragover', (e) => {
+      e.preventDefault(); // Necessary to allow dropping
+      e.dataTransfer.dropEffect = 'move';
+      if (id !== draggedItemId) { // Don't show placeholder on the item being dragged
+        e.currentTarget.classList.add('drag-over-placeholder');
+      }
+    });
+
+    div.addEventListener('dragleave', (e) => {
+      e.currentTarget.classList.remove('drag-over-placeholder');
+    });
+
+    div.addEventListener('drop', (e) => {
+      e.preventDefault();
+      e.currentTarget.classList.remove('drag-over-placeholder');
+      
+      const targetId = id; // The item we are dropping onto
+      const sourceId = draggedItemId; // The item we picked up (already a number)
+
+      if (sourceId === null || sourceId === targetId) {
+        // Dropped on itself or drag not properly started
+        return;
+      }
+
+      let currentOrder = Array.from(selected);
+      const sourceIndex = currentOrder.indexOf(sourceId);
+
+      if (sourceIndex === -1) { // Should not happen
+        console.error('Dragged item not found in selected set.');
+        return;
+      }
+      
+      // Remove the source item from its original position
+      const [movedItem] = currentOrder.splice(sourceIndex, 1);
+      
+      // Find the index of the target item in the array *after* source removal
+      const targetIndexInModifiedArray = currentOrder.indexOf(targetId);
+
+      if (targetIndexInModifiedArray === -1) { // Should not happen if targetId is valid
+         // Failsafe: if target somehow disappeared, append to end
+        currentOrder.push(movedItem);
+      } else {
+        // Insert the moved item *before* the target item
+        currentOrder.splice(targetIndexInModifiedArray, 0, movedItem);
+      }
+      
+      // Rebuild the Set with the new order
+      selected.clear();
+      currentOrder.forEach(itemId => selected.add(itemId));
+      
+      syncSelectedList(); // Re-render the list with the new order
+    });
+
     list.appendChild(div);
+  });
+
+  // Initialize tooltips for new remove buttons
+  list.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+    const existingTooltip = bootstrap.Tooltip.getInstance(el);
+    if (existingTooltip) {
+      existingTooltip.dispose(); // Remove old instance to prevent issues
+    }
+    new bootstrap.Tooltip(el);
   });
 }
 
@@ -340,7 +607,94 @@ function openModal(block = null, asCopy = false, sourceId = null) {
   setTimeout(() => form.querySelector('[name="name"]').focus(), 200);
 }
 
-document.getElementById('new-block').addEventListener('click', () => openModal());
+// --- Logic for Inline New Block Form ---
+const inlineFormContainer = document.getElementById('inline-new-block-form-container');
+const inlineForm = document.getElementById('inline-block-creator-form');
+const inlineKindSelect = document.getElementById('inline-block-kind');
+const newBlockButton = document.getElementById('new-block');
+const cancelInlineButton = document.getElementById('cancel-inline-block');
+const saveInlineButton = document.getElementById('save-inline-block');
+
+// Populate the inline form's kind select
+kinds.forEach(k => {
+  const opt = document.createElement('option');
+  opt.value = k;
+  opt.textContent = k;
+  inlineKindSelect.appendChild(opt);
+});
+
+// Apply kind-based default behaviors to the inline form
+setupKindBasedDefaults(inlineForm, inlineKindSelect);
+
+// Main "New" button click handler
+newBlockButton.addEventListener('click', () => {
+  inlineFormContainer.style.display = 'block';
+  newBlockButton.disabled = true; // Disable "New" button when form is open
+  inlineForm.reset(); // Clear previous entries
+  // Manually trigger change on kind select to set initial default prompt for the first kind
+  inlineKindSelect.dispatchEvent(new Event('change')); 
+  document.getElementById('inline-block-name').focus();
+});
+
+// "Cancel" button in inline form
+cancelInlineButton.addEventListener('click', () => {
+  inlineFormContainer.style.display = 'none';
+  newBlockButton.disabled = false; // Re-enable "New" button
+  inlineForm.reset();
+});
+
+// "Save Block" button in inline form
+saveInlineButton.addEventListener('click', async () => {
+  const nameField = inlineForm.elements.name;
+  const kindField = inlineForm.elements.kind;
+  const promptField = inlineForm.elements.prompt;
+
+  if (!nameField.value.trim() || !kindField.value.trim() || !promptField.value.trim()) {
+    alert('Name, Kind, and Prompt are required.');
+    return;
+  }
+
+  const data = {
+    name: nameField.value.trim(),
+    kind: kindField.value.trim(),
+    prompt: promptField.value.trim(),
+    options: inlineForm.elements.options.value
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean),
+  };
+
+  saveInlineButton.disabled = true;
+  cancelInlineButton.disabled = true;
+
+  try {
+    const resp = await fetch('/api/building_blocks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+
+    if (resp.ok) {
+      // const newBlock = await resp.json(); // Optional: use newBlock if needed
+      inlineFormContainer.style.display = 'none';
+      newBlockButton.disabled = false;
+      inlineForm.reset();
+      blocksCache = await listBlocks(); // Refresh cache
+      renderBlocks(blocksCache);      // Re-render the list
+    } else {
+      const err = await resp.json();
+      alert('Error creating block: ' + (err.detail || resp.statusText));
+    }
+  } catch (error) {
+    console.error("Failed to save new block:", error);
+    alert("An unexpected error occurred while saving the block.");
+  } finally {
+    saveInlineButton.disabled = false;
+    cancelInlineButton.disabled = false;
+  }
+});
+
+// --- End of Logic for Inline New Block Form ---
 
 document.getElementById('save-block').addEventListener('click', async () => {
   const form = document.getElementById('block-form');
@@ -418,52 +772,51 @@ document.getElementById('duplicate-block').addEventListener('click', () => {
     });
 });
 
-// Auto-populate options defaults when kind changes (only if textarea empty)
-kindSelect.addEventListener('change', () => {
-  const opts = document.querySelector('#block-form textarea[name="options"]');
-  // If user has manually edited, do not overwrite
-  const userEdited = opts.dataset.userEdited === '1';
-  if (!userEdited || opts.value.trim() === '' || opts.value.startsWith('Option 1')) {
-    opts.value = '';
-    opts.dataset.userEdited = '0';
-  }
-
-  // Prompt default (only if prompt empty or matches older default)
-  const promptField = document.querySelector('#block-form textarea[name="prompt"]');
-  if (
-    promptField.value.trim() === '' ||
-    Object.values(defaultPrompts).includes(promptField.value.trim())
-  ) {
-    promptField.value = defaultPrompts[kindSelect.value] || '';
-  }
-});
-
-// mark textarea dirty on manual input
-document.querySelector('#block-form textarea[name="options"]').addEventListener('input', e => {
-  e.target.dataset.userEdited = '1';
-});
-
 // Auspex suggestions
 document.getElementById('auspex-btn').addEventListener('click', async () => {
-  const form = document.getElementById('block-form');
-  const desc = document.querySelector('#scenario-form textarea[name="topic"]')?.value || '';
+  const blockForm = document.getElementById('block-form'); // Form for the block being edited/created
+  const scenarioForm = document.getElementById('scenario-form'); // Main scenario form
+
+  const scenarioName = scenarioForm.elements.name.value.trim();
+  const scenarioDescription = scenarioForm.elements.topic.value.trim();
+
+  if (!scenarioName || !scenarioDescription) {
+    alert('Please provide a Scenario Name and Scenario Description before requesting Auspex suggestions.');
+    return;
+  }
+
   const body = {
-    kind: form.kind.value,
-    scenario_name: form.name.value || 'Scenario',
-    scenario_description: desc,
+    kind: blockForm.elements.kind.value, // Kind of the current block being edited
+    scenario_name: scenarioName, // Use actual scenario name
+    scenario_description: scenarioDescription,
   };
-  const res = await fetch('/api/auspex/block-options', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (res.ok) {
-    const data = await res.json();
-    const optionsTA = form.options;
-    optionsTA.value = data.options.join('\n');
-    optionsTA.dataset.userEdited = '0';
-  } else {
-    alert('Auspex failed');
+  
+  // Disable button during fetch
+  const auspexButton = document.getElementById('auspex-btn');
+  auspexButton.disabled = true;
+  auspexButton.textContent = 'Fetching...';
+
+  try {
+    const res = await fetch('/api/auspex/block-options', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const optionsTA = blockForm.elements.options;
+      optionsTA.value = data.options.join('\n');
+      optionsTA.dataset.userEdited = '0'; // Mark as not user-edited to allow kind-change to overwrite
+    } else {
+      const errData = await res.json().catch(() => ({ detail: 'Auspex request failed with status: ' + res.status }));
+      alert('Auspex failed: ' + (errData.detail || 'Unknown error'));
+    }
+  } catch (error) {
+    console.error("Auspex fetch error:", error);
+    alert('An error occurred while fetching Auspex suggestions.');
+  } finally {
+    auspexButton.disabled = false;
+    auspexButton.textContent = 'Auspex';
   }
 });
 
@@ -483,47 +836,97 @@ async function loadScenarios() {
   scenarios.forEach(s => {
     const li = document.createElement('li');
     li.className = 'list-group-item d-flex justify-content-between align-items-center';
-    li.innerHTML = `<span class="scenario-name">${s.name}</span><span class="ms-auto text-danger delete-scenario" data-id="${s.id}" title="Delete">&times;</span>`;
-    li.setAttribute('title', s.topic || '');
-    li.setAttribute('data-bs-toggle', 'tooltip');
-    li.setAttribute('data-bs-placement', 'right');
     li.dataset.id = s.id;
-    li.addEventListener('click', async () => {
-      const res = await fetch(`/api/scenarios/${s.id}`);
-      if (!res.ok) return;
-      const data = await res.json();
+    // Store topic in dataset for tooltip on name, if desired, or general use
+    li.dataset.topic = s.topic || ''; 
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'scenario-name-text';
+    nameSpan.textContent = s.name;
+    nameSpan.title = s.topic || 'Scenario Topic'; // Tooltip for the name itself
+    nameSpan.setAttribute('data-bs-toggle', 'tooltip');
+    nameSpan.setAttribute('data-bs-placement', 'top');
+
+    const buttonsDiv = document.createElement('div');
+    buttonsDiv.className = 'ms-auto d-flex gap-2';
+
+    const loadButton = document.createElement('button');
+    loadButton.className = 'btn btn-sm btn-outline-primary scenario-load-btn';
+    loadButton.innerHTML = '&#128194;'; // 📂 Load icon
+    loadButton.title = 'Load Scenario';
+    loadButton.setAttribute('data-bs-toggle', 'tooltip');
+    loadButton.setAttribute('data-bs-placement', 'top');
+    loadButton.addEventListener('click', async () => {
+      // Remove active class from any other item
+      ul.querySelectorAll('.active-scenario').forEach(item => item.classList.remove('active-scenario'));
+      // Add active class to the current item
+      li.classList.add('active-scenario');
+
+      const scenarioDetailsRes = await fetch(`/api/scenarios/${s.id}`);
+      if (!scenarioDetailsRes.ok) {
+        alert('Failed to load scenario details.');
+        li.classList.remove('active-scenario'); // Remove active class on error
+        return;
+      }
+      const data = await scenarioDetailsRes.json();
       selected.clear();
       data.block_ids.forEach(bid => selected.add(bid));
       form.name.value = data.name;
       form.topic.value = data.topic;
-      currentScenarioId = data.id;
-      renderBlocks(blocksCache);
-      syncSelectedList();
+      currentScenarioId = data.id; // Set current scenario ID
+      // renderBlocks(blocksCache); // Re-render available blocks to reflect selection status - this can be CPU intensive
+      syncSelectedList(); // Sync selected list is more direct for this action
       document.getElementById('generate-prompt').disabled = false;
+      document.getElementById('generate-prompt').title = 'Generate prompt for the loaded scenario'; // Update tooltip
     });
+
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'btn btn-sm btn-outline-danger scenario-delete-btn';
+    deleteButton.innerHTML = '&times;'; // Delete icon
+    deleteButton.title = 'Delete Scenario';
+    deleteButton.setAttribute('data-bs-toggle', 'tooltip');
+    deleteButton.setAttribute('data-bs-placement', 'top');
+    deleteButton.dataset.id = s.id;
+    deleteButton.addEventListener('click', async (e) => {
+      e.stopPropagation(); // Prevent any other event if needed
+      const idToDelete = deleteButton.dataset.id;
+      if (!confirm(`Delete scenario "${s.name}"? This will also delete its associated articles table.`)) return;
+      const resp = await fetch(`/api/scenarios/${idToDelete}`, { method: 'DELETE' });
+      if (resp.ok) {
+        loadScenarios(); // Refresh the list of scenarios
+        // If the deleted scenario was the currently loaded one, reset the form
+        if (currentScenarioId == idToDelete) {
+          form.reset();
+          selected.clear();
+          syncSelectedList();
+          document.getElementById('generate-prompt').disabled = true;
+          document.getElementById('generate-prompt').title = 'Save or load a scenario to generate a prompt';
+          currentScenarioId = null;
+        }
+      } else {
+        const err = await resp.json();
+        alert('Error deleting scenario: ' + (err.detail || resp.statusText));
+      }
+    });
+
+    buttonsDiv.appendChild(loadButton);
+    buttonsDiv.appendChild(deleteButton);
+    
+    li.appendChild(nameSpan);
+    li.appendChild(buttonsDiv);
     ul.appendChild(li);
   });
 
-  // Activate tooltips on scenario list items
+  // Activate Bootstrap tooltips on newly added elements
   ul.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
-    bootstrap.Tooltip.getOrCreateInstance(el);
+    const instance = bootstrap.Tooltip.getInstance(el);
+    if (instance) instance.dispose(); // Dispose existing if any
+    new bootstrap.Tooltip(el);
   });
 
-  // Bind delete buttons
-  ul.querySelectorAll('.delete-scenario').forEach(btn => {
-    btn.addEventListener('click', async e => {
-      e.stopPropagation();
-      const id = btn.dataset.id;
-      if (!confirm('Delete this scenario?')) return;
-      const resp = await fetch(`/api/scenarios/${id}`, { method: 'DELETE' });
-      if (resp.ok) {
-        loadScenarios();
-      } else {
-        const err = await resp.json();
-        alert('Error: ' + (err.detail || resp.statusText));
-      }
-    });
-  });
+  // Remove event listeners from old .delete-scenario buttons if they still exist (cleanup)
+  // This is a bit tricky with dynamic content. The new structure avoids this issue.
+  // document.querySelectorAll('.delete-scenario').forEach(btn => { /* remove listener if any */ });
 }
 
 let currentScenarioId = null;
@@ -535,16 +938,92 @@ document.getElementById('clear-selection').addEventListener('click', () => {
 
 // Generate prompt button
 document.getElementById('generate-prompt').addEventListener('click', async () => {
-  if (!currentScenarioId) return;
-  const res = await fetch(`/api/scenarios/${currentScenarioId}/prompt`);
-  if (!res.ok) {
-    alert('Failed to generate prompt');
+  if (!currentScenarioId) {
+    alert('Please load or save a scenario first.');
     return;
   }
-  const data = await res.json();
-  document.getElementById('promptSystem').value = data.system_prompt;
-  document.getElementById('promptUser').value = data.user_prompt;
-  promptModal.show();
+
+  // Validate scenario name and topic
+  const scenarioName = form.elements.name.value.trim();
+  const scenarioTopic = form.elements.topic.value.trim();
+  if (!scenarioName || !scenarioTopic) {
+    alert('Scenario Name and Scenario Description must be filled before generating a prompt.');
+    return;
+  }
+
+  // Validate selected blocks
+  if (selected.size === 0) {
+    alert('Please select at least one building block for the scenario.');
+    return;
+  }
+
+  let allBlocksValid = true;
+  const blockValidationMessages = [];
+
+  for (const blockId of selected) {
+    const block = blocksCache.find(b => b.id === blockId);
+    if (!block) {
+      blockValidationMessages.push(`Selected block with ID ${blockId} not found in cache.`);
+      allBlocksValid = false;
+      continue;
+    }
+
+    if (!block.name?.trim()) {
+      blockValidationMessages.push(`Block "${block.name || 'Unnamed'}" (ID: ${block.id}) is missing a name.`);
+      allBlocksValid = false;
+    }
+    if (!block.kind?.trim()) {
+      blockValidationMessages.push(`Block "${block.name || 'Unnamed'}" (ID: ${block.id}) is missing a kind.`);
+      allBlocksValid = false;
+    }
+    if (!block.prompt?.trim()) {
+      // For summarization, the prompt itself contains placeholders that need to be filled server-side via options
+      // So, just checking if prompt is non-empty is sufficient here.
+      blockValidationMessages.push(`Block "${block.name}" (ID: ${block.id}) is missing a prompt.`);
+      allBlocksValid = false;
+    }
+
+    if (block.kind === 'classification' && (!block.options || block.options.length < 2)) {
+      blockValidationMessages.push(`Classification block "${block.name}" (ID: ${block.id}) must have at least 2 options.`);
+      allBlocksValid = false;
+    }
+    if (block.kind === 'categorization' && (!block.options || block.options.length < 1)) {
+      blockValidationMessages.push(`Categorization block "${block.name}" (ID: ${block.id}) must have at least 1 option.`);
+      allBlocksValid = false;
+    }
+    // Add more specific client-side validation for other kinds if necessary
+    // For example, for 'summarization', one might check if its options define length, voice, type,
+    // but this can also be handled robustly on the server-side during prompt composition.
+  }
+
+  if (!allBlocksValid) {
+    alert('Cannot generate prompt. Please fix the following issues:\n' + blockValidationMessages.join('\n'));
+    return;
+  }
+
+  // If all validations pass, proceed to fetch the prompt
+  const generateBtn = document.getElementById('generate-prompt');
+  generateBtn.disabled = true;
+  generateBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Generating...';
+
+  try {
+    const res = await fetch(`/api/scenarios/${currentScenarioId}/prompt`);
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({ detail: 'Failed to generate prompt. Status: ' + res.status }));
+      alert('Error: ' + (errData.detail || 'Could not generate prompt'));
+      return;
+    }
+    const data = await res.json();
+    document.getElementById('promptSystem').value = data.system_prompt;
+    document.getElementById('promptUser').value = data.user_prompt;
+    promptModal.show();
+  } catch (error) {
+    console.error("Generate prompt fetch error:", error);
+    alert("An error occurred while generating the prompt.");
+  } finally {
+    generateBtn.disabled = false;
+    generateBtn.innerHTML = 'Generate Prompt';
+  }
 });
 
 loadScenarios();
