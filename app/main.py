@@ -56,6 +56,15 @@ from app.startup import initialize_application
 from app.routes.podcast_routes import router as podcast_router
 from app.routes.vector_routes import router as vector_router
 from app.routes.saved_searches import router as saved_searches_router
+from app.routes.scenario_routes import (
+    router as scenario_router,
+    page_router as scenario_page_router,
+)
+from app.routes.topic_map_routes import (
+    router as topic_map_api_router,
+    page_router as topic_map_page_router,
+)
+from app.routes.auspex_routes import router as auspex_router
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -203,6 +212,17 @@ app.include_router(podcast_router)
 
 # Add vector router
 app.include_router(vector_router)
+
+# Add scenarios router
+app.include_router(scenario_router)
+
+# Add scenarios page router
+app.include_router(scenario_page_router)
+
+# Topic map (API + page)
+app.include_router(topic_map_api_router)
+app.include_router(topic_map_page_router)
+app.include_router(auspex_router)
 
 class ArticleData(BaseModel):
     title: str

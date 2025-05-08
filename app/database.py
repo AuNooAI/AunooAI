@@ -94,6 +94,9 @@ class Database:
             # Create articles table with URI as primary key
             self.create_articles_table()
             
+            # Create ontology tables (building_blocks, scenarios, scenario_blocks)
+            self.create_ontology_tables()
+            
             # Run migrations to ensure schema is up to date
             self.migrate_db()
             
@@ -450,10 +453,9 @@ class Database:
             with open(config_path, 'w') as f:
                 json.dump(config, f, indent=4)
             
-            # Force connection refresh
-            if hasattr(self, '_connection') and self._connection:
-                self._connection.close()
-                self._connection = None
+            # Close existing per-thread connections so that a new database file
+            # is opened on the next `get_connection()` call.
+            self.close_connections()
             
             # Initialize the new database
             self.db_path = db_path
@@ -1487,17 +1489,238 @@ class Database:
     def table_exists(self, table_name: str) -> bool:
         """Check if a table exists in the database."""
         try:
-            cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name=?;
-            """, (table_name,))
-            exists = cursor.fetchone() is not None
-            cursor.close()
-            return exists
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
+                    (table_name,),
+                )
+                return cursor.fetchone() is not None
         except sqlite3.Error as e:
             logging.error(f"Error checking if table {table_name} exists: {e}")
             return False
+
+    # ------------------------------------------------------------------
+    # Ontology / Scenario support (dynamic building-block framework)
+    # ------------------------------------------------------------------
+
+    def create_ontology_tables(self):
+        """Ensure tables for BuildingBlocks, Scenarios and their M2M link exist."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Building blocks (driver_type, sentiment, custom etc.)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS building_blocks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    kind TEXT NOT NULL,
+                    prompt TEXT NOT NULL,
+                    options TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            # If the table existed previously, ensure the `options` column exists
+            cursor.execute("PRAGMA table_info(building_blocks)")
+            cols = {row[1] for row in cursor.fetchall()}
+            if "options" not in cols:
+                cursor.execute("ALTER TABLE building_blocks ADD COLUMN options TEXT")
+
+            # Scenarios (group of building blocks per topic)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scenarios (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    topic TEXT NOT NULL,
+                    article_table TEXT UNIQUE,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            # Many-to-many link
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scenario_blocks (
+                    scenario_id INTEGER NOT NULL,
+                    building_block_id INTEGER NOT NULL,
+                    PRIMARY KEY (scenario_id, building_block_id),
+                    FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE,
+                    FOREIGN KEY (building_block_id) REFERENCES building_blocks(id) ON DELETE CASCADE
+                )
+                """
+            )
+
+            conn.commit()
+
+            # Load defaults from config.json (first topic)
+            import json, os
+            cfg_path = os.path.join(os.path.dirname(__file__), "config/config.json")
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                topic_cfg = cfg.get("topics", [])[0] if cfg.get("topics") else {}
+            except Exception:
+                topic_cfg = {}
+
+            cats = topic_cfg.get("categories", [])
+            sentiments = topic_cfg.get("sentiment", [])
+            futures = topic_cfg.get("future_signals", [])
+            drivers = topic_cfg.get("driver_types", [])
+            tti = topic_cfg.get("time_to_impact", [])
+
+            default_blocks = [
+                (
+                    "Categorize Article",
+                    "categorization",
+                    "Classify the article into one of the configured categories. If none fit choose 'Other'. Provide one-sentence rationale.",
+                    json.dumps(cats + ["Other"]),
+                ),
+                (
+                    "Topic Sentiment",
+                    "sentiment",
+                    "What is the article's sentiment towards the given topic? Provide a brief explanation.",
+                    json.dumps(sentiments or ["Positive", "Negative", "Neutral"]),
+                ),
+                (
+                    "Relationship to Topic",
+                    "relationship",
+                    "Does the article act as a blocker, catalyst, accelerator, initiator, or supporting datapoint for the topic? Explain why.",
+                    json.dumps(["Accelerator", "Blocker", "Catalyst", "Initiator", "Supporting"]),
+                ),
+                (
+                    "Objectivity Score",
+                    "weighting",
+                    "On a scale of 0–1, how objective is this article? Justify the rating in one sentence.",
+                    json.dumps(["0", "0.5", "1"]),
+                ),
+                (
+                    "Sensitivity Level",
+                    "classification",
+                    "Assign a sensitivity class (Public, Internal, Confidential, Secret) to the article and give one-sentence rationale.",
+                    json.dumps(["Public", "Internal", "Confidential", "Secret"]),
+                ),
+                (
+                    "Journalist Summary",
+                    "summarization",
+                    "Provide a concise three-sentence summary of the article from the perspective of an investigative journalist.",
+                    None,
+                ),
+                (
+                    "Time to Impact",
+                    "classification",
+                    "Classify the time-to-impact as one of the configured options (e.g. Immediate, Short-term, Medium-term, Long-term). Provide a brief explanation.",
+                    json.dumps(tti or ["Immediate", "Short-term", "Medium-term", "Long-term"]),
+                ),
+                (
+                    "Driver Type",
+                    "classification",
+                    "Classify the article into one of the configured driver types and give a short explanation.",
+                    json.dumps(drivers or ["Accelerator", "Blocker", "Catalyst", "Initiator", "Delayer"]),
+                ),
+                (
+                    "Relevant Tags",
+                    "classification",
+                    "Generate 3-5 relevant tags that capture the main themes of the article.",
+                    None,
+                ),
+                (
+                    "Future Signal",
+                    "classification",
+                    "Classify the article into one of the configured future signals and explain your choice briefly.",
+                    json.dumps(futures),
+                ),
+                (
+                    "Keywords",
+                    "classification",
+                    "Generate a list of concise keyword tags capturing the core themes of the article.",
+                    None,
+                ),
+            ]
+
+            cursor.executemany(
+                "INSERT OR IGNORE INTO building_blocks (name, kind, prompt, options) VALUES (?,?,?,?)",
+                default_blocks,
+            )
+            conn.commit()
+
+    # ------------------------------------------------------------------
+    # Dynamic article tables per scenario
+    # ------------------------------------------------------------------
+
+    def _sanitize_identifier(self, name: str) -> str:
+        """Return a lowercase, safe SQLite identifier (letters, digits, _)."""
+        import re
+        return re.sub(r"[^0-9a-zA-Z_]+", "_", name.strip().lower())
+
+    def create_custom_articles_table(self, table_name: str, building_block_names: list[str]):
+        """Create a custom articles table for a scenario if it doesn't exist.
+
+        The new table is **loosely based** on the base `articles` schema and
+        is extended with a column for each selected building block plus an
+        optional `<block>_explanation` column.
+        """
+
+        safe_table = self._sanitize_identifier(table_name)
+
+        # Do nothing if the table already exists
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (safe_table,)
+            )
+            if cursor.fetchone():
+                return  # Table already present
+
+            # Base schema copied from the default articles table
+            columns_sql = [
+                "uri TEXT PRIMARY KEY",
+                "title TEXT",
+                "news_source TEXT",
+                "publication_date TEXT",
+                "submission_date TEXT DEFAULT CURRENT_TIMESTAMP",
+                "summary TEXT",
+                "tags TEXT",
+                "topic TEXT",
+                "analyzed BOOLEAN DEFAULT FALSE",
+            ]
+
+            existing_cols = set(k.split()[0] for k in columns_sql)  # track base names
+
+            for raw_name in building_block_names:
+                base_col = self._sanitize_identifier(raw_name)
+
+                # Avoid clashes with core / previously added names
+                col = base_col
+                suffix = 1
+                while col in existing_cols or col in (
+                    "uri",
+                    "title",
+                    "news_source",
+                    "publication_date",
+                    "submission_date",
+                    "summary",
+                    "tags",
+                    "topic",
+                    "analyzed",
+                ):
+                    col = f"{base_col}_{suffix}"
+                    suffix += 1
+
+                existing_cols.add(col)
+
+                columns_sql.append(f"{col} TEXT")
+                columns_sql.append(f"{col}_explanation TEXT")
+
+            create_sql = f"CREATE TABLE IF NOT EXISTS {safe_table} (" + ", ".join(columns_sql) + ")"
+            cursor.execute(create_sql)
+            conn.commit()
+            self._debug_schema()  # Optional: logs new schema
 
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
