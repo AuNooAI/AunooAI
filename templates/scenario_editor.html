@@ -45,6 +45,25 @@
     padding: 0.1rem 0.4rem;
     font-size: 0.8rem;
   }
+  /* Apply scrolling to the entire Available Blocks column */
+  /* #available-blocks-column {
+    max-height: calc(100vh - 100px); /* Adjust based on header/nav height + buffer */
+    overflow-y: auto;
+  } */
+  .block-card.selected {
+    border-color: var(--primary-color) !important;
+  }
+
+  /* Add scrolling specifically to the block list container */
+  #block-list {
+      max-height: calc(100vh - 280px); /* Adjust calculation - tweak if needed */
+      overflow-y: auto;
+      padding-right: 5px; /* Add padding for scrollbar */
+  }
+
+  /* Style for the currently loaded scenario in the list */
+  #scenario-list .list-group-item.active-scenario {
+
 </style>
 {% endblock %}
 
@@ -55,7 +74,8 @@
 
   <div class="row">
     <!-- Available blocks -->
-    <div class="col-md-5 sticky-top" style="top: 80px;">
+    <div id="available-blocks-column" class="col-md-5 sticky-top" style="top: 80px;">
+      
       <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="d-flex align-items-center gap-2">
           <h5 class="m-0">Available Building-Blocks</h5>
@@ -92,8 +112,10 @@
         </form>
       </div>
       <!-- End Inline New Block Form Container -->
-
-      <div id="block-list"></div>
+      
+      <div id="block-list"> 
+          <!-- Blocks will be rendered here by JS -->
+      </div>
     </div>
 
     <!-- Selected blocks -->
@@ -299,6 +321,7 @@ const kinds = [
   'classification',
   'summarization',
   'keywords',
+  'generation'
 ];
 
 const helpTexts = {
@@ -307,8 +330,9 @@ const helpTexts = {
   relationship: 'Describes how the article relates to the topic (blocker, catalyst, etc.).',
   weighting: 'Scores objectivity (0–1) with rationale – higher = more objective.',
   classification: 'Classifies into provided classes with brief justification.',
-  summarization: 'Provide a summary with the following characteristics:\nLength: Maximum {summary_length} words\nVoice: {summary_voice}\nType: {summary_type}\n\nSummarise the content using these parameters. Return only the summary.',
-  keywords: 'Generates a handful of relevant keyword tags.'
+  summarization: 'Provide a summary with the following characteristics:\nLength: Maximum {summary_length} words\nVoice: {summary_voice}\n\nSummarise the content using these parameters. Return only the summary.',
+  keywords: 'Defines keywords for monitoring article feeds (NOT used in analysis prompt).',
+  generation: 'Instructs the LLM to generate specific content based on the article (e.g., headlines, tags, insights). Define the task in the prompt.'
 };
 
 const defaultPrompts = {
@@ -325,55 +349,46 @@ const defaultPrompts = {
   summarization:
     'Summarise the article in three concise sentences from the perspective requested.',
   keywords:
-    'Generate 3–5 relevant, concise keyword tags that capture the main themes of the article.',
+    'Define keywords for monitoring (e.g., company names, topics). One per line.',
+  generation: 
+    'Based on the article content, generate [Specify desired output, e.g., 3 relevant tags, 2 potential headlines, a short critique].'
 };
 
-// Refactored: Sets up listeners on a form for kind-based default prompt/options behavior
-function setupKindBasedDefaults(formElement, kindSelectElement) {
-  const optionsTextarea = formElement.querySelector('textarea[name="options"]');
-  const promptTextarea = formElement.querySelector('textarea[name="prompt"]');
-
-  if (!optionsTextarea || !promptTextarea) {
-    console.error("Form elements for options or prompt not found in:", formElement);
-    return;
-  }
-
-  kindSelectElement.addEventListener('change', (e) => {
-    const selectedKind = e.target.value;
-
-    // Options: if user has manually edited, do not overwrite. Reset userEdited if empty.
-    const userEdited = optionsTextarea.dataset.userEdited === '1';
-    if (!userEdited || optionsTextarea.value.trim() === '' ) { 
-      // Note: The original code had a check for opts.value.startsWith('Option 1')
-      // which is omitted here for simplicity unless it's a crucial general behavior.
-      // Default options are not directly provided by `defaultPrompts` in the current setup,
-      // so we primarily manage the `userEdited` flag here.
-      optionsTextarea.value = ''; // Clear if not user-edited and empty, or if was default
-      optionsTextarea.dataset.userEdited = '0';
-    }
-
-    // Prompt: set default if prompt is empty or matches an existing default value
-    if (promptTextarea.value.trim() === '' || Object.values(defaultPrompts).includes(promptTextarea.value.trim())) {
-      promptTextarea.value = defaultPrompts[selectedKind] || '';
-    }
-  });
-
-  // Mark options textarea as dirty on manual input
-  optionsTextarea.addEventListener('input', e => {
-    e.target.dataset.userEdited = '1';
-  });
+// Populate kind select (this code runs for both modal and inline forms)
+function populateKindSelect(selectElement) {
+    selectElement.innerHTML = ''; // Clear existing options first
+    kinds.forEach(k => {
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = k;
+      selectElement.appendChild(opt);
+    });
 }
 
-// Populate kind select (this is the modal's kind select)
-const kindSelect = document.getElementById('kind-select');
-kinds.forEach(k => {
-  const opt = document.createElement('option');
-  opt.value = k;
-  opt.textContent = k;
-  kindSelect.appendChild(opt);
-});
-// Apply the refactored logic to the modal form
-setupKindBasedDefaults(document.getElementById('block-form'), kindSelect);
+// --- Initial Setup --- 
+// Get references to elements needed early
+const kindSelectModal = document.getElementById('kind-select');
+const blockFormModal = document.getElementById('block-form');
+
+// Specifically declare and assign inline form elements here
+const inlineKindSelect = document.getElementById('inline-block-kind'); 
+const inlineForm = document.getElementById('inline-block-creator-form');
+
+// Add checks to ensure elements were found
+if (!kindSelectModal) console.error("Element with ID 'kind-select' not found.");
+if (!blockFormModal) console.error("Element with ID 'block-form' not found.");
+if (!inlineKindSelect) console.error("Element with ID 'inline-block-kind' not found.");
+if (!inlineForm) console.error("Element with ID 'inline-block-creator-form' not found.");
+
+// Populate the kind dropdowns ONCE (using the declared consts)
+if (kindSelectModal) populateKindSelect(kindSelectModal);
+if (inlineKindSelect) populateKindSelect(inlineKindSelect); // Should now be defined
+
+// Apply kind-based default behaviors ONCE (using the declared consts)
+if (blockFormModal && kindSelectModal) setupKindBasedDefaults(blockFormModal, kindSelectModal);
+if (inlineForm && inlineKindSelect) setupKindBasedDefaults(inlineForm, inlineKindSelect); // Should now be defined
+
+// --- End Initial Setup ---
 
 function toggleSelect(el, id) {
   if (selected.has(id)) {
@@ -607,24 +622,43 @@ function openModal(block = null, asCopy = false, sourceId = null) {
   setTimeout(() => form.querySelector('[name="name"]').focus(), 200);
 }
 
+// Re-adding the definition for setupKindBasedDefaults
+function setupKindBasedDefaults(formElement, kindSelectElement) {
+  const optionsTextarea = formElement.querySelector('textarea[name="options"]');
+  const promptTextarea = formElement.querySelector('textarea[name="prompt"]');
+
+  if (!optionsTextarea || !promptTextarea) {
+    console.error("Form elements for options or prompt not found in:", formElement);
+    return;
+  }
+
+  kindSelectElement.addEventListener('change', (e) => {
+    const selectedKind = e.target.value;
+
+    // Options: if user has manually edited, do not overwrite. Reset userEdited if empty.
+    const userEdited = optionsTextarea.dataset.userEdited === '1';
+    if (!userEdited || optionsTextarea.value.trim() === '') { 
+      optionsTextarea.value = ''; // Clear if not user-edited and empty
+      optionsTextarea.dataset.userEdited = '0';
+    }
+
+    // Prompt: set default if prompt is empty or matches an existing default value
+    if (promptTextarea.value.trim() === '' || Object.values(defaultPrompts).includes(promptTextarea.value.trim())) {
+      promptTextarea.value = defaultPrompts[selectedKind] || '';
+    }
+  });
+
+  // Mark options textarea as dirty on manual input
+  optionsTextarea.addEventListener('input', e => {
+    e.target.dataset.userEdited = '1';
+  });
+}
+
 // --- Logic for Inline New Block Form ---
 const inlineFormContainer = document.getElementById('inline-new-block-form-container');
-const inlineForm = document.getElementById('inline-block-creator-form');
-const inlineKindSelect = document.getElementById('inline-block-kind');
 const newBlockButton = document.getElementById('new-block');
 const cancelInlineButton = document.getElementById('cancel-inline-block');
 const saveInlineButton = document.getElementById('save-inline-block');
-
-// Populate the inline form's kind select
-kinds.forEach(k => {
-  const opt = document.createElement('option');
-  opt.value = k;
-  opt.textContent = k;
-  inlineKindSelect.appendChild(opt);
-});
-
-// Apply kind-based default behaviors to the inline form
-setupKindBasedDefaults(inlineForm, inlineKindSelect);
 
 // Main "New" button click handler
 newBlockButton.addEventListener('click', () => {
