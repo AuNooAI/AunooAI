@@ -751,14 +751,18 @@ class Database:
         page: int = Query(1),
         per_page: int = Query(10),
         date_type: str = 'publication',  # Add date_type parameter with default
-        date_field: str = None  # Add date_field parameter
+        date_field: str = None,  # Add date_field parameter
+        require_category: bool = False # New parameter to filter for articles with a category
     ) -> Tuple[List[Dict], int]:
         """Search articles with filters including topic."""
         query_conditions = []
         params = []
 
         # Use the appropriate date field based on date_type
-        date_field = 'publication_date' if date_type == 'publication' else 'submission_date'
+        date_field_to_use = 'publication_date' if date_type == 'publication' else 'submission_date'
+        # Override with date_field if explicitly provided (for backward compatibility or specific needs)
+        if date_field:
+            date_field_to_use = date_field
 
         # Add topic filter
         if topic:
@@ -801,12 +805,16 @@ class Database:
             params.extend([f"%{keyword}%"] * 6)
 
         if pub_date_start:
-            query_conditions.append(f"{date_field} >= ?")  # Use the selected date field
+            query_conditions.append(f"{date_field_to_use} >= ?")  # Use the selected date field
             params.append(pub_date_start)
 
         if pub_date_end:
-            query_conditions.append(f"{date_field} <= ?")  # Use the selected date field
+            query_conditions.append(f"{date_field_to_use} <= ?")  # Use the selected date field
             params.append(pub_date_end)
+
+        # Add filter for requiring a category if specified
+        if require_category:
+            query_conditions.append("category IS NOT NULL AND category != ''")
 
         where_clause = " AND ".join(query_conditions) if query_conditions else "1=1"
         
