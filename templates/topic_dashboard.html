@@ -28,14 +28,19 @@
         min-height: calc(100vh - 80px);
         max-width: 100%;
         overflow-y: auto;
+        background-color: #f4f7f9; /* Lighter background for the page */
     }
     .dashboard-header {
-        background-color: #fff;
-        padding: 1rem 1.5rem;
+        /* background-color: #fff; */ /* Original */
+        background-color: #ffffff; /* Keep it white but add other enhancements */
+        padding: 1.25rem 1.75rem; /* Slightly increased padding */
         border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        /* box-shadow: 0 2px 4px rgba(0,0,0,0.05); */ /* Original */
+        box-shadow: 0 4px 12px rgba(0,0,0,0.08); /* More pronounced shadow */
         width: 100%;
         box-sizing: border-box;
+        border-bottom: 3px solid var(--bs-primary); /* Accent border */
+        margin-bottom: 1rem; /* Ensure some space below header before main content */
     }
     .dashboard-sidebar {
         background-color: #f8f9fa; 
@@ -114,27 +119,61 @@
     .ticker-wrap {
         width: 100%;
         overflow: hidden;
-        background-color: #f8f9fa; /* Light background */
-        padding: 5px 0;
-        border-radius: 4px;
-        border: 1px solid #dee2e6;
-        margin-top: 0.5rem; /* Space below date controls */
+        background: transparent; 
+        padding: 8px 0; 
+        border-radius: 6px; 
+        /* border: 1px solid #ced4da; */ /* Kept border for definition, can be removed if desired - NOW REMOVED */
+        margin-top: 0.75rem; 
     }
     .ticker-move {
         display: inline-block;
         white-space: nowrap;
         padding-left: 100%;
-        animation: ticker 60s linear infinite; /* Slower: Increased duration from 25s to 60s */
+        animation: ticker 60s linear infinite; 
     }
     .ticker-item {
         display: inline-block;
-        padding: 0 2rem;
-        color: #495057;
+        padding: 0 1.5rem; 
+        color: #343a40; /* Darker base text color for contrast */
+        font-size: 0.9rem; 
+        text-shadow: 0px 0px 1px rgba(255,255,255,0.5); /* Subtle white text shadow for pop */
     }
-    .ticker-item strong {
-        color: #dc3545; /* Example color for emphasis */
-        margin-right: 5px;
+    /* Removed .ticker-item strong as it's replaced by .ticker-prefix logic */
+    
+    .ticker-prefix {
+        /* font-weight: bold; */
+        /* color: var(--bs-primary); */ /* Original */
+        background-color: var(--bs-primary); /* Primary color background */
+        color: #fff; /* White text */
+        padding: 3px 8px; /* Padding to make it look like a badge */
+        border-radius: 4px; /* Rounded corners for the badge */
+        font-weight: 500;
+        font-size: 0.85rem; /* Slightly smaller font for the badge text */
+        margin-right: 0.75em;
+        text-transform: uppercase; /* Uppercase LATEST */
     }
+    .ticker-item a {
+        color: #0056b3; 
+        text-decoration: none;
+        font-weight: 500; 
+        padding: 2px 6px; 
+        border: 1px solid #ff7eb9; /* NEW Pink */
+        border-radius: 4px; 
+        background-color: rgba(255, 126, 185, 0.07); /* NEW Light Pink fill */
+        transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, color 0.2s ease-in-out;
+    }
+    .ticker-item a:hover {
+        color: #003875; 
+        text-decoration: underline;
+        border-color: #ff55a5; /* NEW Saturated Pink on hover */
+        background-color: rgba(255, 85, 165, 0.12); /* NEW More saturated light pink fill on hover */
+    }
+    .ticker-separator {
+        color: #868e96; /* Medium gray for separator */
+        margin: 0 0.75em; /* Spacing around separator */
+        font-weight: bold;
+    }
+
     @keyframes ticker {
         0% { transform: translate3d(0, 0, 0); }
         100% { transform: translate3d(-100%, 0, 0); }
@@ -143,15 +182,12 @@
         animation-play-state: paused; /* Pause animation on hover */
     }
 
-    .ticker-item a {
-        color: #495057;
-        text-decoration: none;
-    }
-
     /* Add styles for the trend insights container */
     #trend-insights-flex-container {
+        gap: 1rem; 
         width: 100%;
         box-sizing: border-box;
+        /* display: flex; flex-wrap: wrap; align-items: stretch; */ /* Ensure these are set if overridden elsewhere */
     }
     
     /* Add styles for the insights container */
@@ -163,18 +199,19 @@
 
     /* Styles for horizontally aligned insight cards */
     .insight-item-card {
-        border: 1px solid #eee;
-        border-radius: .25rem;
-        padding: 1rem;
-        margin-bottom: 1rem; /* Spacing between rows if they wrap */
-        /* Allow cards to grow but not shrink below a certain base, and have a base width */
-        flex: 1 1 300px; /* Adjust flex-basis (300px) as needed */
-        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
-        display: flex; /* Use flex for internal alignment */
-        flex-direction: column; /* Stack content vertically */
+        border: 1px solid #e0e0e0; /* Slightly more visible border */
+        border-radius: 6px; /* Consistent rounded corners */
+        padding: 1.25rem; /* Standardized padding */
+        margin-bottom: 1rem; 
+        flex: 1 1 320px; /* Adjusted flex-basis for better wrapping */
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05); /* Softer shadow */
+        display: flex; 
+        flex-direction: column; 
+        background-color: #fff; /* Ensure cards have a white background */
     }
     .insight-item-card h6 {
-        font-size: 0.95rem;
+        font-size: 1rem; /* Slightly larger heading */
+        color: var(--bs-primary);
     }
     .insight-item-card p {
         font-size: 0.9rem;
@@ -283,15 +320,36 @@
         position: relative;
         width: 100%;
     }
+
+    /* Improved layout for Category Insights - Using Grid */
+    #category-insights-flex-container {
+        display: grid;
+        /* grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); */ /* Responsive columns */
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); /* auto-fit is often better */
+        gap: 1.25rem; /* Consistent gap */
+        width: 100%;
+        box-sizing: border-box;
+    }
+    /* Ensure insight cards within the grid take full height of their row if desired, or behave as blocks */
+    #category-insights-flex-container .insight-item-card {
+        /* flex-basis will be ignored by grid, but keep other styles */
+         margin-bottom: 0; /* Gap is handled by grid, remove margin if it causes double spacing */
+    }
 </style>
 
 <div class="container-fluid dashboard-container-grid">
 
     {# Header Section (Topic Selector, Date Range) #}
     <div class="dashboard-header">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <h4 id="dashboard-title">Topic Dashboard</h4>
-            <div class="col-md-4 col-lg-3">
+        {# Combined Row for Title, Topic Selector, and Date Range #}
+        <div class="row align-items-center gy-2 mb-3"> 
+            {# Column for Title #}
+            <div class="col-md-auto">
+                <h4 id="dashboard-title" class="text-primary fw-bold mb-0">Topic Dashboard</h4> 
+            </div>
+            
+            {# Column for Topic Selector - push to the right #}
+            <div class="col-md ms-md-auto" style="max-width: 300px;"> 
                  <select id="topicSelector" class="form-select form-select-sm">
                     <option value="" selected disabled>Select a Topic...</option>
                     {% for topic in topics %}
@@ -300,7 +358,8 @@
                 </select>
             </div>
         </div>
-        {# Date Range Controls - Simplified #}
+        
+        {# Row for Date Range Controls (now below the title/topic row) #}
         <div class="row align-items-center gy-2">
             <div class="col-auto">
                 <label class="form-label mb-0 small">Date Range:</label>
@@ -324,8 +383,15 @@
                 <button id="applyDateRangeBtn" class="btn btn-sm btn-primary">Apply</button>
             </div>
         </div>
-        {# Ticker Added Here #}
-        <div id="newsTicker" class="ticker-wrap mt-2" style="display: none;"> 
+        {# Ticker used to be here - MOVED #}
+        {# <div id="newsTicker" class="ticker-wrap mt-2" style="display: none;"> 
+            <div class="ticker-move"></div>
+        </div> #}
+    </div>
+
+    {# News Ticker Panel - NEW PLACEMENT #}
+    <div class="dashboard-section" id="news-ticker-section" style="padding: 0.5rem 0;"> {# Reduced padding for ticker panel #}
+        <div id="newsTicker" class="ticker-wrap" style="display: none; margin-top: 0;"> 
             <div class="ticker-move"></div>
         </div>
     </div>
@@ -385,8 +451,9 @@
                     </div>
                 </div>
                 <div class="tab-pane fade" id="category-insights-content" role="tabpanel" aria-labelledby="category-insights-tab">
-                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="category-insights-flex-container">
-                        <div class="text-muted p-2 small w-100 text-center">Category-based insights will be shown here. (Coming soon)</div>
+                    {# Use the grid container for category insights #}
+                    <div id="category-insights-flex-container"> 
+                        <div class="text-muted p-2 small w-100 text-center">Category-based insights will be shown here.</div>
                     </div>
                 </div>
             </div>
@@ -747,69 +814,53 @@
         }
         document.getElementById('sentimentChart').style.display = 'block';
 
-        // Prepare datasets, including the new average score
-        const datasets = [
-            {
-                label: 'Avg Score',
-                data: data.map(d => d.avg_score),
-                borderColor: 'rgba(99, 110, 250, 1)', // Primary color for main trend
-                backgroundColor: 'rgba(99, 110, 250, 0.2)',
-                type: 'line', // Ensure it's a line
-                yAxisID: 'yAvg', // Use a separate axis for score (-1 to 1)
-                fill: false,
-                tension: 0.1,
-                borderWidth: 2 // Make it slightly thicker
-            },
-            {
-                label: 'Positive',
-                data: data.map(d => d.positive),
-                borderColor: 'rgba(75, 192, 192, 0.6)', // Reduced opacity
-                backgroundColor: 'rgba(75, 192, 192, 0.1)', // Reduced opacity
-                type: 'line',
-                yAxisID: 'yCount', // Use axis for counts
-                fill: false, 
-                tension: 0.4, // Smoother background line
-                borderWidth: 1
-            },
-            {
-                label: 'Neutral',
-                data: data.map(d => d.neutral),
-                borderColor: 'rgba(201, 203, 207, 0.6)',
-                backgroundColor: 'rgba(201, 203, 207, 0.1)',
-                type: 'line',
-                yAxisID: 'yCount',
-                fill: false,
-                tension: 0.4,
-                borderWidth: 1
-            },
-            {
-                label: 'Negative',
-                data: data.map(d => d.negative),
-                borderColor: 'rgba(255, 99, 132, 0.6)',
-                backgroundColor: 'rgba(255, 99, 132, 0.1)',
-                type: 'line',
-                yAxisID: 'yCount',
-                fill: false,
-                tension: 0.4,
-                borderWidth: 1
+        // Define colors for all potential sentiments
+        const sentimentColors = {
+            positive: 'rgba(75, 192, 192, 0.6)',
+            neutral: 'rgba(201, 203, 207, 0.6)',
+            negative: 'rgba(255, 99, 132, 0.6)',
+            mixed: 'rgba(255, 159, 64, 0.6)',    // Orange for Mixed
+            critical: 'rgba(153, 102, 255, 0.6)', // Purple for Critical
+            hyperbolic: 'rgba(255, 205, 86, 0.6)' // Yellow for Hyperbolic
+        };
+
+        const sentimentFields = ['positive', 'neutral', 'negative', 'mixed', 'critical', 'hyperbolic'];
+        
+        const datasets = sentimentFields.map(field => {
+            // Check if any data point actually has this field with a count > 0
+            const hasData = data.some(d => d[field] && d[field] > 0);
+            if (!hasData && field !== 'positive' && field !== 'neutral' && field !== 'negative') {
+                 // Optionally, always include pos/neu/neg even if zero, but hide others if no data
+                 // For now, only create dataset if there's data for it, unless it's the main three.
+                 // return null; // This would require filtering out nulls later
             }
-        ];
+            return {
+                label: field.charAt(0).toUpperCase() + field.slice(1), // Capitalize first letter
+                data: data.map(d => d[field] || 0), // Default to 0 if field is missing for a day
+                borderColor: sentimentColors[field] ? sentimentColors[field].replace('0.6', '1') : 'rgba(0,0,0,1)',
+                backgroundColor: sentimentColors[field] || 'rgba(0,0,0,0.1)',
+                type: 'line',
+                yAxisID: 'yCount',
+                fill: false, 
+                tension: 0.4, 
+                borderWidth: 1
+            };
+        }); //.filter(ds => ds !== null); // Filter out null datasets if we chose to return null for empty ones
 
         sentimentChartInstance = new Chart(ctx, {
-            // Type is specified per dataset now
             data: {
                 labels: data.map(d => d.date),
-                datasets: datasets
+                datasets: datasets.filter(ds => ds.data.some(val => val > 0)) // Only include datasets with some data
             },
             options: {
+// ... existing options, ensure yCount is the only y-axis if avg_score was fully removed
                 responsive: true,
                 maintainAspectRatio: false,
-                interaction: { // Improve tooltip interaction
+                interaction: { 
                     mode: 'index',
                     intersect: false,
                 },
                 scales: {
-                    // Left Y Axis for Counts
                     yCount: {
                         type: 'linear',
                         display: true,
@@ -817,41 +868,25 @@
                         beginAtZero: true,
                          ticks: { precision: 0 },
                          title: { display: true, text: 'Count' }
-                    },
-                     // Right Y Axis for Average Score (-1 to 1)
-                     yAvg: {
-                        type: 'linear',
-                        display: true,
-                        position: 'right',
-                        min: -1,
-                        max: 1,
-                        grid: { // Only show grid for this axis
-                            drawOnChartArea: false, 
-                        },
-                        title: { display: true, text: 'Avg Score' }
                     }
                 },
                  plugins: { 
                      legend: { position: 'bottom' },
-                     tooltip: { // Optional: Enhance tooltips
+                     tooltip: { 
                          mode: 'index',
                          intersect: false,
                      }
                 },
                  onClick: (event, elements) => {
                     if (elements.length > 0) {
-                        // For line charts, elements[0] might represent a point on one line.
-                        // We need the index to get the date label from the shared labels array.
                         const index = elements[0].index;
-                        const clickedDate = data[index].date; // Get the date label
-
-                        // Reload articles for the clicked date
+                        const clickedDate = data[index].date; 
                         const selectedTopic = document.getElementById('topicSelector').value;
                         if (selectedTopic && clickedDate) {
                              console.log(`Sentiment chart clicked. Filtering articles for date: ${clickedDate}`);
                              document.getElementById('articles-section-title').textContent = `Articles for ${clickedDate}`;
-                             document.getElementById('reset-article-filter-btn').style.display = 'inline-block'; // Show reset button
-                             loadArticles(selectedTopic, 1, clickedDate, clickedDate); // Load page 1 for this date
+                             document.getElementById('reset-article-filter-btn').style.display = 'inline-block';
+                             loadArticles(selectedTopic, 1, clickedDate, clickedDate); 
                         }
                     }
                 }
@@ -1241,11 +1276,13 @@
     function setDefaultDates(days = 30) {
         const endDate = new Date();
         const startDate = new Date();
-        startDate.setDate(endDate.getDate() - days);
+        startDate.setDate(endDate.getDate() - days + 1); // Corrected: -days + 1 for inclusive range ending today
         
-        currentEndDate = formatDate(endDate);
-        currentStartDate = formatDate(startDate);
+        currentEndDate = formatDate(endDate);      
+        currentStartDate = formatDate(startDate);   
         
+        console.log(`setDefaultDates: currentStartDate set to ${currentStartDate}, currentEndDate set to ${currentEndDate} (for ${days} days period ending today)`); // Added log
+
         document.getElementById('endDateInput').value = currentEndDate;
         document.getElementById('startDateInput').value = currentStartDate;
 
@@ -1270,39 +1307,70 @@
     }
     
     async function loadTrends(topic) {
-        // Build URL with potential date range
-        let trendsParams = '';
+        console.log(`loadTrends started. currentStartDate: ${currentStartDate}, currentEndDate: ${currentEndDate}`); // Added log
+
         let queryParams = new URLSearchParams();
+        let radarDaysLimit = 30; // Default for radar if no specific dates
+
         if (currentStartDate && currentEndDate) {
-            trendsParams = `&start_date=${currentStartDate}&end_date=${currentEndDate}`;
             queryParams.append('start_date', currentStartDate);
             queryParams.append('end_date', currentEndDate);
+            // Calculate days_limit for radar consistency if needed, though start/end take precedence
+            const sDate = new Date(currentStartDate);
+            const eDate = new Date(currentEndDate);
+            radarDaysLimit = Math.round((eDate - sDate) / (1000 * 60 * 60 * 24)) + 1;
         } else {
-            // Use days_limit if no specific dates
-            queryParams.append('days_limit', '30'); // Default to 30 days for radar if not specified by date pickers
+            // If no specific dates, find the active preset button to determine days_limit
+            const activePreset = document.querySelector('.date-preset-btn.active');
+            const daysFromPreset = activePreset ? parseInt(activePreset.dataset.days) : 30;
+            queryParams.append('days_limit', daysFromPreset.toString());
+            radarDaysLimit = daysFromPreset;
         }
-        const stackBy = document.getElementById('volumeStackBy').value || 'category';
-        queryParams.append('stack_by', stackBy);
         
-        // Show loading indicators
-        // ... (ensure all loading indicators are handled)
-        document.getElementById('volume-loading').classList.remove('d-none');
-        document.getElementById('sentiment-loading').classList.remove('d-none');
-        document.getElementById('tags-loading').classList.remove('d-none');
-        document.getElementById('wordcloud-loading').classList.remove('d-none');
-        document.getElementById('radar-loading').classList.remove('d-none'); // Added for radar
+        const stackBy = document.getElementById('volumeStackBy').value || 'category';
+        
+        // Clone queryParams for volume and add stack_by
+        let volumeQueryParams = new URLSearchParams(queryParams.toString());
+        volumeQueryParams.append('stack_by', stackBy);
+        
+        // Show loading indicators for all charts in this tab
+        const volumeLoading = document.getElementById('volume-loading');
+        if (volumeLoading) volumeLoading.classList.remove('d-none');
+        
+        const sentimentLoading = document.getElementById('sentiment-loading');
+        if (sentimentLoading) sentimentLoading.classList.remove('d-none');
+        
+        const tagsLoading = document.getElementById('tags-loading');
+        if (tagsLoading) tagsLoading.classList.remove('d-none');
+        
+        const wordcloudLoading = document.getElementById('wordcloud-loading');
+        if (wordcloudLoading) wordcloudLoading.classList.remove('d-none');
+        
+        const radarLoading = document.getElementById('radar-loading');
+        if (radarLoading) radarLoading.classList.remove('d-none');
 
-        document.getElementById('volumeChart').style.display = 'none';
-        document.getElementById('sentimentChart').style.display = 'none';
-        document.getElementById('tagsCloudContainer').style.display = 'none';
-        document.getElementById('wordCloudContainer').style.display = 'none';
-        document.getElementById('radarChart').style.display = 'none'; // Added for radar
+        const volumeChartEl = document.getElementById('volumeChart');
+        if (volumeChartEl) volumeChartEl.style.display = 'none';
 
-        const volumeData = await fetchData(`/api/dashboard/volume-over-time/${encodeURIComponent(topic)}?${queryParams.toString()}`);
+        const sentimentChartEl = document.getElementById('sentimentChart');
+        if (sentimentChartEl) sentimentChartEl.style.display = 'none';
+
+        const tagsCloudContainerEl = document.getElementById('tagsCloudContainer');
+        if (tagsCloudContainerEl) tagsCloudContainerEl.style.display = 'none';
+
+        const wordCloudContainerEl = document.getElementById('wordCloudContainer');
+        if (wordCloudContainerEl) wordCloudContainerEl.style.display = 'none';
+
+        const radarChartElDisplay = document.getElementById('radarChart');
+        if (radarChartElDisplay) radarChartElDisplay.style.display = 'none';
+
+        // Fetch Volume Data
+        console.log(`Fetching volume data with params: ${volumeQueryParams.toString()}`);
+        const volumeData = await fetchData(`/api/dashboard/volume-over-time/${encodeURIComponent(topic)}?${volumeQueryParams.toString()}`);
         renderVolumeChart(volumeData, stackBy);
 
-        // Reset queryParams for other charts if they don't use stack_by
-        queryParams.delete('stack_by');
+        // Fetch other data using the base queryParams (without stack_by, but with date range or days_limit)
+        console.log(`Fetching sentiment, tags, word freq with params: ${queryParams.toString()}`);
         const sentimentData = await fetchData(`/api/dashboard/sentiment-over-time/${encodeURIComponent(topic)}?${queryParams.toString()}`);
         renderSentimentChart(sentimentData);
 
@@ -1313,9 +1381,10 @@
         const wordFrequencyData = await fetchData(`/api/dashboard/word-frequency/${encodeURIComponent(topic)}?${queryParams.toString()}`);
         renderWordCloud(wordFrequencyData);
 
-        // Load Radar Chart Data
-        // Use currentStartDate, currentEndDate, or a default days_limit for consistency
-        renderRadarChart(topic, currentStartDate, currentEndDate, 30); 
+        // Call renderRadarChart with consistent date parameters or the derived days_limit
+        // renderRadarChart will construct its own final query string.
+        console.log(`Calling renderRadarChart with topic: ${topic}, startDate: ${currentStartDate}, endDate: ${currentEndDate}, daysLimit: ${radarDaysLimit}`);
+        renderRadarChart(topic, currentStartDate, currentEndDate, radarDaysLimit); 
     }
     
     async function loadOutliers(topic) {
@@ -1682,17 +1751,14 @@
 
     async function updateTicker() {
         const selectedTopic = document.getElementById('topicSelector').value;
-        if (!selectedTopic) return; // Don't run if no topic selected
+        if (!selectedTopic) return;
 
-        console.log('Updating ticker for topic:', selectedTopic);
         const tickerContainer = document.querySelector('#newsTicker .ticker-move');
         if (!tickerContainer) return;
 
         try {
-            // Fetch the latest 5-7 articles for the topic
             const data = await fetchData(`/api/dashboard/articles/${encodeURIComponent(selectedTopic)}?page=1&per_page=7&sort_by=submission_date&sort_order=desc`);
             if (data && data.items && data.items.length > 0) {
-                // Create a single string with titles separated by ' • ', titles are now links
                 const linkedTitles = data.items.map(article => {
                     const title = (article.title || 'Untitled').trim();
                     const safeTitle = title.replace(/[<>"&']/g, function (match) {
@@ -1705,14 +1771,16 @@
                         }[match];
                     });
                     const summaryTooltip = article.summary ? article.summary.substring(0, 150).replace(/[<>"&']/g, function(m){return {'<':'&lt;','>':'&gt;','"':'&quot;','&':'&amp;',"'":'&#039;'}[m];}) + (article.summary.length > 150 ? '...' : '') : 'No summary available';
-                    return article.uri ? `<a href="${article.uri}" target="_blank" rel="noopener noreferrer" class="text-dark text-decoration-none" title="${summaryTooltip}">${safeTitle}</a>` : `<span title="${summaryTooltip}">${safeTitle}</span>`;
+                    return article.uri ? `<a href="${article.uri}" target="_blank" rel="noopener noreferrer" title="${summaryTooltip}">${safeTitle}</a>` : `<span title="${summaryTooltip}">${safeTitle}</span>`;
                 });
-                const tickerText = "LATEST: " + linkedTitles.join('  •  ');
+                
+                const tickerContentHtml = `<span class="ticker-prefix">LATEST</span> ` + 
+                                      linkedTitles.join('  <span class="ticker-separator">|</span>  '); // Using a pipe as separator with a class
                 
                 tickerContainer.style.animation = 'none';
                 await new Promise(resolve => setTimeout(resolve, 50)); 
                 
-                tickerContainer.innerHTML = `<span class="ticker-item">${tickerText}</span>`; 
+                tickerContainer.innerHTML = `<span class="ticker-item">${tickerContentHtml}</span>`; 
                 
                 tickerContainer.style.animation = ''; 
 
@@ -1970,15 +2038,16 @@
         radarChartEl.style.display = 'none';
         if (radarChartInstance) radarChartInstance.destroy();
 
-        let params = `topic_name=${encodeURIComponent(topic)}`;
+        let queryParams = new URLSearchParams();
         if (startDate && endDate) {
-            params += `&start_date=${startDate}&end_date=${endDate}`;
-        } else if (daysLimit) {
-            params += `&days_limit=${daysLimit}`;
+            queryParams.append('start_date', startDate);
+            queryParams.append('end_date', endDate);
+        } else {
+            queryParams.append('days_limit', daysLimit.toString());
         }
-
-        const data = await fetchData(`/api/dashboard/radar-chart-data/${encodeURIComponent(topic)}?${params.split("topic_name=")[1]}`); // Simpler param passing
-        console.log("Radar Chart Data:", data);
+        console.log(`Fetching radar data with params: ${queryParams.toString()}`);
+        const data = await fetchData(`/api/dashboard/radar-chart-data/${encodeURIComponent(topic)}?${queryParams.toString()}`);
+        console.log("Radar Chart Data Received:", data);
 
         radarLoading.classList.add('d-none');
         if (!data || !data.labels || data.labels.length === 0 || !data.datasets || data.datasets.length === 0) {
@@ -1993,7 +2062,13 @@
             type: 'radar',
             data: {
                 labels: data.labels, // Future signals
-                datasets: data.datasets // Each sentiment is a dataset
+                datasets: data.datasets.map(dataset => ({
+                    ...dataset, // Spread existing dataset properties (label, data, colors, customData)
+                    fill: true, // Explicitly set fill to true, works with backgroundColor alpha
+                    pointRadius: dataset.customData.map(cd => Math.max(3, Math.min(15, Math.sqrt(cd.total_articles || 1) * 2))), // Array of radii based on total_articles
+                    pointHoverRadius: dataset.customData.map(cd => Math.max(5, Math.min(20, Math.sqrt(cd.total_articles || 1) * 2.5))),
+                    pointBackgroundColor: dataset.backgroundColor.replace(/0\.6\)$/, '0.8)'), // Slightly more opaque points
+                }))
             },
             options: {
                 responsive: true,
