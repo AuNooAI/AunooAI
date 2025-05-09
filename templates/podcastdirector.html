@@ -854,7 +854,14 @@ function initializeEventListeners() {
                 episode_title: $('#diaEpisodeTitle').val(),
                 text,
                 speed_factor: parseFloat($('#diaSpeedFactor').val() || '1'),
-                output_format: $('#diaOutputFormat').val()
+                output_format: $('#diaOutputFormat').val(),
+                topic: document.getElementById('topicSelect').value || null,
+                model: document.getElementById('diaLlmModel').value,
+                duration: document.getElementById('diaDuration').value,
+                host_name: document.getElementById('diaHostName').value,
+                guest_name: document.getElementById('diaGuestName').value,
+                guest_title: document.getElementById('diaGuestTitle').value,
+                mode: "conversation"
             };
 
             const res = await fetch('/api/dia/generate_podcast', {
@@ -1500,20 +1507,23 @@ document.getElementById('ttsForm').addEventListener('submit', async (e) => {
     }
 
     const guestName = document.getElementById('guestName').value;
-    if (!guestName) {
-        alert('Please enter a guest name');
+    // Mode check for guest name
+    const mode = document.getElementById('ttsMode').value;
+    if (mode === 'conversation' && !guestName) {
+        alert('Please enter a guest name for conversation mode');
         return;
     }
+    
+    const selectedTopic = document.getElementById('topicSelect').value; // Get selected topic
 
     const formData = {
         podcast_name: document.getElementById('podcastName').value,
         episode_title: document.getElementById('episodeTitle').value,
         script: script,
-        mode: document.getElementById('ttsMode').value,
         host_voice_id: document.getElementById('ttsHostVoice').value,
-        guest_voice_id: document.getElementById('ttsMode').value === 'conversation' ? document.getElementById('ttsGuestVoice').value : null,
+        guest_voice_id: mode === 'conversation' ? document.getElementById('ttsGuestVoice').value : null,
         guest_title: (() => { const val=document.getElementById('guestTitle').value; return val==='custom'?document.getElementById('guestTitleCustom').value:val; })(),
-        guest_name: guestName,
+        guest_name: mode === 'conversation' ? guestName : null, // Only send if conversation
         model_id: "eleven_multilingual_v2",
         output_format: "mp3_44100_128",
         voice_settings: {
@@ -1523,11 +1533,11 @@ document.getElementById('ttsForm').addEventListener('submit', async (e) => {
             use_speaker_boost: true,
             speed: parseFloat(document.getElementById('voiceSpeed').value || '1')
         },
-        model: document.getElementById('llmModel').value,
-        podcast_name: document.getElementById('podcastName').value,
-        episode_title: document.getElementById('episodeTitle').value,
-        voice_speed: parseFloat(document.getElementById('voiceSpeed').value || '1'),
-        dia_speed_factor: parseFloat($('#diaSpeedFactor').val() || '1')
+        model: document.getElementById('llmModel').value, // This was duplicated, ensure it refers to LLM model for script if needed
+        duration: document.getElementById('ttsDuration').value, // Added duration for TTS podcast request
+        mode: mode, // Added mode for TTS podcast request
+        topic: selectedTopic || null, // Add the selected topic to the payload
+        // article_uris: selectedArticles // article_uris are part of TTSPodcastRequest if script is not provided, not directly used if script is present
     };
 
     try {

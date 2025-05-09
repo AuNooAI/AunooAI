@@ -3,10 +3,8 @@ from fastapi.templating import Jinja2Templates
 from app.security.session import verify_session
 from app.database import Database
 from app.ai_models import get_ai_model
-from typing import Optional, List, Dict
 from pydantic import BaseModel
 import logging
-import re
 import json
 from datetime import datetime, timedelta
 from app.analyze_db import AnalyzeDB
@@ -20,71 +18,6 @@ class ChatRequest(BaseModel):
     message: str
     topic: str
     model: str
-
-def extract_search_parameters(message: str) -> Dict:
-    """Extract search parameters from the user's message."""
-    params = {
-        'keyword': None,
-        'category': None,
-        'sentiment': None,
-        'future_signal': None,
-        'time_to_impact': None,
-        'date_range': None,
-        'query_type': None,
-        'comparison_category': None
-    }
-    
-    # Detect query type from message patterns
-    if "trends" in message.lower() and any(period in message.lower() for period in ["days", "months", "year", "all time"]):
-        params['query_type'] = 'trend_analysis'
-        # Extract time period
-        time_matches = re.search(r'last (\d+) (?:days|months|year)', message.lower())
-        if time_matches:
-            params['date_range'] = time_matches.group(1)
-        elif "all time" in message.lower():
-            params['date_range'] = 'all'
-
-    elif "compare" in message.lower() and "category" in message.lower():
-        params['query_type'] = 'category_comparison'
-        # Extract both categories
-        categories = re.findall(r'category\s+"([^"]+)"', message)
-        if len(categories) >= 2:
-            params['category'] = categories[0]
-            params['comparison_category'] = categories[1]
-
-    elif "sentiment" in message.lower():
-        params['query_type'] = 'sentiment_analysis'
-
-    # Look for search indicators
-    if "search for" in message.lower() or "find articles" in message.lower():
-        # Extract keyword searches
-        keyword_match = re.search(r'(?:search for|about|containing|mentioning)\s+"([^"]+)"', message)
-        if keyword_match:
-            params['keyword'] = keyword_match.group(1)
-            
-        # Extract category
-        category_match = re.search(r'in category\s+"([^"]+)"', message)
-        if category_match:
-            params['category'] = category_match.group(1)
-            
-        # Extract sentiment
-        sentiment_match = re.search(r'with sentiment\s+"([^"]+)"', message)
-        if sentiment_match:
-            params['sentiment'] = sentiment_match.group(1)
-            
-        # Extract time range
-        date_matches = {
-            'last week': '7',
-            'last month': '30',
-            'last year': '365',
-            'recent': '30'
-        }
-        for date_phrase, days in date_matches.items():
-            if date_phrase in message.lower():
-                params['date_range'] = days
-                break
-    
-    return params
 
 def extract_json_from_response(response: str) -> str:
     """Extract JSON object from LLM response, handling any extra text."""
@@ -134,22 +67,6 @@ async def chat_with_database(
 4. Time to Impact: {', '.join(topic_options['timeToImpacts'])}
 5. Keywords in title, summary, or tags
 6. Date ranges (last week/month/year)"""
-
-        search_format = r"""{
-    "queries": [
-        {
-            "description": "Brief description of what this query searches for",
-            "params": {
-                "category": ["Exact category names"] or null,
-                "keyword": "main search term OR alternative term OR another term",
-                "sentiment": "exact sentiment" or null,
-                "future_signal": "exact signal" or null,
-                "tags": ["relevant", "search", "terms"],
-                "date_range": "7/30/365" or null
-            }
-        }
-    ]
-}"""
 
         search_intent_messages = [
             {"role": "system", "content": f"""You are an AI assistant that helps search through articles about {chat_request.topic}.
@@ -223,7 +140,7 @@ IMPORTANT: You must follow these exact steps in order:
                  }
              }
          ]
-     }""" + f"""
+     }""" + """
 
 3. ONLY if no exact category match exists:
     - Use a simple keyword search
@@ -242,7 +159,7 @@ IMPORTANT: You must follow these exact steps in order:
                  }
              }
          ]
-     }""" + f"""
+     }""" + """
 
 Remember:
 - For trend analysis, use ONLY date_range parameter

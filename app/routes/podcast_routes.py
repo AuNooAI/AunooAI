@@ -251,6 +251,7 @@ class TTSPodcastRequest(BaseModel):
     guest_title: Optional[str] = None
     guest_name: Optional[str] = None
     mode: str = "conversation"  # "conversation" or "bulletin"
+    topic: Optional[str] = None
 
     # ElevenLabs TTS settings
     model_id: str = "eleven_multilingual_v2"
@@ -718,7 +719,7 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
             "podcast_name": request.podcast_name,
             "episode_title": request.episode_title,
             "mode": request.mode,
-            "topic": None,
+            "topic": request.topic,
         }
 
         if request.mode == "conversation":
@@ -1449,6 +1450,7 @@ class DiaPodcastRequest(BaseModel):
     guest_name: Optional[str] = "Auspex"
     guest_title: Optional[str] = "Guest"
     mode: str = "conversation"  # conversation | bulletin
+    topic: Optional[str] = None
 
 
 @router.post("/dia/generate_podcast")
@@ -1558,6 +1560,7 @@ async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
             "podcast_name": req.podcast_name,
             "episode_title": req.episode_title,
             "mode": req.mode,
+            "topic": req.topic,
             "seed": seed,
             "segments": len(chunks),
         }

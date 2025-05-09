@@ -48,6 +48,7 @@ from app.routes import database  # Make sure this import exists
 from app.routes.stats_routes import router as stats_router
 from app.routes.chat_routes import router as chat_router
 from app.routes.database import router as database_router
+from app.routes.dashboard_routes import router as dashboard_router
 import shutil
 from app.utils.app_info import get_app_info
 from starlette.templating import _TemplateResponse  # Add this import at the top
@@ -200,6 +201,9 @@ app.include_router(chat_router)
 
 # Add this near the other router includes
 app.include_router(database_router)
+
+# Include the dashboard router
+app.include_router(dashboard_router)
 
 # Make sure this line exists in the router includes section
 app.include_router(topic_router)  # Add this if it's missing
