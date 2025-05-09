@@ -12,10 +12,21 @@ import logging
 from collections import Counter
 import json # Added for parsing metadata
 import re
+from nltk.corpus import stopwords # For stop word removal
+import nltk # For downloading stopwords if not present
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+# Download stopwords if not already downloaded (do this once, ideally at app startup)
+try:
+    stopwords.words('english')
+except LookupError:
+    nltk.download('stopwords', quiet=True)
+
+# Define a set of English stop words for efficient lookup
+ENGLISH_STOP_WORDS = set(stopwords.words('english'))
 
 # --- Pydantic Models ---
 class ArticleSchema(BaseModel):
@@ -126,6 +137,11 @@ class CategoryInsightSchema(BaseModel):
     article_count: int
     insight_text: Optional[str] = None  # Add this field for LLM-generated insights
 
+# New Pydantic model for Word Frequency
+class WordFrequencyDataPoint(BaseModel):
+    word: str
+    count: int
+
 @router.get("/topic-summary/{topic_name}", response_model=TopicSummaryMetrics)
 async def get_topic_summary_metrics(
     topic_name: str,
@@ -204,12 +220,13 @@ async def get_topic_articles(
     end_date: Optional[str] = Query(None, description="Filter by specific end date YYYY-MM-DD"),
     # TODO: Add sort_by: Optional[str] = Query(None), sort_order: Optional[str] = Query("desc"),
     db: Database = Depends(get_database_instance),
+    filter_no_category: bool = Query(True, description="Filter out articles with no category") # New parameter
     # session: dict = Depends(verify_session)
 ):
     """
     Retrieves a paginated list of articles for a given topic.
     Leverages the existing db.search_articles method.
-    Can be filtered by submission date range.
+    Can be filtered by submission date range and can exclude articles with no category.
     """
     try:
         # The db.search_articles method returns a tuple: (articles_list, total_count)
@@ -226,7 +243,8 @@ async def get_topic_articles(
             per_page=per_page,
             pub_date_start=start_date, # Pass date filters
             pub_date_end=end_date,     # Pass date filters
-            date_type='submission'     # Explicitly tell search_articles to use submission_date
+            date_type='submission',     # Explicitly tell search_articles to use submission_date
+            require_category=filter_no_category # Pass the new filter flag
             # TODO: Pass sort_by and sort_order to search_articles once implemented there
         )
 
@@ -1197,6 +1215,67 @@ async def get_category_insights(
     except Exception as e:
         logger.error(f"Error fetching category insights for {topic_name}: {e}", exc_info=True)
         return [] # Return empty list on error
+
+# New endpoint for Word Frequency
+@router.get("/word-frequency/{topic_name}", response_model=List[WordFrequencyDataPoint])
+async def get_word_frequency(
+    topic_name: str,
+    db: Database = Depends(get_database_instance),
+    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    days_limit: int = Query(30, ge=1, le=365),
+    limit_words: int = Query(50, ge=1, le=200) # How many top words to return
+):
+    """
+    Provides word frequency counts from article titles and summaries for a given topic and date range.
+    Filters out common English stop words.
+    """
+    logger.info(f"Fetching word frequency for topic: {topic_name}, dates: {start_date}-{end_date}, days: {days_limit}")
+    try:
+        # 1. Fetch articles for the topic and date range
+        # Leveraging the existing get_topic_articles function for consistency
+        paginated_response: PaginatedArticleResponse = await get_topic_articles(
+            topic_name=topic_name,
+            page=1, # Fetch all relevant articles, pagination not needed here for aggregation
+            per_page=500, # Fetch up to 500 articles to analyze for word frequency
+            start_date=start_date,
+            end_date=end_date,
+            db=db # Pass the db dependency
+        )
+        articles = paginated_response.items
+
+        if not articles:
+            return []
+
+        # 2. Concatenate relevant text (titles and summaries)
+        all_text = " "
+        for article in articles:
+            if article.title: # Add title if it exists
+                all_text += article.title + " "
+            if article.summary: # Add summary if it exists
+                all_text += article.summary + " "
+        
+        if not all_text.strip():
+            return []
+
+        # 3. Tokenize, filter stop words, and count frequencies
+        # Basic tokenization: split by non-alphanumeric characters, convert to lowercase
+        words = re.findall(r'\b\w+\b', all_text.lower()) 
+        
+        # Filter out stop words and very short words (e.g., less than 3 characters)
+        filtered_words = [word for word in words if word not in ENGLISH_STOP_WORDS and len(word) > 2]
+        
+        if not filtered_words:
+            return []
+            
+        word_counts = Counter(filtered_words)
+        top_words = word_counts.most_common(limit_words)
+
+        return [WordFrequencyDataPoint(word=word, count=count) for word, count in top_words]
+
+    except Exception as e:
+        logger.error(f"Error fetching word frequency for topic {topic_name}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve word frequency data for topic {topic_name}")
 
 # Remember to include this router in your main app (e.g., in app/main.py)
 # from app.routes import dashboard_routes
