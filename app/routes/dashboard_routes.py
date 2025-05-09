@@ -67,12 +67,15 @@ class TimeSeriesDataPoint(BaseModel):
     value: float # Generic value for count, average sentiment, etc.
 
 class SentimentDataPoint(BaseModel):
-    date: str # Or datetime.date
-    positive: int
-    neutral: int
-    negative: int
-    avg_score: Optional[float] = None # Added: Average numerical score (-1 to 1)
-    # We can add an overall score if we define a numerical mapping later
+    date: str 
+    positive: int = 0 # Default to 0
+    neutral: int = 0  # Default to 0
+    negative: int = 0  # Default to 0
+    mixed: int = 0     # Added for more sentiments
+    critical: int = 0  # Added
+    hyperbolic: int = 0 # Added
+    # Add other specific sentiments you want to track here, defaulting to 0
+    avg_score: Optional[float] = None 
 
 class TopTagDataPoint(BaseModel):
     tag: str
@@ -310,14 +313,18 @@ async def get_topic_volume_over_time(
     Provides the number of articles per day, stacked by category or sentiment,
     for a given topic over a specified period. Uses submission_date for grouping.
     """
+    logger.info(f"[get_topic_volume_over_time] Received: topic='{topic_name}', start_date='{start_date}', end_date='{end_date}', days_limit={days_limit}, stack_by='{stack_by}'") # Log input params
     try:
         end_date_dt = datetime.utcnow() if not end_date else datetime.strptime(end_date, '%Y-%m-%d')
         if start_date:
             start_date_dt = datetime.strptime(start_date, '%Y-%m-%d')
-        else:
-            start_date_dt = end_date_dt - timedelta(days=days_limit)
+        else: # If frontend sends days_limit
+            start_date_dt = end_date_dt - timedelta(days=days_limit) 
+        
         start_date_str = start_date_dt.strftime('%Y-%m-%d')
         end_date_str = end_date_dt.strftime('%Y-%m-%d')
+
+        logger.info(f"[get_topic_volume_over_time] Calculated SQL date range: {start_date_str} to {end_date_str}") # Log calculated range
 
         if stack_by not in ["category", "sentiment"]:
             raise HTTPException(status_code=400, detail="Invalid stack_by value. Must be 'category' or 'sentiment'.")
@@ -337,9 +344,12 @@ async def get_topic_volume_over_time(
             ORDER BY article_day ASC, stack_value ASC;
         """
 
-        raw_results = await run_in_threadpool(db.fetch_all, query, (topic_name, start_date_str, end_date_str))
+        sql_params = (topic_name, start_date_str, end_date_str)
+        logger.info(f"[get_topic_volume_over_time] Executing SQL: {query} WITH PARAMS: {sql_params}") # Log query and params
+        raw_results = await run_in_threadpool(db.fetch_all, query, sql_params)
 
         if not raw_results:
+            logger.info(f"[get_topic_volume_over_time] No raw results from DB for topic '{topic_name}' in range {start_date_str}-{end_date_str}")
             return []
 
         # Process results into the desired structure: List[StackedVolumeDataPoint]
@@ -375,64 +385,85 @@ async def get_topic_sentiment_over_time(
     # session: dict = Depends(verify_session)
 ):
     """
-    Provides the count of articles by sentiment (positive, neutral, negative) 
-    per day for a given topic over a specified period.
+    Provides the count of articles by various sentiments 
+    per day for a given topic over a specified period, excluding 'unknown'.
     Uses submission_date for grouping.
-    Assumes sentiment values are stored as 'positive', 'neutral', 'negative'.
-    Other sentiment values will be ignored by this specific aggregation.
     """
+    logger.info(f"[get_topic_sentiment_over_time] Received: topic='{topic_name}', start: {start_date}, end: {end_date}, days: {days_limit}")
     try:
-        # Determine date range (same logic as volume)
         end_date_dt = datetime.utcnow() if not end_date else datetime.strptime(end_date, '%Y-%m-%d')
         if start_date:
             start_date_dt = datetime.strptime(start_date, '%Y-%m-%d')
-            start_date_str = start_date
         else:
             start_date_dt = end_date_dt - timedelta(days=days_limit)
-            start_date_str = start_date_dt.strftime('%Y-%m-%d')
+        start_date_str = start_date_dt.strftime('%Y-%m-%d')
         end_date_str = end_date_dt.strftime('%Y-%m-%d')
 
+        logger.info(f"[get_topic_sentiment_over_time] Calculated SQL date range: {start_date_str} to {end_date_str}")
+
         # Query to get sentiment counts AND average score per day
+        # Excludes 'unknown' sentiment directly in the WHERE clause.
         query = f"""
             SELECT 
                 DATE(submission_date) as article_day,
-                SUM(CASE WHEN LOWER(sentiment) = 'positive' THEN 1 ELSE 0 END) as positive_count,
-                SUM(CASE WHEN LOWER(sentiment) = 'neutral' THEN 1 ELSE 0 END) as neutral_count,
-                SUM(CASE WHEN LOWER(sentiment) = 'negative' THEN 1 ELSE 0 END) as negative_count,
-                -- Calculate average score: Map positive->1, neutral->0, negative->-1, ignore others
+                LOWER(sentiment) as sentiment_value, -- Get the actual sentiment string
+                COUNT(*) as article_count,
                 AVG(CASE LOWER(sentiment) 
                         WHEN 'positive' THEN 1.0 
                         WHEN 'neutral' THEN 0.0 
                         WHEN 'negative' THEN -1.0 
-                        ELSE NULL -- Exclude other/null sentiments from average
-                    END) as avg_sentiment_score 
+                        ELSE NULL -- Other specific mappings could be added here if they have numeric equivalents
+                    END) as avg_sentiment_score_for_day 
             FROM articles
             WHERE topic = ? 
               AND DATE(submission_date) >= ?
               AND DATE(submission_date) <= ?
-              AND sentiment IS NOT NULL AND sentiment != '' 
-            GROUP BY article_day
-            HAVING COUNT(*) > 0 -- Ensure we only include days with articles 
-            ORDER BY article_day ASC;
+              AND sentiment IS NOT NULL AND sentiment != '' AND LOWER(sentiment) != 'unknown'
+            GROUP BY article_day, sentiment_value
+            ORDER BY article_day ASC, sentiment_value ASC;
         """
-
-        raw_results = await run_in_threadpool(db.fetch_all, query, (topic_name, start_date_str, end_date_str))
-
-        if raw_results is None:
-            raw_results = []
-
-        data_points = [
-            SentimentDataPoint(
-                date=row[0],
-                positive=row[1] or 0,
-                neutral=row[2] or 0,
-                negative=row[3] or 0,
-                avg_score=round(row[4], 3) if row[4] is not None else None # Add avg score, round it
-            ) for row in raw_results if row[0] is not None
-        ]
         
+        sql_params = (topic_name, start_date_str, end_date_str)
+        logger.info(f"[get_topic_sentiment_over_time] Executing SQL: {query} WITH PARAMS: {sql_params}")
+        raw_results = await run_in_threadpool(db.fetch_all, query, sql_params)
+
+        if not raw_results:
+            logger.info(f"[get_topic_sentiment_over_time] No raw sentiment results from DB for topic '{topic_name}' in range {start_date_str}-{end_date_str}")
+            return []
+
+        # Process results: group by day and populate SentimentDataPoint
+        daily_sentiment_data = {}
+        for row in raw_results:
+            day, sentiment_val, count, avg_score_day = row
+            if day not in daily_sentiment_data:
+                daily_sentiment_data[day] = {
+                    "date": day,
+                    "positive": 0, "neutral": 0, "negative": 0,
+                    "mixed": 0, "critical": 0, "hyperbolic": 0,
+                    "avg_score": None # Will be set once per day
+                }
+            
+            # Populate the specific sentiment count
+            if sentiment_val in daily_sentiment_data[day]: # Check if the sentiment is a tracked key
+                daily_sentiment_data[day][sentiment_val] = count
+            else:
+                logger.warning(f"[get_topic_sentiment_over_time] Encountered untracked sentiment '{sentiment_val}' for day {day}. It will be ignored in totals but might affect avg_score if not mapped.")
+
+            # avg_score_day is calculated per day (due to GROUP BY article_day, sentiment_value, it might be repeated)
+            # We only need to set it once per day. The last one encountered for a day in sorted results will be fine.
+            if avg_score_day is not None:
+                 daily_sentiment_data[day]["avg_score"] = round(avg_score_day, 3)
+        
+        # Convert to list of Pydantic models
+        data_points = [SentimentDataPoint(**day_data) for day_data in daily_sentiment_data.values()]
+        data_points.sort(key=lambda x: x.date) # Ensure final sort by date
+        
+        logger.info(f"[get_topic_sentiment_over_time] Processed {len(data_points)} daily sentiment points.")
         return data_points
 
+    except ValueError as ve: 
+        logger.error(f"Date format error for sentiment over time (topic: {topic_name}): {ve}")
+        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
     except Exception as e:
         logger.error(f"Error fetching sentiment over time for topic {topic_name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to retrieve sentiment data for topic {topic_name}")
@@ -742,11 +773,11 @@ async def get_generated_insights(
 @router.get("/semantic-outliers/{topic_name}", response_model=List[SemanticOutlierArticle])
 async def get_semantic_outliers(
     topic_name: str,
+    db: Database = Depends(get_database_instance),
     top_k: int = Query(10, ge=1, le=50),  # How many outliers to return
-    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),  # Added
-    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),  # Added
+    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     days_limit: int = Query(30, ge=1, le=365), # Fallback if no dates provided
-    # db: Database = Depends(get_database_instance), # Not used directly
     # session: dict = Depends(verify_session)
 ):
     logger.info(f"Fetching semantic outliers for topic: {topic_name}, dates: {start_date}-{end_date}")
