@@ -264,6 +264,25 @@
         font-size: 14px;
         color: #333;
     }
+    .chart-controls {
+        text-align: right;
+        margin-bottom: 0.5rem;
+    }
+    .chart-controls label {
+        margin-right: 0.5rem;
+        font-size: 0.85rem;
+        color: #6c757d;
+    }
+    .chart-controls .form-select-sm {
+        display: inline-block;
+        width: auto;
+        vertical-align: middle;
+    }
+    #radarChartContainer {
+        height: 400px; /* Or your desired height */
+        position: relative;
+        width: 100%;
+    }
 </style>
 
 <div class="container-fluid dashboard-container-grid">
@@ -396,7 +415,16 @@
                 <div class="tab-pane fade show active" id="statistical-analysis-content" role="tabpanel" aria-labelledby="statistical-analysis-tab">
                     <div class="row">
                         <div class="col-md-6 mb-4">
-                            <h6>Volume Over Time</h6>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h6>Volume Over Time</h6>
+                                <div class="chart-controls">
+                                    <label for="volumeStackBy">Stack by:</label>
+                                    <select id="volumeStackBy" class="form-select form-select-sm">
+                                        <option value="category" selected>Category</option>
+                                        <option value="sentiment">Sentiment</option>
+                                    </select>
+                                </div>
+                            </div>
                             <div class="chart-container">
                                 <canvas id="volumeChart"></canvas>
                             </div>
@@ -408,6 +436,16 @@
                                 <canvas id="sentimentChart"></canvas>
                             </div>
                             <div id="sentiment-loading" class="loading-indicator d-none">Loading...</div>
+                        </div>
+                    </div>
+                    {# New Row for Radar Chart #}
+                    <div class="row mt-4">
+                        <div class="col-md-12 mb-4">
+                            <h6>Distribution by Future Signal, Sentiment & TTI</h6>
+                             <div id="radarChartContainer" class="chart-container">
+                                <canvas id="radarChart"></canvas>
+                            </div>
+                            <div id="radar-loading" class="loading-indicator d-none">Loading Radar Chart...</div>
                         </div>
                     </div>
                 </div>
@@ -454,6 +492,7 @@
     // Chart instances - declare globally to manage updates/destruction
     let volumeChartInstance = null;
     let sentimentChartInstance = null;
+    let radarChartInstance = null; // Added for radar chart
     let tagCloudInstance = null;
     let currentPage = 1;
     const articlesPerPage = 10;
@@ -620,56 +659,75 @@
         });
     }
 
-    function renderVolumeChart(data) {
+    function renderVolumeChart(data, stackBy = 'category') {
         const ctx = document.getElementById('volumeChart').getContext('2d');
         document.getElementById('volume-loading').classList.add('d-none');
-        if (volumeChartInstance) volumeChartInstance.destroy(); // Destroy previous chart
+        if (volumeChartInstance) volumeChartInstance.destroy();
         
         if (!data || data.length === 0) {
-             document.getElementById('volumeChart').style.display = 'none';
-             document.getElementById('volume-loading').textContent = 'No volume data available.';
-             document.getElementById('volume-loading').classList.remove('d-none');
-             return;
+            document.getElementById('volumeChart').style.display = 'none';
+            document.getElementById('volume-loading').textContent = 'No volume data available.';
+            document.getElementById('volume-loading').classList.remove('d-none');
+            return;
         }
-         document.getElementById('volumeChart').style.display = 'block';
+        document.getElementById('volumeChart').style.display = 'block';
+
+        const dates = data.map(d => d.date);
+        const stackValues = new Set(); // To get all unique categories or sentiments
+        data.forEach(d => {
+            Object.keys(d.values).forEach(val => stackValues.add(val));
+        });
+        const sortedStackValues = Array.from(stackValues).sort();
+
+        // Define a color palette (extend if more than 7 unique stack values expected)
+        const palette = [
+            'rgba(255, 99, 132, 0.6)', 'rgba(54, 162, 235, 0.6)', 'rgba(255, 206, 86, 0.6)',
+            'rgba(75, 192, 192, 0.6)', 'rgba(153, 102, 255, 0.6)', 'rgba(255, 159, 64, 0.6)',
+            'rgba(199, 199, 199, 0.6)'
+        ];
+        const colorMap = {};
+        sortedStackValues.forEach((val, index) => {
+            colorMap[val] = palette[index % palette.length];
+        });
+
+        const datasets = sortedStackValues.map(stackVal => ({
+            label: stackVal,
+            data: data.map(d => d.values[stackVal] || 0),
+            backgroundColor: colorMap[stackVal],
+            borderColor: colorMap[stackVal].replace('0.6', '1'), // Make border solid
+            borderWidth: 1
+        }));
 
         volumeChartInstance = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: data.map(d => d.date),
-                datasets: [{
-                    label: 'Article Count',
-                    data: data.map(d => d.value),
-                    backgroundColor: 'rgba(54, 162, 235, 0.6)', 
-                    borderColor: 'rgba(54, 162, 235, 1)',
-                    borderWidth: 1
-                }]
+                labels: dates,
+                datasets: datasets
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom' },
+                    tooltip: { mode: 'index', intersect: false }
+                },
                 scales: {
-                    y: {
+                    x: { stacked: true },
+                    y: { 
+                        stacked: true,
                         beginAtZero: true,
-                        ticks: { precision: 0 } // Ensure whole numbers on y-axis
+                        ticks: { precision: 0 }
                     }
                 },
-                plugins: { legend: { display: false } },
                 onClick: (event, elements) => {
+                    // Optional: handle click to filter by date and stack_value if needed
                     if (elements.length > 0) {
                         const chartElement = elements[0];
-                        const index = chartElement.index;
-                        const clickedDate = data[index].date; // Get the date label
-                        
-                        // Reload articles for the clicked date
-                        const selectedTopic = document.getElementById('topicSelector').value;
-                        if (selectedTopic && clickedDate) {
-                            console.log(`Volume chart clicked. Filtering articles for date: ${clickedDate}`);
-                            // Add a visual cue or title update
-                            document.getElementById('articles-section-title').textContent = `Articles for ${clickedDate}`;
-                            document.getElementById('reset-article-filter-btn').style.display = 'inline-block'; // Show reset button
-                            loadArticles(selectedTopic, 1, clickedDate, clickedDate); // Load page 1 for this date
-                        }
+                        const dateClicked = dates[chartElement.index];
+                        const datasetClicked = datasets[chartElement.datasetIndex];
+                        const stackValueClicked = datasetClicked.label;
+                        console.log(`Volume chart clicked: Date=${dateClicked}, ${stackBy}=${stackValueClicked}, Count=${datasetClicked.data[chartElement.index]}`);
+                        // Potentially call loadArticles with additional filters
                     }
                 }
             }
@@ -1214,41 +1272,50 @@
     async function loadTrends(topic) {
         // Build URL with potential date range
         let trendsParams = '';
+        let queryParams = new URLSearchParams();
         if (currentStartDate && currentEndDate) {
             trendsParams = `&start_date=${currentStartDate}&end_date=${currentEndDate}`;
-        } // If dates are null, backend will use days_limit fallback (default 30)
-
+            queryParams.append('start_date', currentStartDate);
+            queryParams.append('end_date', currentEndDate);
+        } else {
+            // Use days_limit if no specific dates
+            queryParams.append('days_limit', '30'); // Default to 30 days for radar if not specified by date pickers
+        }
+        const stackBy = document.getElementById('volumeStackBy').value || 'category';
+        queryParams.append('stack_by', stackBy);
+        
         // Show loading indicators
+        // ... (ensure all loading indicators are handled)
         document.getElementById('volume-loading').classList.remove('d-none');
         document.getElementById('sentiment-loading').classList.remove('d-none');
         document.getElementById('tags-loading').classList.remove('d-none');
         document.getElementById('wordcloud-loading').classList.remove('d-none');
+        document.getElementById('radar-loading').classList.remove('d-none'); // Added for radar
+
         document.getElementById('volumeChart').style.display = 'none';
         document.getElementById('sentimentChart').style.display = 'none';
         document.getElementById('tagsCloudContainer').style.display = 'none';
         document.getElementById('wordCloudContainer').style.display = 'none';
+        document.getElementById('radarChart').style.display = 'none'; // Added for radar
 
-        const volumeData = await fetchData(`/api/dashboard/volume-over-time/${encodeURIComponent(topic)}?${trendsParams}`);
-        renderVolumeChart(volumeData);
+        const volumeData = await fetchData(`/api/dashboard/volume-over-time/${encodeURIComponent(topic)}?${queryParams.toString()}`);
+        renderVolumeChart(volumeData, stackBy);
 
-        const sentimentData = await fetchData(`/api/dashboard/sentiment-over-time/${encodeURIComponent(topic)}?${trendsParams}`);
-        console.log("Sentiment Data for Chart:", sentimentData);
+        // Reset queryParams for other charts if they don't use stack_by
+        queryParams.delete('stack_by');
+        const sentimentData = await fetchData(`/api/dashboard/sentiment-over-time/${encodeURIComponent(topic)}?${queryParams.toString()}`);
         renderSentimentChart(sentimentData);
 
-        // Fetch tag data and render cloud
-        const tagsData = await fetchData(`/api/dashboard/top-tags/${encodeURIComponent(topic)}?${trendsParams}`);
-        console.log("Tags Data:", tagsData);
-        
-        // Render both tag visualizations
+        const tagsData = await fetchData(`/api/dashboard/top-tags/${encodeURIComponent(topic)}?${queryParams.toString()}`);
         renderTagsCloud(tagsData);
         renderTopTagsList(tagsData);
         
-        // Fetch and Render word cloud visualization using the new endpoint
-        document.getElementById('wordcloud-loading').classList.remove('d-none');
-        document.getElementById('wordCloudContainer').style.display = 'none'; // Hide while loading
-        const wordFrequencyData = await fetchData(`/api/dashboard/word-frequency/${encodeURIComponent(topic)}?${trendsParams.replace(/^&/, '?')}`); // Ensure params start with ? if not empty
-        console.log("Word Frequency Data:", wordFrequencyData);
-        renderWordCloud(wordFrequencyData); // This function might need slight adjustments if data structure is different
+        const wordFrequencyData = await fetchData(`/api/dashboard/word-frequency/${encodeURIComponent(topic)}?${queryParams.toString()}`);
+        renderWordCloud(wordFrequencyData);
+
+        // Load Radar Chart Data
+        // Use currentStartDate, currentEndDate, or a default days_limit for consistency
+        renderRadarChart(topic, currentStartDate, currentEndDate, 30); 
     }
     
     async function loadOutliers(topic) {
@@ -1892,6 +1959,105 @@
             });
         }
     }
+
+    // New function to render Radar Chart
+    async function renderRadarChart(topic, startDate, endDate, daysLimit) {
+        const radarLoading = document.getElementById('radar-loading');
+        const radarChartEl = document.getElementById('radarChart');
+        const radarContainer = document.getElementById('radarChartContainer');
+
+        radarLoading.classList.remove('d-none');
+        radarChartEl.style.display = 'none';
+        if (radarChartInstance) radarChartInstance.destroy();
+
+        let params = `topic_name=${encodeURIComponent(topic)}`;
+        if (startDate && endDate) {
+            params += `&start_date=${startDate}&end_date=${endDate}`;
+        } else if (daysLimit) {
+            params += `&days_limit=${daysLimit}`;
+        }
+
+        const data = await fetchData(`/api/dashboard/radar-chart-data/${encodeURIComponent(topic)}?${params.split("topic_name=")[1]}`); // Simpler param passing
+        console.log("Radar Chart Data:", data);
+
+        radarLoading.classList.add('d-none');
+        if (!data || !data.labels || data.labels.length === 0 || !data.datasets || data.datasets.length === 0) {
+            radarContainer.innerHTML = '<div class="text-muted p-2 text-center small">No data available for radar chart.</div>';
+            return;
+        }
+        radarChartEl.style.display = 'block';
+        if(radarContainer.querySelector('.text-muted')) radarContainer.innerHTML = '<canvas id="radarChart"></canvas>'; // Clear placeholder if exists
+
+        const ctx = document.getElementById('radarChart').getContext('2d');
+        radarChartInstance = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: data.labels, // Future signals
+                datasets: data.datasets // Each sentiment is a dataset
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                elements: {
+                    line: { borderWidth: 2 },
+                    point: { radius: 3, hoverRadius: 5 } 
+                },
+                scales: {
+                    r: {
+                        angleLines: { display: true },
+                        suggestedMin: 0,
+                        pointLabels: { font: { size: 10 } }
+                        // suggestedMax: can be set if max count is known or to provide padding
+                    }
+                },
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                let label = context.dataset.label || '';
+                                if (label) label += ': ';
+                                if (context.parsed.r !== null) {
+                                    label += context.parsed.r + ' articles';
+                                }
+                                // Access customData for more details
+                                const customInfo = context.dataset.customData[context.dataIndex];
+                                if (customInfo && customInfo.tti_breakdown) {
+                                    label += ' (TTI: ';
+                                    const ttiDetails = Object.entries(customInfo.tti_breakdown)
+                                        .map(([tti, count]) => `${tti}: ${count}`)
+                                        .join(', ');
+                                    label += ttiDetails + ')';
+                                }
+                                return label;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Add event listener for the volumeStackBy dropdown
+    document.getElementById('volumeStackBy').addEventListener('change', function() {
+        const selectedTopic = document.getElementById('topicSelector').value;
+        if (selectedTopic) {
+            // Reload only the volume chart with the new stack_by parameter
+            const stackBy = this.value;
+            let queryParams = new URLSearchParams();
+            if (currentStartDate && currentEndDate) {
+                queryParams.append('start_date', currentStartDate);
+                queryParams.append('end_date', currentEndDate);
+            }
+            queryParams.append('stack_by', stackBy);
+            
+            document.getElementById('volume-loading').classList.remove('d-none');
+            document.getElementById('volumeChart').style.display = 'none';
+
+            fetchData(`/api/dashboard/volume-over-time/${encodeURIComponent(selectedTopic)}?${queryParams.toString()}`)
+                .then(data => renderVolumeChart(data, stackBy));
+        }
+    });
 
 </script>
 

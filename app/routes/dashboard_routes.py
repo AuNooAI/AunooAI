@@ -6,7 +6,7 @@ from app.database import Database, get_database_instance
 from app.ai_models import LiteLLMModel # Added for LLM access
 # from app.security.session import verify_session # Commented out as unused for now
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import logging
 from collections import Counter
@@ -141,6 +141,20 @@ class CategoryInsightSchema(BaseModel):
 class WordFrequencyDataPoint(BaseModel):
     word: str
     count: int
+
+class StackedVolumeDataPoint(BaseModel):
+    date: str
+    values: Dict[str, int] # e.g., {"CategoryA": 10, "CategoryB": 5}
+
+class RadarChartDataPoint(BaseModel):
+    future_signal: str
+    sentiment: str
+    time_to_impact: str # Or a numerical representation if preferred
+    article_count: int
+
+class RadarChartResponse(BaseModel):
+    labels: List[str] # Future signals
+    datasets: List[Dict[str, Any]] # Data for Chart.js radar datasets
 
 @router.get("/topic-summary/{topic_name}", response_model=TopicSummaryMetrics)
 async def get_topic_summary_metrics(
@@ -282,57 +296,74 @@ async def get_topic_articles(
         logger.error(f"Error fetching articles for topic {topic_name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to retrieve articles for topic {topic_name}")
 
-@router.get("/volume-over-time/{topic_name}", response_model=List[TimeSeriesDataPoint])
+@router.get("/volume-over-time/{topic_name}", response_model=List[StackedVolumeDataPoint])
 async def get_topic_volume_over_time(
     topic_name: str,
     db: Database = Depends(get_database_instance),
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     days_limit: int = Query(30, ge=1, le=365), # Fallback if no dates provided
+    stack_by: str = Query("category", description="Field to stack by: 'category' or 'sentiment'") # New parameter
     # session: dict = Depends(verify_session)
 ):
     """
-    Provides the number of articles per day for a given topic over a specified period.
-    Uses submission_date for grouping.
+    Provides the number of articles per day, stacked by category or sentiment,
+    for a given topic over a specified period. Uses submission_date for grouping.
     """
     try:
-        # Determine date range
         end_date_dt = datetime.utcnow() if not end_date else datetime.strptime(end_date, '%Y-%m-%d')
         if start_date:
             start_date_dt = datetime.strptime(start_date, '%Y-%m-%d')
-            start_date_str = start_date
         else:
             start_date_dt = end_date_dt - timedelta(days=days_limit)
-            start_date_str = start_date_dt.strftime('%Y-%m-%d')
-        
-        # Use calculated start_date_str and provided/calculated end_date
+        start_date_str = start_date_dt.strftime('%Y-%m-%d')
         end_date_str = end_date_dt.strftime('%Y-%m-%d')
 
+        if stack_by not in ["category", "sentiment"]:
+            raise HTTPException(status_code=400, detail="Invalid stack_by value. Must be 'category' or 'sentiment'.")
+
+        # Ensure the chosen stack_by field is not null or empty for meaningful stacking
         query = f"""
             SELECT 
                 DATE(submission_date) as article_day,
+                {stack_by} as stack_value,
                 COUNT(*) as article_count
             FROM articles
             WHERE topic = ? 
               AND DATE(submission_date) >= ? 
-              AND DATE(submission_date) <= ? -- Added end date condition
-            GROUP BY article_day
-            ORDER BY article_day ASC;
+              AND DATE(submission_date) <= ?
+              AND {stack_by} IS NOT NULL AND {stack_by} != ''
+            GROUP BY article_day, stack_value
+            ORDER BY article_day ASC, stack_value ASC;
         """
 
         raw_results = await run_in_threadpool(db.fetch_all, query, (topic_name, start_date_str, end_date_str))
 
-        if raw_results is None:
-            raw_results = [] # Ensure it's an iterable
+        if not raw_results:
+            return []
 
-        # Convert to Pydantic model
-        data_points = [TimeSeriesDataPoint(date=row[0], value=row[1]) for row in raw_results if row[0] is not None]
+        # Process results into the desired structure: List[StackedVolumeDataPoint]
+        # Output: [{"date": "2023-01-01", "values": {"CatA": 5, "CatB": 10}}, ...]
+        processed_data = {}
+        for row in raw_results:
+            day, stack_val, count = row
+            if day not in processed_data:
+                processed_data[day] = {"date": day, "values": {}}
+            processed_data[day]["values"][stack_val] = count
+        
+        # Convert dict to list of StackedVolumeDataPoint
+        data_points = [StackedVolumeDataPoint(**day_data) for day_data in processed_data.values()]
+        # Sort by date again just in case dictionary iteration order changed (though usually preserved in modern Python)
+        data_points.sort(key=lambda x: x.date)
         
         return data_points
 
+    except ValueError as ve: # Catch invalid date format specifically
+        logger.error(f"Date format error for volume over time (topic: {topic_name}): {ve}")
+        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
     except Exception as e:
-        logger.error(f"Error fetching volume over time for topic {topic_name}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve volume data for topic {topic_name}")
+        logger.error(f"Error fetching stacked volume over time for topic {topic_name}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve stacked volume data for topic {topic_name}")
 
 @router.get("/sentiment-over-time/{topic_name}", response_model=List[SentimentDataPoint])
 async def get_topic_sentiment_over_time(
@@ -610,8 +641,10 @@ async def get_generated_insights(
 
         summary_metrics: TopicSummaryMetrics = await get_topic_summary_metrics(topic_name, db)
         
-        volume_data: List[TimeSeriesDataPoint] = await get_topic_volume_over_time(
-            topic_name, db, start_date, end_date, days_limit
+        # Fetch volume data - assuming default stack_by='category' is acceptable for general insights
+        # If a specific stack_by is needed for insights, it should be passed here.
+        volume_data: List[StackedVolumeDataPoint] = await get_topic_volume_over_time(
+            topic_name, db, start_date, end_date, days_limit, stack_by="category" # Explicitly using category for insights
         )
         sentiment_data: List[SentimentDataPoint] = await get_topic_sentiment_over_time(
             topic_name, db, start_date, end_date, days_limit
@@ -631,7 +664,9 @@ async def get_generated_insights(
         if volume_data:
             data_for_llm += f"Article Volume Trend (number of articles per day):\n"
             for vd in volume_data[-7:]: # Show last 7 data points for brevity
-                data_for_llm += f"- {vd.date}: {vd.value} articles\n"
+                total_for_day = sum(vd.values.values()) # Calculate total from the values dictionary
+                top_stack_value = max(vd.values, key=vd.values.get, default="N/A") if vd.values else "N/A"
+                data_for_llm += f"- {vd.date}: {total_for_day} articles (dominant: {top_stack_value} with {vd.values.get(top_stack_value,0) if vd.values else 0})\n"
             data_for_llm += "\n"
         else:
             data_for_llm += "No specific article volume trend data available for the selected period.\n\n"
@@ -1276,6 +1311,117 @@ async def get_word_frequency(
     except Exception as e:
         logger.error(f"Error fetching word frequency for topic {topic_name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to retrieve word frequency data for topic {topic_name}")
+
+# New endpoint for Radar Chart Data
+@router.get("/radar-chart-data/{topic_name}", response_model=RadarChartResponse)
+async def get_radar_chart_data(
+    topic_name: str,
+    db: Database = Depends(get_database_instance),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    days_limit: int = Query(30, ge=1, le=365)
+):
+    """
+    Provides aggregated data for the radar chart: articles grouped by 
+    Future Signal, Sentiment, and Time to Impact.
+    """
+    logger.info(f"Fetching radar chart data for topic: {topic_name}")
+    try:
+        end_date_dt = datetime.utcnow() if not end_date else datetime.strptime(end_date, '%Y-%m-%d')
+        if start_date:
+            start_date_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        else:
+            start_date_dt = end_date_dt - timedelta(days=days_limit)
+        start_date_str = start_date_dt.strftime('%Y-%m-%d')
+        end_date_str = end_date_dt.strftime('%Y-%m-%d')
+
+        query = f"""
+            SELECT
+                future_signal,
+                sentiment,
+                time_to_impact,
+                COUNT(*) as article_count
+            FROM articles
+            WHERE topic = ?
+              AND DATE(submission_date) >= ?
+              AND DATE(submission_date) <= ?
+              AND future_signal IS NOT NULL AND future_signal != ''
+              AND sentiment IS NOT NULL AND sentiment != ''
+              AND time_to_impact IS NOT NULL AND time_to_impact != ''
+            GROUP BY future_signal, sentiment, time_to_impact
+            ORDER BY future_signal, sentiment, time_to_impact;
+        """
+        raw_data = await run_in_threadpool(db.fetch_all, query, (topic_name, start_date_str, end_date_str))
+
+        if not raw_data:
+            return RadarChartResponse(labels=[], datasets=[])
+
+        # Process data for radar chart
+        # Radar chart labels are the distinct future signals
+        future_signals = sorted(list(set(row['future_signal'] for row in raw_data)))
+        
+        # We need to create datasets for each sentiment. Each dataset will have a value for each future_signal.
+        # The value could be an aggregation, e.g., sum of article_count for that sentiment & future_signal.
+        # For simplicity, let's plot article_count directly. TTI can be used for radius/size in frontend.
+
+        sentiment_groups = sorted(list(set(row['sentiment'] for row in raw_data)))
+        time_to_impact_map = {"Immediate": 1, "Short-term": 2, "Medium-term": 3, "Long-term": 4, "Unknown": 5} # Example mapping for TTI
+
+        datasets = []
+        # Define a color map for sentiments (extend as needed)
+        sentiment_colors = {
+            "Positive": "rgba(75, 192, 192, 0.6)",
+            "Negative": "rgba(255, 99, 132, 0.6)",
+            "Neutral": "rgba(201, 203, 207, 0.6)",
+            "Mixed": "rgba(255, 159, 64, 0.6)",
+            "Critical": "rgba(153, 102, 255, 0.6)",
+            "Hyperbolic": "rgba(255, 205, 86, 0.6)",
+        }
+
+        for sentiment_val in sentiment_groups:
+            data_points_for_sentiment = [] # This will store counts for each future_signal
+            point_details = [] # Store {tti_numeric, count} for custom point radius/tooltips
+
+            for fs_label in future_signals:
+                # Sum article_counts for this sentiment and future_signal, considering different TTIs
+                total_count_for_fs_sentiment = 0
+                # Store individual TTI counts for this specific point if needed for complex rendering
+                tti_counts_at_point = {}
+                for row in raw_data:
+                    if row['future_signal'] == fs_label and row['sentiment'] == sentiment_val:
+                        total_count_for_fs_sentiment += row['article_count']
+                        tti_val = row['time_to_impact']
+                        tti_counts_at_point[tti_val] = tti_counts_at_point.get(tti_val, 0) + row['article_count']
+                
+                data_points_for_sentiment.append(total_count_for_fs_sentiment)
+                point_details.append({
+                    "label": fs_label,
+                    "sentiment": sentiment_val,
+                    "total_articles": total_count_for_fs_sentiment,
+                    "tti_breakdown": tti_counts_at_point # e.g. {"Immediate": 5, "Short-term": 2}
+                })
+
+            datasets.append({
+                "label": sentiment_val,
+                "data": data_points_for_sentiment,
+                "backgroundColor": sentiment_colors.get(sentiment_val, "rgba(54, 162, 235, 0.2)"), # Default color
+                "borderColor": sentiment_colors.get(sentiment_val, "rgba(54, 162, 235, 1)").replace("0.2", "1").replace("0.6", "1"), # Solid border
+                "borderWidth": 1,
+                "pointBackgroundColor": sentiment_colors.get(sentiment_val, "rgba(54, 162, 235, 1)"),
+                "pointBorderColor": "#fff",
+                "pointHoverBackgroundColor": "#fff",
+                "pointHoverBorderColor": sentiment_colors.get(sentiment_val, "rgba(54, 162, 235, 1)"),
+                "customData": point_details # Store detailed breakdown here
+            })
+
+        return RadarChartResponse(labels=future_signals, datasets=datasets)
+
+    except ValueError as ve:
+        logger.error(f"Date format error for radar chart (topic: {topic_name}): {ve}")
+        raise HTTPException(status_code=400, detail="Invalid date format. Please use YYYY-MM-DD.")
+    except Exception as e:
+        logger.error(f"Error fetching radar chart data for topic {topic_name}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve radar chart data for {topic_name}")
 
 # Remember to include this router in your main app (e.g., in app/main.py)
 # from app.routes import dashboard_routes
