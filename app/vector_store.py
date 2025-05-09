@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 _CHROMA_CLIENT: Optional[chromadb.Client] = None
 _COLLECTION_NAME = "articles"
 
+# Add pathlib import
+import pathlib 
 
 def _get_embedding_function():
     """Return an embedding function for ChromaDB.
@@ -95,9 +97,20 @@ def get_chroma_client() -> chromadb.Client:
     """Return a (singleton) ChromaDB client instance."""
     global _CHROMA_CLIENT
     if _CHROMA_CLIENT is None:
+        # --- MODIFICATION START ---
+        # Get the directory where vector_store.py resides
+        current_file_dir = pathlib.Path(__file__).parent.resolve()
+        # Assume chromadb is in the parent directory (project root) relative to this file's parent (app/)
+        # Adjust this logic if your chromadb directory is elsewhere relative to vector_store.py
+        project_root = current_file_dir.parent
+        chroma_path = project_root / os.getenv("CHROMA_DB_DIR", "chromadb")
+        chroma_path_str = str(chroma_path.resolve()) # Get absolute path string
+        logger.info(f"Attempting to connect to ChromaDB at absolute path: {chroma_path_str}")
         _CHROMA_CLIENT = chromadb.PersistentClient(
-            path=os.getenv("CHROMA_DB_DIR", "./chromadb")
+            # path=os.getenv("CHROMA_DB_DIR", "./chromadb") # Original relative path
+            path=chroma_path_str # Use absolute path
         )
+        # --- MODIFICATION END ---
     return _CHROMA_CLIENT
 
 
@@ -192,6 +205,63 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
 # --------------------------------------------------------------------------------------
 # Public API – upsert & search
 # --------------------------------------------------------------------------------------
+
+# Define internal helper _fetch_vectors *before* functions that use it
+def _fetch_vectors(
+    limit: int | None = None,
+    where: Optional[Dict[str, Any]] = None,
+):
+    """Return `(vectors, metadatas, ids)` truncated to *limit* items.
+
+    Vectors are returned as an ``np.ndarray`` of shape ``(n, dim)`` to
+    allow efficient downstream numeric work.  We always request
+    *embeddings* and *metadatas* so callers can build richer responses.
+    """
+    import numpy as np  # Local import to avoid module-level dependency
+    
+    # Use the singleton getter
+    collection = _get_collection()
+    
+    try:
+        kw = {"include": ["embeddings", "metadatas"]}
+        if limit:
+            kw["limit"] = limit  # type: ignore[assignment]
+        if where:
+            kw["where"] = where  # type: ignore[assignment]
+        res = collection.get(**kw)  # type: ignore[arg-type]
+    except Exception as exc:  # Fallback – corrupted records without embeddings
+        logging.getLogger(__name__).error(
+            "Chroma get() failed: %s", exc
+        )
+        return np.empty((0, 0), dtype=np.float32), [], []
+
+    vectors = np.asarray(res.get("embeddings", []), dtype=np.float32)
+    metadatas = res.get("metadatas", [])
+    ids = res.get("ids", [])
+    return vectors, metadatas, ids
+
+# --- Public function to fetch vectors by metadata filter ---
+def get_vectors_by_metadata(limit: Optional[int] = None, where: Optional[Dict[str, Any]] = None):
+    """Public interface to fetch vectors and metadata based on a filter.
+
+    Args:
+        limit: Maximum number of results to fetch.
+        where: Metadata filter dictionary (e.g., {"topic": "some_topic"}).
+
+    Returns:
+        Tuple containing (vectors_numpy_array, metadatas_list, ids_list).
+        Returns (empty_array, [], []) on error or if no data found.
+    """
+    # Lazy import numpy here if not already imported at module level
+    import numpy as np 
+    try:
+        # Call the internal function (now defined above)
+        vecs, metas, ids = _fetch_vectors(limit=limit, where=where)
+        return vecs, metas, ids
+    except Exception as e:
+        logger.error(f"Error in get_vectors_by_metadata: {e}", exc_info=True)
+        # Return empty structures consistent with _fetch_vectors error handling
+        return np.empty((0, 0), dtype=np.float32), [], []
 
 def similar_articles(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
     """Return *top_k* articles most similar to the one with *uri*.

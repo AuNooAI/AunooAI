@@ -1,0 +1,1817 @@
+{% extends 'base.html' %}
+{% block title %}Topic Dashboard{% endblock %}
+
+{% block content %}
+{# Include Chart.js CDN #}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{# Include TagCloud.js CDN - use direct TagCloud script #}
+<script src="https://www.goat1000.com/tagcanvas.min.js"></script>
+{# Add D3 for word cloud visualization #}
+<script src="https://cdn.jsdelivr.net/npm/d3@7.8.5/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/d3-cloud@1.2.7/build/d3.layout.cloud.min.js"></script>
+{# Add Bootstrap Icons for podcast player #}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+{# Add marked.js for markdown rendering #}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<style>
+    /* Basic layout styling */
+    .dashboard-container-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        padding: 1rem 1.5rem;
+        box-sizing: border-box;
+        min-height: calc(100vh - 80px);
+        max-width: 100%;
+        overflow-y: auto;
+    }
+    .dashboard-header {
+        background-color: #fff;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .dashboard-sidebar {
+        background-color: #f8f9fa; 
+        padding: 1.5rem;
+        border-radius: 8px;
+        height: 100%; 
+        display: none; /* Hide the sidebar column entirely */
+    }
+    .dashboard-main {
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+        width: 100%;
+        box-sizing: border-box;
+    }
+    .dashboard-section {
+        background-color: #fff;
+        padding: 1.5rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
+    }
+    .dashboard-section:last-child {
+        margin-bottom: 0;
+    }
+    .chart-container {
+        height: 280px; /* Slightly smaller charts */
+        position: relative;
+        width: 100%;
+    }
+    #articles-list {
+         max-height: 500px; /* Adjust max height */
+         overflow-y: auto;
+         border-top: 1px solid #dee2e6;
+         border-bottom: 1px solid #dee2e6;
+         width: 100%;
+         box-sizing: border-box;
+    }
+     #articles-list .list-group-item {
+        border-left: 0;
+        border-right: 0;
+        padding-left: 0;
+        padding-right: 0;
+        width: 100%;
+        box-sizing: border-box;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+    }
+     #articles-list .list-group-item:first-child {
+        border-top: 0;
+    }
+     #articles-list .list-group-item:last-child {
+        border-bottom: 0;
+    }
+    #outliers-list {
+        max-height: 250px; /* Adjust height */
+        overflow-y: auto;
+    }
+    .loading-indicator {
+        text-align: center;
+        padding: 2rem;
+        color: #6c757d;
+    }
+    .sentiment-badge {
+        font-size: 0.75em;
+        padding: 0.25em 0.5em;
+        margin-left: 0.5em;
+        vertical-align: middle;
+    }
+    .sentiment-positive { background-color: #d1e7dd; color: #0a5132; border: 1px solid #a3cfbb; }
+    .sentiment-negative { background-color: #f8d7da; color: #842029; border: 1px solid #f1aeb5; }
+    .sentiment-neutral { background-color: #e2e3e5; color: #41464b; border: 1px solid #c3c6ca; }
+    .sentiment-unknown { background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6; }
+    .ticker-wrap {
+        width: 100%;
+        overflow: hidden;
+        background-color: #f8f9fa; /* Light background */
+        padding: 5px 0;
+        border-radius: 4px;
+        border: 1px solid #dee2e6;
+        margin-top: 0.5rem; /* Space below date controls */
+    }
+    .ticker-move {
+        display: inline-block;
+        white-space: nowrap;
+        padding-left: 100%;
+        animation: ticker 60s linear infinite; /* Slower: Increased duration from 25s to 60s */
+    }
+    .ticker-item {
+        display: inline-block;
+        padding: 0 2rem;
+        color: #495057;
+    }
+    .ticker-item strong {
+        color: #dc3545; /* Example color for emphasis */
+        margin-right: 5px;
+    }
+    @keyframes ticker {
+        0% { transform: translate3d(0, 0, 0); }
+        100% { transform: translate3d(-100%, 0, 0); }
+    }
+    .ticker-wrap:hover .ticker-move {
+        animation-play-state: paused; /* Pause animation on hover */
+    }
+
+    .ticker-item a {
+        color: #495057;
+        text-decoration: none;
+    }
+
+    /* Add styles for the trend insights container */
+    #trend-insights-flex-container {
+        width: 100%;
+        box-sizing: border-box;
+    }
+    
+    /* Add styles for the insights container */
+    .insight-card {
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        max-width: 100%;
+    }
+
+    /* Styles for horizontally aligned insight cards */
+    .insight-item-card {
+        border: 1px solid #eee;
+        border-radius: .25rem;
+        padding: 1rem;
+        margin-bottom: 1rem; /* Spacing between rows if they wrap */
+        /* Allow cards to grow but not shrink below a certain base, and have a base width */
+        flex: 1 1 300px; /* Adjust flex-basis (300px) as needed */
+        box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+        display: flex; /* Use flex for internal alignment */
+        flex-direction: column; /* Stack content vertically */
+    }
+    .insight-item-card h6 {
+        font-size: 0.95rem;
+    }
+    .insight-item-card p {
+        font-size: 0.9rem;
+        flex-grow: 1; /* Allow paragraph to take available space */
+        max-height: 200px; /* Maximum height before scrolling */
+        overflow-y: auto;  /* Enable vertical scroll if content exceeds max-height */
+        word-wrap: break-word; /* Ensure long words break */
+        margin-bottom: 0; /* Adjust as needed */
+    }
+
+    /* Ensure the flex container for trend insights has a gap */
+    #trend-insights-flex-container {
+        gap: 1rem; /* Add gap between insight cards */
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Styles for horizontally aligned highlight cards */
+    #key-articles-list {
+        display: flex;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 1rem; /* Space between highlight cards */
+        justify-content: flex-start; /* Align cards to the start */
+        align-items: stretch; /* Make cards in a row equal height if needed */
+    }
+    /* Adjustments for highlight cards within the flex layout */
+    #key-articles-list .card {
+        flex: 0 0 calc(33.333% - 1rem); /* Example: 3 cards per row, considering the gap */
+        /* Adjust calc if you want different number of cards per row, e.g., 50% - 0.5rem for 2 cards */
+        min-width: 280px; /* Minimum width before wrapping */
+        margin-bottom: 0 !important; /* Remove original margin-bottom if using gap */
+    }
+    
+    /* Add style to ensure markdown renders properly in insight cards */
+    .insight-content {
+        width: 100%;
+    }
+    .insight-content ul, .insight-content ol {
+        padding-left: 1.5rem;
+    }
+    .insight-content p {
+        margin-bottom: 0.5rem;
+    }
+</style>
+
+<div class="container-fluid dashboard-container-grid">
+
+    {# Header Section (Topic Selector, Date Range) #}
+    <div class="dashboard-header">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h4 id="dashboard-title">Topic Dashboard</h4>
+            <div class="col-md-4 col-lg-3">
+                 <select id="topicSelector" class="form-select form-select-sm">
+                    <option value="" selected disabled>Select a Topic...</option>
+                    {% for topic in topics %}
+                    <option value="{{ topic }}">{{ topic }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        {# Date Range Controls - Simplified #}
+        <div class="row align-items-center gy-2">
+            <div class="col-auto">
+                <label class="form-label mb-0 small">Date Range:</label>
+             </div>
+             <div class="col-auto btn-group btn-group-sm" role="group">
+                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="1">Today</button>
+                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="7">Week</button>
+                <button type="button" class="btn btn-outline-secondary date-preset-btn active" data-days="30">Month</button>
+                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="90">Quarter</button>
+                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="365">Year</button>
+            </div>
+            {# Hidden original date inputs - kept for potential future re-enablement via JS #}
+            <div class="col-auto" style="display: none;">
+                 <input type="date" id="startDateInput" class="form-control form-control-sm" style="width: auto;">
+            </div>
+             <div class="col-auto px-0" style="display: none;">-</div>
+            <div class="col-auto" style="display: none;">
+                 <input type="date" id="endDateInput" class="form-control form-control-sm" style="width: auto;">
+            </div>
+            <div class="col-auto" style="display: none;">
+                <button id="applyDateRangeBtn" class="btn btn-sm btn-primary">Apply</button>
+            </div>
+        </div>
+        {# Ticker Added Here #}
+        <div id="newsTicker" class="ticker-wrap mt-2" style="display: none;"> 
+            <div class="ticker-move"></div>
+        </div>
+    </div>
+
+    {# Sidebar - Kept in HTML for now but hidden with CSS, content moved to main #}
+    <div class="dashboard-sidebar" style="display: none;">
+        {# Content that was here (like Highlights) has been moved to dashboard-main #}
+        {# Example: Old highlights structure (now moved)
+        <h5 class="mb-3">Highlights</h5> 
+        <div id="key-articles-list-sidebar-version" class="mb-4 flex-grow-1" style="overflow-y: auto;">
+             <div class="loading-indicator">Loading highlights...</div>
+        </div> 
+        #}
+    </div>
+
+    {# Main Content Area (Single Column Flow) #}
+    <div class="dashboard-main">
+        {# AI Trends Today's Briefing #}
+        <div class="dashboard-section" id="podcast-briefing-section">
+            <h5 class="mb-3">AI Trends Today's Briefing</h5>
+            <div id="latest-podcast-section" class="mb-3"> 
+                <div class="loading-indicator">Loading today's briefing...</div>
+            </div>
+            <h6 class="mb-2 small text-muted">Previous Briefings</h6>
+            <div id="previous-podcasts-list" class="list-group list-group-flush small" style="max-height: 300px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;">
+                <div class="loading-indicator">Loading previous briefings...</div>
+            </div>
+        </div>
+
+        {# Generated Insights (Tabbed) #}
+        <div class="dashboard-section" id="generated-insights-tab-section">
+            <h5 class="mb-3">Generated Insights</h5>
+            <ul class="nav nav-tabs nav-fill nav-sm mb-3" id="insightsTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="trend-insights-tab" data-bs-toggle="tab" data-bs-target="#trend-insights-content" type="button" role="tab" aria-controls="trend-insights-content" aria-selected="true">Trend Insights</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="article-insights-tab" data-bs-toggle="tab" data-bs-target="#article-insights-content" type="button" role="tab" aria-controls="article-insights-content" aria-selected="false">Article Insights</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="category-insights-tab" data-bs-toggle="tab" data-bs-target="#category-insights-content" type="button" role="tab" aria-controls="category-insights-content" aria-selected="false">Category Insights</button>
+                </li>
+            </ul>
+            <div class="tab-content" id="insightsTabContent">
+                <div class="tab-pane fade show active" id="trend-insights-content" role="tabpanel" aria-labelledby="trend-insights-tab">
+                    {# The .d-flex container should always be present. Loading/content goes inside it. #}
+                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="trend-insights-flex-container">
+                        <div class="loading-indicator w-100 text-center">Loading trend insights...</div>
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="article-insights-content" role="tabpanel" aria-labelledby="article-insights-tab">
+                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="article-insights-flex-container">
+                        <div class="text-muted p-2 small w-100 text-center">Article-specific insights will be shown here. (Coming soon)</div>
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="category-insights-content" role="tabpanel" aria-labelledby="category-insights-tab">
+                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="category-insights-flex-container">
+                        <div class="text-muted p-2 small w-100 text-center">Category-based insights will be shown here. (Coming soon)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {# Highlights Section - Placed after Generated Insights, before Trends #}
+        <div class="dashboard-section" id="highlights-section"> 
+            <h5 class="mb-3">Highlights <small class="text-muted fw-normal">- Selected Critical Articles</small></h5>
+            <div id="key-articles-list" class="mb-0">
+                 <div class="loading-indicator">Loading highlights...</div>
+            </div>
+        </div>
+
+        {# Trends (Tabbed) #}
+        <div class="dashboard-section">
+            <h5 class="mb-3">Trends</h5>
+            <ul class="nav nav-tabs nav-fill nav-sm mb-3" id="trendsTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="statistical-analysis-tab" data-bs-toggle="tab" data-bs-target="#statistical-analysis-content" type="button" role="tab" aria-controls="statistical-analysis-content" aria-selected="true">Statistical Analysis</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="vector-analysis-tab" data-bs-toggle="tab" data-bs-target="#vector-analysis-content" type="button" role="tab" aria-controls="vector-analysis-content" aria-selected="false">Lexical Analysis</button> {# Renamed from Vector Analysis #}
+                </li>
+            </ul>
+            <div class="tab-content" id="trendsTabContent">
+                <div class="tab-pane fade show active" id="statistical-analysis-content" role="tabpanel" aria-labelledby="statistical-analysis-tab">
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <h6>Volume Over Time</h6>
+                            <div class="chart-container">
+                                <canvas id="volumeChart"></canvas>
+                            </div>
+                            <div id="volume-loading" class="loading-indicator d-none">Loading...</div>
+                        </div>
+                        <div class="col-md-6 mb-4">
+                            <h6>Sentiment Over Time</h6>
+                            <div class="chart-container">
+                                <canvas id="sentimentChart"></canvas>
+                            </div>
+                            <div id="sentiment-loading" class="loading-indicator d-none">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="vector-analysis-content" role="tabpanel" aria-labelledby="vector-analysis-tab">
+                    <div class="row">
+                        <div class="col-md-6 mb-4">
+                            <h6>Top Tags</h6>
+                            <div id="tagsCloudContainer" style="height: 280px; width: 100%; border: 1px solid #eee; border-radius: 4px;">
+                                 <div id="tags-loading" class="loading-indicator">Loading Tags...</div>
+                            </div>
+                            <div id="topTagsList" class="mt-2" style="max-height: 150px; overflow-y: auto;"></div>
+                        </div>
+                        <div class="col-md-6 mb-4">
+                            <h6>Word Frequency</h6>
+                            <div id="wordCloudContainer" style="height: 280px; width: 100%; border: 1px solid #eee; border-radius: 4px;">
+                                <div id="wordcloud-loading" class="loading-indicator">Loading Word Cloud...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        {# Articles Section - Remains as is, but now follows new sections #}
+        <div class="dashboard-section">
+            <div class="d-flex justify-content-between align-items-center">
+                <h5 id="articles-section-title">Articles</h5>
+                <button id="reset-article-filter-btn" class="btn btn-sm btn-outline-secondary" style="display: none;">Show All Articles</button>
+            </div>
+            <div id="articles-list" class="list-group list-group-flush mt-2">
+                <div class="loading-indicator">Select a topic to view articles.</div>
+            </div>
+            <nav aria-label="Article navigation">
+                <ul class="pagination pagination-sm justify-content-center mt-3" id="articles-pagination">
+                    {# Pagination controls will be added by JS #}
+                </ul>
+            </nav>
+        </div>
+    </div>
+
+</div> {# End dashboard-container-grid #}
+
+<script>
+    // Chart instances - declare globally to manage updates/destruction
+    let volumeChartInstance = null;
+    let sentimentChartInstance = null;
+    let tagCloudInstance = null;
+    let currentPage = 1;
+    const articlesPerPage = 10;
+    let currentStartDate = null; // Store current date range state
+    let currentEndDate = null;
+    let tickerIntervalId = null; // ID for the ticker polling interval
+    const TICKER_UPDATE_INTERVAL = 60000; // Update ticker every 60 seconds
+    const DEFAULT_TOPIC_KEY = 'dashboardDefaultTopic'; // localStorage key
+
+    // API Fetch Functions
+    async function fetchData(url) {
+        try {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return await response.json();
+        } catch (error) {
+            console.error('Fetch error:', error);
+            // Display error to user? 
+            return null;
+        }
+    }
+
+    // --- Rendering Functions ---
+
+    function renderSummaryMetrics(data) {
+        const container = document.getElementById('topic-summary-metrics');
+        if (!data) {
+            container.innerHTML = '<div class="alert alert-warning">Could not load summary metrics.</div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="col-md-3 col-6 mb-2"><strong>Total Articles:</strong><br>${data.total_articles}</div>
+            <div class="col-md-3 col-6 mb-2"><strong>Last 24h:</strong><br>${data.new_articles_last_24h}</div>
+            <div class="col-md-3 col-6 mb-2"><strong>Last 7d:</strong><br>${data.new_articles_last_7d}</div>
+            <div class="col-md-3 col-6 mb-2"><strong>Dominant Source (30d):</strong><br>${data.dominant_news_source || 'N/A'}</div>
+            <div class="col-md-3 col-6 mb-2"><strong>Frequent TTI (30d):</strong><br>${data.most_frequent_time_to_impact || 'N/A'}</div>
+            {# Add placeholders for future metrics if needed #}
+        `;
+    }
+
+    function getSentimentBadge(sentiment, explanation) {
+        if (!sentiment) return '';
+        const sentimentLower = sentiment.toLowerCase();
+        let badgeClass = 'sentiment-unknown';
+        if (sentimentLower === 'positive') badgeClass = 'sentiment-positive';
+        else if (sentimentLower === 'negative') badgeClass = 'sentiment-negative';
+        else if (sentimentLower === 'neutral') badgeClass = 'sentiment-neutral';
+        
+        const displaySentiment = sentiment.charAt(0).toUpperCase() + sentiment.slice(1);
+        const tooltipText = explanation ? ` title="${explanation.replace(/"/g, '&quot;')}"` : '';
+        
+        return `<span class="badge rounded-pill sentiment-badge ${badgeClass}" data-bs-toggle="tooltip" data-bs-placement="top"${tooltipText}>${displaySentiment}</span>`;
+    }
+
+    function renderArticles(data) {
+        const listContainer = document.getElementById('articles-list');
+        const paginationContainer = document.getElementById('articles-pagination');
+        listContainer.innerHTML = ''; // Clear previous articles or loading indicator
+        paginationContainer.innerHTML = ''; // Clear pagination
+
+        if (!data || !data.items || data.items.length === 0) {
+            listContainer.innerHTML = '<div class="list-group-item text-muted">No articles found for this topic.</div>';
+            return;
+        }
+
+        data.items.forEach(article => {
+            const articleItem = document.createElement('div');
+            articleItem.className = 'list-group-item';
+            const pubDate = article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'N/A';
+            const tagsHtml = article.tags && article.tags.length > 0 
+                ? article.tags.map(tag => `<span class="badge bg-secondary me-1">${tag}</span>`).join('') 
+                : '';
+            const sentimentBadgeHtml = getSentimentBadge(article.sentiment, article.sentiment_explanation);
+            
+            articleItem.innerHTML = `
+                <div class="d-flex w-100 justify-content-between">
+                    <h6 class="mb-1"><a href="${article.uri}" target="_blank" rel="noopener">${article.title || 'Untitled'}</a> ${sentimentBadgeHtml}</h6>
+                    <small>${pubDate}</small>
+                </div>
+                <p class="mb-1"><small class="text-muted">${article.news_source || 'Unknown Source'}</small></p>
+                <p class="mb-1 small">${(article.summary || 'No summary available.').substring(0, 150)}...</p>
+                <div>${tagsHtml}</div>
+            `;
+            listContainer.appendChild(articleItem);
+        });
+
+        // Initialize Bootstrap tooltips after rendering articles
+        const tooltipTriggerList = [].slice.call(listContainer.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        });
+        
+        renderPagination(data.total_pages, data.page);
+    }
+    
+    function renderPagination(totalPages, currentPage) {
+        const paginationContainer = document.getElementById('articles-pagination');
+        paginationContainer.innerHTML = ''; // Clear previous pagination
+
+        if (totalPages <= 1) return; // No pagination needed for 1 or 0 pages
+
+        // Previous Button
+        const prevLi = document.createElement('li');
+        prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+        prevLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPage - 1}">Previous</a>`;
+        paginationContainer.appendChild(prevLi);
+
+        // Page Number Buttons (simplified version)
+        // Show current page and +/- 1-2 pages around it
+        const startPage = Math.max(1, currentPage - 2);
+        const endPage = Math.min(totalPages, currentPage + 2);
+
+        if (startPage > 1) {
+             const firstLi = document.createElement('li');
+             firstLi.className = 'page-item';
+             firstLi.innerHTML = `<a class="page-link" href="#" data-page="1">1</a>`;
+             paginationContainer.appendChild(firstLi);
+             if (startPage > 2) {
+                 const ellipsisLi = document.createElement('li');
+                 ellipsisLi.className = 'page-item disabled';
+                 ellipsisLi.innerHTML = `<span class="page-link">...</span>`;
+                 paginationContainer.appendChild(ellipsisLi);
+             }
+        }
+
+        for (let i = startPage; i <= endPage; i++) {
+            const pageLi = document.createElement('li');
+            pageLi.className = `page-item ${i === currentPage ? 'active' : ''}`;
+            pageLi.innerHTML = `<a class="page-link" href="#" data-page="${i}">${i}</a>`;
+            paginationContainer.appendChild(pageLi);
+        }
+        
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                const ellipsisLi = document.createElement('li');
+                ellipsisLi.className = 'page-item disabled';
+                ellipsisLi.innerHTML = `<span class="page-link">...</span>`;
+                paginationContainer.appendChild(ellipsisLi);
+            }
+             const lastLi = document.createElement('li');
+             lastLi.className = 'page-item';
+             lastLi.innerHTML = `<a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a>`;
+             paginationContainer.appendChild(lastLi);
+        }
+
+        // Next Button
+        const nextLi = document.createElement('li');
+        nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+        nextLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPage + 1}">Next</a>`;
+        paginationContainer.appendChild(nextLi);
+
+        // Add event listeners to pagination links
+        paginationContainer.querySelectorAll('.page-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const page = parseInt(e.target.dataset.page);
+                if (page && page !== currentPage) {
+                    const selectedTopic = document.getElementById('topicSelector').value;
+                    loadArticles(selectedTopic, page);
+                }
+            });
+        });
+    }
+
+    function renderVolumeChart(data) {
+        const ctx = document.getElementById('volumeChart').getContext('2d');
+        document.getElementById('volume-loading').classList.add('d-none');
+        if (volumeChartInstance) volumeChartInstance.destroy(); // Destroy previous chart
+        
+        if (!data || data.length === 0) {
+             document.getElementById('volumeChart').style.display = 'none';
+             document.getElementById('volume-loading').textContent = 'No volume data available.';
+             document.getElementById('volume-loading').classList.remove('d-none');
+             return;
+        }
+         document.getElementById('volumeChart').style.display = 'block';
+
+        volumeChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: data.map(d => d.date),
+                datasets: [{
+                    label: 'Article Count',
+                    data: data.map(d => d.value),
+                    backgroundColor: 'rgba(54, 162, 235, 0.6)', 
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { precision: 0 } // Ensure whole numbers on y-axis
+                    }
+                },
+                plugins: { legend: { display: false } },
+                onClick: (event, elements) => {
+                    if (elements.length > 0) {
+                        const chartElement = elements[0];
+                        const index = chartElement.index;
+                        const clickedDate = data[index].date; // Get the date label
+                        
+                        // Reload articles for the clicked date
+                        const selectedTopic = document.getElementById('topicSelector').value;
+                        if (selectedTopic && clickedDate) {
+                            console.log(`Volume chart clicked. Filtering articles for date: ${clickedDate}`);
+                            // Add a visual cue or title update
+                            document.getElementById('articles-section-title').textContent = `Articles for ${clickedDate}`;
+                            document.getElementById('reset-article-filter-btn').style.display = 'inline-block'; // Show reset button
+                            loadArticles(selectedTopic, 1, clickedDate, clickedDate); // Load page 1 for this date
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderSentimentChart(data) {
+        const ctx = document.getElementById('sentimentChart').getContext('2d');
+        document.getElementById('sentiment-loading').classList.add('d-none');
+        if (sentimentChartInstance) sentimentChartInstance.destroy();
+        
+        if (!data || data.length === 0) {
+             document.getElementById('sentimentChart').style.display = 'none';
+             document.getElementById('sentiment-loading').textContent = 'No sentiment data available.';
+             document.getElementById('sentiment-loading').classList.remove('d-none');
+             return;
+        }
+        document.getElementById('sentimentChart').style.display = 'block';
+
+        // Prepare datasets, including the new average score
+        const datasets = [
+            {
+                label: 'Avg Score',
+                data: data.map(d => d.avg_score),
+                borderColor: 'rgba(99, 110, 250, 1)', // Primary color for main trend
+                backgroundColor: 'rgba(99, 110, 250, 0.2)',
+                type: 'line', // Ensure it's a line
+                yAxisID: 'yAvg', // Use a separate axis for score (-1 to 1)
+                fill: false,
+                tension: 0.1,
+                borderWidth: 2 // Make it slightly thicker
+            },
+            {
+                label: 'Positive',
+                data: data.map(d => d.positive),
+                borderColor: 'rgba(75, 192, 192, 0.6)', // Reduced opacity
+                backgroundColor: 'rgba(75, 192, 192, 0.1)', // Reduced opacity
+                type: 'line',
+                yAxisID: 'yCount', // Use axis for counts
+                fill: false, 
+                tension: 0.4, // Smoother background line
+                borderWidth: 1
+            },
+            {
+                label: 'Neutral',
+                data: data.map(d => d.neutral),
+                borderColor: 'rgba(201, 203, 207, 0.6)',
+                backgroundColor: 'rgba(201, 203, 207, 0.1)',
+                type: 'line',
+                yAxisID: 'yCount',
+                fill: false,
+                tension: 0.4,
+                borderWidth: 1
+            },
+            {
+                label: 'Negative',
+                data: data.map(d => d.negative),
+                borderColor: 'rgba(255, 99, 132, 0.6)',
+                backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                type: 'line',
+                yAxisID: 'yCount',
+                fill: false,
+                tension: 0.4,
+                borderWidth: 1
+            }
+        ];
+
+        sentimentChartInstance = new Chart(ctx, {
+            // Type is specified per dataset now
+            data: {
+                labels: data.map(d => d.date),
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: { // Improve tooltip interaction
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    // Left Y Axis for Counts
+                    yCount: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        beginAtZero: true,
+                         ticks: { precision: 0 },
+                         title: { display: true, text: 'Count' }
+                    },
+                     // Right Y Axis for Average Score (-1 to 1)
+                     yAvg: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        min: -1,
+                        max: 1,
+                        grid: { // Only show grid for this axis
+                            drawOnChartArea: false, 
+                        },
+                        title: { display: true, text: 'Avg Score' }
+                    }
+                },
+                 plugins: { 
+                     legend: { position: 'bottom' },
+                     tooltip: { // Optional: Enhance tooltips
+                         mode: 'index',
+                         intersect: false,
+                     }
+                },
+                 onClick: (event, elements) => {
+                    if (elements.length > 0) {
+                        // For line charts, elements[0] might represent a point on one line.
+                        // We need the index to get the date label from the shared labels array.
+                        const index = elements[0].index;
+                        const clickedDate = data[index].date; // Get the date label
+
+                        // Reload articles for the clicked date
+                        const selectedTopic = document.getElementById('topicSelector').value;
+                        if (selectedTopic && clickedDate) {
+                             console.log(`Sentiment chart clicked. Filtering articles for date: ${clickedDate}`);
+                             document.getElementById('articles-section-title').textContent = `Articles for ${clickedDate}`;
+                             document.getElementById('reset-article-filter-btn').style.display = 'inline-block'; // Show reset button
+                             loadArticles(selectedTopic, 1, clickedDate, clickedDate); // Load page 1 for this date
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function renderTagsCloud(data) {
+        const container = document.getElementById('tagsCloudContainer');
+        const loadingIndicator = document.getElementById('tags-loading');
+        
+        if (loadingIndicator) {
+            loadingIndicator.classList.add('d-none');
+        }
+        
+        if (!container) {
+            console.error("TagCloud container not found: #tagsCloudContainer");
+            return;
+        }
+        
+        // Clear the container
+        container.innerHTML = '';
+        
+        if (!data || data.length === 0) {
+            container.innerHTML = '<div class="text-muted p-2">No tag data available.</div>';
+            return;
+        }
+
+        // Create a new canvas-based tag cloud using TagCanvas library
+        try {
+            // Create structure for TagCanvas
+            container.innerHTML = `
+                <div style="width: 100%; height: 100%;">
+                    <canvas id="tagsCanvas" width="500" height="270">
+                        <ul id="tagsList">
+                            ${data.map(tag => `<li><a href="#" data-weight="${tag.count}">${tag.tag}</a></li>`).join('')}
+                        </ul>
+                    </canvas>
+                </div>
+            `;
+            
+            // Get the canvas element and set willReadFrequently attribute
+            const canvas = document.getElementById('tagsCanvas');
+            if (canvas) {
+                // Create a temporary context with willReadFrequently set to true
+                // This signals to the browser that this canvas will have multiple read operations
+                const tempCtx = canvas.getContext('2d', { willReadFrequently: true });
+            }
+            
+            // Check if TagCanvas is available
+            if (typeof window.TagCanvas !== 'undefined') {
+                console.log("Initializing TagCanvas...");
+                
+                // Initialize TagCanvas with additional options for performance
+                window.TagCanvas.Start('tagsCanvas', 'tagsList', {
+                    textColour: '#007bff',
+                    outlineColour: '#f8f9fa',
+                    reverse: true,
+                    depth: 0.8,
+                    maxSpeed: 0.05,
+                    weight: true,
+                    weightFrom: 'data-weight',
+                    weightMode: 'both',
+                    weightSize: 1.5,
+                    weightSizeMax: 30,
+                    weightSizeMin: 8,
+                    outlineMethod: 'none',
+                    wheelZoom: false,
+                    freezeActive: true,
+                    initial: [0.2, -0.1],
+                    decel: 0.95,
+                    minBrightness: 0.1,
+                    shuffleTags: true,
+                    shadow: '#cccccc',
+                    shadowBlur: 3
+                });
+                
+                console.log("TagCanvas initialized successfully");
+            } else {
+                // Fallback if TagCanvas not available
+                console.error("TagCanvas library not found");
+                renderFallbackTags(data, container);
+            }
+        } catch (e) {
+            console.error("Error initializing TagCanvas:", e);
+            renderFallbackTags(data, container);
+        }
+    }
+    
+    // Simple fallback for tag rendering
+    function renderFallbackTags(data, container) {
+        // Create badges for tags
+        let html = '<div class="p-3"><h6>Top Tags:</h6><div class="d-flex flex-wrap">';
+        
+        data.forEach(tag => {
+            const fontSize = 10 + Math.min(16, tag.count / 2); // Cap the size
+            html += `<span class="badge bg-info m-1" style="font-size: ${fontSize}px;">${tag.tag} (${tag.count})</span>`;
+        });
+        
+        html += '</div></div>';
+        container.innerHTML = html;
+    }
+
+    function renderOutliers(data) {
+        const listContainer = document.getElementById('outliers-list');
+        listContainer.innerHTML = ''; // Clear loading or previous data
+
+        if (!data || data.length === 0) {
+            listContainer.innerHTML = '<div class="text-muted p-2">No significant outliers detected.</div>';
+            return;
+        }
+        
+        const ul = document.createElement('ul');
+        ul.className = 'list-group list-group-flush';
+        
+        data.forEach(outlier => {
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center small py-1';
+            const sentimentBadgeHtml = getSentimentBadge(outlier.sentiment, outlier.sentiment_explanation);
+            li.innerHTML = `
+                <span><a href="${outlier.uri}" target="_blank" rel="noopener">${(outlier.title || 'Untitled').substring(0, 50)}...</a> ${sentimentBadgeHtml}</span>
+                <span class="badge bg-warning text-dark rounded-pill">Score: ${outlier.anomaly_score.toFixed(2)}</span>
+            `;
+            ul.appendChild(li);
+        });
+        listContainer.appendChild(ul);
+    }
+
+    function renderKeyArticles(data) {
+        const listContainer = document.getElementById('key-articles-list');
+        listContainer.innerHTML = ''; // Clear loading or previous data
+
+        if (!data || data.length === 0) {
+            listContainer.innerHTML = '<div class="text-muted p-2 small">No highlight articles identified for this period.</div>';
+            return;
+        }
+        
+        // No longer a ul, each article will be a card
+        // const ul = document.createElement('ul');
+        // ul.className = 'list-group list-group-flush'; 
+        
+        data.forEach(article => {
+            const articleCard = document.createElement('div');
+            articleCard.className = 'card card-body mb-3 shadow-sm'; // Bootstrap card styling
+            
+            let categoryBadgeClass = 'bg-secondary'; 
+            const hc = article.highlight_category ? article.highlight_category.toLowerCase() : '';
+            if (hc === 'breaking') categoryBadgeClass = 'bg-danger';
+            else if (hc === 'developing') categoryBadgeClass = 'bg-warning text-dark';
+            else if (hc === 'insight') categoryBadgeClass = 'bg-info text-dark';
+            else if (hc === 'analysis') categoryBadgeClass = 'bg-primary';
+            else if (hc === 'update') categoryBadgeClass = 'bg-success';
+
+            const highlightCategoryHtml = article.highlight_category ? 
+                `<span class="badge ${categoryBadgeClass} mb-2">${article.highlight_category}</span><br>` : '';
+
+            const titleHtml = `<h6 class="mb-1"><a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none text-dark stretched-link">${article.title || 'Untitled'}</a></h6>`;
+            
+            const highlightSummaryHtml = article.highlight_summary ? 
+                `<p class="mb-2 small text-muted">${article.highlight_summary}</p>` : '';
+            
+            const originalCategoryHtml = article.category ? 
+                `<span class="badge bg-light text-dark border me-1 mb-1">${article.category}</span>` : '';
+            const sentimentBadgeHtml = getSentimentBadge(article.sentiment, article.sentiment_explanation); 
+            const timeToImpactHtml = article.time_to_impact ? 
+                `<span class="badge bg-light text-dark border mb-1">TTI: ${article.time_to_impact}</span>` : '';
+
+            const originalSourceAndDateHtml = `<small class="text-muted d-block mt-auto">${article.news_source || 'Unknown'} - ${article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'N/A'}</small>`;
+
+            articleCard.innerHTML = `
+                ${highlightCategoryHtml}
+                ${titleHtml}
+                ${highlightSummaryHtml}
+                <div class="mt-1 mb-2 small">
+                    ${originalCategoryHtml}
+                    ${sentimentBadgeHtml}
+                    ${timeToImpactHtml}
+                </div>
+                ${originalSourceAndDateHtml}
+            `;
+            listContainer.appendChild(articleCard);
+        });
+        // listContainer.appendChild(ul);
+    }
+
+    // Fix the renderGeneratedInsights function to properly render markdown
+    function renderGeneratedInsights(data) {
+        // Target the specific flex container for trend insights
+        const trendInsightsFlexContainer = document.getElementById('trend-insights-flex-container');
+        if (!trendInsightsFlexContainer) {
+            console.error("Critical Error: #trend-insights-flex-container not found!");
+            return;
+        }
+        trendInsightsFlexContainer.innerHTML = ''; // Clear loading or previous data
+
+        if (!data || data.length === 0) {
+            trendInsightsFlexContainer.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No insights generated for this period.</div>';
+            return;
+        }
+        
+        // Log data for debugging
+        console.log(`Rendering ${data.length} insights:`, data);
+
+        data.forEach((insight, index) => {
+            const insightCard = document.createElement('div');
+            insightCard.className = 'insight-item-card'; // Use new class for styling
+            
+            // Parse markdown using marked library
+            const parsedText = marked.parse(insight.text);
+            
+            insightCard.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0 text-primary">Insight ${index + 1}</h6>
+                    <span class="badge bg-info text-dark">Trend</span>
+                </div>
+                <div class="insight-content small">${parsedText}</div>
+            `;
+            trendInsightsFlexContainer.appendChild(insightCard);
+        });
+    }
+
+    function renderLatestPodcast(data) {
+        const container = document.getElementById('latest-podcast-section');
+        container.innerHTML = ''; // Clear loading or previous data
+
+        if (!data || !data.podcast_id) {
+            container.innerHTML = '<div class="text-muted p-2 small">No recent podcast available for this topic.</div>';
+            return;
+        }
+
+        let transcriptHtml = '';
+        if (data.transcript) {
+            // Display a snippet and/or a link to full transcript if desired
+            const snippet = data.transcript.substring(0, 100) + (data.transcript.length > 100 ? '...' : '');
+            transcriptHtml = `<p class="small text-muted mt-1">Transcript: ${snippet}</p>`;
+        }
+
+        let durationHtml = '';
+        if (data.duration_minutes) {
+            durationHtml = `<small class="text-muted ms-2">(${data.duration_minutes.toFixed(1)} min)</small>`;
+        }
+
+        container.innerHTML = `
+            <div class="card bg-light border-0 shadow-sm p-2 small">
+                <h6 class="mb-1 text-primary">${data.title}</h6>
+                ${data.audio_url ? `<audio controls class="w-100 mt-1" src="${data.audio_url}" style="height: 35px;"></audio>` : '<p class="small text-muted mt-1">No audio available.</p>'}
+                <div class="d-flex justify-content-between align-items-center mt-1">
+                    <small class="text-muted">Published: ${new Date(data.created_at).toLocaleDateString()}</small>
+                    ${durationHtml}
+                </div>
+                ${transcriptHtml}
+            </div>
+        `;
+    }
+
+    async function loadPreviousPodcasts(topic) {
+        document.getElementById('previous-podcasts-list').innerHTML = '<div class="loading-indicator small py-2">Loading previous...</div>';
+        const data = await fetchData(`/api/dashboard/podcasts-for-topic/${encodeURIComponent(topic)}?limit=5`);
+        renderPreviousPodcasts(data);
+    }
+
+    function renderPreviousPodcasts(podcasts) {
+        const listContainer = document.getElementById('previous-podcasts-list');
+        listContainer.innerHTML = ''; // Clear loading or previous data
+
+        if (!podcasts || podcasts.length === 0) {
+            listContainer.innerHTML = '<div class="list-group-item text-muted small">No previous briefings found for this topic.</div>';
+            return;
+        }
+
+        podcasts.forEach(podcast => {
+            const pubDate = podcast.created_at ? new Date(podcast.created_at) : null;
+            const formattedDate = pubDate ? pubDate.toLocaleDateString('en-US', { 
+                weekday: 'short', 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+            }) : 'N/A';
+            const formattedTime = pubDate ? pubDate.toLocaleTimeString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit'
+            }) : '';
+            
+            const item = document.createElement('div');
+            item.className = 'list-group-item py-2 px-3';
+            item.setAttribute('data-audio-url', podcast.audio_url || '');
+            item.setAttribute('data-podcast-title', podcast.title || 'Untitled');
+            item.setAttribute('data-podcast-date', formattedDate);
+            item.setAttribute('data-podcast-duration', podcast.duration_minutes ? podcast.duration_minutes.toFixed(1) + ' min' : '');
+            
+            // Create a button-like appearance while keeping it as a div
+            item.style.cursor = 'pointer';
+            item.style.transition = 'background-color 0.2s';
+            item.addEventListener('mouseover', function() {
+                this.style.backgroundColor = '#f8f9fa';
+            });
+            item.addEventListener('mouseout', function() {
+                this.style.backgroundColor = '';
+            });
+            
+            const truncatedTitle = (podcast.title || 'Untitled').length > 60 
+                ? (podcast.title || 'Untitled').substring(0, 60) + '...' 
+                : (podcast.title || 'Untitled');
+                
+            item.innerHTML = `
+                <div class="d-flex align-items-center">
+                    <div class="flex-shrink-0 me-2">
+                        <i class="bi bi-play-circle text-primary" style="font-size: 1.5rem;"></i>
+                    </div>
+                    <div class="flex-grow-1 ms-1">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1 text-truncate" style="max-width: 70%;">${truncatedTitle}</h6>
+                            <small class="text-muted">${formattedDate}</small>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">${podcast.duration_minutes ? `Duration: ${podcast.duration_minutes.toFixed(1)} min` : ''}</small>
+                            <small class="text-muted">${formattedTime}</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            item.addEventListener('click', function(e) {
+                e.preventDefault();
+                const audioUrl = this.dataset.audioUrl;
+                const podcastTitle = this.dataset.podcastTitle;
+                const podcastDate = this.dataset.podcastDate;
+                const podcastDuration = this.dataset.podcastDuration;
+
+                if (audioUrl) {
+                    const latestPodcastContainer = document.getElementById('latest-podcast-section');
+                    let durationHtml = podcastDuration ? `<small class="text-muted ms-2">(${podcastDuration})</small>` : '';
+                    // Re-use the renderLatestPodcast structure but for the selected previous one
+                    latestPodcastContainer.innerHTML = `
+                        <div class="card bg-light border-0 shadow-sm p-2 small">
+                            <h6 class="mb-1 text-primary">${podcastTitle}</h6>
+                            <audio controls autoplay class="w-100 mt-1" src="${audioUrl}" style="height: 35px;"></audio>
+                            <div class="d-flex justify-content-between align-items-center mt-1">
+                                <small class="text-muted">Published: ${podcastDate}</small>
+                                ${durationHtml}
+                            </div>
+                            <p class="small text-muted mt-1 fst-italic">Now playing: previous briefing.</p>
+                        </div>
+                    `;
+                    
+                    // Highlight the selected podcast
+                    document.querySelectorAll('#previous-podcasts-list .list-group-item').forEach(el => {
+                        el.classList.remove('active', 'bg-light');
+                    });
+                    this.classList.add('active', 'bg-light');
+                }
+            });
+            listContainer.appendChild(item);
+        });
+    }
+
+    // --- Helper Functions ---
+    function formatDate(date) {
+        // Returns YYYY-MM-DD
+        const d = new Date(date);
+        const month = ('' + (d.getMonth() + 1)).padStart(2, '0');
+        const day = ('' + d.getDate()).padStart(2, '0');
+        const year = d.getFullYear();
+        return [year, month, day].join('-');
+    }
+    
+    function setDefaultDates(days = 30) {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(endDate.getDate() - days);
+        
+        currentEndDate = formatDate(endDate);
+        currentStartDate = formatDate(startDate);
+        
+        document.getElementById('endDateInput').value = currentEndDate;
+        document.getElementById('startDateInput').value = currentStartDate;
+
+        // Update preset button active state
+        document.querySelectorAll('.date-preset-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (parseInt(btn.dataset.days) === days) {
+                btn.classList.add('active');
+            }
+        });
+    }
+
+    // --- Data Loading Functions (modified) ---
+    
+    // Add back the missing loadSummary function
+    async function loadSummary(topic) {
+        // This function is now effectively disabled by hiding its container
+        // document.getElementById('topic-summary-metrics').innerHTML = '<div class="loading-indicator">Loading metrics...</div>';
+        // const data = await fetchData(`/api/dashboard/topic-summary/${encodeURIComponent(topic)}`);
+        // renderSummaryMetrics(data);
+        console.log("Summary metrics loading skipped as section is hidden.");
+    }
+    
+    async function loadTrends(topic) {
+        // Build URL with potential date range
+        let trendsParams = '';
+        if (currentStartDate && currentEndDate) {
+            trendsParams = `&start_date=${currentStartDate}&end_date=${currentEndDate}`;
+        } // If dates are null, backend will use days_limit fallback (default 30)
+
+        // Show loading indicators
+        document.getElementById('volume-loading').classList.remove('d-none');
+        document.getElementById('sentiment-loading').classList.remove('d-none');
+        document.getElementById('tags-loading').classList.remove('d-none');
+        document.getElementById('wordcloud-loading').classList.remove('d-none');
+        document.getElementById('volumeChart').style.display = 'none';
+        document.getElementById('sentimentChart').style.display = 'none';
+        document.getElementById('tagsCloudContainer').style.display = 'none';
+        document.getElementById('wordCloudContainer').style.display = 'none';
+
+        const volumeData = await fetchData(`/api/dashboard/volume-over-time/${encodeURIComponent(topic)}?${trendsParams}`);
+        renderVolumeChart(volumeData);
+
+        const sentimentData = await fetchData(`/api/dashboard/sentiment-over-time/${encodeURIComponent(topic)}?${trendsParams}`);
+        console.log("Sentiment Data for Chart:", sentimentData);
+        renderSentimentChart(sentimentData);
+
+        // Fetch tag data and render cloud
+        const tagsData = await fetchData(`/api/dashboard/top-tags/${encodeURIComponent(topic)}?${trendsParams}`);
+        console.log("Tags Data:", tagsData);
+        
+        // Render both tag visualizations
+        renderTagsCloud(tagsData);
+        renderTopTagsList(tagsData);
+        
+        // Render word cloud visualization
+        renderWordCloud(tagsData);
+    }
+    
+    async function loadOutliers(topic) {
+        // This function is now effectively disabled by hiding its container
+        // document.getElementById('outliers-list').innerHTML = '<div class="loading-indicator">Loading outliers...</div>';
+        // const data = await fetchData(`/api/dashboard/semantic-outliers/${encodeURIComponent(topic)}?${outlierParams}`);
+        // renderOutliers(data);
+        console.log("Semantic outliers loading skipped as section is hidden.");
+    }
+
+    // Modified loadArticles to respect global date filters
+    async function loadArticles(topic, page = 1, startDate = null, endDate = null) {
+        currentPage = page;
+        document.getElementById('articles-list').innerHTML = '<div class="loading-indicator">Loading articles...</div>';
+        document.getElementById('articles-pagination').innerHTML = ''; // Clear pagination while loading
+
+        // Use the provided date range or fall back to global date filters
+        const effectiveStartDate = startDate || currentStartDate;
+        const effectiveEndDate = endDate || currentEndDate;
+
+        let apiUrl = `/api/dashboard/articles/${encodeURIComponent(topic)}?page=${page}&per_page=${articlesPerPage}`;
+        
+        // Always include date range if available
+        if (effectiveStartDate && effectiveEndDate) {
+            console.log(`Filtering articles by date range: ${effectiveStartDate} to ${effectiveEndDate}`);
+            apiUrl += `&start_date=${effectiveStartDate}&end_date=${effectiveEndDate}`;
+            
+            // Update the section title to reflect filtering
+            if (!startDate && !endDate) { // Only update if using global filters
+                const daysDiff = Math.round((new Date(effectiveEndDate) - new Date(effectiveStartDate)) / (1000 * 60 * 60 * 24));
+                let periodText = `${daysDiff} days`;
+                if (daysDiff === 1) periodText = "24 hours";
+                else if (daysDiff === 7) periodText = "1 week";
+                else if (daysDiff === 30) periodText = "1 month";
+                else if (daysDiff === 90) periodText = "3 months";
+                else if (daysDiff === 365) periodText = "1 year";
+                
+                document.getElementById('articles-section-title').textContent = `Articles (Last ${periodText})`;
+            }
+        } else {
+            document.getElementById('articles-section-title').textContent = 'Articles (All time)';
+        }
+
+        // If only filtering by specific date, hide pagination, otherwise show it
+        document.getElementById('articles-pagination').style.display = (startDate && endDate && startDate === endDate) ? 'none' : 'flex';
+
+        try {
+            const data = await fetchData(apiUrl);
+            renderArticles(data);
+        } catch (error) {
+            console.error("Error loading articles:", error);
+            document.getElementById('articles-list').innerHTML = 
+                '<div class="alert alert-danger">Failed to load articles. Please try again later.</div>';
+        }
+    }
+
+    async function loadKeyArticles(topic) {
+        console.log(`[loadKeyArticles] Called for topic: ${topic}`);
+        // This ID must match the div in the main content area's Highlights section
+        const targetDiv = document.getElementById('key-articles-list'); 
+        if (!targetDiv) {
+            console.error("[loadKeyArticles] Target div 'key-articles-list' not found!");
+            return;
+        }
+        targetDiv.innerHTML = '<div class="loading-indicator">Loading highlights...</div>';
+        
+        const apiUrl = `/api/dashboard/key-articles/${encodeURIComponent(topic)}`;
+        console.log(`[loadKeyArticles] Attempting to fetch from: ${apiUrl}`);
+        try {
+            const data = await fetchData(apiUrl);
+            console.log("[loadKeyArticles] Data received:", data);
+            renderKeyArticles(data);
+        } catch (error) {
+            console.error("[loadKeyArticles] Error fetching or rendering key articles:", error);
+            targetDiv.innerHTML = '<div class="text-danger p-2 small">Failed to load highlights.</div>';
+        }
+    }
+
+    async function loadGeneratedInsights(topic) {
+        // Target the specific flex container for trend insights
+        const trendInsightsFlexContainer = document.getElementById('trend-insights-flex-container');
+        if (!trendInsightsFlexContainer) {
+            console.error("Critical Error: #trend-insights-flex-container not found!");
+            return;
+        }
+        trendInsightsFlexContainer.innerHTML = '<div class="loading-indicator w-100 text-center">Loading trend insights...</div>';
+        
+        let insightsParams = '';
+        if (currentStartDate && currentEndDate) {
+            insightsParams = `?start_date=${currentStartDate}&end_date=${currentEndDate}`;
+        } // Use current date range
+        const data = await fetchData(`/api/dashboard/generated-insights/${encodeURIComponent(topic)}${insightsParams}`);
+        renderGeneratedInsights(data);
+    }
+
+    async function loadLatestPodcast(topic) {
+        // Ensure the target is the main player section for today's briefing
+        document.getElementById('latest-podcast-section').innerHTML = '<div class="loading-indicator">Loading today\'s briefing...</div>';
+        const data = await fetchData(`/api/dashboard/latest-podcast/${encodeURIComponent(topic)}`);
+        renderLatestPodcast(data); // This function populates #latest-podcast-section
+    }
+
+    async function loadArticleInsights(topic) {
+        const container = document.getElementById('article-insights-flex-container');
+        container.innerHTML = '<div class="loading-indicator w-100 text-center">Loading article insights...</div>';
+        // Construct URL with date range if available
+        let insightsParams = '';
+        if (currentStartDate && currentEndDate) {
+            insightsParams = `?start_date=${currentStartDate}&end_date=${currentEndDate}`;
+        } // Use current date range for fetching relevant articles for insights
+        const data = await fetchData(`/api/dashboard/article-insights/${encodeURIComponent(topic)}${insightsParams}`);
+        renderArticleInsights(data);
+    }
+
+    function renderArticleInsights(themed_insights) { // Renamed data to themed_insights for clarity
+        const container = document.getElementById('article-insights-flex-container');
+        container.innerHTML = ''; // Clear loading/previous
+
+        if (!themed_insights || themed_insights.length === 0) {
+            container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No thematic article insights available for this period.</div>';
+            return;
+        }
+
+        themed_insights.forEach((theme_item, index) => {
+            const card = document.createElement('div');
+            card.className = 'insight-item-card'; // Reuse styling
+            
+            let articlesHtml = '<ul class="list-unstyled mt-2 mb-0 small">';
+            if (theme_item.articles && theme_item.articles.length > 0) {
+                theme_item.articles.forEach(article => {
+                    const pubDate = article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'N/A';
+                    articlesHtml += `
+                        <li class="mb-1">
+                            <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
+                                ${article.title || 'Untitled Article'}
+                            </a>
+                            <small class="text-muted d-block">${article.news_source || 'Unknown Source'} - ${pubDate}</small>
+                            ${article.short_summary ? `<p class="mb-0 fst-italic text-muted">${article.short_summary}</p>` : ''}
+                        </li>`;
+                });
+            } else {
+                articlesHtml += '<li class="text-muted">No specific articles listed for this theme.</li>';
+            }
+            articlesHtml += '</ul>';
+
+            card.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0 text-primary">${theme_item.theme_name || 'Unnamed Theme'}</h6>
+                    <span class="badge bg-warning text-dark">Theme</span> {# Using a yellow badge for themes #}
+                </div>
+                <p class="mb-1 small">${theme_item.theme_summary || 'No summary provided for this theme.'}</p>
+                ${articlesHtml}
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    async function loadCategoryInsights(topic) {
+        const container = document.getElementById('category-insights-flex-container');
+        container.innerHTML = '<div class="loading-indicator w-100 text-center">Loading category insights...</div>';
+        // Construct URL with date range if available
+        let insightsParams = '';
+        if (currentStartDate && currentEndDate) {
+            insightsParams = `?start_date=${currentStartDate}&end_date=${currentEndDate}`;
+        }
+        const data = await fetchData(`/api/dashboard/category-insights/${encodeURIComponent(topic)}${insightsParams}`);
+        renderCategoryInsights(data);
+    }
+
+    function renderCategoryInsights(categories) {
+        const container = document.getElementById('category-insights-flex-container');
+        container.innerHTML = ''; // Clear loading/previous
+
+        if (!categories || categories.length === 0) {
+            container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No category distribution data available for this period.</div>';
+            return;
+        }
+
+        // Change from list to cards
+        categories.forEach(cat_item => {
+            const card = document.createElement('div');
+            card.className = 'insight-item-card'; // Use the same class as other insight cards
+
+            card.innerHTML = `
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0 text-primary">${cat_item.category}</h6>
+                    <span class="badge bg-success text-dark">Category</span> {# Using a green badge for categories #}
+                </div>
+                <p class="mb-1 small"><strong>Article Count:</strong> ${cat_item.article_count}</p>
+                <p class="mb-0 small fst-italic">${cat_item.insight_text || 'Further analysis for this category will be available soon.'}</p>
+            `;
+            // The field 'cat_item.insight_text' is hypothetical and assumes the API might provide it later.
+            // If not, the placeholder text will be shown.
+            container.appendChild(card);
+        });
+    }
+
+    // --- Event Listeners ---
+    
+    document.getElementById('topicSelector').addEventListener('change', function() {
+        const selectedTopic = this.value;
+        if (selectedTopic) {
+            localStorage.setItem(DEFAULT_TOPIC_KEY, selectedTopic); // Save selected topic
+            document.getElementById('dashboard-title').textContent = `Dashboard: ${selectedTopic}`;
+            if (!currentStartDate) setDefaultDates(30); 
+            loadSummary(selectedTopic); // Will log skipped
+            loadKeyArticles(selectedTopic);
+            loadGeneratedInsights(selectedTopic);
+            loadLatestPodcast(selectedTopic);
+            loadPreviousPodcasts(selectedTopic);
+            loadArticles(selectedTopic, 1);
+            loadTrends(selectedTopic);
+            loadOutliers(selectedTopic); // Will log skipped
+            loadArticleInsights(selectedTopic); // <-- Add this call
+            loadCategoryInsights(selectedTopic); // <-- Add this call
+            startTickerUpdates();
+        }
+    });
+
+    // Date Range Preset Buttons
+    document.querySelectorAll('.date-preset-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const days = parseInt(this.dataset.days);
+            setDefaultDates(days);
+            // Trigger data reload if a topic is selected
+            const selectedTopic = document.getElementById('topicSelector').value;
+            if (selectedTopic) {
+                // Reload only data affected by date range
+                loadGeneratedInsights(selectedTopic);
+                loadArticles(selectedTopic, 1); // Reload articles from page 1 with new date range
+                loadTrends(selectedTopic);
+                loadPreviousPodcasts(selectedTopic);
+                loadArticleInsights(selectedTopic); // <-- Add this call
+                loadCategoryInsights(selectedTopic); // <-- Add this call
+            }
+        });
+    });
+
+    // Custom Date Range Apply Button - Effectively hidden, but listener remains for now
+    document.getElementById('applyDateRangeBtn').addEventListener('click', function() {
+        const startDateVal = document.getElementById('startDateInput').value;
+        const endDateVal = document.getElementById('endDateInput').value;
+        
+        if (startDateVal && endDateVal && startDateVal <= endDateVal) {
+            currentStartDate = startDateVal;
+            currentEndDate = endDateVal;
+             // Deactivate preset buttons when custom range is applied
+            document.querySelectorAll('.date-preset-btn').forEach(btn => btn.classList.remove('active'));
+            // Trigger data reload
+            const selectedTopic = document.getElementById('topicSelector').value;
+            if (selectedTopic) {
+                loadTrends(selectedTopic);
+                loadOutliers(selectedTopic);
+                loadGeneratedInsights(selectedTopic);
+                loadLatestPodcast(selectedTopic);
+                loadPreviousPodcasts(selectedTopic);
+                loadArticleInsights(selectedTopic); // <-- Add this call
+                loadCategoryInsights(selectedTopic); // <-- Add this call
+            }
+        } else {
+            alert('Please select a valid date range.');
+        }
+    });
+
+    // Add reset button listener
+    document.getElementById('reset-article-filter-btn').addEventListener('click', function() {
+        const selectedTopic = document.getElementById('topicSelector').value;
+        if (selectedTopic) {
+            document.getElementById('articles-section-title').textContent = 'Articles';
+            this.style.display = 'none'; // Hide reset button
+            loadArticles(selectedTopic, 1); // Reload first page, no date filter
+        }
+    });
+
+    // Fix the tab initialization logic to prevent interference between panels
+    document.addEventListener('DOMContentLoaded', () => {
+        setDefaultDates(30); // Initialize with default 30 days
+        stopTickerUpdates(); 
+
+        // Manually initialize Bootstrap tabs with improved handler
+        document.querySelectorAll('.nav-tabs .nav-link').forEach(tabLink => {
+            tabLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                // Get the parent tab element and its content container
+                const tabContainer = this.closest('.nav-tabs');
+                const tabContentId = tabContainer.getAttribute('aria-controls') || 
+                                     tabContainer.getAttribute('id').replace('Tab', 'TabContent');
+                
+                // Only affect tabs within the same container
+                const tabContent = document.getElementById(tabContentId) || 
+                                   tabContainer.nextElementSibling;
+                
+                if (!tabContent) {
+                    console.error("Tab content container not found for tab:", this.id);
+                    return;
+                }
+                
+                const targetId = this.getAttribute('data-bs-target').substring(1); // Remove leading #
+                const targetTab = document.getElementById(targetId);
+                
+                console.log(`Tab clicked: ${this.id}, target: ${targetId}, in container: ${tabContentId}`);
+                
+                // Hide only the sibling tab panes in THIS tab container
+                tabContent.querySelectorAll('.tab-pane').forEach(tabPane => {
+                    tabPane.classList.remove('show', 'active');
+                });
+                
+                // Show target tab content
+                if (targetTab) {
+                    targetTab.classList.add('show', 'active');
+                    
+                    // Special handling for lexical analysis tab
+                    if (this.id === 'vector-analysis-tab') {
+                        console.log("Lexical analysis tab clicked - refreshing visualizations");
+                        // Force display for the tab to make sure it's visible
+                        targetTab.style.display = 'block';
+                        
+                        // Then refresh visualizations
+                        const selectedTopic = document.getElementById('topicSelector').value;
+                        if (selectedTopic) {
+                            // Wait a tiny bit to ensure DOM is ready
+                            setTimeout(() => {
+                                console.log("Refreshing lexical analysis visualizations...");
+                                refreshLexicalAnalysis(selectedTopic);
+                            }, 200);
+                        }
+                    }
+                } else {
+                    console.error(`Target tab not found: ${targetId}`);
+                }
+                
+                // Update active state on tab links only in the current tab set
+                tabContainer.querySelectorAll('.nav-link').forEach(link => {
+                    link.classList.remove('active');
+                    link.setAttribute('aria-selected', 'false');
+                });
+                
+                this.classList.add('active');
+                this.setAttribute('aria-selected', 'true');
+            });
+        });
+
+        const savedTopic = localStorage.getItem(DEFAULT_TOPIC_KEY);
+        const topicSelector = document.getElementById('topicSelector');
+        
+        // Check if topicSelector has options loaded before trying to set value
+        if (topicSelector.options.length > 1 && savedTopic) {
+            // Check if the saved topic is a valid option
+            let topicExists = false;
+            for (let i = 0; i < topicSelector.options.length; i++) {
+                if (topicSelector.options[i].value === savedTopic) {
+                    topicExists = true;
+                    break;
+                }
+            }
+            if (topicExists) {
+                topicSelector.value = savedTopic;
+                // Manually trigger the change event to load data for the saved topic
+                topicSelector.dispatchEvent(new Event('change')); 
+            }
+        }
+    });
+
+    async function updateTicker() {
+        const selectedTopic = document.getElementById('topicSelector').value;
+        if (!selectedTopic) return; // Don't run if no topic selected
+
+        console.log('Updating ticker for topic:', selectedTopic);
+        const tickerContainer = document.querySelector('#newsTicker .ticker-move');
+        if (!tickerContainer) return;
+
+        try {
+            // Fetch the latest 5-7 articles for the topic
+            const data = await fetchData(`/api/dashboard/articles/${encodeURIComponent(selectedTopic)}?page=1&per_page=7&sort_by=submission_date&sort_order=desc`);
+            if (data && data.items && data.items.length > 0) {
+                // Create a single string with titles separated by ' • ', titles are now links
+                const linkedTitles = data.items.map(article => {
+                    const title = (article.title || 'Untitled').trim();
+                    const safeTitle = title.replace(/[<>"&']/g, function (match) {
+                        return {
+                            '<': '&lt;',
+                            '>': '&gt;',
+                            '"': '&quot;',
+                            '&': '&amp;',
+                            "'": '&#039;'
+                        }[match];
+                    });
+                    const summaryTooltip = article.summary ? article.summary.substring(0, 150).replace(/[<>"&']/g, function(m){return {'<':'&lt;','>':'&gt;','"':'&quot;','&':'&amp;',"'":'&#039;'}[m];}) + (article.summary.length > 150 ? '...' : '') : 'No summary available';
+                    return article.uri ? `<a href="${article.uri}" target="_blank" rel="noopener noreferrer" class="text-dark text-decoration-none" title="${summaryTooltip}">${safeTitle}</a>` : `<span title="${summaryTooltip}">${safeTitle}</span>`;
+                });
+                const tickerText = "LATEST: " + linkedTitles.join('  •  ');
+                
+                tickerContainer.style.animation = 'none';
+                await new Promise(resolve => setTimeout(resolve, 50)); 
+                
+                tickerContainer.innerHTML = `<span class="ticker-item">${tickerText}</span>`; 
+                
+                tickerContainer.style.animation = ''; 
+
+                document.getElementById('newsTicker').style.display = 'block';
+            } else {
+                 document.getElementById('newsTicker').style.display = 'none';
+            }
+        } catch (error) {
+            console.error('Error updating ticker:', error);
+            document.getElementById('newsTicker').style.display = 'none';
+        }
+    }
+
+    function startTickerUpdates() {
+        stopTickerUpdates(); // Clear any existing interval
+        updateTicker(); // Update immediately
+        tickerIntervalId = setInterval(updateTicker, TICKER_UPDATE_INTERVAL);
+        console.log('Started ticker updates, interval ID:', tickerIntervalId);
+    }
+
+    function stopTickerUpdates() {
+        if (tickerIntervalId) {
+            clearInterval(tickerIntervalId);
+            console.log('Stopped ticker updates, interval ID:', tickerIntervalId);
+            tickerIntervalId = null;
+        }
+    }
+
+    function renderTopTagsList(data) {
+        const container = document.getElementById('topTagsList');
+        if (!container) {
+            console.error("Top tags list container not found");
+            return;
+        }
+        
+        if (!data || data.length === 0) {
+            container.innerHTML = '<div class="text-muted p-2">No tag data available.</div>';
+            return;
+        }
+        
+        // Create a simple badge list of top tags
+        let html = '<div class="d-flex flex-wrap">';
+        
+        // Sort data by count (descending)
+        const sortedData = [...data].sort((a, b) => b.count - a.count);
+        
+        // Create badge for each tag
+        sortedData.forEach(tag => {
+            const badgeClass = tag.count > 10 ? 'bg-primary' : 
+                               tag.count > 5 ? 'bg-info' : 'bg-secondary';
+            html += `<span class="badge ${badgeClass} me-1 mb-1">${tag.tag} (${tag.count})</span>`;
+        });
+        
+        html += '</div>';
+        container.innerHTML = html;
+    }
+    
+    function renderWordCloud(data) {
+        const container = document.getElementById('wordCloudContainer');
+        const loadingIndicator = document.getElementById('wordcloud-loading');
+        
+        if (loadingIndicator) {
+            loadingIndicator.classList.add('d-none');
+        }
+        
+        if (!container) {
+            console.error("Word cloud container not found");
+            return;
+        }
+        
+        container.innerHTML = '';
+        
+        if (!data || data.length === 0) {
+            container.innerHTML = '<div class="text-muted p-2">No word frequency data available.</div>';
+            return;
+        }
+        
+        // Check if D3 is available
+        if (typeof d3 === 'undefined' || typeof d3.layout === 'undefined' || typeof d3.layout.cloud === 'undefined') {
+            console.error("D3 or D3-cloud library not loaded");
+            // Fallback to a simple tag list
+            renderWordCloudFallback(data, container);
+            return;
+        }
+        
+        try {
+            // Prepare data for D3 cloud
+            const words = data.map(d => ({
+                text: d.tag,
+                size: 10 + (d.count * 3), // Scale font size based on count
+                count: d.count
+            }));
+            
+            // Set dimensions
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            
+            // Clear previous content
+            d3.select(container).selectAll("*").remove();
+            
+            // Create SVG
+            const svg = d3.select(container)
+                .append("svg")
+                .attr("width", width)
+                .attr("height", height)
+                .append("g")
+                .attr("transform", `translate(${width/2},${height/2})`);
+            
+            // Color scale
+            const color = d3.scaleOrdinal(d3.schemeCategory10);
+            
+            // Create cloud layout
+            d3.layout.cloud()
+                .size([width, height])
+                .words(words)
+                .padding(5)
+                .rotate(() => ~~(Math.random() * 2) * 90)
+                .font("Impact")
+                .fontSize(d => d.size)
+                .on("end", draw)
+                .start();
+            
+            // Draw the word cloud
+            function draw(words) {
+                svg.selectAll("text")
+                    .data(words)
+                    .enter()
+                    .append("text")
+                    .style("font-family", "Impact")
+                    .style("fill", (d, i) => color(i))
+                    .attr("text-anchor", "middle")
+                    .style("font-size", d => `${d.size}px`)
+                    .attr("transform", d => `translate(${d.x},${d.y}) rotate(${d.rotate})`)
+                    .text(d => d.text)
+                    .append("title")
+                    .text(d => `${d.text}: ${d.count} occurrences`);
+            }
+            
+            container.style.display = 'block';
+            
+        } catch (e) {
+            console.error("Error rendering word cloud:", e);
+            renderWordCloudFallback(data, container);
+        }
+    }
+    
+    function renderWordCloudFallback(data, container) {
+        // Simple visual fallback if D3 cloud fails
+        let html = `
+            <div class="alert alert-warning mb-2">Unable to render interactive word cloud.</div>
+            <div class="p-2">
+                <h6 class="mb-2">Word Frequency:</h6>
+                <div class="word-cloud-fallback">
+        `;
+        
+        // Sort data by count (descending)
+        const sortedData = [...data].sort((a, b) => b.count - a.count);
+        
+        // Create styled text for each word
+        sortedData.forEach(tag => {
+            const fontSize = 10 + (tag.count * 1.5); // Scale font size based on count
+            const fontWeight = tag.count > 10 ? 'bold' : 'normal';
+            const opacity = 0.5 + (tag.count / 20); // Scale opacity
+            
+            html += `<span style="font-size: ${fontSize}px; font-weight: ${fontWeight}; opacity: ${opacity}; display: inline-block; margin: 5px; color: #007bff;">${tag.tag}</span>`;
+        });
+        
+        html += '</div></div>';
+        container.innerHTML = html;
+    }
+
+    // Function to refresh just the lexical analysis visualizations
+    async function refreshLexicalAnalysis(topic) {
+        console.log("Refreshing lexical analysis for:", topic);
+        
+        // Check if elements exist before using them
+        const tagsLoadingEl = document.getElementById('tags-loading');
+        const wordcloudLoadingEl = document.getElementById('wordcloud-loading');
+        
+        if (tagsLoadingEl) tagsLoadingEl.classList.remove('d-none');
+        if (wordcloudLoadingEl) wordcloudLoadingEl.classList.remove('d-none');
+        
+        // Build URL with potential date range
+        let trendsParams = '';
+        if (currentStartDate && currentEndDate) {
+            trendsParams = `&start_date=${currentStartDate}&end_date=${currentEndDate}`;
+        }
+        
+        try {
+            // Fetch tag data and render visualizations
+            const tagsData = await fetchData(`/api/dashboard/top-tags/${encodeURIComponent(topic)}?${trendsParams}`);
+            console.log("Tags Data for Lexical Analysis:", tagsData);
+            
+            // Clear previous visualizations - check if elements exist first
+            const tagsContainer = document.getElementById('tagsCloudContainer');
+            const wordCloudContainer = document.getElementById('wordCloudContainer');
+            const topTagsList = document.getElementById('topTagsList');
+            
+            if (tagsContainer) {
+                tagsContainer.innerHTML = '';
+                tagsContainer.style.display = 'block';
+            } else {
+                console.error("Tags cloud container not found!");
+            }
+            
+            if (wordCloudContainer) {
+                wordCloudContainer.innerHTML = '';
+                wordCloudContainer.style.display = 'block';
+            }
+            
+            if (topTagsList) {
+                topTagsList.innerHTML = '';
+            }
+            
+            // Only render visualizations if data exists
+            if (tagsData && tagsData.length > 0) {
+                renderTagsCloud(tagsData);
+                renderTopTagsList(tagsData);
+                renderWordCloud(tagsData);
+            } else {
+                if (tagsContainer) tagsContainer.innerHTML = '<div class="text-muted p-2">No tag data available.</div>';
+                if (wordCloudContainer) wordCloudContainer.innerHTML = '<div class="text-muted p-2">No word data available.</div>';
+                if (topTagsList) topTagsList.innerHTML = '<div class="text-muted p-2">No tags available.</div>';
+            }
+        } catch (error) {
+            console.error("Error refreshing lexical analysis:", error);
+            // Show error messages in containers
+            const containers = [
+                document.getElementById('tagsCloudContainer'),
+                document.getElementById('wordCloudContainer'),
+                document.getElementById('topTagsList')
+            ];
+            
+            containers.forEach(container => {
+                if (container) {
+                    container.innerHTML = '<div class="alert alert-danger">Error loading data. Please try again.</div>';
+                }
+            });
+        }
+    }
+
+</script>
+
+{% endblock %} 
