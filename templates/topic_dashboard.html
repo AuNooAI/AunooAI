@@ -749,15 +749,43 @@
             </div>
         </div>
 
-        {# Highlights Section (Top Stories) - MOVED UP #}
-        <div class="dashboard-section" id="highlights-section"> 
-            <h5 class="mb-3">Top Stories</h5> {# Renamed from Highlights #}
-            <div id="key-articles-list" class="mb-0">
-                 <div class="loading-indicator">Loading top stories...</div>
+        {# Top Stories and Articles Combined Section (Tabbed) #}
+        <div class="dashboard-section" id="stories-section">
+            <ul class="nav nav-tabs nav-fill nav-sm mb-3" id="storiesTab" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="top-stories-tab" data-bs-toggle="tab" data-bs-target="#top-stories-content" type="button" role="tab" aria-controls="top-stories-content" aria-selected="true">Top Stories</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="articles-tab" data-bs-toggle="tab" data-bs-target="#articles-content" type="button" role="tab" aria-controls="articles-content" aria-selected="false">All Articles</button>
+                </li>
+            </ul>
+            <div class="tab-content" id="storiesTabContent">
+                {# Top Stories Tab Content #}
+                <div class="tab-pane fade show active" id="top-stories-content" role="tabpanel" aria-labelledby="top-stories-tab">
+                    <div id="key-articles-list" class="mb-0">
+                        <div class="loading-indicator">Loading top stories...</div>
+                    </div>
+                </div>
+                
+                {# Articles Tab Content #}
+                <div class="tab-pane fade" id="articles-content" role="tabpanel" aria-labelledby="articles-tab">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <h6 id="articles-section-title" class="mb-2">Articles</h6>
+                        <button id="reset-article-filter-btn" class="btn btn-sm btn-outline-secondary" style="display: none;">Show All Articles</button>
+                    </div>
+                    <div id="articles-list" class="list-group list-group-flush mt-2">
+                        <div class="loading-indicator">Select a topic to view articles.</div>
+                    </div>
+                    <nav aria-label="Article navigation">
+                        <ul class="pagination pagination-sm justify-content-center mt-3" id="articles-pagination">
+                            {# Pagination controls will be added by JS #}
+                        </ul>
+                    </nav>
+                </div>
             </div>
         </div>
 
-        {# Generated Insights (Tabbed) - NOW AFTER TOP STORIES #}
+        {# Generated Insights (Tabbed) #}
         <div class="dashboard-section" id="generated-insights-tab-section">
             <h5 class="mb-3">Generated Insights</h5>
             <ul class="nav nav-tabs nav-fill nav-sm mb-3" id="insightsTab" role="tablist">
@@ -859,22 +887,6 @@
                     </div>
                 </div>
             </div>
-        </div>
-        
-        {# Articles Section - Remains as is, but now follows new sections #}
-        <div class="dashboard-section">
-            <div class="d-flex justify-content-between align-items-center">
-                <h5 id="articles-section-title">Articles</h5>
-                <button id="reset-article-filter-btn" class="btn btn-sm btn-outline-secondary" style="display: none;">Show All Articles</button>
-            </div>
-            <div id="articles-list" class="list-group list-group-flush mt-2">
-                <div class="loading-indicator">Select a topic to view articles.</div>
-            </div>
-            <nav aria-label="Article navigation">
-                <ul class="pagination pagination-sm justify-content-center mt-3" id="articles-pagination">
-                    {# Pagination controls will be added by JS #}
-                </ul>
-            </nav>
         </div>
     </div>
 
