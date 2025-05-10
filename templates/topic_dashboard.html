@@ -665,18 +665,19 @@
 
     /* Top Stories Show X Dropdown */
     #top-stories-content .input-group-sm {
-        width: auto; /* Allow natural width */
-        flex-shrink: 0; /* Prevent shrinking */
+        width: auto;
     }
     #top-stories-content .input-group-text {
         padding-left: 0.5rem;
         padding-right: 0.5rem;
     }
     #topStoriesCountSelect {
-        min-width: 65px; /* Slightly wider for double digits */
-        max-width: 80px; /* Prevent excessive width */
-        -webkit-appearance: menulist-button; /* More consistent appearance if needed */
-        appearance: menulist-button; /* More consistent appearance if needed */
+        width: auto !important;
+        min-width: 60px;
+        max-width: 90px;
+        -webkit-appearance: menulist;
+        appearance: menulist;
+        background-image: none !important; /* Remove any custom dropdown arrows */
     }
 </style>
 
@@ -806,10 +807,10 @@
             <div class="tab-content" id="storiesTabContent">
                 {# Top Stories Tab Content #}
                 <div class="tab-pane fade show active" id="top-stories-content" role="tabpanel" aria-labelledby="top-stories-tab">
-                    <div class="d-flex justify-content-end mb-2 align-items-center"> <!-- Added align-items-center -->
-                        <div class="input-group input-group-sm" style="width: auto; flex-shrink: 0;"> <!-- Added flex-shrink: 0 -->
-                            <label class="input-group-text" for="topStoriesCountSelect">Show:</label>
-                            <select class="form-select form-select-sm" id="topStoriesCountSelect" style="min-width: 60px;"> <!-- Added min-width -->
+                    <div class="d-flex justify-content-end mb-2 align-items-center"> 
+                        <div class="d-flex align-items-center">
+                            <label for="topStoriesCountSelect" class="me-2 small">Show:</label>
+                            <select class="form-select form-select-sm" id="topStoriesCountSelect" style="width: auto;"> 
                                 <option value="1">1</option>
                                 <option value="3">3</option>
                                 <option value="5" selected>5</option>
@@ -1013,7 +1014,7 @@
     // Helper function to escape HTML content for safe display
     function escapeHTML(str) {
         if (str === null || typeof str === 'undefined') return '';
-        return String(str).replace(/[&<"']/g, function (match) {
+        return String(str).replace(/[&<>"']/g, function (match) {
             return {
                 '&': '&amp;',
                 '<': '&lt;',
@@ -1024,11 +1025,25 @@
         });
     }
 
-    // Utility for unescaping HTML (simple version for this context)
+    // Utility for unescaping HTML entities
     function unescapeHTML(html) {
-        const temp = document.createElement("div");
-        temp.innerHTML = html;
-        return temp.textContent || temp.innerText || "";
+        if (html === null || typeof html === 'undefined') return '';
+        const BROWSER_IS_DOM = typeof document !== 'undefined';
+        if (BROWSER_IS_DOM) {
+            let Escaper = document.createElement('textarea');
+            Escaper.innerHTML = String(html);
+            let Unescaped = Escaper.textContent;
+            Escaper = null; // Clean up
+            return Unescaped;
+        }
+        // Fallback for non-browser environments (shouldn't be needed here but good practice)
+        return String(html)
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#039;/g, "'")
+            .replace(/&#x27;/g, "'"); // Handle hex apostrophe as well
     }
 
     // Add a basic showAlert if not already present (can be enhanced)
@@ -1615,16 +1630,16 @@
             titleLink.href = article.uri;
             titleLink.target = '_blank';
             titleLink.rel = 'noopener';
-            // Unescape then escape to handle existing entities correctly and prevent XSS
-            titleLink.textContent = escapeHTML(unescapeHTML(article.title || 'Untitled'));
+            // Only unescape HTML entities, textContent safely handles display
+            titleLink.textContent = unescapeHTML(article.title || 'Untitled');
             titleWrapper.appendChild(titleLink);
             storyItem.appendChild(titleWrapper);
             
             const fullSummaryText = article.highlight_summary || article.summary || 'No summary available.';
             const summaryP = document.createElement('p');
             summaryP.className = 'summary';
-            // Unescape then escape for the summary as well
-            summaryP.textContent = escapeHTML(unescapeHTML(fullSummaryText)); 
+            // Only unescape HTML entities for display
+            summaryP.textContent = unescapeHTML(fullSummaryText);
             storyItem.appendChild(summaryP);
             
             const pubDate = article.publication_date ? new Date(article.publication_date) : null;
@@ -1683,13 +1698,13 @@
             readMoreLink.innerHTML = 'Read More <i class="fas fa-arrow-right fa-xs"></i>';
             storyItem.appendChild(readMoreLink); 
             
-            storyItem.dataset.title = escapeHTML(unescapeHTML(article.title || 'Untitled'));
-            storyItem.dataset.summary = escapeHTML(unescapeHTML(fullSummaryText));
-            storyItem.dataset.source = escapeHTML(unescapeHTML(article.news_source || 'N/A'));
-            storyItem.dataset.category = escapeHTML(unescapeHTML(article.category || 'N/A'));
-            storyItem.dataset.sentiment = escapeHTML(unescapeHTML(article.sentiment || 'N/A'));
-            storyItem.dataset.sentimentExplanation = escapeHTML(unescapeHTML(article.sentiment_explanation || ''));
-            storyItem.dataset.timeToImpact = escapeHTML(unescapeHTML(article.time_to_impact || 'N/A'));
+            storyItem.dataset.title = unescapeHTML(article.title || 'Untitled');
+            storyItem.dataset.summary = unescapeHTML(fullSummaryText);
+            storyItem.dataset.source = unescapeHTML(article.news_source || 'N/A');
+            storyItem.dataset.category = unescapeHTML(article.category || 'N/A');
+            storyItem.dataset.sentiment = unescapeHTML(article.sentiment || 'N/A');
+            storyItem.dataset.sentimentExplanation = unescapeHTML(article.sentiment_explanation || '');
+            storyItem.dataset.timeToImpact = unescapeHTML(article.time_to_impact || 'N/A');
             
             // Simplified hover listeners to avoid issues with complex shared tooltipElement
             storyItem.addEventListener('mouseenter', function(e) { 
