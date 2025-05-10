@@ -178,7 +178,7 @@ async def get_topic_summary_metrics(
     topic_name: str,
     db: Database = Depends(get_database_instance),
     # session: dict = Depends(verify_session)
-):
+) -> List[MapActivityPoint]:
     """
     Provides a summary of key metrics for a given topic.
     """
@@ -1473,7 +1473,7 @@ async def get_map_activity_data(
     topic_name: str,
     date_range_str: Optional[str] = Query(None, alias="date_range"),
     db: Database = Depends(get_database_instance)
-) -> List[Dict[str, Any]]:
+) -> List[MapActivityPoint]:
     """
     Provides country-based data for the global news activity map.
     """
