@@ -122,7 +122,6 @@
         background: transparent; 
         padding: 8px 0; 
         border-radius: 6px; 
-        /* border: 1px solid #ced4da; */ /* Kept border for definition, can be removed if desired - NOW REMOVED */
         margin-top: 0.75rem; 
     }
     .ticker-move {
@@ -134,16 +133,12 @@
     .ticker-item {
         display: inline-block;
         padding: 0 1.5rem; 
-        color: #343a40; /* Darker base text color for contrast */
+        color: #343a40; /* Default text color */
         font-size: 0.9rem; 
-        text-shadow: 0px 0px 1px rgba(255,255,255,0.5); /* Subtle white text shadow for pop */
     }
-    /* Removed .ticker-item strong as it's replaced by .ticker-prefix logic */
     
     .ticker-prefix {
-        /* font-weight: bold; */
-        /* color: var(--bs-primary); */ /* Original */
-        background-color: var(--bs-primary); /* Primary color background */
+        background-color: #ff007f; /* Vibrant pink for breaking news */
         color: #fff; /* White text */
         padding: 3px 8px; /* Padding to make it look like a badge */
         border-radius: 4px; /* Rounded corners for the badge */
@@ -152,22 +147,43 @@
         margin-right: 0.75em;
         text-transform: uppercase; /* Uppercase LATEST */
     }
+    
+    /* Alternating ticker items */
+    .ticker-item-pink {
+        background-color: #ff007f; /* Vibrant pink bg */
+        border-radius: 4px;
+        padding: 3px 10px;
+        margin: 0 5px;
+        color: #ffffff; /* White text */
+    }
+    
+    .ticker-item-white {
+        background-color: #ffffff; /* White bg */
+        border-radius: 4px;
+        padding: 3px 10px;
+        margin: 0 5px;
+        color: #ff007f; /* Pink text */
+        border: 1px solid #ff007f; /* Pink border */
+    }
+    
     .ticker-item a {
-        color: #0056b3; 
         text-decoration: none;
         font-weight: 500; 
-        padding: 2px 6px; 
-        border: 1px solid #ff7eb9; /* NEW Pink */
-        border-radius: 4px; 
-        background-color: rgba(255, 126, 185, 0.07); /* NEW Light Pink fill */
-        transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out, color 0.2s ease-in-out;
+        color: inherit; /* Inherit color from parent */
     }
+    
+    .ticker-item-white a {
+        color: #ff007f; /* Pink text for links in white items */
+    }
+    
+    .ticker-item-pink a {
+        color: #ffffff; /* White text for links in pink items */
+    }
+    
     .ticker-item a:hover {
-        color: #003875; 
         text-decoration: underline;
-        border-color: #ff55a5; /* NEW Saturated Pink on hover */
-        background-color: rgba(255, 85, 165, 0.12); /* NEW More saturated light pink fill on hover */
     }
+    
     .ticker-separator {
         color: #868e96; /* Medium gray for separator */
         margin: 0 0.75em; /* Spacing around separator */
@@ -513,9 +529,137 @@
         border-color: #adb5bd;
     }
 
+    /* Add styles for the metadata tags */
+    .metadata-tag {
+        display: inline-block;
+        padding: 0.2em 0.6em;
+        margin-right: 0.3em;
+        margin-bottom: 0.3em;
+        font-size: 0.75em;
+        font-weight: 600;
+        line-height: 1;
+        text-align: center;
+        white-space: nowrap;
+        vertical-align: baseline;
+        border-radius: 0.25rem;
+        border: 1px solid transparent;
+    }
+
+    .tag-category {
+        background-color: #e6f3ff;
+        color: #0066cc;
+        border-color: #99ccff;
+    }
+
+    .tag-driver {
+        background-color: #fff0e6;
+        color: #cc6600;
+        border-color: #ffcc99;
+    }
+
+    .tag-tti {
+        background-color: #f0f0ff;
+        color: #4b0082;
+        border-color: #c0c0ff;
+    }
+
+    .tag-sentiment {
+        /* Only used for non-standard sentiments */
+        border-width: 1px;
+        border-style: solid;
+    }
+
+    .sentiment-critical {
+        background-color: #ffe6e6;
+        color: #cc0000;
+        border-color: #ffb3b3;
+    }
+
+    .sentiment-hyperbolic {
+        background-color: #fffae6;
+        color: #997a00;
+        border-color: #ffe680;
+    }
+
+    .sentiment-mixed {
+        background-color: #f9f9f9;
+        color: #666666;
+        border-color: #dddddd;
+    }
+
+    /* Add styles for the news network header */
+    .news-network-header {
+        padding: 1rem 1.5rem;
+        border-bottom: 1px solid #e9ecef;
+        margin-bottom: 0.5rem;
+    }
+
+    .network-name {
+        font-size: 1.75rem;
+        font-weight: 700;
+        color: #000;
+        margin-bottom: 0.25rem;
+    }
+
+    .network-date {
+        font-size: 0.9rem;
+        color: #666;
+    }
+
+    /* Badge styles for the header */
+    .live-badge {
+        background-color: #ff007f;
+        color: white;
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        border-radius: 3px;
+        margin-left: 1rem;
+        font-weight: 600;
+    }
+
+    .header-nav {
+        display: inline-block;
+        margin-left: 1rem;
+    }
+
+    .header-nav a {
+        color: #666;
+        text-decoration: none;
+        margin: 0 0.5rem;
+        font-size: 0.9rem;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .header-nav a:hover {
+        background-color: #f8f9fa;
+        border-radius: 3px;
+    }
+
+    .header-nav a.active {
+        color: #ff007f;
+        font-weight: 600;
+    }
+
 </style>
 
 <div class="container-fluid dashboard-container-grid">
+
+    {# News Network Header #}
+    <div class="news-network-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h1 class="network-name">AuNoo News Network</h1>
+                <div class="network-date" id="current-date-time"></div>
+            </div>
+            <div>
+                <span class="live-badge">LIVE</span>
+                <div class="header-nav">
+                    <a href="#" class="active">AI Insights</a>
+                    <a href="#">Global News</a>
+                </div>
+            </div>
+        </div>
+    </div>
 
     {# Header Section (Topic Selector, Date Range) #}
     <div class="dashboard-header">
@@ -811,21 +955,75 @@
         data.items.forEach(article => {
             const articleItem = document.createElement('div');
             articleItem.className = 'list-group-item';
+            
+            // Format publication date
             const pubDate = article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'N/A';
+            
+            // Create metadata tags
+            let metadataHtml = '<div class="mb-1">';
+            
+            // Category tag (if available)
+            if (article.category) {
+                metadataHtml += `<span class="metadata-tag tag-category"><i class="fas fa-folder-open me-1"></i>${article.category}</span>`;
+            }
+            
+            // Driver type tag (if available)
+            if (article.driver_type) {
+                metadataHtml += `<span class="metadata-tag tag-driver"><i class="fas fa-cogs me-1"></i>${article.driver_type}</span>`;
+            }
+            
+            // Time to impact tag (if available)
+            if (article.time_to_impact) {
+                metadataHtml += `<span class="metadata-tag tag-tti"><i class="fas fa-clock me-1"></i>${article.time_to_impact}</span>`;
+            }
+            
+            // Sentiment tag with appropriate styling
+            if (article.sentiment) {
+                const sentimentLower = article.sentiment.toLowerCase();
+                let sentimentClass = '';
+                
+                // Standard sentiment badges keep their styling
+                if (sentimentLower === 'positive' || sentimentLower === 'negative' || sentimentLower === 'neutral') {
+                    sentimentClass = `sentiment-badge sentiment-${sentimentLower}`;
+                } 
+                // Special styles for other sentiment types
+                else if (sentimentLower === 'critical') {
+                    sentimentClass = 'metadata-tag sentiment-critical';
+                }
+                else if (sentimentLower === 'hyperbolic') {
+                    sentimentClass = 'metadata-tag sentiment-hyperbolic';
+                }
+                else if (sentimentLower === 'mixed') {
+                    sentimentClass = 'metadata-tag sentiment-mixed';
+                }
+                else {
+                    sentimentClass = 'metadata-tag tag-sentiment';
+                }
+                
+                const sentimentDisplay = article.sentiment.charAt(0).toUpperCase() + article.sentiment.slice(1);
+                const tooltipText = article.sentiment_explanation ? ` title="${article.sentiment_explanation.replace(/"/g, '&quot;')}"` : '';
+                
+                metadataHtml += `<span class="${sentimentClass}" data-bs-toggle="tooltip" data-bs-placement="top"${tooltipText}><i class="fas fa-heart me-1"></i>${sentimentDisplay}</span>`;
+            }
+            
+            metadataHtml += '</div>';
+            
+            // Regular tags
             const tagsHtml = article.tags && article.tags.length > 0 
                 ? article.tags.map(tag => `<span class="badge bg-secondary me-1">${tag}</span>`).join('') 
                 : '';
-            const sentimentBadgeHtml = getSentimentBadge(article.sentiment, article.sentiment_explanation);
             
             articleItem.innerHTML = `
                 <div class="d-flex w-100 justify-content-between">
-                    <h6 class="mb-1"><a href="${article.uri}" target="_blank" rel="noopener">${article.title || 'Untitled'}</a> ${sentimentBadgeHtml}</h6>
+                    <h6 class="mb-1"><a href="${article.uri}" target="_blank" rel="noopener">${article.title || 'Untitled'}</a></h6>
                     <small>${pubDate}</small>
                 </div>
                 <p class="mb-1"><small class="text-muted">${article.news_source || 'Unknown Source'}</small></p>
                 <p class="mb-1 small">${(article.summary || 'No summary available.').substring(0, 150)}...</p>
+                ${metadataHtml}
                 <div>${tagsHtml}</div>
             `;
+            
             listContainer.appendChild(articleItem);
         });
 
@@ -2073,6 +2271,8 @@
     document.addEventListener('DOMContentLoaded', () => {
         setDefaultDates(30); // Initialize with default 30 days
         stopTickerUpdates(); 
+        updateDateTime(); // Initialize the date-time display
+        setInterval(updateDateTime, 60000); // Update every minute
 
         // Manually initialize Bootstrap tabs with improved handler
         document.querySelectorAll('.nav-tabs .nav-link').forEach(tabLink => {
@@ -2169,7 +2369,10 @@
         try {
             const data = await fetchData(`/api/dashboard/articles/${encodeURIComponent(selectedTopic)}?page=1&per_page=7&sort_by=submission_date&sort_order=desc`);
             if (data && data.items && data.items.length > 0) {
-                const linkedTitles = data.items.map(article => {
+                let tickerContentHtml = '<span class="ticker-prefix">BREAKING</span> ';
+                
+                // Create alternating ticker items
+                data.items.forEach((article, index) => {
                     const title = (article.title || 'Untitled').trim();
                     const safeTitle = title.replace(/[<>"&']/g, function (match) {
                         return {
@@ -2181,16 +2384,26 @@
                         }[match];
                     });
                     const summaryTooltip = article.summary ? article.summary.substring(0, 150).replace(/[<>"&']/g, function(m){return {'<':'&lt;','>':'&gt;','"':'&quot;','&':'&amp;',"'":'&#039;'}[m];}) + (article.summary.length > 150 ? '...' : '') : 'No summary available';
-                    return article.uri ? `<a href="${article.uri}" target="_blank" rel="noopener noreferrer" title="${summaryTooltip}">${safeTitle}</a>` : `<span title="${summaryTooltip}">${safeTitle}</span>`;
+                    
+                    // Alternate between pink and white styles
+                    const itemClass = index % 2 === 0 ? 'ticker-item-pink' : 'ticker-item-white';
+                    
+                    const articleLink = article.uri ? 
+                        `<a href="${article.uri}" target="_blank" rel="noopener noreferrer" title="${summaryTooltip}">${safeTitle}</a>` : 
+                        `<span title="${summaryTooltip}">${safeTitle}</span>`;
+                    
+                    tickerContentHtml += `<span class="ticker-item ${itemClass}">${articleLink}</span>`;
+                    
+                    // Add separator only between items, not after the last item
+                    if (index < data.items.length - 1) {
+                        tickerContentHtml += '<span class="ticker-separator">•</span>';
+                    }
                 });
-                
-                const tickerContentHtml = `<span class="ticker-prefix">LATEST</span> ` + 
-                                      linkedTitles.join('  <span class="ticker-separator">|</span>  '); // Using a pipe as separator with a class
                 
                 tickerContainer.style.animation = 'none';
                 await new Promise(resolve => setTimeout(resolve, 50)); 
                 
-                tickerContainer.innerHTML = `<span class="ticker-item">${tickerContentHtml}</span>`; 
+                tickerContainer.innerHTML = tickerContentHtml;
                 
                 tickerContainer.style.animation = ''; 
 
@@ -2444,9 +2657,19 @@
         const radarChartEl = document.getElementById('radarChart');
         const radarContainer = document.getElementById('radarChartContainer');
 
-        radarLoading.classList.remove('d-none');
-        radarChartEl.style.display = 'none';
+        if (radarLoading) radarLoading.classList.remove('d-none');
+        
+        // Check if elements exist before accessing
         if (radarChartInstance) radarChartInstance.destroy();
+        
+        // Make sure the container exists before trying to update it
+        if (!radarContainer) {
+            console.error("Radar chart container not found: #radarChartContainer");
+            return;
+        }
+        
+        // Safe handling of the chart element
+        if (radarChartEl) radarChartEl.style.display = 'none';
 
         let queryParams = new URLSearchParams();
         if (startDate && endDate) {
@@ -2459,15 +2682,28 @@
         const data = await fetchData(`/api/dashboard/radar-chart-data/${encodeURIComponent(topic)}?${queryParams.toString()}`);
         console.log("Radar Chart Data Received:", data);
 
-        radarLoading.classList.add('d-none');
+        if (radarLoading) radarLoading.classList.add('d-none');
+        
         if (!data || !data.labels || data.labels.length === 0 || !data.datasets || data.datasets.length === 0) {
             radarContainer.innerHTML = '<div class="text-muted p-2 text-center small">No data available for radar chart.</div>';
             return;
         }
-        radarChartEl.style.display = 'block';
-        if(radarContainer.querySelector('.text-muted')) radarContainer.innerHTML = '<canvas id="radarChart"></canvas>'; // Clear placeholder if exists
+        
+        // Make sure we recreate the canvas if it doesn't exist
+        if (!document.getElementById('radarChart')) {
+            radarContainer.innerHTML = '<canvas id="radarChart"></canvas>';
+        }
+        
+        // Get the canvas element again (it might have been recreated)
+        const radarChart = document.getElementById('radarChart');
+        if (radarChart) {
+            radarChart.style.display = 'block';
+        } else {
+            console.error("Could not find or create radar chart canvas");
+            return;
+        }
 
-        const ctx = document.getElementById('radarChart').getContext('2d');
+        const ctx = radarChart.getContext('2d');
         radarChartInstance = new Chart(ctx, {
             type: 'radar',
             data: {
@@ -2543,6 +2779,20 @@
                 .then(data => renderVolumeChart(data, stackBy));
         }
     });
+
+    // Update the current date and time in the network header
+    function updateDateTime() {
+        const now = new Date();
+        const options = { 
+            weekday: 'long', 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        };
+        document.getElementById('current-date-time').textContent = now.toLocaleDateString('en-US', options).replace(',', ' at').replace(/(\d+):(\d+)/, '$1:$2');
+    }
 
 </script>
 
