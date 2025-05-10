@@ -1615,14 +1615,16 @@
             titleLink.href = article.uri;
             titleLink.target = '_blank';
             titleLink.rel = 'noopener';
-            titleLink.textContent = escapeHTML(article.title || 'Untitled');
+            // Unescape then escape to handle existing entities correctly and prevent XSS
+            titleLink.textContent = escapeHTML(unescapeHTML(article.title || 'Untitled'));
             titleWrapper.appendChild(titleLink);
             storyItem.appendChild(titleWrapper);
             
             const fullSummaryText = article.highlight_summary || article.summary || 'No summary available.';
             const summaryP = document.createElement('p');
             summaryP.className = 'summary';
-            summaryP.textContent = escapeHTML(fullSummaryText); // Display full summary, escaped
+            // Unescape then escape for the summary as well
+            summaryP.textContent = escapeHTML(unescapeHTML(fullSummaryText)); 
             storyItem.appendChild(summaryP);
             
             const pubDate = article.publication_date ? new Date(article.publication_date) : null;
@@ -1681,13 +1683,13 @@
             readMoreLink.innerHTML = 'Read More <i class="fas fa-arrow-right fa-xs"></i>';
             storyItem.appendChild(readMoreLink); 
             
-            storyItem.dataset.title = escapeHTML(article.title || 'Untitled');
-            storyItem.dataset.summary = escapeHTML(fullSummaryText);
-            storyItem.dataset.source = escapeHTML(article.news_source || 'N/A');
-            storyItem.dataset.category = escapeHTML(article.category || 'N/A');
-            storyItem.dataset.sentiment = escapeHTML(article.sentiment || 'N/A');
-            storyItem.dataset.sentimentExplanation = escapeHTML(article.sentiment_explanation || '');
-            storyItem.dataset.timeToImpact = escapeHTML(article.time_to_impact || 'N/A');
+            storyItem.dataset.title = escapeHTML(unescapeHTML(article.title || 'Untitled'));
+            storyItem.dataset.summary = escapeHTML(unescapeHTML(fullSummaryText));
+            storyItem.dataset.source = escapeHTML(unescapeHTML(article.news_source || 'N/A'));
+            storyItem.dataset.category = escapeHTML(unescapeHTML(article.category || 'N/A'));
+            storyItem.dataset.sentiment = escapeHTML(unescapeHTML(article.sentiment || 'N/A'));
+            storyItem.dataset.sentimentExplanation = escapeHTML(unescapeHTML(article.sentiment_explanation || ''));
+            storyItem.dataset.timeToImpact = escapeHTML(unescapeHTML(article.time_to_impact || 'N/A'));
             
             // Simplified hover listeners to avoid issues with complex shared tooltipElement
             storyItem.addEventListener('mouseenter', function(e) { 
