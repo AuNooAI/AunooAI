@@ -356,6 +356,163 @@
         color: var(--bs-primary); /* Primary color on hover */
     }
 
+    /* New styles for prominent podcast panel */
+    #podcast-briefing-section {
+        position: relative; /* For positioning overlay elements if needed */
+        padding: 0; /* Remove padding if image is to fill */
+    }
+    .podcast-hero-image {
+        width: 100%;
+        max-height: 300px; /* Adjust as needed */
+        object-fit: cover;
+        border-radius: 8px 8px 0 0; /* Rounded top corners if section has rounded bottom */
+        display: block;
+    }
+    .podcast-content-overlay {
+        /* position: absolute; */ /* If you want to overlay on image */
+        /* bottom: 0; */
+        /* left: 0; */
+        /* width: 100%; */
+        background-color: rgba(255, 255, 255, 0.95); /* Semi-transparent white for readability if overlaying */
+        padding: 1rem; /* Add padding back for content */
+        border-radius: 0 0 8px 8px; /* If image is top part */
+    }
+    #latest-podcast-section .card { /* Ensure card within has no extra margin if panel padding is 0 */
+        margin-bottom: 0 !important;
+    }
+
+
+    /* New styles for "Top Stories" (formerly Highlights) */
+    #highlights-section { /* Keep ID for now, but treat as Top Stories */
+        /* background-color: #f8f9fa; */ /* Optional: different background */
+        /* padding: 1rem; */
+    }
+    #key-articles-list {
+        display: flex;
+        flex-direction: column; /* Stack stories vertically */
+        gap: 0; /* Remove gap, use borders for separation */
+    }
+    .top-story-item {
+        padding: 0.75rem 0;
+        border-bottom: 1px solid #e9ecef;
+        display: flex;
+        flex-direction: column;
+    }
+    .top-story-item:last-child {
+        border-bottom: none;
+    }
+    .top-story-item .category-badge {
+        font-size: 0.7rem;
+        padding: 0.2em 0.5em;
+        margin-bottom: 0.3rem;
+        align-self: flex-start; /* Badge at the start of the line */
+        text-transform: uppercase;
+        font-weight: bold;
+    }
+    .top-story-item h6 {
+        font-size: 0.95rem;
+        margin-bottom: 0.25rem;
+    }
+    .top-story-item h6 a {
+        text-decoration: none;
+        color: #212529;
+    }
+    .top-story-item h6 a:hover {
+        color: var(--bs-primary);
+    }
+    .top-story-item .summary {
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-bottom: 0.3rem;
+        line-height: 1.4;
+    }
+    .top-story-item .timestamp {
+        font-size: 0.75rem;
+        color: #6c757d;
+        margin-bottom: 0.3rem;
+    }
+    .top-story-item .read-more {
+        font-size: 0.8rem;
+        font-weight: bold;
+        color: var(--bs-primary);
+        text-decoration: none;
+        align-self: flex-start;
+    }
+    .top-story-item .read-more:hover {
+        text-decoration: underline;
+    }
+
+    /* Styles for Top Story hover details */
+    .top-story-item {
+        position: relative; /* Needed for absolute positioning of details */
+    }
+    .top-story-hover-details {
+        display: none;
+        position: fixed; /* Changed to fixed positioning */
+        width: 300px; /* Fixed width */
+        background-color: #ffffff;
+        border: 1px solid #ced4da;
+        border-radius: 0.25rem;
+        padding: 1rem;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        z-index: 1050; /* Even higher z-index */
+        font-size: 0.85rem;
+        line-height: 1.5;
+        max-height: 500px; /* Maximum height to prevent overflow */
+        overflow-y: auto; /* Add scrolling if needed */
+    }
+    .top-story-hover-details h6 {
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+        color: var(--bs-primary);
+        font-weight: bold;
+    }
+    .top-story-hover-details p {
+        margin-bottom: 0.5rem;
+    }
+    .top-story-hover-details .meta-item {
+        display: block; /* Each meta item on new line */
+        margin-bottom: 0.25rem;
+    }
+    .top-story-hover-details .meta-item strong {
+        color: #343a40;
+    }
+    
+    /* Arrow pointing to the item */
+    .tooltip-arrow {
+        position: absolute;
+        width: 0;
+        height: 0;
+        border-style: solid;
+    }
+    
+    /* Media query for mobile/smaller screens */
+    @media (max-width: 768px) {
+        .top-story-hover-details {
+            width: 90%; /* Almost full width on small screens */
+            max-width: 300px;
+        }
+    }
+
+    /* Styles for button-like tabs */
+    .nav-tabs.nav-fill .nav-link {
+        background-color: #e9ecef;
+        border: 1px solid #dee2e6;
+        color: #495057;
+        border-radius: 0.25rem; /* Rounded corners */
+        margin: 0 2px; /* Small gap between tabs */
+        transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+    }
+    .nav-tabs.nav-fill .nav-link.active {
+        background-color: var(--bs-primary);
+        color: #fff;
+        border-color: var(--bs-primary);
+    }
+    .nav-tabs.nav-fill .nav-link:hover:not(.active) {
+        background-color: #ced4da;
+        border-color: #adb5bd;
+    }
+
 </style>
 
 <div class="container-fluid dashboard-container-grid">
@@ -430,22 +587,33 @@
 
     {# Main Content Area (Single Column Flow) #}
     <div class="dashboard-main">
-        {# AI Trends Today's Briefing #}
+        {# AI Trends Today's Briefing - Modified for Prominent Image #}
         <div class="dashboard-section" id="podcast-briefing-section">
-            <h5 class="mb-3"><i class="bi bi-mic-fill me-2"></i>AI Trends Today's Briefing</h5>
-            <div id="latest-podcast-section" class="mb-3">
-                <div class="loading-indicator">Loading today's briefing...</div>
-            </div>
-            <div id="podcast-visualizer-latest" class="podcast-visualizer">
-                <span></span><span></span><span></span>
-            </div>
-            <h6 class="mb-2 small text-muted">Previous Briefings</h6>
-            <div id="previous-podcasts-list" class="list-group list-group-flush small" style="max-height: 300px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;">
-                <div class="loading-indicator">Loading previous briefings...</div>
+            <img src="/static/trend_daily_briefing.gif" alt="AI Trends Daily Briefing" class="podcast-hero-image">
+            <div class="podcast-content-overlay">
+                <h5 class="mb-3 mt-2"><i class="bi bi-mic-fill me-2"></i>AI Trends Today's Briefing</h5>
+                <div id="latest-podcast-section" class="mb-3">
+                    <div class="loading-indicator">Loading today's briefing...</div>
+                </div>
+                <div id="podcast-visualizer-latest" class="podcast-visualizer">
+                    <span></span><span></span><span></span>
+                </div>
+                <h6 class="mb-2 small text-muted">Previous Briefings</h6>
+                <div id="previous-podcasts-list" class="list-group list-group-flush small" style="max-height: 200px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px;">
+                    <div class="loading-indicator">Loading previous briefings...</div>
+                </div>
             </div>
         </div>
 
-        {# Generated Insights (Tabbed) #}
+        {# Highlights Section (Top Stories) - MOVED UP #}
+        <div class="dashboard-section" id="highlights-section"> 
+            <h5 class="mb-3">Top Stories</h5> {# Renamed from Highlights #}
+            <div id="key-articles-list" class="mb-0">
+                 <div class="loading-indicator">Loading top stories...</div>
+            </div>
+        </div>
+
+        {# Generated Insights (Tabbed) - NOW AFTER TOP STORIES #}
         <div class="dashboard-section" id="generated-insights-tab-section">
             <h5 class="mb-3">Generated Insights</h5>
             <ul class="nav nav-tabs nav-fill nav-sm mb-3" id="insightsTab" role="tablist">
@@ -477,14 +645,6 @@
                         <div class="text-muted p-2 small w-100 text-center">Category-based insights will be shown here.</div>
                     </div>
                 </div>
-            </div>
-        </div>
-
-        {# Highlights Section - Placed after Generated Insights, before Trends #}
-        <div class="dashboard-section" id="highlights-section"> 
-            <h5 class="mb-3">Highlights <small class="text-muted fw-normal">- Selected Critical Articles</small></h5>
-            <div id="key-articles-list" class="mb-0">
-                 <div class="loading-indicator">Loading highlights...</div>
             </div>
         </div>
 
@@ -527,8 +687,8 @@
                         </div>
                     </div>
                     {# New Row for Radar Chart #}
-                    <div class="row mt-4">
-                        <div class="col-md-12 mb-4">
+                    <div class="row mt-4"> {# Removed mb-4 from this row to reduce potential bottom space if it's the last one #}
+                        <div class="col-md-12"> {# Removed mb-4 from this col as well #}
                             <h6>Distribution by Future Signal, Sentiment & TTI</h6>
                              <div id="radarChartContainer" class="chart-container">
                                 <canvas id="radarChart"></canvas>
@@ -1041,56 +1201,220 @@
         listContainer.innerHTML = ''; // Clear loading or previous data
 
         if (!data || data.length === 0) {
-            listContainer.innerHTML = '<div class="text-muted p-2 small">No highlight articles identified for this period.</div>';
+            listContainer.innerHTML = '<div class="text-muted p-2 small">No top stories identified for this period.</div>';
             return;
         }
         
-        // No longer a ul, each article will be a card
-        // const ul = document.createElement('ul');
-        // ul.className = 'list-group list-group-flush'; 
+        // Create a single tooltip element for reuse
+        const tooltipElement = document.createElement('div');
+        tooltipElement.className = 'top-story-hover-details';
+        tooltipElement.style.display = 'none';
+        document.body.appendChild(tooltipElement);
+        
+        // Create arrow element
+        const arrowElement = document.createElement('div');
+        arrowElement.className = 'tooltip-arrow';
+        tooltipElement.appendChild(arrowElement);
+        
+        let currentVisibleItem = null;
         
         data.forEach(article => {
-            const articleCard = document.createElement('div');
-            articleCard.className = 'card card-body mb-3 shadow-sm'; // Bootstrap card styling
+            // Create the main container for the story item
+            const storyItem = document.createElement('div');
+            storyItem.className = 'top-story-item';
             
+            // Set up the category badge
             let categoryBadgeClass = 'bg-secondary'; 
-            const hc = article.highlight_category ? article.highlight_category.toLowerCase() : '';
-            if (hc === 'breaking') categoryBadgeClass = 'bg-danger';
-            else if (hc === 'developing') categoryBadgeClass = 'bg-warning text-dark';
-            else if (hc === 'insight') categoryBadgeClass = 'bg-info text-dark';
-            else if (hc === 'analysis') categoryBadgeClass = 'bg-primary';
-            else if (hc === 'update') categoryBadgeClass = 'bg-success';
+            let categoryText = article.highlight_category || 'General';
+            const hc = categoryText.toLowerCase();
 
-            const highlightCategoryHtml = article.highlight_category ? 
-                `<span class="badge ${categoryBadgeClass} mb-2">${article.highlight_category}</span><br>` : '';
+            if (hc === 'breaking') { categoryBadgeClass = 'bg-danger'; }
+            else if (hc === 'developing') { categoryBadgeClass = 'bg-warning text-dark'; }
+            else if (hc === 'technology') { categoryBadgeClass = 'bg-primary'; }
+            else if (hc === 'insight') { categoryBadgeClass = 'bg-info text-dark'; }
+            else if (hc === 'analysis') { categoryBadgeClass = 'bg-success'; }
+            else { categoryBadgeClass = 'bg-secondary'; }
 
-            const titleHtml = `<h6 class="mb-1"><a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none text-dark stretched-link">${article.title || 'Untitled'}</a></h6>`;
+            // Create the HTML for the main content
+            const categoryBadge = document.createElement('span');
+            categoryBadge.className = `badge category-badge ${categoryBadgeClass}`;
+            categoryBadge.textContent = categoryText;
+            storyItem.appendChild(categoryBadge);
             
-            const highlightSummaryHtml = article.highlight_summary ? 
-                `<p class="mb-2 small text-muted">${article.highlight_summary}</p>` : '';
+            // Add the title
+            const titleWrapper = document.createElement('h6');
+            const titleLink = document.createElement('a');
+            titleLink.href = article.uri;
+            titleLink.target = '_blank';
+            titleLink.rel = 'noopener';
+            titleLink.textContent = article.title || 'Untitled';
+            titleWrapper.appendChild(titleLink);
+            storyItem.appendChild(titleWrapper);
             
-            const originalCategoryHtml = article.category ? 
-                `<span class="badge bg-light text-dark border me-1 mb-1">${article.category}</span>` : '';
-            const sentimentBadgeHtml = getSentimentBadge(article.sentiment, article.sentiment_explanation); 
-            const timeToImpactHtml = article.time_to_impact ? 
-                `<span class="badge bg-light text-dark border mb-1">TTI: ${article.time_to_impact}</span>` : '';
-
-            const originalSourceAndDateHtml = `<small class="text-muted d-block mt-auto">${article.news_source || 'Unknown'} - ${article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'N/A'}</small>`;
-
-            articleCard.innerHTML = `
-                ${highlightCategoryHtml}
-                ${titleHtml}
-                ${highlightSummaryHtml}
-                <div class="mt-1 mb-2 small">
-                    ${originalCategoryHtml}
-                    ${sentimentBadgeHtml}
-                    ${timeToImpactHtml}
-                </div>
-                ${originalSourceAndDateHtml}
-            `;
-            listContainer.appendChild(articleCard);
+            // Add the summary snippet
+            const fullSummaryText = article.highlight_summary || article.summary || 'No summary available.';
+            const summaryP = document.createElement('p');
+            summaryP.className = 'summary';
+            if (fullSummaryText.length > 100) {
+                summaryP.textContent = fullSummaryText.substring(0, 100) + '...';
+            } else {
+                summaryP.textContent = fullSummaryText;
+            }
+            storyItem.appendChild(summaryP);
+            
+            // Add the timestamp
+            const pubDate = article.publication_date ? new Date(article.publication_date) : null;
+            const timestampDiv = document.createElement('div');
+            timestampDiv.className = 'timestamp';
+            timestampDiv.textContent = pubDate ? 
+                pubDate.toLocaleDateString() + ' ' + pubDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 
+                'N/A';
+            storyItem.appendChild(timestampDiv);
+            
+            // Add the read more link
+            const readMoreLink = document.createElement('a');
+            readMoreLink.href = article.uri;
+            readMoreLink.target = '_blank';
+            readMoreLink.rel = 'noopener';
+            readMoreLink.className = 'read-more';
+            readMoreLink.innerHTML = 'Read More <i class="fas fa-arrow-right fa-xs"></i>';
+            storyItem.appendChild(readMoreLink);
+            
+            // Store tooltip content in a data attribute
+            storyItem.dataset.title = article.title || 'Untitled';
+            storyItem.dataset.summary = fullSummaryText;
+            storyItem.dataset.source = article.news_source || 'N/A';
+            storyItem.dataset.category = article.category || 'N/A';
+            storyItem.dataset.sentiment = article.sentiment || 'N/A';
+            storyItem.dataset.sentimentExplanation = article.sentiment_explanation || '';
+            storyItem.dataset.timeToImpact = article.time_to_impact || 'N/A';
+            
+            // Add mouse events for tooltip
+            storyItem.addEventListener('mouseenter', function(e) {
+                // Populate tooltip content
+                tooltipElement.innerHTML = '';
+                
+                const hoverTitle = document.createElement('h6');
+                hoverTitle.textContent = this.dataset.title;
+                tooltipElement.appendChild(hoverTitle);
+                
+                const hoverSummary = document.createElement('p');
+                hoverSummary.textContent = this.dataset.summary;
+                tooltipElement.appendChild(hoverSummary);
+                
+                // Helper function to create metadata items
+                function createMetaItem(label, value) {
+                    const span = document.createElement('span');
+                    span.className = 'meta-item';
+                    const strong = document.createElement('strong');
+                    strong.textContent = label + ': ';
+                    span.appendChild(strong);
+                    span.append(value);
+                    return span;
+                }
+                
+                tooltipElement.appendChild(createMetaItem('Source', this.dataset.source));
+                tooltipElement.appendChild(createMetaItem('Category (Original)', this.dataset.category));
+                
+                // Create sentiment badge if applicable
+                if (typeof getSentimentBadge === 'function' && this.dataset.sentiment !== 'N/A') {
+                    const sentimentSpan = document.createElement('span');
+                    sentimentSpan.className = 'meta-item';
+                    const sentimentLabel = document.createElement('strong');
+                    sentimentLabel.textContent = 'Sentiment: ';
+                    sentimentSpan.appendChild(sentimentLabel);
+                    
+                    const sentimentBadge = document.createElement('span');
+                    sentimentBadge.innerHTML = getSentimentBadge(this.dataset.sentiment, this.dataset.sentimentExplanation);
+                    sentimentSpan.appendChild(sentimentBadge);
+                    
+                    tooltipElement.appendChild(sentimentSpan);
+                } else {
+                    tooltipElement.appendChild(createMetaItem('Sentiment', this.dataset.sentiment));
+                }
+                
+                tooltipElement.appendChild(createMetaItem('Time to Impact', this.dataset.timeToImpact));
+                
+                // Add arrow
+                const arrowElement = document.createElement('div');
+                arrowElement.className = 'tooltip-arrow';
+                tooltipElement.appendChild(arrowElement);
+                
+                // Position the tooltip
+                const rect = this.getBoundingClientRect();
+                const windowWidth = window.innerWidth;
+                
+                // Reset any previous styles
+                tooltipElement.style.left = '';
+                tooltipElement.style.right = '';
+                tooltipElement.style.top = '';
+                arrowElement.style = '';
+                
+                // Check which side has more space
+                if (rect.left > 320) { // Enough space on the left
+                    // Position to the left
+                    tooltipElement.style.left = (rect.left - 320) + 'px';
+                    tooltipElement.style.top = rect.top + 'px';
+                    
+                    // Style arrow pointing right
+                    arrowElement.style.right = '-10px';
+                    arrowElement.style.top = '15px';
+                    arrowElement.style.borderWidth = '10px 0 10px 10px';
+                    arrowElement.style.borderColor = 'transparent transparent transparent #ced4da';
+                } 
+                else if (windowWidth - rect.right > 320) { // Enough space on the right
+                    // Position to the right
+                    tooltipElement.style.left = (rect.right + 10) + 'px';
+                    tooltipElement.style.top = rect.top + 'px';
+                    
+                    // Style arrow pointing left
+                    arrowElement.style.left = '-10px';
+                    arrowElement.style.top = '15px';
+                    arrowElement.style.borderWidth = '10px 10px 10px 0';
+                    arrowElement.style.borderColor = 'transparent #ced4da transparent transparent';
+                }
+                else { // Default to below
+                    tooltipElement.style.left = Math.max(10, rect.left) + 'px';
+                    tooltipElement.style.top = (rect.bottom + 10) + 'px';
+                    tooltipElement.style.width = Math.min(300, rect.width) + 'px';
+                    
+                    // Style arrow pointing up
+                    arrowElement.style.left = '20px';
+                    arrowElement.style.top = '-10px';
+                    arrowElement.style.borderWidth = '0 10px 10px 10px';
+                    arrowElement.style.borderColor = 'transparent transparent #ced4da transparent';
+                }
+                
+                // Show the tooltip
+                tooltipElement.style.display = 'block';
+                currentVisibleItem = this;
+            });
+            
+            storyItem.addEventListener('mouseleave', function(e) {
+                // Only hide if mouse isn't moving to the tooltip
+                setTimeout(() => {
+                    if (currentVisibleItem === this) {
+                        tooltipElement.style.display = 'none';
+                        currentVisibleItem = null;
+                    }
+                }, 100);
+            });
+            
+            // Handle tooltip hover to prevent it from disappearing when mouse moves to tooltip
+            tooltipElement.addEventListener('mouseenter', function() {
+                // Keep tooltip visible when hovering over it
+                tooltipElement.style.display = 'block';
+            });
+            
+            tooltipElement.addEventListener('mouseleave', function() {
+                // Hide tooltip when mouse leaves it
+                tooltipElement.style.display = 'none';
+                currentVisibleItem = null;
+            });
+            
+            // Append the completed story item to the list container
+            listContainer.appendChild(storyItem);
         });
-        // listContainer.appendChild(ul);
     }
 
     // Fix the renderGeneratedInsights function to properly render markdown
@@ -1136,15 +1460,21 @@
         if (visualizer) visualizer.classList.remove('playing');
 
         if (!data || !data.podcast_id) {
+            // Clear the hero image if no podcast
+            // const heroImage = document.querySelector('#podcast-briefing-section .podcast-hero-image');
+            // if (heroImage) heroImage.style.display = 'none'; // Hide if no podcast
             container.innerHTML = '<div class="text-muted p-2 small">No recent podcast available for this topic.</div>';
             return;
         }
+        // Ensure hero image is visible if there is a podcast
+        // const heroImage = document.querySelector('#podcast-briefing-section .podcast-hero-image');
+        // if (heroImage) heroImage.style.display = 'block';
+
 
         let transcriptHtml = '';
         if (data.transcript) {
-            // Display a snippet and/or a link to full transcript if desired
             const snippet = data.transcript.substring(0, 100) + (data.transcript.length > 100 ? '...' : '');
-            transcriptHtml = `<p class="small text-muted mt-1">Transcript: ${snippet}</p>`;
+            transcriptHtml = `<p class="small text-muted mt-1 mb-0">Transcript: ${snippet}</p>`;
         }
 
         let durationHtml = '';
@@ -1152,19 +1482,19 @@
             durationHtml = `<small class="text-muted ms-2">(${data.duration_minutes.toFixed(1)} min)</small>`;
         }
 
+        // Simplified card structure for latest podcast, to fit better with the hero image
         container.innerHTML = `
-            <div class="card bg-light border-0 shadow-sm p-2 small">
+            <div>
                 <h6 class="mb-1 text-primary">${data.title}</h6>
-                ${data.audio_url ? `<audio controls class="w-100 mt-1" src="${data.audio_url}" style="height: 35px;" id="latest-podcast-audio"></audio>` : '<p class="small text-muted mt-1">No audio available.</p>'}
+                ${data.audio_url ? `<audio controls class="w-100 mt-1" src="${data.audio_url}" style="height: 35px;" id="latest-podcast-audio"></audio>` : '<p class="small text-muted mt-1 mb-0">No audio available.</p>'}
                 <div class="d-flex justify-content-between align-items-center mt-1">
-                    <small class="text-muted">Published: ${new Date(data.created_at).toLocaleDateString()}</small>
+                    <small class="text-muted">Published: ${new Date(data.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</small>
                     ${durationHtml}
                 </div>
                 ${transcriptHtml}
             </div>
         `;
 
-        // Add event listeners for the new audio element
         const audioElement = document.getElementById('latest-podcast-audio');
         if (audioElement && visualizer) {
             audioElement.onplay = () => visualizer.classList.add('playing');
@@ -1273,23 +1603,27 @@
 
         const audioUrl = itemElement.dataset.audioUrl;
         const podcastTitle = itemElement.dataset.podcastTitle;
-        const podcastDate = itemElement.dataset.podcastDate;
+        const podcastDate = itemElement.dataset.podcastDate; // This is already formatted "Short, Month Day"
         const podcastDuration = itemElement.dataset.podcastDuration;
         const visualizer = document.getElementById('podcast-visualizer-latest');
+        // Ensure hero image is visible when a previous podcast is played
+        // const heroImage = document.querySelector('#podcast-briefing-section .podcast-hero-image');
+        // if (heroImage) heroImage.style.display = 'block';
 
         if (audioUrl) {
             const latestPodcastContainer = document.getElementById('latest-podcast-section');
             let durationHtml = podcastDuration ? `<small class="text-muted ms-2">(${podcastDuration})</small>` : '';
             
+            // Update the #latest-podcast-section with the selected previous podcast's details
             latestPodcastContainer.innerHTML = `
-                <div class="card bg-light border-0 shadow-sm p-2 small">
+                <div>
                     <h6 class="mb-1 text-primary">${podcastTitle}</h6>
                     <audio controls autoplay class="w-100 mt-1" src="${audioUrl}" style="height: 35px;" id="previous-podcast-audio-active"></audio>
                     <div class="d-flex justify-content-between align-items-center mt-1">
                         <small class="text-muted">Published: ${podcastDate}</small>
                         ${durationHtml}
                     </div>
-                    <p class="small text-muted mt-1 fst-italic">Now playing: previous briefing.</p>
+                    <p class="small text-muted mt-1 mb-0 fst-italic">Now playing: previous briefing.</p>
                 </div>
             `;
             
