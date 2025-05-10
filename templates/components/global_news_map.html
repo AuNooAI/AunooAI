@@ -126,15 +126,19 @@
     
     /* City clock styling - Light Theme */
     .clock-card {
-        padding: 15px;
-        border-radius: 8px;
-        background-color: #ffffff; /* White background for clock cards */
-        color: #212529; /* Dark text color */
+        padding: 12px; 
+        border-radius: 6px; 
+        background-color: #ffffff; 
+        color: #212529; 
         margin-bottom: 15px;
         transition: transform 0.2s, box-shadow 0.2s;
         cursor: pointer;
-        border: 1px solid #dee2e6; /* Standard light border */
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05); /* Standard soft shadow */
+        border: 1px solid #dee2e6; 
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); 
+        display: flex; /* Added for flex layout */
+        flex-direction: column; /* Stack items vertically */
+        justify-content: space-between; /* Distribute space */
+        min-height: 130px; /* Ensure a minimum height for consistency */
     }
     
     .clock-card:hover {
@@ -160,7 +164,12 @@
     }
     
     .clock-card .date {
-        color: #6c757d; /* Muted text */
+        color: #6c757d; /* Muted text color */
+        font-size: 0.75rem; 
+        line-height: 1.2; /* Added for better control with potential wraps */
+        min-height: 2.4em; /* Approx 2 lines of text to maintain height */
+        display: flex; /* Added to help vertical alignment if needed */
+        align-items: center; /* Vertically center if it becomes a single line */
     }
     
     .clock-card .fa-map-marker-alt {
