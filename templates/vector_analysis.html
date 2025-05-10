@@ -59,68 +59,54 @@
         padding-right: 0.5rem;
         padding-left: 0.5rem;
     }
-    /* Fix search bar layout */
+    
+    /* Replace search bar CSS with completely new implementation */
     .search-bar-container {
-        display: flex;
-        align-items: center;
+        display: grid;
+        grid-template-columns: 40px 1fr auto;
         width: 100%;
         border: 1px solid #e0e0e0;
         border-radius: 6px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        overflow: hidden;
     }
+    
     .search-icon {
-        padding: 6px 12px;
-        background: transparent;
         display: flex;
         align-items: center;
         justify-content: center;
         cursor: pointer;
     }
+    
     #searchInput {
-        flex: 1 1 auto;
-        min-width: 0;
         border: none;
         box-shadow: none;
-        padding: 6px 12px;
+        padding: 0.5rem;
+        width: 100%;
+        font-size: 1rem;
     }
-    #searchGroup {
-        flex: 1 1 0;
-    }
+    
     .search-controls {
         display: flex;
         align-items: center;
-        margin-left: auto;
+        padding-right: 0.5rem;
     }
-    /* Force search button icons to right */
+    
     .search-controls button {
         display: flex;
         align-items: center;
         justify-content: center;
         height: 34px;
-        padding: 0 0.5rem;
-        border: 0;
+        width: 34px;
+        padding: 0;
+        margin-left: 4px;
     }
-    /* let the search field consume all remaining width */
-    #searchInput {
-        flex: 1 1 auto;
-        min-width: 0;
-        border: none;
-        box-shadow: none;
-        padding: 6px 12px;
-    }
-    #searchGroup {
-        flex: 1 1 0;
-    }
-    /* Search input group button layout fix */
-    .search-controls {
-        display: flex;
-        align-items: center;
-        margin-left: auto;
-    }
+    
     /* Awesomplete dropdown above everything */
     .awesomplete > ul {
         z-index: 1055; /* above Bootstrap modal backdrop */
     }
+    
     /* filter sidebar improvements */
     .filter-group {
         margin-bottom: 1.25rem;
@@ -319,7 +305,6 @@
                     <button id="askAuspexBtn" class="btn btn-sm btn-outline-primary" title="Ask Auspex">
                         <i class="fas fa-comment-dots"></i>
                     </button>
-                    <!-- (buttons relocated) -->
                  </div>
             </div>
             <div id="activeFilters" class="mb-2"></div>
