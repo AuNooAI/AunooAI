@@ -1,0 +1,502 @@
+<!-- Global News Activity Map Component -->
+<div class="card mb-4 shadow-sm">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h5 class="card-title mb-0 text-dark">Global News Activity</h5>
+        <div class="d-flex align-items-center">
+            <button class="btn btn-sm btn-outline-secondary me-2" id="map-settings-btn" title="Map Settings" data-bs-toggle="modal" data-bs-target="#citySelectionModal">
+                <i class="fas fa-cog"></i>
+            </button>
+            <div id="utc-time-display" class="text-muted small">Current UTC: <span class="fw-bold">00:00 AM</span></div>
+        </div>
+    </div>
+    <div class="card-body p-0 position-relative">
+        <div id="global-news-map" style="height: 400px; width: 100%; background-color: #f8f9fa; position: relative; overflow: hidden;">
+            <!-- World map background -->
+            <div class="map-background"></div>
+            
+            <!-- Country overlay (for activity hotspots) -->
+            <div class="country-overlay" id="country-overlay">
+                <!-- Hotspots and labels will be added here dynamically -->
+            </div>
+        </div>
+    </div>
+    <div class="card-footer bg-light d-flex justify-content-end small py-2">
+        <div class="d-flex align-items-center">
+            <span class="me-3 text-dark">Activity Level:</span>
+            <span class="me-2"><i class="fas fa-circle me-1" style="color: #007bff;"></i> Normal</span>
+            <span><i class="fas fa-circle me-1" style="color: #FF69B4;"></i> High</span>
+        </div>
+    </div>
+</div>
+
+<!-- City Selection Modal -->
+<div class="modal fade" id="citySelectionModal" tabindex="-1" aria-labelledby="citySelectionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="citySelectionModalLabel">Select Cities</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="citySelectionCheckboxes">
+                <!-- Checkboxes will be populated by JavaScript -->
+            </div>
+            <div class="modal-footer border-secondary">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="saveCitySelection">Save changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- World Clock Cities Row -->
+<div class="row mb-4 city-clocks" id="cityClocksRow">
+    <!-- Clock cards will be populated by JavaScript -->
+</div>
+
+<style>
+    /* Map styling */
+    .map-background {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: #f8f9fa; /* Light grey background for map area */
+        background-image: url('/static/img/cyber-security-world.png'); /* Ensure this path is correct */
+        background-size: cover; 
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.6; /* Adjust opacity for visibility on light background */
+    }
+    
+    .country-overlay {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 10;
+    }
+    
+    .hotspot-container {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        transform: translate(-50%, -50%);
+        z-index: 20;
+        pointer-events: auto; /* Allow hover for tooltip */
+    }
+    
+    .hotspot {
+        width: 10px; /* Slightly smaller */
+        height: 10px; /* Slightly smaller */
+        border-radius: 50%;
+        box-shadow: 0 0 12px 4px currentColor; /* Adjusted shadow */
+        animation: pulse 2.5s infinite; /* Slightly slower pulse */
+    }
+    
+    .hotspot.normal {
+        background-color: rgba(0, 123, 255, 0.8); /* Bootstrap Primary Blue */
+        color: rgba(0, 123, 255, 0.6);
+    }
+    
+    .hotspot.high {
+        background-color: rgba(255, 105, 180, 0.8); /* Pink */
+        color: rgba(255, 105, 180, 0.6);
+    }
+    
+    .hotspot-label {
+        margin-left: 7px;
+        padding: 1px 5px;
+        background-color: rgba(0, 0, 0, 0.6); /* Darker semi-transparent background for labels */
+        color: #ffffff; /* White text for labels */
+        font-size: 0.7rem;
+        border-radius: 3px;
+        white-space: nowrap;
+        pointer-events: none; 
+        box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 0.7; transform: scale(0.95); }
+        50% { opacity: 1; transform: scale(1.25); }
+        100% { opacity: 0.7; transform: scale(0.95); }
+    }
+    
+    /* City clock styling - Light Theme */
+    .clock-card {
+        padding: 15px;
+        border-radius: 8px;
+        background-color: #ffffff; /* White background for clock cards */
+        color: #212529; /* Dark text color */
+        margin-bottom: 15px;
+        transition: transform 0.2s, box-shadow 0.2s;
+        cursor: pointer;
+        border: 1px solid #dee2e6; /* Standard light border */
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05); /* Standard soft shadow */
+    }
+    
+    .clock-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    
+    .clock-card.hot {
+        border-left: 3px solid #FF69B4; /* Pink accent for hot */
+        background-color: #fff7fa; /* Very light pink for hot background */
+    }
+    
+    .clock-card .time {
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: #212529; /* Dark text */
+    }
+    
+    .clock-card .city-name {
+        font-weight: 500;
+        color: #495057; /* Standard secondary text color */
+    }
+    
+    .clock-card .date {
+        color: #6c757d; /* Muted text */
+    }
+    
+    .clock-card .fa-map-marker-alt {
+        color: #007bff; /* Primary blue for map marker */
+    }
+    .clock-card.hot .fa-map-marker-alt {
+        color: #FF69B4; /* Pink for hot marker */
+    }
+    
+    .clock-card .ms-auto i.fa-sun {
+        color: #FFC107; /* Yellow for sun */
+    }
+    
+    .clock-card .ms-auto i.fa-moon {
+        color: #6c757d; /* Grey for moon */
+    }
+
+    /* Alert badge styling for light theme */
+    .clock-card .badge.bg-warning { 
+        background-color: #fff3cd !important; /* Light yellow */
+        color: #664d03 !important; 
+        border: 1px solid #ffecb5;
+    }
+    .clock-card .badge.bg-danger { 
+        background-color: #f8d7da !important; /* Light pink */
+        color: #721c24 !important; 
+        border: 1px solid #f5c6cb;
+    }
+    
+    /* Modal Customization */
+    #citySelectionModal .modal-dialog {
+        max-width: 400px;
+    }
+    
+    #citySelectionCheckboxes .form-check {
+        margin-bottom: 0.5rem;
+    }
+    
+    #citySelectionCheckboxes .form-check-label {
+        font-size: 0.9rem;
+    }
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Prevent multiple initializations if script is reloaded (e.g., via Turbo)
+    if (window.worldMapInitialized) return;
+    window.worldMapInitialized = true;
+
+    const ALL_AVAILABLE_CITIES = [
+        { name: 'San Francisco', timezone: 'America/Los_Angeles', country: 'United States', coords: { x: '15%', y: '40%' } },
+        { name: 'New York', timezone: 'America/New_York', country: 'United States', coords: { x: '24%', y: '38%' } },
+        { name: 'London', timezone: 'Europe/London', country: 'United Kingdom', coords: { x: '47.5%', y: '30%' } },
+        { name: 'Berlin', timezone: 'Europe/Berlin', country: 'Germany', coords: { x: '50.5%', y: '30.5%' } },
+        { name: 'Beijing', timezone: 'Asia/Shanghai', country: 'China', coords: { x: '76%', y: '39%' } },
+        { name: 'Tokyo', timezone: 'Asia/Tokyo', country: 'Japan', coords: { x: '83%', y: '38%' } },
+        { name: 'Sydney', timezone: 'Australia/Sydney', country: 'Australia', coords: { x: '85%', y: '75%' } },
+        { name: 'Sao Paulo', timezone: 'America/Sao_Paulo', country: 'Brazil', coords: { x: '33%', y: '68%' } },
+        { name: 'Moscow', timezone: 'Europe/Moscow', country: 'Russia', coords: { x: '58%', y: '26%' } },
+        { name: 'Johannesburg', timezone: 'Africa/Johannesburg', country: 'South Africa', coords: { x: '54%', y: '73%' } },
+        { name: 'Dubai', timezone: 'Asia/Dubai', country: 'UAE', coords: { x: '62%', y: '46%' } },
+        { name: 'Singapore', timezone: 'Asia/Singapore', country: 'Singapore', coords: { x: '72%', y: '57%' } },
+        { name: 'Paris', timezone: 'Europe/Paris', country: 'France', coords: { x: '48%', y: '32%' } },
+        { name: 'Rome', timezone: 'Europe/Rome', country: 'Italy', coords: { x: '50%', y: '36%' } },
+        { name: 'Cairo', timezone: 'Africa/Cairo', country: 'Egypt', coords: { x: '56%', y: '43%' } },
+        { name: 'Mumbai', timezone: 'Asia/Kolkata', country: 'India', coords: { x: '66%', y: '48%' } },
+        { name: 'Mexico City', timezone: 'America/Mexico_City', country: 'Mexico', coords: { x: '20%', y: '48%' } },
+        { name: 'Buenos Aires', timezone: 'America/Argentina/Buenos_Aires', country: 'Argentina', coords: { x: '30%', y: '78%' } },
+        { name: 'Madrid', timezone: 'Europe/Madrid', country: 'Spain', coords: { x: '45%', y: '37%' } },
+        { name: 'Toronto', timezone: 'America/Toronto', country: 'Canada', coords: { x: '24%', y: '33%' } },
+        { name: 'Amsterdam', timezone: 'Europe/Amsterdam', country: 'Netherlands', coords: { x: '48.5%', y: '29%' } },
+        { name: 'Prague', timezone: 'Europe/Prague', country: 'Czech Republic', coords: { x: '51.5%', y: '31.5%' } },
+        { name: 'Dublin', timezone: 'Europe/Dublin', country: 'Ireland', coords: { x: '45.5%', y: '29.5%' } }
+    ];
+
+    const cityClocksRow = document.getElementById('cityClocksRow');
+    const countryOverlay = document.getElementById('country-overlay');
+    const utcTimeDisplayEl = document.getElementById('utc-time-display');
+    const citySelectionCheckboxes = document.getElementById('citySelectionCheckboxes');
+    const saveCitySelectionBtn = document.getElementById('saveCitySelection');
+
+    function getSelectedCities() {
+        const storedSelection = localStorage.getItem('selectedDashboardCities');
+        if (storedSelection) {
+            const selectedNames = JSON.parse(storedSelection);
+            return ALL_AVAILABLE_CITIES.filter(city => selectedNames.includes(city.name));
+        }
+        return ALL_AVAILABLE_CITIES.slice(0, 6); // Default to first 6 if nothing stored, up to available
+    }
+
+    function saveSelectedCities(selectedNames) {
+        localStorage.setItem('selectedDashboardCities', JSON.stringify(selectedNames));
+    }
+
+    function populateCitySelectionModal() {
+        if (!citySelectionCheckboxes) return;
+        citySelectionCheckboxes.innerHTML = '';
+        const currentSelectedNames = getSelectedCities().map(c => c.name);
+
+        const selectionCounter = document.createElement('div');
+        selectionCounter.id = 'citySelectionCounter';
+        selectionCounter.classList.add('text-muted', 'small', 'mb-2');
+        citySelectionCheckboxes.appendChild(selectionCounter);
+
+        function updateSelectionCount() {
+            const count = citySelectionCheckboxes.querySelectorAll('input[type="checkbox"]:checked').length;
+            selectionCounter.textContent = `${count}/6 cities selected.`;
+            citySelectionCheckboxes.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                if (count >= 6 && !cb.checked) {
+                    cb.disabled = true;
+                } else {
+                    cb.disabled = false;
+                }
+            });
+        }
+
+        ALL_AVAILABLE_CITIES.forEach(city => {
+            const isChecked = currentSelectedNames.includes(city.name);
+            const div = document.createElement('div');
+            div.classList.add('form-check');
+            div.innerHTML = `
+                <input class="form-check-input" type="checkbox" value="${city.name}" id="city-checkbox-${city.name.replace(/\s+/g, '-')}" ${isChecked ? 'checked' : ''}>
+                <label class="form-check-label" for="city-checkbox-${city.name.replace(/\s+/g, '-')}">
+                    ${city.name} (${city.country})
+                </label>
+            `;
+            citySelectionCheckboxes.appendChild(div);
+            div.querySelector('input[type="checkbox"]').addEventListener('change', updateSelectionCount);
+        });
+        updateSelectionCount(); // Initial count and disable state
+    }
+    
+    if (saveCitySelectionBtn) {
+        saveCitySelectionBtn.addEventListener('click', function() {
+            const selectedNames = [];
+            citySelectionCheckboxes.querySelectorAll('input[type="checkbox"]:checked').forEach(checkbox => {
+                selectedNames.push(checkbox.value);
+            });
+            saveSelectedCities(selectedNames);
+            
+            // Re-initialize map and clocks
+            initializeDashboardFeatures();
+            
+            // Close modal (assuming Bootstrap 5)
+            const modalInstance = bootstrap.Modal.getInstance(document.getElementById('citySelectionModal'));
+            if(modalInstance) modalInstance.hide();
+        });
+    }
+
+    function updateUTCTimeDisplay() {
+        if (!utcTimeDisplayEl) return;
+        const now = new Date();
+        const utcHours = now.getUTCHours();
+        const utcMinutes = now.getUTCMinutes();
+        const ampm = utcHours >= 12 ? 'PM' : 'AM';
+        const hours12 = utcHours % 12 || 12;
+        utcTimeDisplayEl.innerHTML = `Current UTC: <span class="fw-bold">${hours12}:${utcMinutes.toString().padStart(2, '0')} ${ampm}</span>`;
+    }
+
+    function initializeMap(mapData) {
+        if (!countryOverlay) return;
+        countryOverlay.innerHTML = ''; // Clear existing hotspots and labels
+        const selectedCities = getSelectedCities();
+
+        const countryToCityMap = {
+            'United States': ['San Francisco', 'New York', 'Toronto'], // Toronto added to US for map display simplification if no distinct Canada data
+            'United Kingdom': ['London', 'Dublin'], // Dublin added to UK for map display if no distinct Ireland data
+            'Germany': ['Berlin'],
+            'China': ['Beijing'],
+            'Japan': ['Tokyo'],
+            'Australia': ['Sydney'],
+            'Brazil': ['Sao Paulo'],
+            'Russia': ['Moscow'],
+            'South Africa': ['Johannesburg'],
+            'UAE': ['Dubai'],
+            'Singapore': ['Singapore'],
+            'France': ['Paris'],
+            'Italy': ['Rome'],
+            'Egypt': ['Cairo'],
+            'India': ['Mumbai'],
+            'Mexico': ['Mexico City'],
+            'Argentina': ['Buenos Aires'],
+            'Spain': ['Madrid'],
+            'Netherlands': ['Amsterdam'],
+            'Czech Republic': ['Prague']
+        };
+        
+        // City coordinates (approximate positions for the hotspots on the new map)
+        // These values will likely need further fine-tuning by visually checking the map.
+        const cityCoordinates = {
+            'San Francisco': { x: '14%', y: '42%' }, 
+            'New York': { x: '22%', y: '40%' },    
+            'London': { x: '45%', y: '32%' },      
+            'Berlin': { x: '49%', y: '33%' },      
+            'Beijing': { x: '72%', y: '40%' },     
+            'Tokyo': { x: '80%', y: '40%' },       
+            'Sydney': { x: '83%', y: '78%' }, 
+            'Sao Paulo': { x: '32%', y: '70%' }, 
+            'Moscow': { x: '59%', y: '28%' }, 
+            'Johannesburg': { x: '53%', y: '75%' }, 
+            'Dubai': { x: '61%', y: '48%' },  
+            'Singapore': { x: '71%', y: '60%' },
+            'Paris': { x: '47%', y: '34%' },
+            'Rome': { x: '49.5%', y: '37%' },
+            'Cairo': { x: '55%', y: '45%' },
+            'Mumbai': { x: '65%', y: '50%' },
+            'Mexico City': { x: '19%', y: '50%' },
+            'Buenos Aires': { x: '29%', y: '80%' },
+            'Madrid': { x: '44%', y: '38%' },
+            'Toronto': { x: '23%', y: '34%' },
+            'Amsterdam': { x: '48%', y: '30%' },
+            'Prague': { x: '51%', y: '32%' },
+            'Dublin': { x: '44.5%', y: '29%' }
+        };
+        
+        // If no data, use dummy data for now - this time organized by country
+        const countryData = mapData || [
+            {country: 'United States', activity_level: 'normal', articles: 15},
+            {country: 'United Kingdom', activity_level: 'normal', articles: 8},
+            {country: 'Germany', activity_level: 'normal', articles: 10},
+            {country: 'China', activity_level: 'high', articles: 25},
+            {country: 'Japan', activity_level: 'normal', articles: 12}
+        ];
+        
+        selectedCities.forEach(city => {
+            const cityData = countryData.find(cd => cd.country === city.country);
+            const activity = cityData ? cityData.activity_level : 'normal';
+            const articles = cityData ? cityData.articles : 0;
+
+            if (cityCoordinates[city.name]) {
+                const container = document.createElement('div');
+                container.className = 'hotspot-container';
+                container.style.left = cityCoordinates[city.name].x;
+                container.style.top = cityCoordinates[city.name].y;
+                container.title = `${city.name}, ${city.country}: ${articles} articles`;
+
+                const hotspot = document.createElement('div');
+                hotspot.className = `hotspot ${activity}`;
+                
+                const label = document.createElement('span');
+                label.className = 'hotspot-label';
+                label.textContent = city.name;
+
+                container.appendChild(hotspot);
+                container.appendChild(label);
+                countryOverlay.appendChild(container);
+            }
+        });
+    }
+
+    function updateClocks() {
+        if (!cityClocksRow) return;
+        const selectedCitiesForClocks = getSelectedCities();
+        cityClocksRow.innerHTML = ''; // Clear existing clock cards
+        
+        const now = new Date();
+
+        selectedCitiesForClocks.forEach(city => {
+            const colDiv = document.createElement('div');
+            // Adjust column class based on number of selected cities for better layout
+            let colClass = 'col-md-2'; // Default for 6 cities
+            if (selectedCitiesForClocks.length <= 4) colClass = 'col-md-3';
+            if (selectedCitiesForClocks.length <= 2) colClass = 'col-md-6';
+            if (selectedCitiesForClocks.length === 1) colClass = 'col-md-12';
+            colDiv.className = colClass;
+
+            const clockCard = document.createElement('div');
+            clockCard.className = 'clock-card shadow-sm';
+            clockCard.setAttribute('data-country', city.country);
+
+            // Fetch country-specific activity to determine if card is 'hot'
+            // This part might need to be integrated with actual mapData fetching
+            const dummyMapData = [
+                {country: 'United States', activity_level: 'normal', articles: 15},
+                {country: 'China', activity_level: 'high', articles: 25}
+            ];
+            const countryActivity = dummyMapData.find(c => c.country === city.country);
+            if (countryActivity && countryActivity.activity_level === 'high') {
+                clockCard.classList.add('hot');
+            }
+            const articles = countryActivity ? countryActivity.articles : 0;
+            const alertCount = Math.ceil(articles / 5);
+            const alertBadgeClass = (countryActivity && countryActivity.activity_level === 'high') ? 'badge bg-danger' : 'badge bg-warning';
+
+            try {
+                const options = { timeZone: city.timezone, hour: '2-digit', minute: '2-digit', hour12: true };
+                const timeStr = now.toLocaleTimeString('en-US', options);
+                const dateOptions = { timeZone: city.timezone, month: 'short', day: 'numeric' };
+                const dateStr = now.toLocaleDateString('en-US', dateOptions);
+                const fullStr = now.toLocaleString('en-US', { timeZone: city.timezone, timeZoneName: 'short' });
+                const tzAbbr = fullStr.split(' ').pop();
+                const cityHours = new Date(now.toLocaleString('en-US', {timeZone: city.timezone})).getHours();
+                const isDaytime = cityHours >= 6 && cityHours < 18;
+                const dayNightIcon = isDaytime ? 'fas fa-sun' : 'fas fa-moon';
+
+                clockCard.innerHTML = `
+                    <div class="d-flex align-items-center mb-1">
+                        <i class="fas fa-map-marker-alt me-2"></i>
+                        <span class="city-name">${city.name}</span>
+                        <span class="ms-auto"><i class="${dayNightIcon}"></i></span>
+                    </div>
+                    <div class="time">${timeStr}</div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="date small">${dateStr} • ${tzAbbr}</div>
+                        <span class="${alertBadgeClass}">${alertCount} ${alertCount === 1 ? 'alert' : 'alerts'}</span>
+                    </div>
+                `;
+            } catch (error) {
+                console.error(`Error updating clock for ${city.name}:`, error);
+                clockCard.innerHTML = `<div class="city-name">${city.name}</div><div>Error loading time</div>`;
+            }
+            colDiv.appendChild(clockCard);
+            cityClocksRow.appendChild(colDiv);
+        });
+    }
+    
+    function initializeDashboardFeatures() {
+        updateUTCTimeDisplay();
+        // TODO: Fetch actual mapData instead of null for initializeMap
+        // For now, initializeMap will use its own dummy data if mapData is null
+        initializeMap(null); 
+        updateClocks();
+        populateCitySelectionModal();
+    }
+
+    // Initial setup
+    initializeDashboardFeatures();
+    setInterval(updateClocks, 60000);
+    setInterval(updateUTCTimeDisplay, 60000);
+
+    // Handle modal display for city selection
+    const cityModal = document.getElementById('citySelectionModal');
+    if (cityModal) {
+        cityModal.addEventListener('show.bs.modal', function () {
+            populateCitySelectionModal();
+        });
+    }
+});
+</script> 

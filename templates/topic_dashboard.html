@@ -648,7 +648,7 @@
     <div class="news-network-header">
         <div class="d-flex justify-content-between align-items-center">
             <div>
-                <h1 class="network-name">AuNoo News Network</h1>
+                <h1 class="network-name">ANN - Aunoo News Network</h1>
                 <div class="network-date" id="current-date-time"></div>
             </div>
             <div>
@@ -888,6 +888,9 @@
                 </div>
             </div>
         </div>
+
+        {# Global News Activity Map Section #}
+        {% include 'components/global_news_map.html' %}
     </div>
 
 </div> {# End dashboard-container-grid #}
@@ -2061,7 +2064,7 @@
         }
     }
 
-    async function loadKeyArticles(topic) {
+    async function loadKeyArticles(topic, date_range) {
         console.log(`[loadKeyArticles] Called for topic: ${topic}`);
         // This ID must match the div in the main content area's Highlights section
         const targetDiv = document.getElementById('key-articles-list'); 
@@ -2071,7 +2074,14 @@
         }
         targetDiv.innerHTML = '<div class="loading-indicator">Loading highlights...</div>';
         
-        const apiUrl = `/api/dashboard/key-articles/${encodeURIComponent(topic)}`;
+        let apiUrl = `/api/dashboard/key-articles/${encodeURIComponent(topic)}`;
+        
+        // Add date range parameters if available
+        if (date_range && date_range.includes(',')) {
+            const [start, end] = date_range.split(',');
+            apiUrl += `?start_date=${start}&end_date=${end}`;
+        }
+        
         console.log(`[loadKeyArticles] Attempting to fetch from: ${apiUrl}`);
         try {
             const data = await fetchData(apiUrl);
@@ -2204,41 +2214,48 @@
 
     // --- Event Listeners ---
     
-    document.getElementById('topicSelector').addEventListener('change', function() {
-        const selectedTopic = this.value;
+    document.getElementById('topicSelector').addEventListener('change', function(e) {
+        const selectedTopic = e.target.value;
         if (selectedTopic) {
-            localStorage.setItem(DEFAULT_TOPIC_KEY, selectedTopic); // Save selected topic
-            document.getElementById('dashboard-title').textContent = `Dashboard: ${selectedTopic}`;
-            if (!currentStartDate) setDefaultDates(30); 
-            loadSummary(selectedTopic); // Will log skipped
-            loadKeyArticles(selectedTopic);
-            loadGeneratedInsights(selectedTopic);
-            loadLatestPodcast(selectedTopic);
-            loadPreviousPodcasts(selectedTopic);
-            loadArticles(selectedTopic, 1);
-            loadTrends(selectedTopic);
-            loadOutliers(selectedTopic); // Will log skipped
-            loadArticleInsights(selectedTopic); // <-- Add this call
-            loadCategoryInsights(selectedTopic); // <-- Add this call
-            startTickerUpdates();
+            loadDashboardData(selectedTopic);
         }
     });
 
-    // Date Range Preset Buttons
+    // Date range preset buttons
     document.querySelectorAll('.date-preset-btn').forEach(button => {
-        button.addEventListener('click', function() {
+        button.addEventListener('click', function(e) {
+            // Remove active class from all buttons
+            document.querySelectorAll('.date-preset-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            // Add active class to clicked button
+            this.classList.add('active');
+            
+            // Get days from data attribute
             const days = parseInt(this.dataset.days);
-            setDefaultDates(days);
-            // Trigger data reload if a topic is selected
+            
+            // Calculate new date range
+            const end = new Date();
+            const start = new Date();
+            start.setDate(start.getDate() - days);
+            
+            // Update current date range - keep consistent with formatDate output format
+            currentStartDate = formatDate(start);
+            currentEndDate = formatDate(end);
+            
+            // Get selected topic and reload data
             const selectedTopic = document.getElementById('topicSelector').value;
             if (selectedTopic) {
-                // Reload only data affected by date range
-                loadGeneratedInsights(selectedTopic);
-                loadArticles(selectedTopic, 1); // Reload articles from page 1 with new date range
-                loadTrends(selectedTopic);
-                loadPreviousPodcasts(selectedTopic);
-                loadArticleInsights(selectedTopic); // <-- Add this call
-                loadCategoryInsights(selectedTopic); // <-- Add this call
+                loadDashboardData(selectedTopic);
+                
+                // Dispatch a custom event that components like the map can listen for
+                document.dispatchEvent(new CustomEvent('dateRangeChanged', { 
+                    detail: { 
+                        startDate: currentStartDate, 
+                        endDate: currentEndDate,
+                        dateRange: getCurrentDateRange()
+                    }
+                }));
             }
         });
     });
@@ -2806,6 +2823,312 @@
         document.getElementById('current-date-time').textContent = now.toLocaleDateString('en-US', options).replace(',', ' at').replace(/(\d+):(\d+)/, '$1:$2');
     }
 
+    // Update the current date time in the header
+    function updateCurrentDateTime() {
+        const now = new Date();
+        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+        document.getElementById('current-date-time').textContent = now.toLocaleDateString('en-US', options);
+    }
+    updateCurrentDateTime();
+    setInterval(updateCurrentDateTime, 60000); // Update every minute
+
+    // Topic and Date Range Management
+    function getCurrentTopic() {
+        return document.getElementById('topicSelector').value || null;
+    }
+
+    function getCurrentDateRange() {
+        if (currentStartDate && currentEndDate) {
+            // Check if currentStartDate is already a string in YYYY-MM-DD format
+            if (typeof currentStartDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(currentStartDate)) {
+                return `${currentStartDate},${currentEndDate}`;
+            }
+            // If it's a Date object, convert it to ISO string and split
+            try {
+                const startISO = currentStartDate instanceof Date ? 
+                    currentStartDate.toISOString().split('T')[0] : currentStartDate;
+                const endISO = currentEndDate instanceof Date ? 
+                    currentEndDate.toISOString().split('T')[0] : currentEndDate;
+                return `${startISO},${endISO}`;
+            } catch (e) {
+                console.error("Date conversion error:", e);
+                // If there's an error, try to return whatever we have as fallback
+                return `${currentStartDate},${currentEndDate}`;
+            }
+        }
+        return '';
+    }
+
+    // Dashboard Data Loading Function
+    async function loadDashboardData(topic) {
+        if (!topic) return;
+        // Clear reset filter button
+        document.getElementById('reset-article-filter-btn').style.display = 'none';
+
+        // Update dashboard title
+        document.getElementById('dashboard-title').innerText = `${topic} Dashboard`;
+        document.title = `${topic} Dashboard - Aunoo`;
+
+        // Set date range if not set
+        if (!currentStartDate || !currentEndDate) {
+            // Default to last 30 days
+            const end = new Date();
+            const start = new Date();
+            start.setDate(start.getDate() - 30);
+            currentStartDate = formatDate(start);
+            currentEndDate = formatDate(end);
+        }
+
+        // Form the date range string - use the helper function to handle both string and Date objects
+        const date_range = getCurrentDateRange();
+        
+        // Show loading indicators for charts
+        document.querySelectorAll('.loading-indicator').forEach(el => {
+            if (el.parentElement) el.parentElement.appendChild(el);
+            el.style.display = 'block';
+            el.classList.remove('d-none');
+        });
+
+        // Load data from various endpoints
+        loadArticles(topic, 1);
+        loadVolumeData(topic, date_range);
+        loadSentimentData(topic, date_range);
+        loadKeyArticles(topic, date_range);
+        loadOutliers(topic, date_range);
+        loadTagsData(topic, date_range);
+        loadWordCloud(topic, date_range);
+        loadRadarChart(topic, date_range);
+        loadTickerData(topic);
+        loadLatestPodcast(topic);
+        loadPreviousPodcasts(topic);
+        loadTrendInsights(topic);
+        loadArticleInsights(topic, date_range);
+        loadCategoryInsights(topic, date_range);
+        
+        // Initialize the global news map
+        if (typeof initializeWorldMap === 'function') {
+            initializeWorldMap();
+        }
+        
+        // Store the selected topic in localStorage
+        localStorage.setItem(DEFAULT_TOPIC_KEY, topic);
+        
+        // Trigger a custom event for topicChanged that our components can listen to
+        document.dispatchEvent(new CustomEvent('topicChanged', { 
+            detail: { topic: topic, dateRange: date_range }
+        }));
+    }
+
+    // Load volume data
+    async function loadVolumeData(topic, date_range) {
+        const volumeQueryParams = new URLSearchParams();
+        const stackBy = document.getElementById('volumeStackBy').value || 'category';
+        
+        // Parse date_range if it's in the format 'start,end'
+        if (date_range && date_range.includes(',')) {
+            const [start, end] = date_range.split(',');
+            volumeQueryParams.append('start_date', start);
+            volumeQueryParams.append('end_date', end);
+        }
+        
+        volumeQueryParams.append('stack_by', stackBy);
+        
+        document.getElementById('volume-loading').classList.remove('d-none');
+        document.getElementById('volumeChart').style.display = 'none';
+        
+        const volumeData = await fetchData(`/api/dashboard/volume-over-time/${encodeURIComponent(topic)}?${volumeQueryParams.toString()}`);
+        renderVolumeChart(volumeData, stackBy);
+    }
+    
+    // Load sentiment data
+    async function loadSentimentData(topic, date_range) {
+        const sentimentQueryParams = new URLSearchParams();
+        
+        // Parse date_range if it's in the format 'start,end'
+        if (date_range && date_range.includes(',')) {
+            const [start, end] = date_range.split(',');
+            sentimentQueryParams.append('start_date', start);
+            sentimentQueryParams.append('end_date', end);
+        }
+        
+        document.getElementById('sentiment-loading').classList.remove('d-none');
+        document.getElementById('sentimentChart').style.display = 'none';
+        
+        const sentimentData = await fetchData(`/api/dashboard/sentiment-over-time/${encodeURIComponent(topic)}?${sentimentQueryParams.toString()}`);
+        renderSentimentChart(sentimentData);
+    }
+    
+    // Load tags data
+    async function loadTagsData(topic, date_range) {
+        const tagsQueryParams = new URLSearchParams();
+        
+        // Parse date_range if it's in the format 'start,end'
+        if (date_range && date_range.includes(',')) {
+            const [start, end] = date_range.split(',');
+            tagsQueryParams.append('start_date', start);
+            tagsQueryParams.append('end_date', end);
+        }
+        
+        const tagsLoading = document.getElementById('tags-loading');
+        if (tagsLoading) tagsLoading.classList.remove('d-none');
+        
+        const tagsData = await fetchData(`/api/dashboard/top-tags/${encodeURIComponent(topic)}?${tagsQueryParams.toString()}`);
+        renderTagsCloud(tagsData);
+        renderTopTagsList(tagsData);
+    }
+    
+    // Load word cloud data
+    async function loadWordCloud(topic, date_range) {
+        const wordCloudQueryParams = new URLSearchParams();
+        
+        // Parse date_range if it's in the format 'start,end'
+        if (date_range && date_range.includes(',')) {
+            const [start, end] = date_range.split(',');
+            wordCloudQueryParams.append('start_date', start);
+            wordCloudQueryParams.append('end_date', end);
+        }
+        
+        const wordcloudLoading = document.getElementById('wordcloud-loading');
+        if (wordcloudLoading) wordcloudLoading.classList.remove('d-none');
+        
+        const wordCloudData = await fetchData(`/api/dashboard/word-frequency/${encodeURIComponent(topic)}?${wordCloudQueryParams.toString()}`);
+        renderWordCloud(wordCloudData);
+    }
+    
+    // Load radar chart data
+    async function loadRadarChart(topic, date_range) {
+        const radarQueryParams = new URLSearchParams();
+        
+        // Parse date_range if it's in the format 'start,end'
+        if (date_range && date_range.includes(',')) {
+            const [start, end] = date_range.split(',');
+            renderRadarChart(topic, start, end, 30); // Default daysLimit to 30 if using date range
+        } else {
+            renderRadarChart(topic, null, null, 30); // Default to 30 days if no date range
+        }
+    }
+    
+    // Load ticker data
+    async function loadTickerData(topic) {
+        await updateTicker();
+        startTickerUpdates();
+    }
+    
+    // Load trend insights data
+    async function loadTrendInsights(topic, date_range) {
+        const insightsQueryParams = new URLSearchParams();
+        
+        // Parse date_range if it's in the format 'start,end'
+        if (date_range && date_range.includes(',')) {
+            const [start, end] = date_range.split(',');
+            insightsQueryParams.append('start_date', start);
+            insightsQueryParams.append('end_date', end);
+        }
+        
+        const trendInsightsFlexContainer = document.getElementById('trend-insights-flex-container');
+        if (trendInsightsFlexContainer) {
+            trendInsightsFlexContainer.innerHTML = '<div class="loading-indicator w-100 text-center">Loading trend insights...</div>';
+        }
+        
+        const data = await fetchData(`/api/dashboard/generated-insights/${encodeURIComponent(topic)}?${insightsQueryParams.toString()}`);
+        renderGeneratedInsights(data);
+    }
+
+    // Load map data
+    async function loadMapData(topic, date_range) {
+        if (!topic) return;
+        
+        const mapElement = document.getElementById('global-news-map');
+        if (!mapElement) return;
+        
+        // Set loading state for map
+        mapElement.innerHTML = '<div class="d-flex justify-content-center align-items-center h-100"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading map data...</span></div></div>';
+        
+        const mapQueryParams = new URLSearchParams();
+        if (date_range) {
+            mapQueryParams.append('date_range', date_range);
+        }
+        
+        try {
+            // Fetch map data from the endpoint
+            const mapData = await fetchData(`/api/dashboard/map-activity-data/${encodeURIComponent(topic)}?${mapQueryParams.toString()}`);
+            initializeMap(mapData);
+            
+            // Update UTC time display
+            updateUTCTimeDisplay();
+        } catch (error) {
+            console.error('Error loading map data:', error);
+            mapElement.innerHTML = '<div class="alert alert-danger m-3">Failed to load map data</div>';
+        }
+    }
+    
+    // Update UTC time display
+    function updateUTCTimeDisplay() {
+        const now = new Date();
+        const utcHours = now.getUTCHours();
+        const utcMinutes = now.getUTCMinutes();
+        const ampm = utcHours >= 12 ? 'PM' : 'AM';
+        const hours12 = utcHours % 12 || 12; // Convert to 12-hour format
+        const timeDisplay = `Current UTC: ${hours12}:${utcMinutes.toString().padStart(2, '0')} ${ampm}`;
+        
+        const utcTimeDisplay = document.getElementById('utc-time-display');
+        if (utcTimeDisplay) {
+            utcTimeDisplay.textContent = timeDisplay;
+        }
+    }
+    
+    // Initialize and render the map
+    function initializeMap(mapData) {
+        const mapElement = document.getElementById('global-news-map');
+        if (!mapElement) return;
+        
+        // Clear previous map if any
+        mapElement.innerHTML = '';
+        
+        // Check if mapData is valid
+        if (!mapData || !Array.isArray(mapData) || mapData.length === 0) {
+            mapElement.innerHTML = '<div class="alert alert-info m-3">No map data available for the selected time period</div>';
+            return;
+        }
+        
+        // Create map container
+        const mapContainer = document.createElement('div');
+        mapContainer.style.height = '100%';
+        mapContainer.style.width = '100%';
+        mapElement.appendChild(mapContainer);
+        
+        // Initialize map (using Leaflet for example)
+        const map = L.map(mapContainer).setView([20, 0], 2);
+        
+        // Add tile layer (map background)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+        
+        // Add points to the map
+        mapData.forEach(point => {
+            // Determine marker color based on activity level
+            const markerColor = point.activity_level === 'High' ? 'red' : 
+                                point.activity_level === 'Medium' ? 'orange' : 'blue';
+            
+            // Create marker with popup
+            const marker = L.circleMarker([point.latitude, point.longitude], {
+                radius: point.activity_level === 'High' ? 8 : point.activity_level === 'Medium' ? 6 : 4,
+                fillColor: markerColor,
+                color: '#fff',
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).addTo(map);
+            
+            // Add popup with information
+            marker.bindPopup(`
+                <strong>${point.name}</strong><br>
+                Activity: ${point.activity_level}<br>
+                ${point.count ? `Articles: ${point.count}` : ''}
+            `);
+        });
+    }
 </script>
 
 {% endblock %} 

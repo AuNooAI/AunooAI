@@ -3,17 +3,18 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from app.database import Database, get_database_instance
-from app.ai_models import LiteLLMModel # Added for LLM access
+from app.ai_models import LiteLLMModel  # Added for LLM access
 # from app.security.session import verify_session # Commented out as unused for now
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
 import logging
 from collections import Counter
-import json # Added for parsing metadata
+import json  # Added for parsing metadata
 import re
-from nltk.corpus import stopwords # For stop word removal
-import nltk # For downloading stopwords if not present
+from nltk.corpus import stopwords  # For stop word removal
+import nltk  # For downloading stopwords if not present
+# Removed problematic import: from app.models.article import ArticleSentiment
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,19 @@ class RadarChartDataPoint(BaseModel):
 class RadarChartResponse(BaseModel):
     labels: List[str] # Future signals
     datasets: List[Dict[str, Any]] # Data for Chart.js radar datasets
+
+# Define a Pydantic model for map data points if we want structured output (optional for dummy data)
+# class MapActivityPoint(BaseModel):
+#     latitude: float
+#     longitude: float
+#     activity_level: str # e.g., "Normal", "High"
+#     name: str # e.g., City name
+
+# Define the MapActivityPoint model for country-based map data
+class MapActivityPoint(BaseModel):
+    country: str
+    activity_level: str  # e.g., "normal", "high"
+    articles: int
 
 @router.get("/topic-summary/{topic_name}", response_model=TopicSummaryMetrics)
 async def get_topic_summary_metrics(
@@ -1453,6 +1467,96 @@ async def get_radar_chart_data(
     except Exception as e:
         logger.error(f"Error fetching radar chart data for topic {topic_name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to retrieve radar chart data for {topic_name}")
+
+@router.get("/map-activity-data/{topic_name}")
+async def get_map_activity_data(
+    topic_name: str,
+    date_range_str: Optional[str] = Query(None, alias="date_range"),
+    db: Database = Depends(get_database_instance)
+) -> List[Dict[str, Any]]:
+    """
+    Provides country-based data for the global news activity map.
+    """
+    try:
+        # Parse date range if provided
+        start_date = None
+        end_date = None
+        
+        if date_range_str:
+            date_parts = date_range_str.split(',')
+            if len(date_parts) == 2:
+                start_date = date_parts[0]
+                end_date = date_parts[1]
+        
+        # Query the database for article counts by country
+        # This is a placeholder implementation - in a real scenario, this would query actual data
+        # from the database based on article metadata containing country information
+        
+        # In a real implementation, we would run a query like:
+        # query = """
+        #     SELECT 
+        #         country, 
+        #         COUNT(*) as article_count 
+        #     FROM articles 
+        #     WHERE topic = ? AND publication_date BETWEEN ? AND ?
+        #     GROUP BY country
+        #     ORDER BY article_count DESC
+        # """
+        # results = await db.fetch_all(query, (topic_name, start_date, end_date))
+        
+        # For now, return dummy data that varies slightly based on the topic
+        # In a real implementation this would be replaced with actual database queries
+        
+        # Use topic name to generate semi-random data for demonstration
+        import hashlib
+        topic_hash = int(hashlib.md5(topic_name.encode()).hexdigest(), 16) % 100
+        
+        # Countries to include
+        countries = [
+            'United States', 'United Kingdom', 'Germany', 
+            'France', 'China', 'Japan', 'India', 'Brazil', 
+            'Russia', 'Australia', 'Canada', 'South Korea'
+        ]
+        
+        # Generate country data based on topic hash
+        country_data = []
+        for country in countries:
+            # Generate a semi-random number of articles based on topic
+            country_hash = int(hashlib.md5(f"{topic_name}:{country}".encode()).hexdigest(), 16) % 100
+            base_articles = 5 + (country_hash % 20)  # Base between 5-24
+            
+            # Adjust based on date range if provided (more articles for longer ranges)
+            if start_date and end_date:
+                try:
+                    start = datetime.strptime(start_date, '%Y-%m-%d')
+                    end = datetime.strptime(end_date, '%Y-%m-%d')
+                    days = (end - start).days
+                    # Scale articles up for longer time periods
+                    base_articles = int(base_articles * (1 + days / 30))
+                except Exception as e:
+                    logger.warning(f"Error parsing date range: {e}")
+            
+            # Determine activity level
+            activity_level = "high" if base_articles > 15 else "normal"
+            
+            # Add to results
+            country_data.append(
+                MapActivityPoint(
+                    country=country,
+                    activity_level=activity_level,
+                    articles=base_articles
+                )
+            )
+        
+        # Sort by article count descending
+        country_data.sort(key=lambda x: x.articles, reverse=True)
+        
+        # Return the top countries (limit to 8 for UI clarity)
+        return country_data[:8]
+        
+    except Exception as e:
+        logger.error(f"Error generating map activity data: {e}")
+        raise HTTPException(status_code=500, detail="Error generating map data")
 
 # Remember to include this router in your main app (e.g., in app/main.py)
 # from app.routes import dashboard_routes
