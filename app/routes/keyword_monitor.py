@@ -15,6 +15,7 @@ import csv
 from pathlib import Path
 import sqlite3
 from fastapi.responses import JSONResponse
+from app.config.config import load_config
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ async def delete_group(group_id: int, db=Depends(get_database_instance)):
 
 @router.delete("/groups/by-topic/{topic_name}")
 async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instance)):
-    """Delete all keyword groups associated with a specific topic"""
+    """Delete all keyword groups associated with a specific topic and clean up orphaned data"""
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -111,11 +112,52 @@ async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instan
             group_ids = [group[0] for group in groups]
             groups_deleted = len(group_ids)
             
+            # Find all keyword IDs belonging to these groups
+            keyword_ids = []
+            for group_id in group_ids:
+                cursor.execute("SELECT id FROM monitored_keywords WHERE group_id = ?", (group_id,))
+                keywords = cursor.fetchall()
+                keyword_ids.extend([kw[0] for kw in keywords])
+            
+            # Delete all keyword alerts related to these keywords
+            alerts_deleted = 0
+            if keyword_ids:
+                ids_str = ','.join('?' for _ in keyword_ids)
+                
+                # Check if the keyword_article_matches table exists
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='keyword_article_matches'
+                """)
+                use_new_table = cursor.fetchone() is not None
+                
+                if use_new_table:
+                    # For the new table structure
+                    for group_id in group_ids:
+                        cursor.execute("DELETE FROM keyword_article_matches WHERE group_id = ?", (group_id,))
+                        alerts_deleted += cursor.rowcount
+                else:
+                    # For the original table structure
+                    cursor.execute(f"DELETE FROM keyword_alerts WHERE keyword_id IN ({ids_str})", keyword_ids)
+                    alerts_deleted = cursor.rowcount
+            
+            # Delete all keywords for these groups
+            keywords_deleted = 0
+            if group_ids:
+                ids_str = ','.join('?' for _ in group_ids)
+                cursor.execute(f"DELETE FROM monitored_keywords WHERE group_id IN ({ids_str})", group_ids)
+                keywords_deleted = cursor.rowcount
+            
             # Delete all keyword groups for this topic
             cursor.execute("DELETE FROM keyword_groups WHERE topic = ?", (topic_name,))
             
             conn.commit()
-            return {"success": True, "groups_deleted": groups_deleted}
+            return {
+                "success": True, 
+                "groups_deleted": groups_deleted,
+                "keywords_deleted": keywords_deleted,
+                "alerts_deleted": alerts_deleted
+            }
     except Exception as e:
         logging.error(f"Error deleting keyword groups for topic {topic_name}: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -969,44 +1011,79 @@ async def get_group_alerts(
 
 @router.delete("/articles/by-topic/{topic_name}")
 async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_instance)):
-    """Delete all articles associated with a specific topic"""
+    """Delete all articles associated with a specific topic and their related data"""
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Check if articles table has a topic column
+            # Check if the keyword_article_matches table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='keyword_article_matches'
+            """)
+            use_new_table = cursor.fetchone() is not None
+            
+            alerts_deleted = 0
+            articles_deleted = 0
+            
+            # First find relevant article URIs
+            article_uris = []
+            
+            # From news_search_results
+            cursor.execute("""
+                SELECT article_uri FROM news_search_results 
+                WHERE topic = ?
+            """, (topic_name,))
+            article_uris.extend([row[0] for row in cursor.fetchall()])
+            
+            # From paper_search_results
+            cursor.execute("""
+                SELECT article_uri FROM paper_search_results 
+                WHERE topic = ?
+            """, (topic_name,))
+            article_uris.extend([row[0] for row in cursor.fetchall()])
+            
+            # Direct topic reference if the column exists
             cursor.execute("PRAGMA table_info(articles)")
             columns = cursor.fetchall()
             has_topic_column = any(col[1] == 'topic' for col in columns)
             
             if has_topic_column:
-                # Delete articles directly associated with this topic
-                cursor.execute("DELETE FROM articles WHERE topic = ?", (topic_name,))
-                deleted_count = cursor.rowcount
-            else:
-                # We'll need to find articles from news_search_results or paper_search_results
-                cursor.execute("""
-                    DELETE FROM articles 
-                    WHERE uri IN (
-                        SELECT article_uri FROM news_search_results 
-                        WHERE topic = ?
-                    )
-                """, (topic_name,))
-                news_deleted = cursor.rowcount
+                cursor.execute("SELECT uri FROM articles WHERE topic = ?", (topic_name,))
+                article_uris.extend([row[0] for row in cursor.fetchall()])
+            
+            # Remove duplicates
+            article_uris = list(set(article_uris))
+            
+            if article_uris:
+                # Delete related keyword alerts first
+                if use_new_table:
+                    for uri in article_uris:
+                        cursor.execute("DELETE FROM keyword_article_matches WHERE article_uri = ?", (uri,))
+                        alerts_deleted += cursor.rowcount
+                else:
+                    for uri in article_uris:
+                        cursor.execute("DELETE FROM keyword_alerts WHERE article_uri = ?", (uri,))
+                        alerts_deleted += cursor.rowcount
                 
-                cursor.execute("""
-                    DELETE FROM articles 
-                    WHERE uri IN (
-                        SELECT article_uri FROM paper_search_results 
-                        WHERE topic = ?
-                    )
-                """, (topic_name,))
-                papers_deleted = cursor.rowcount
+                # Delete news_search_results
+                cursor.execute("DELETE FROM news_search_results WHERE topic = ?", (topic_name,))
                 
-                deleted_count = news_deleted + papers_deleted
+                # Delete paper_search_results
+                cursor.execute("DELETE FROM paper_search_results WHERE topic = ?", (topic_name,))
+                
+                # Delete articles
+                for uri in article_uris:
+                    cursor.execute("DELETE FROM articles WHERE uri = ?", (uri,))
+                    if cursor.rowcount > 0:
+                        articles_deleted += cursor.rowcount
             
             conn.commit()
-            return {"success": True, "articles_deleted": deleted_count}
+            return {
+                "success": True, 
+                "articles_deleted": articles_deleted,
+                "alerts_deleted": alerts_deleted
+            }
     except Exception as e:
         logging.error(f"Error deleting articles for topic {topic_name}: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1098,4 +1175,308 @@ async def get_bluesky_posts(
     except Exception as e:
         logger.error(f"Error fetching Bluesky posts: {str(e)}")
         logger.exception("Full exception details:")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/clean-orphaned-topics")
+async def clean_orphaned_topics(db=Depends(get_database_instance)):
+    """Find and clean up orphaned topic data by comparing keyword groups against the main topics list"""
+    try:
+        # Get active topics list from config
+        try:
+            config = load_config()
+            active_topics = set(topic["name"] for topic in config.get("topics", []))
+        except Exception as e:
+            logger.error(f"Error loading config: {str(e)}")
+            active_topics = set()
+        
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if keyword_groups table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='keyword_groups'")
+            if not cursor.fetchone():
+                return {
+                    "status": "success",
+                    "message": "No keyword_groups table found",
+                    "orphaned_topics": []
+                }
+            
+            # Get all topics referenced in keyword groups
+            try:
+                cursor.execute("SELECT DISTINCT topic FROM keyword_groups")
+                keyword_topics = set(row[0] for row in cursor.fetchall())
+            except sqlite3.OperationalError as e:
+                logger.error(f"Database error: {str(e)}")
+                return {
+                    "status": "error",
+                    "message": f"Database error: {str(e)}",
+                    "orphaned_topics": []
+                }
+            
+            # Find orphaned topics (in keyword_groups but not in active topics)
+            orphaned_topics = keyword_topics - active_topics
+            
+            if not orphaned_topics:
+                return {
+                    "status": "success",
+                    "message": "No orphaned topics found",
+                    "orphaned_topics": []
+                }
+            
+            # Clean up each orphaned topic
+            cleanup_results = {}
+            for topic in orphaned_topics:
+                # Clean up keyword groups
+                try:
+                    groups_result = await delete_groups_by_topic(topic, db)
+                    cleanup_results[topic] = {
+                        "groups_deleted": groups_result.get("groups_deleted", 0),
+                        "keywords_deleted": groups_result.get("keywords_deleted", 0),
+                        "alerts_deleted": groups_result.get("alerts_deleted", 0)
+                    }
+                except Exception as e:
+                    logger.error(f"Error cleaning up orphaned topic {topic}: {str(e)}")
+                    cleanup_results[topic] = {"error": str(e)}
+            
+            return {
+                "status": "success",
+                "message": f"Cleaned up {len(orphaned_topics)} orphaned topics",
+                "orphaned_topics": list(orphaned_topics),
+                "cleanup_results": cleanup_results
+            }
+            
+    except Exception as e:
+        logger.error(f"Error cleaning orphaned topics: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/clean-orphaned-articles")
+async def clean_orphaned_articles(db=Depends(get_database_instance)):
+    """Find and clean up orphaned articles that are no longer associated with any topic"""
+    try:
+        try:
+            config = load_config()
+            active_topics = set(topic["name"] for topic in config.get("topics", []))
+        except Exception as e:
+            logger.error(f"Error loading config: {str(e)}")
+            active_topics = set()
+        
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if articles table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles'")
+            if not cursor.fetchone():
+                return {
+                    "status": "success",
+                    "message": "No articles table found",
+                    "orphaned_count": 0
+                }
+            
+            # Get all article URIs that might be orphaned
+            orphaned_article_uris = set()
+            
+            # Check if articles table has a topic column
+            try:
+                cursor.execute("PRAGMA table_info(articles)")
+                columns = cursor.fetchall()
+                has_topic_column = any(col[1] == 'topic' for col in columns)
+                
+                # First, check direct topic references if the column exists
+                if has_topic_column:
+                    try:
+                        cursor.execute("""
+                            SELECT uri, topic FROM articles
+                            WHERE topic IS NOT NULL AND topic != ''
+                        """)
+                        
+                        for row in cursor.fetchall():
+                            uri, topic = row
+                            if topic not in active_topics:
+                                orphaned_article_uris.add(uri)
+                    except sqlite3.OperationalError as e:
+                        logger.error(f"Error querying articles table: {str(e)}")
+            except Exception as e:
+                logger.error(f"Error checking articles schema: {str(e)}")
+            
+            # Check if news_search_results table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='news_search_results'")
+            if cursor.fetchone():
+                try:
+                    # Next, check news_search_results references
+                    cursor.execute("""
+                        SELECT nsr.article_uri, nsr.topic
+                        FROM news_search_results nsr
+                        GROUP BY nsr.article_uri, nsr.topic
+                    """)
+                    
+                    for row in cursor.fetchall():
+                        uri, topic = row
+                        if topic not in active_topics:
+                            orphaned_article_uris.add(uri)
+                except sqlite3.OperationalError as e:
+                    logger.error(f"Error querying news_search_results: {str(e)}")
+            
+            # Check if paper_search_results table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_search_results'")
+            if cursor.fetchone():
+                try:
+                    # Check paper_search_results references
+                    cursor.execute("""
+                        SELECT psr.article_uri, psr.topic
+                        FROM paper_search_results psr
+                        GROUP BY psr.article_uri, psr.topic
+                    """)
+                    
+                    for row in cursor.fetchall():
+                        uri, topic = row
+                        if topic not in active_topics:
+                            orphaned_article_uris.add(uri)
+                except sqlite3.OperationalError as e:
+                    logger.error(f"Error querying paper_search_results: {str(e)}")
+            
+            # Now check for articles that are not in any search results
+            try:
+                has_news_results = False
+                has_paper_results = False
+                
+                # Check if search result tables exist
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='news_search_results'")
+                has_news_results = cursor.fetchone() is not None
+                
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_search_results'")
+                has_paper_results = cursor.fetchone() is not None
+                
+                if has_news_results or has_paper_results:
+                    query = """
+                        SELECT a.uri FROM articles a
+                        WHERE 1=1
+                    """
+                    
+                    if has_news_results:
+                        query += """ AND NOT EXISTS (
+                            SELECT 1 FROM news_search_results nsr WHERE nsr.article_uri = a.uri
+                        )"""
+                    
+                    if has_paper_results:
+                        query += """ AND NOT EXISTS (
+                            SELECT 1 FROM paper_search_results psr WHERE psr.article_uri = a.uri
+                        )"""
+                    
+                    cursor.execute(query)
+                    orphaned_article_uris.update(row[0] for row in cursor.fetchall())
+            except sqlite3.OperationalError as e:
+                logger.error(f"Error checking articles without search results: {str(e)}")
+            
+            if not orphaned_article_uris:
+                return {
+                    "status": "success",
+                    "message": "No orphaned articles found",
+                    "orphaned_count": 0
+                }
+            
+            # Clean up the orphaned articles
+            alerts_deleted = 0
+            articles_deleted = 0
+            
+            # Check if keyword_article_matches table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='keyword_article_matches'
+            """)
+            use_new_table = cursor.fetchone() is not None
+            
+            # Process articles in smaller batches to avoid SQL parameter limits
+            batch_size = 100
+            article_batches = [list(orphaned_article_uris)[i:i+batch_size] 
+                               for i in range(0, len(orphaned_article_uris), batch_size)]
+            
+            # Delete associated alerts first
+            for batch in article_batches:
+                try:
+                    for uri in batch:
+                        if use_new_table:
+                            cursor.execute("DELETE FROM keyword_article_matches WHERE article_uri = ?", (uri,))
+                            alerts_deleted += cursor.rowcount
+                        else:
+                            cursor.execute("DELETE FROM keyword_alerts WHERE article_uri = ?", (uri,))
+                            alerts_deleted += cursor.rowcount
+                except sqlite3.OperationalError as e:
+                    logger.error(f"Error deleting alerts: {str(e)}")
+            
+            # Delete from search results tables
+            for batch in article_batches:
+                try:
+                    placeholders = ','.join(['?'] * len(batch))
+                    
+                    # Check if tables exist before attempting delete
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='news_search_results'")
+                    if cursor.fetchone():
+                        cursor.execute(f"DELETE FROM news_search_results WHERE article_uri IN ({placeholders})", batch)
+                    
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_search_results'")
+                    if cursor.fetchone():
+                        cursor.execute(f"DELETE FROM paper_search_results WHERE article_uri IN ({placeholders})", batch)
+                except sqlite3.OperationalError as e:
+                    logger.error(f"Error deleting search results: {str(e)}")
+            
+            # Finally delete the articles
+            for batch in article_batches:
+                try:
+                    placeholders = ','.join(['?'] * len(batch))
+                    cursor.execute(f"DELETE FROM articles WHERE uri IN ({placeholders})", batch)
+                    articles_deleted += cursor.rowcount
+                except sqlite3.OperationalError as e:
+                    logger.error(f"Error deleting articles: {str(e)}")
+            
+            conn.commit()
+            
+            return {
+                "status": "success",
+                "message": f"Cleaned up {articles_deleted} orphaned articles",
+                "orphaned_count": articles_deleted,
+                "alerts_deleted": alerts_deleted
+            }
+            
+    except Exception as e:
+        logger.error(f"Error cleaning orphaned articles: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/clean-all-orphaned")
+async def clean_all_orphaned(db=Depends(get_database_instance)):
+    """Clean up all orphaned data - both topics and articles in one operation"""
+    try:
+        # First clean orphaned topics
+        try:
+            topics_result = await clean_orphaned_topics(db)
+            logger.info(f"Completed orphaned topics cleanup: {topics_result}")
+        except Exception as e:
+            logger.error(f"Error in topics cleanup: {str(e)}")
+            topics_result = {
+                "status": "error",
+                "message": f"Error cleaning up orphaned topics: {str(e)}",
+                "orphaned_topics": []
+            }
+        
+        # Then clean orphaned articles
+        try:
+            articles_result = await clean_orphaned_articles(db)
+            logger.info(f"Completed orphaned articles cleanup: {articles_result}")
+        except Exception as e:
+            logger.error(f"Error in articles cleanup: {str(e)}")
+            articles_result = {
+                "status": "error",
+                "message": f"Error cleaning up orphaned articles: {str(e)}",
+                "orphaned_count": 0
+            }
+        
+        return {
+            "status": "success",
+            "topics_result": topics_result,
+            "articles_result": articles_result
+        }
+    except Exception as e:
+        logger.error(f"Error cleaning all orphaned data: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e)) 

@@ -54,32 +54,61 @@ async def delete_topic(topic_name: str, request: Request, delete_request: Delete
                 json.dump(config, f, indent=2)
         
         # Clean up keyword groups associated with this topic
-        keyword_groups_deleted = 0
+        keyword_cleanup_result = {}
         try:
             # Call the keyword monitoring API to delete groups
             from app.routes.keyword_monitor import delete_groups_by_topic
-            result = await delete_groups_by_topic(topic_name, db)
-            keyword_groups_deleted = result.get("groups_deleted", 0)
+            keyword_cleanup_result = await delete_groups_by_topic(topic_name, db)
+            logger.info(f"Keyword cleanup results: {keyword_cleanup_result}")
         except Exception as e:
             logger.error(f"Error deleting keyword groups for topic {topic_name}: {str(e)}")
         
         # Clean up articles if requested
-        articles_deleted = 0
+        article_cleanup_result = {}
         if delete_request and delete_request.delete_articles:
             try:
                 # Call the keyword monitoring API to delete articles
                 from app.routes.keyword_monitor import delete_articles_by_topic
-                result = await delete_articles_by_topic(topic_name, db)
-                articles_deleted = result.get("articles_deleted", 0)
+                article_cleanup_result = await delete_articles_by_topic(topic_name, db)
+                logger.info(f"Article cleanup results: {article_cleanup_result}")
             except Exception as e:
                 logger.error(f"Error deleting articles for topic {topic_name}: {str(e)}")
+        
+        # Try to clean up news monitoring settings if possible
+        try:
+            news_monitoring_path = os.path.join('app', 'config', 'news_monitoring.json')
+            if os.path.exists(news_monitoring_path):
+                with open(news_monitoring_path, 'r') as f:
+                    news_monitoring = json.load(f)
+                    
+                # Remove the topic from news_filters and paper_filters if it exists
+                news_filters_updated = False
+                if 'news_filters' in news_monitoring and topic_name in news_monitoring['news_filters']:
+                    del news_monitoring['news_filters'][topic_name]
+                    news_filters_updated = True
+                    
+                paper_filters_updated = False
+                if 'paper_filters' in news_monitoring and topic_name in news_monitoring['paper_filters']:
+                    del news_monitoring['paper_filters'][topic_name]
+                    paper_filters_updated = True
+                    
+                # Save the updated configuration
+                if news_filters_updated or paper_filters_updated:
+                    with open(news_monitoring_path, 'w') as f:
+                        json.dump(news_monitoring, f, indent=2)
+                    logger.info(f"Removed topic '{topic_name}' from news_monitoring.json")
+        except Exception as e:
+            logger.error(f"Error updating news_monitoring.json when deleting topic: {str(e)}")
         
         return {
             "message": f"Topic {topic_name} deleted successfully",
             "config_deleted": topic_found,
             "database_deleted": db_success,
-            "keyword_groups_deleted": keyword_groups_deleted,
-            "articles_deleted": articles_deleted
+            "keyword_groups_deleted": keyword_cleanup_result.get("groups_deleted", 0),
+            "keywords_deleted": keyword_cleanup_result.get("keywords_deleted", 0),
+            "keyword_alerts_deleted": keyword_cleanup_result.get("alerts_deleted", 0),
+            "articles_deleted": article_cleanup_result.get("articles_deleted", 0),
+            "article_alerts_deleted": article_cleanup_result.get("alerts_deleted", 0)
         }
         
     except Exception as e:
