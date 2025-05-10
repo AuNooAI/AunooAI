@@ -601,6 +601,11 @@
         margin-bottom: 0.25rem;
     }
 
+    .network-logo {
+        /* Add any specific styling for the logo if needed, e.g., margin */
+        margin-bottom: 0.25rem; /* Matches original h1 margin */
+    }
+
     .network-date {
         font-size: 0.9rem;
         color: #666;
@@ -657,6 +662,27 @@
     .top-story-item .article-actions {
         /* This class might not be needed if using d-flex on parent for alignment */
     }
+
+    /* Top Stories Show X Dropdown */
+    #top-stories-content .input-group-sm {
+        width: auto; /* Allow natural width */
+        flex-shrink: 0; /* Prevent shrinking */
+    }
+    #top-stories-content .input-group-text {
+        padding-left: 0.5rem;
+        padding-right: 0.5rem;
+    }
+    #topStoriesCountSelect {
+        min-width: 65px; /* Slightly wider for double digits */
+        max-width: 80px; /* Prevent excessive width */
+        -webkit-appearance: menulist-button; /* More consistent appearance if needed */
+        appearance: menulist-button; /* More consistent appearance if needed */
+    }
+</style>
+
+<div class="container-fluid dashboard-container-grid">
+
+    {# News Network Header #}
 </style>
 
 <div class="container-fluid dashboard-container-grid">
@@ -665,7 +691,8 @@
     <div class="news-network-header">
         <div class="d-flex justify-content-between align-items-center">
             <div>
-                <h1 class="network-name">ANN - Aunoo News Network</h1>
+                {# <h1 class="network-name">ANN - Aunoo News Network</h1> #}
+                <img src="/static/img/aunoonewsnetwork.png" alt="Aunoo News Network" width="250" height="50" class="network-logo">
                 <div class="network-date" id="current-date-time"></div>
             </div>
             <div>
@@ -779,10 +806,10 @@
             <div class="tab-content" id="storiesTabContent">
                 {# Top Stories Tab Content #}
                 <div class="tab-pane fade show active" id="top-stories-content" role="tabpanel" aria-labelledby="top-stories-tab">
-                    <div class="d-flex justify-content-end mb-2">
-                        <div class="input-group input-group-sm" style="width: auto;">
+                    <div class="d-flex justify-content-end mb-2 align-items-center"> <!-- Added align-items-center -->
+                        <div class="input-group input-group-sm" style="width: auto; flex-shrink: 0;"> <!-- Added flex-shrink: 0 -->
                             <label class="input-group-text" for="topStoriesCountSelect">Show:</label>
-                            <select class="form-select form-select-sm" id="topStoriesCountSelect">
+                            <select class="form-select form-select-sm" id="topStoriesCountSelect" style="min-width: 60px;"> <!-- Added min-width -->
                                 <option value="1">1</option>
                                 <option value="3">3</option>
                                 <option value="5" selected>5</option>
@@ -983,6 +1010,45 @@
         }
     }
 
+    // Helper function to escape HTML content for safe display
+    function escapeHTML(str) {
+        if (str === null || typeof str === 'undefined') return '';
+        return String(str).replace(/[&<"']/g, function (match) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            }[match];
+        });
+    }
+
+    // Utility for unescaping HTML (simple version for this context)
+    function unescapeHTML(html) {
+        const temp = document.createElement("div");
+        temp.innerHTML = html;
+        return temp.textContent || temp.innerText || "";
+    }
+
+    // Add a basic showAlert if not already present (can be enhanced)
+    if (typeof showAlert !== 'function') {
+        window.showAlert = function(message, type = 'info') {
+            const alertContainer = document.getElementById('alert-container'); // Assuming you have a div with this ID in base.html or similar
+            if (!alertContainer) {
+                console.warn("Alert container not found, logging to console:", type, message);
+                alert(`${type.toUpperCase()}: ${message}`);
+                return;
+            }
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show m-2`;
+            alertDiv.role = 'alert';
+            alertDiv.innerHTML = `${message}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>`;
+            alertContainer.appendChild(alertDiv);
+            setTimeout(() => bootstrap.Alert.getOrCreateInstance(alertDiv)?.close(), 5000);
+        }
+    }
+
     // --- Rendering Functions ---
 
     function renderSummaryMetrics(data) {
@@ -1018,8 +1084,8 @@
     function renderArticles(data) {
         const listContainer = document.getElementById('articles-list');
         const paginationContainer = document.getElementById('articles-pagination');
-        listContainer.innerHTML = ''; // Clear previous articles or loading indicator
-        paginationContainer.innerHTML = ''; // Clear pagination
+        listContainer.innerHTML = ''; 
+        paginationContainer.innerHTML = '';
 
         if (!data || !data.items || data.items.length === 0) {
             listContainer.innerHTML = '<div class="list-group-item text-muted">No articles found for this topic.</div>';
@@ -1030,28 +1096,18 @@
             const articleItem = document.createElement('div');
             articleItem.className = 'list-group-item';
             
-            // Format publication date
             const pubDate = article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'N/A';
             
-            // Create metadata tags
             let metadataHtml = '<div class="mb-1">';
-            
-            // Category tag (if available)
             if (article.category) {
-                metadataHtml += `<span class="metadata-tag tag-category"><i class="fas fa-folder-open me-1"></i>${article.category}</span>`;
+                metadataHtml += `<span class="metadata-tag tag-category"><i class="fas fa-folder-open me-1"></i>${escapeHTML(article.category)}</span>`;
             }
-            
-            // Driver type tag (if available)
             if (article.driver_type) {
-                metadataHtml += `<span class="metadata-tag tag-driver"><i class="fas fa-cogs me-1"></i>${article.driver_type}</span>`;
+                metadataHtml += `<span class="metadata-tag tag-driver"><i class="fas fa-cogs me-1"></i>${escapeHTML(article.driver_type)}</span>`;
             }
-            
-            // Time to impact tag (if available)
             if (article.time_to_impact) {
-                metadataHtml += `<span class="metadata-tag tag-tti"><i class="fas fa-clock me-1"></i>${article.time_to_impact}</span>`;
+                metadataHtml += `<span class="metadata-tag tag-tti"><i class="fas fa-clock me-1"></i>${escapeHTML(article.time_to_impact)}</span>`;
             }
-            
-            // Sentiment tag with appropriate styling
             if (article.sentiment) {
                 const sentimentLower = article.sentiment.toLowerCase();
                 let sentimentClass = '';
@@ -1072,8 +1128,8 @@
                     sentimentClass = 'metadata-tag tag-sentiment';
                 }
                 
-                const sentimentDisplay = article.sentiment.charAt(0).toUpperCase() + article.sentiment.slice(1);
-                const tooltipText = article.sentiment_explanation ? ` title="${article.sentiment_explanation.replace(/"/g, '&quot;')}"` : '';
+                const sentimentDisplay = escapeHTML(article.sentiment.charAt(0).toUpperCase() + article.sentiment.slice(1));
+                const tooltipText = article.sentiment_explanation ? ` title="${escapeHTML(article.sentiment_explanation)}"` : '';
                 
                 metadataHtml += `<span class="${sentimentClass}" data-bs-toggle="tooltip" data-bs-placement="top"${tooltipText}><i class="fas fa-heart me-1"></i>${sentimentDisplay}</span>`;
             }
@@ -1082,22 +1138,35 @@
             
             // Regular tags
             const tagsHtml = article.tags && article.tags.length > 0 
-                ? article.tags.map(tag => `<span class="badge bg-secondary me-1">${tag}</span>`).join('') 
+                ? article.tags.map(tag => `<span class="badge bg-secondary me-1">${escapeHTML(tag)}</span>`).join('') 
                 : '';
 
             // Action buttons
-            const archiveUrl = article.url ? `https://archive.is/newest/${encodeURIComponent(article.url)}` : '#';
+            let archiveUrl = '#';
+            let archiveButtonDisabled = true;
+            let archiveButtonTitle = 'Original URL not available for archive.is';
+            if (article.url && typeof article.url === 'string' && article.url.trim() !== '') {
+                archiveUrl = `https://archive.is/${article.url.trim()}`;
+                archiveButtonDisabled = false;
+                archiveButtonTitle = 'View on archive.is';
+            } else {
+                console.warn(`Article URI ${article.uri} (Title: ${article.title || 'N/A'}) has no valid original URL for archive.is link. URL was:`, article.url);
+            }
+
             const actionsHtml = `
-                <div class="mt-2 article-actions d-flex justify-content-end"> <!-- Align to right -->
+                <div class="mt-2 article-actions d-flex justify-content-end"> 
                     <button class="btn btn-sm btn-aunoo-pink me-2 annotate-article-btn" 
                             data-uri="${article.uri}" 
-                            data-title="${article.title || 'Untitled'}" 
-                            data-summary="${article.summary || 'No summary'}" 
-                            data-source="${article.news_source || 'Unknown'}" 
+                            data-title="${escapeHTML(article.title || 'Untitled')}" 
+                            data-summary="${escapeHTML(article.summary || 'No summary available.')}" 
+                            data-source="${escapeHTML(article.news_source || 'Unknown Source')}" 
                             title="View/Annotate">
                         <i class="fas fa-edit"></i> Annotate
                     </button>
-                    <a href="${archiveUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-secondary" title="View on archive.is">
+                    <a href="${archiveUrl}" target="_blank" rel="noopener noreferrer" 
+                       class="btn btn-sm btn-outline-secondary ${archiveButtonDisabled ? 'disabled' : ''}" 
+                       title="${archiveButtonTitle}" 
+                       ${archiveButtonDisabled ? 'aria-disabled="true" tabindex="-1"' : ''}>
                         <i class="fas fa-archive"></i>
                     </a>
                 </div>
@@ -1105,11 +1174,11 @@
             
             articleItem.innerHTML = `
                 <div class="d-flex w-100 justify-content-between">
-                    <h6 class="mb-1"><a href="${article.uri}" target="_blank" rel="noopener">${article.title || 'Untitled'}</a></h6>
+                    <h6 class="mb-1"><a href="${article.uri}" target="_blank" rel="noopener">${escapeHTML(article.title || 'Untitled')}</a></h6>
                     <small>${pubDate}</small>
                 </div>
-                <p class="mb-1"><small class="text-muted">${article.news_source || 'Unknown Source'}</small></p>
-                <p class="mb-1 small">${(article.summary || 'No summary available.').substring(0, 250)}...</p>
+                <p class="mb-1"><small class="text-muted">${escapeHTML(article.news_source || 'Unknown Source')}</small></p>
+                <p class="mb-1 small">${escapeHTML((article.summary || 'No summary available.').substring(0, 250))}...</p>
                 ${metadataHtml}
                 <div>${tagsHtml}</div>
                 ${actionsHtml}
@@ -1505,14 +1574,19 @@
             return;
         }
         
-        const tooltipElement = document.createElement('div');
-        tooltipElement.className = 'top-story-hover-details';
-        tooltipElement.style.display = 'none';
-        document.body.appendChild(tooltipElement);
-        
-        const arrowElement = document.createElement('div');
-        arrowElement.className = 'tooltip-arrow';
-        tooltipElement.appendChild(arrowElement);
+        // Tooltip element handling (ensure it's created once and reused, or handle its lifecycle carefully)
+        let tooltipElement = document.querySelector('.top-story-hover-details');
+        if (!tooltipElement) {
+            tooltipElement = document.createElement('div');
+            tooltipElement.className = 'top-story-hover-details';
+            tooltipElement.style.display = 'none';
+            document.body.appendChild(tooltipElement);
+            const arrowElement = document.createElement('div');
+            arrowElement.className = 'tooltip-arrow';
+            tooltipElement.appendChild(arrowElement);
+            tooltipElement.addEventListener('mouseenter', function() { tooltipElement.style.display = 'block'; });
+            tooltipElement.addEventListener('mouseleave', function() { tooltipElement.style.display = 'none'; });
+        }
         
         let currentVisibleItem = null;
         
@@ -1533,7 +1607,7 @@
 
             const categoryBadge = document.createElement('span');
             categoryBadge.className = `badge category-badge ${categoryBadgeClass}`;
-            categoryBadge.textContent = categoryText;
+            categoryBadge.textContent = escapeHTML(categoryText);
             storyItem.appendChild(categoryBadge);
             
             const titleWrapper = document.createElement('h6');
@@ -1541,14 +1615,14 @@
             titleLink.href = article.uri;
             titleLink.target = '_blank';
             titleLink.rel = 'noopener';
-            titleLink.textContent = article.title || 'Untitled';
+            titleLink.textContent = escapeHTML(article.title || 'Untitled');
             titleWrapper.appendChild(titleLink);
             storyItem.appendChild(titleWrapper);
             
             const fullSummaryText = article.highlight_summary || article.summary || 'No summary available.';
             const summaryP = document.createElement('p');
             summaryP.className = 'summary';
-            summaryP.textContent = fullSummaryText.length > 100 ? fullSummaryText.substring(0, 100) + '...' : fullSummaryText;
+            summaryP.textContent = escapeHTML(fullSummaryText); // Display full summary, escaped
             storyItem.appendChild(summaryP);
             
             const pubDate = article.publication_date ? new Date(article.publication_date) : null;
@@ -1557,66 +1631,75 @@
             timestampDiv.textContent = pubDate ? pubDate.toLocaleDateString() + ' ' + pubDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'N/A';
             storyItem.appendChild(timestampDiv);
 
-            // Action buttons container - aligned to the right
             const actionsContainer = document.createElement('div');
             actionsContainer.className = 'mt-2 d-flex justify-content-end align-items-center'; 
 
-            const archiveUrl = article.url ? `https://archive.is/newest/${encodeURIComponent(article.url)}` : '#';
-            if (!article.url) {
-                console.warn(`Article URI ${article.uri} has no original URL for archive.is link.`);
+            let archiveUrl = '#';
+            let archiveButtonDisabled = true;
+            let archiveButtonTitle = 'Original URL not available for archive.is';
+            if (article.url && typeof article.url === 'string' && article.url.trim() !== '') {
+                archiveUrl = `https://archive.is/${article.url.trim()}`;
+                archiveButtonDisabled = false;
+                archiveButtonTitle = 'View on archive.is';
+            } else {
+                console.warn(`Key Article URI ${article.uri} (Title: ${article.title || 'N/A'}) has no valid original URL for archive.is link. URL was:`, article.url);
             }
             
-            // Annotate Button
             const annotateButton = document.createElement('button');
             annotateButton.className = 'btn btn-sm btn-aunoo-pink me-2 annotate-article-btn'; 
             annotateButton.innerHTML = '<i class="fas fa-edit me-1"></i>Annotate';
             annotateButton.title = 'View/Annotate';
             annotateButton.dataset.uri = article.uri;
-            annotateButton.dataset.title = article.title || 'Untitled';
-            annotateButton.dataset.summary = article.highlight_summary || article.summary || 'No summary available.';
-            annotateButton.dataset.source = article.news_source || 'Unknown';
+            annotateButton.dataset.title = escapeHTML(article.title || 'Untitled');
+            annotateButton.dataset.summary = escapeHTML(fullSummaryText);
+            annotateButton.dataset.source = escapeHTML(article.news_source || 'Unknown');
             annotateButton.addEventListener('click', function() {
                 openAnnotationModal(this.dataset.uri, this.dataset.title, this.dataset.summary, this.dataset.source);
             });
             actionsContainer.appendChild(annotateButton);
 
-            // Archive Link (styled as a button)
             const archiveLink = document.createElement('a');
             archiveLink.href = archiveUrl;
             archiveLink.target = '_blank';
             archiveLink.rel = 'noopener noreferrer';
-            archiveLink.className = 'btn btn-sm btn-outline-secondary'; // Using outline-secondary for a distinct look from pink annotate
+            archiveLink.className = `btn btn-sm btn-outline-secondary ${archiveButtonDisabled ? 'disabled' : ''}`;
             archiveLink.innerHTML = '<i class="fas fa-archive"></i>';
-            archiveLink.title = 'View on archive.is';
+            archiveLink.title = archiveButtonTitle;
+            if (archiveButtonDisabled) {
+                archiveLink.setAttribute('aria-disabled', 'true');
+                archiveLink.setAttribute('tabindex', '-1'); 
+            }
             actionsContainer.appendChild(archiveLink);
             
             storyItem.appendChild(actionsContainer);
             
-            // Read more link
             const readMoreLink = document.createElement('a');
-            readMoreLink.href = article.uri;
+            readMoreLink.href = article.uri; 
             readMoreLink.target = '_blank';
             readMoreLink.rel = 'noopener';
             readMoreLink.className = 'read-more';
             readMoreLink.innerHTML = 'Read More <i class="fas fa-arrow-right fa-xs"></i>';
-            storyItem.appendChild(readMoreLink);
+            storyItem.appendChild(readMoreLink); 
             
-            storyItem.dataset.title = article.title || 'Untitled';
-            storyItem.dataset.summary = fullSummaryText;
-            storyItem.dataset.source = article.news_source || 'N/A';
-            storyItem.dataset.category = article.category || 'N/A';
-            storyItem.dataset.sentiment = article.sentiment || 'N/A';
-            storyItem.dataset.sentimentExplanation = article.sentiment_explanation || '';
-            storyItem.dataset.timeToImpact = article.time_to_impact || 'N/A';
+            storyItem.dataset.title = escapeHTML(article.title || 'Untitled');
+            storyItem.dataset.summary = escapeHTML(fullSummaryText);
+            storyItem.dataset.source = escapeHTML(article.news_source || 'N/A');
+            storyItem.dataset.category = escapeHTML(article.category || 'N/A');
+            storyItem.dataset.sentiment = escapeHTML(article.sentiment || 'N/A');
+            storyItem.dataset.sentimentExplanation = escapeHTML(article.sentiment_explanation || '');
+            storyItem.dataset.timeToImpact = escapeHTML(article.time_to_impact || 'N/A');
             
-            storyItem.addEventListener('mouseenter', function(e) { /* ... existing mouseenter ... */ });
-            storyItem.addEventListener('mouseleave', function(e) { /* ... existing mouseleave ... */ });
+            // Simplified hover listeners to avoid issues with complex shared tooltipElement
+            storyItem.addEventListener('mouseenter', function(e) { 
+                // For complex tooltips, ensure tooltipElement is correctly positioned and updated here.
+                // For now, relying on browser default title attribute for `storyItem` if needed.
+            });
+            storyItem.addEventListener('mouseleave', function(e) { 
+                // if (tooltipElement) tooltipElement.style.display = 'none';
+            });
             
             listContainer.appendChild(storyItem);
         });
-
-        tooltipElement.addEventListener('mouseenter', function() { tooltipElement.style.display = 'block'; });
-        tooltipElement.addEventListener('mouseleave', function() { tooltipElement.style.display = 'none'; currentVisibleItem = null; });
     }
 
     // Fix the renderGeneratedInsights function to properly render markdown
