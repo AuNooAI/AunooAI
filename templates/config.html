@@ -89,6 +89,25 @@
                             </button>
                         </div>
                     </div>
+                    
+                    <div class="config-item">
+                        <h3>Database Hygiene</h3>
+                        <p class="text-muted small mb-3">Clean up orphaned data and maintain database integrity.</p>
+                        <div class="database-operations">
+                            <button id="clean-all-btn" onclick="cleanAllOrphaned()"
+                                    data-tooltip="Clean up all orphaned topics and articles at once">
+                                <i class="fas fa-magic"></i> Clean All Orphaned
+                            </button>
+                            <button id="clean-topics-btn" onclick="cleanOrphanedTopics()"
+                                    data-tooltip="Find and remove orphaned topic data">
+                                <i class="fas fa-broom"></i> Clean Topics
+                            </button>
+                            <button id="clean-articles-btn" onclick="cleanOrphanedArticles()"
+                                    data-tooltip="Find and delete orphaned articles">
+                                <i class="fas fa-newspaper"></i> Clean Articles
+                            </button>
+                        </div>
+                    </div>
 
                     <div class="config-item">
                         <h3>Merge from Backup</h3>
@@ -2147,6 +2166,152 @@
             }
         } catch (error) {
             console.error('Error loading providers:', error);
+        }
+    }
+
+    // Functions for cleaning orphaned data
+    async function cleanOrphanedTopics() {
+        if (!confirm('This will find and remove orphaned topic data from the system. Continue?')) {
+            return;
+        }
+        
+        try {
+            const button = document.getElementById('clean-topics-btn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cleaning...';
+            
+            const response = await fetch('/api/keyword-monitor/clean-orphaned-topics', {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to clean orphaned topics');
+            }
+
+            const result = await response.json();
+            
+            if (result.orphaned_topics && result.orphaned_topics.length > 0) {
+                showAlert(`Successfully cleaned up ${result.orphaned_topics.length} orphaned topics`, 'success');
+                loadDatabaseInfo(); // Refresh database info
+            } else {
+                showAlert('No orphaned topics found', 'info');
+            }
+        } catch (error) {
+            console.error('Error cleaning orphaned topics:', error);
+            showAlert('Error cleaning orphaned topics: ' + error.message, 'danger');
+        } finally {
+            const button = document.getElementById('clean-topics-btn');
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-broom"></i> Clean Topics';
+        }
+    }
+
+    async function cleanOrphanedArticles() {
+        if (!confirm('This will find and delete orphaned articles no longer associated with active topics. Continue?')) {
+            return;
+        }
+        
+        try {
+            const button = document.getElementById('clean-articles-btn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cleaning...';
+            
+            const response = await fetch('/api/keyword-monitor/clean-orphaned-articles', {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to clean orphaned articles');
+            }
+
+            const result = await response.json();
+            
+            if (result.orphaned_count > 0) {
+                showAlert(`Successfully cleaned up ${result.orphaned_count} orphaned articles and ${result.alerts_deleted} associated alerts`, 'success');
+                loadDatabaseInfo(); // Refresh database info
+            } else {
+                showAlert('No orphaned articles found', 'info');
+            }
+        } catch (error) {
+            console.error('Error cleaning orphaned articles:', error);
+            showAlert('Error cleaning orphaned articles: ' + error.message, 'danger');
+        } finally {
+            const button = document.getElementById('clean-articles-btn');
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-newspaper"></i> Clean Articles';
+        }
+    }
+
+    async function cleanAllOrphaned() {
+        if (!confirm('This will find and clean up ALL orphaned topics and articles. Continue?')) {
+            return;
+        }
+        
+        try {
+            const button = document.getElementById('clean-all-btn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cleaning...';
+            
+            const response = await fetch('/api/keyword-monitor/clean-all-orphaned', {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to clean orphaned data');
+            }
+
+            const result = await response.json();
+            
+            // Format a nice summary
+            let message = 'Clean-up completed:\n\n';
+            
+            // Topics summary
+            const topicsResult = result.topics_result;
+            if (topicsResult.orphaned_topics && topicsResult.orphaned_topics.length > 0) {
+                message += `✅ Removed ${topicsResult.orphaned_topics.length} orphaned topics\n`;
+                
+                if (topicsResult.cleanup_results) {
+                    let totalGroups = 0;
+                    let totalKeywords = 0;
+                    let totalAlerts = 0;
+                    
+                    Object.values(topicsResult.cleanup_results).forEach(result => {
+                        totalGroups += result.groups_deleted || 0;
+                        totalKeywords += result.keywords_deleted || 0;
+                        totalAlerts += result.alerts_deleted || 0;
+                    });
+                    
+                    message += `   - ${totalGroups} groups\n`;
+                    message += `   - ${totalKeywords} keywords\n`;
+                    message += `   - ${totalAlerts} alerts\n`;
+                }
+            } else {
+                message += '✓ No orphaned topics found\n';
+            }
+            
+            // Articles summary
+            const articlesResult = result.articles_result;
+            if (articlesResult.orphaned_count > 0) {
+                message += `✅ Removed ${articlesResult.orphaned_count} orphaned articles and ${articlesResult.alerts_deleted} associated alerts\n`;
+            } else {
+                message += '✓ No orphaned articles found\n';
+            }
+            
+            alert(message);
+            loadDatabaseInfo(); // Refresh database info
+        } catch (error) {
+            console.error('Error cleaning orphaned data:', error);
+            showAlert('Error cleaning orphaned data: ' + error.message, 'danger');
+        } finally {
+            const button = document.getElementById('clean-all-btn');
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-magic"></i> Clean All Orphaned';
         }
     }
 </script>{% endblock %}

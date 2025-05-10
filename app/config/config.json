@@ -93,50 +93,6 @@
       ]
     },
     {
-      "name": "AI Warfare",
-      "description": "How advanced is AI warfare, using warbots, autonomous weapon systems, etc",
-      "categories": [
-        "AI Warbots",
-        "AI in Decision Making",
-        "AI Automated Systems in Defense",
-        "AI in Cyber Warfare",
-        "AI in Intelligence Gathering",
-        "Ethical Concerns in AI Warfare",
-        "AI in Military Training"
-      ],
-      "future_signals": [
-        "AI surpasses human command in warfare",
-        "Complete ban on AI in warfare",
-        "Understanding of AI warfare becomes a...",
-        "AI warfare triggers a global arms race"
-      ],
-      "sentiment": [
-        "Positive",
-        "Negative",
-        "Neutral"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
-      ],
-      "driver_types": [
-        "Initiator",
-        "Accelerator",
-        "Catalyst",
-        "Inhibitor",
-        "Blocker"
-      ],
-      "keywords": [
-        "AI in warfare",
-        "Autonomous weapon systems",
-        "AI warfare ethics",
-        "Cyber warfare AI",
-        "AI AND Weapons"
-      ]
-    },
-    {
       "name": "Competitor Analysis",
       "categories": [
         "Competitor 1",
@@ -169,52 +125,6 @@
         "Initiator",
         "Delayer",
         "Inhibitor"
-      ]
-    },
-    {
-      "name": "Monitoring the e/acc Gang",
-      "description": "What are adherents of the philosophy of \"e/acc\" doing, and progressing with their vision?",
-      "categories": [
-        "Accelerationism in Academic Circles",
-        "Art and Culture Influenced by e/acc",
-        "Technological Developments Rooted in e/acc",
-        "Political Movements Stemming from e/acc",
-        "Economic Shifts Influenced by e/acc",
-        "e/acc Manifesto and Critical Reaction",
-        "Understanding e/acc Philosophical Principles",
-        "Societal Impact of e/acc"
-      ],
-      "future_signals": [
-        "Mainstreaming of e/acc philosophy",
-        "e/acc ideas become a political force",
-        "Broad rejection of e/acc principles",
-        "Transformative influence of e/acc on ...",
-        "Accelerationism reshapes societal norms"
-      ],
-      "sentiment": [
-        "Positive",
-        "Negative",
-        "Neutral"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
-      ],
-      "driver_types": [
-        "Initiator",
-        "Accelerator",
-        "Catalyst",
-        "Inhibitor",
-        "Blocker"
-      ],
-      "keywords": [
-        "Accelerationism",
-        "e/acc advancements",
-        "e/acc influence",
-        "Accelerationist movements",
-        "e/acc"
       ]
     }
   ],
