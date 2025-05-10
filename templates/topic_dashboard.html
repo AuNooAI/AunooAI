@@ -335,6 +335,27 @@
         /* flex-basis will be ignored by grid, but keep other styles */
          margin-bottom: 0; /* Gap is handled by grid, remove margin if it causes double spacing */
     }
+
+    /* Styles for Previous Briefings list improvements */
+    #previous-podcasts-list .list-group-item {
+        transition: background-color 0.2s ease-in-out;
+        /* display: flex;
+        justify-content: space-between;
+        align-items: center; */ /* Keep flex for internal alignment if needed */
+    }
+    #previous-podcasts-list .list-group-item:hover {
+        background-color: #f8f9fa; /* Light hover effect */
+    }
+    .podcast-actions a {
+        color: #6c757d; /* Muted color for icons */
+        text-decoration: none;
+        margin-left: 0.5rem;
+        font-size: 0.9rem; /* Slightly smaller icon actions */
+    }
+    .podcast-actions a:hover {
+        color: var(--bs-primary); /* Primary color on hover */
+    }
+
 </style>
 
 <div class="container-fluid dashboard-container-grid">
@@ -1171,7 +1192,6 @@
             const pubDate = podcast.created_at ? new Date(podcast.created_at) : null;
             const formattedDate = pubDate ? pubDate.toLocaleDateString('en-US', { 
                 weekday: 'short', 
-                year: 'numeric', 
                 month: 'short', 
                 day: 'numeric' 
             }) : 'N/A';
@@ -1181,86 +1201,142 @@
             }) : '';
             
             const item = document.createElement('div');
-            item.className = 'list-group-item py-2 px-3';
+            item.className = 'list-group-item py-2 px-3'; // Removed d-flex, justify-content-between, align-items-center to allow more control with inner divs
+            item.setAttribute('data-podcast-id', podcast.podcast_id || ''); // Store podcast_id
             item.setAttribute('data-audio-url', podcast.audio_url || '');
             item.setAttribute('data-podcast-title', podcast.title || 'Untitled');
             item.setAttribute('data-podcast-date', formattedDate);
             item.setAttribute('data-podcast-duration', podcast.duration_minutes ? podcast.duration_minutes.toFixed(1) + ' min' : '');
             
-            // Create a button-like appearance while keeping it as a div
             item.style.cursor = 'pointer';
-            item.style.transition = 'background-color 0.2s';
-            item.addEventListener('mouseover', function() {
-                this.style.backgroundColor = '#f8f9fa';
-            });
-            item.addEventListener('mouseout', function() {
-                this.style.backgroundColor = '';
-            });
+            // item.style.transition = 'background-color 0.2s'; // Already in CSS
+            // item.addEventListener('mouseover', function() {
+            //     this.style.backgroundColor = '#f8f9fa'; // Already in CSS
+            // });
+            // item.addEventListener('mouseout', function() {
+            //     this.style.backgroundColor = ''; // Already in CSS
+            // });
             
-            const truncatedTitle = (podcast.title || 'Untitled').length > 60 
-                ? (podcast.title || 'Untitled').substring(0, 60) + '...' 
+            const truncatedTitle = (podcast.title || 'Untitled').length > 50 
+                ? (podcast.title || 'Untitled').substring(0, 50) + '...' 
                 : (podcast.title || 'Untitled');
                 
+            // Main content on the left (play icon, title, date, duration)
+            // Action icons on the right (download, transcript)
             item.innerHTML = `
-                <div class="d-flex align-items-center">
-                    <div class="flex-shrink-0 me-2">
+                <div class="row align-items-center">
+                    <div class="col-auto play-podcast-icon-col">
                         <i class="bi bi-play-circle text-primary" style="font-size: 1.5rem;"></i>
                     </div>
-                    <div class="flex-grow-1 ms-1">
+                    <div class="col">
                         <div class="d-flex w-100 justify-content-between">
-                            <h6 class="mb-1 text-truncate" style="max-width: 70%;">${truncatedTitle}</h6>
-                            <small class="text-muted">${formattedDate}</small>
+                            <h6 class="mb-0 text-truncate" style="max-width: 70%;" title="${podcast.title || 'Untitled'}">${truncatedTitle}</h6>
+                            <small class="text-muted text-nowrap">${formattedDate}</small>
                         </div>
                         <div class="d-flex justify-content-between align-items-center">
                             <small class="text-muted">${podcast.duration_minutes ? `Duration: ${podcast.duration_minutes.toFixed(1)} min` : ''}</small>
-                            <small class="text-muted">${formattedTime}</small>
+                            <small class="text-muted text-nowrap">${formattedTime}</small>
                         </div>
+                    </div>
+                    <div class="col-auto podcast-actions">
+                        ${podcast.audio_url ? `<a href="${podcast.audio_url}" download="${podcast.title || 'podcast'}.mp3" title="Download Audio"><i class="fas fa-download"></i></a>` : ''}
+                        ${podcast.podcast_id ? `<a href="#" onclick="downloadDashboardPodcastTranscript('${podcast.podcast_id}', '${podcast.title || 'podcast'}'); return false;" title="Download Transcript"><i class="fas fa-file-alt"></i></a>` : ''}
                     </div>
                 </div>
             `;
 
-            item.addEventListener('click', function(e) {
-                e.preventDefault();
-                const audioUrl = this.dataset.audioUrl;
-                const podcastTitle = this.dataset.podcastTitle;
-                const podcastDate = this.dataset.podcastDate;
-                const podcastDuration = this.dataset.podcastDuration;
-                const visualizer = document.getElementById('podcast-visualizer-latest'); // Use the same visualizer
+            // Make the main content area (excluding actions) clickable to play
+            const playSection = item.querySelector('.play-podcast-icon-col, .col:not(.podcast-actions)');
+            if (playSection) {
+                 // Find the column that contains the title and duration, make that clickable along with icon
+                const mainContentCol = item.querySelector('.col:not(.podcast-actions)');
 
-                if (audioUrl) {
-                    const latestPodcastContainer = document.getElementById('latest-podcast-section');
-                    let durationHtml = podcastDuration ? `<small class="text-muted ms-2">(${podcastDuration})</small>` : '';
-                    // Re-use the renderLatestPodcast structure but for the selected previous one
-                    latestPodcastContainer.innerHTML = `
-                        <div class="card bg-light border-0 shadow-sm p-2 small">
-                            <h6 class="mb-1 text-primary">${podcastTitle}</h6>
-                            <audio controls autoplay class="w-100 mt-1" src="${audioUrl}" style="height: 35px;" id="previous-podcast-audio-active"></audio>
-                            <div class="d-flex justify-content-between align-items-center mt-1">
-                                <small class="text-muted">Published: ${podcastDate}</small>
-                                ${durationHtml}
-                            </div>
-                            <p class="small text-muted mt-1 fst-italic">Now playing: previous briefing.</p>
-                        </div>
-                    `;
-                    
-                    // Add event listeners for the new audio element
-                    const audioElement = document.getElementById('previous-podcast-audio-active');
-                    if (audioElement && visualizer) {
-                         visualizer.classList.add('playing'); // Start playing immediately
-                        audioElement.onplay = () => visualizer.classList.add('playing');
-                        audioElement.onpause = () => visualizer.classList.remove('playing');
-                        audioElement.onended = () => visualizer.classList.remove('playing');
-                    }
-                    
-                    // Highlight the selected podcast
-                    document.querySelectorAll('#previous-podcasts-list .list-group-item').forEach(el => {
-                        el.classList.remove('active', 'bg-light');
+                // Add click listener to icon column
+                item.querySelector('.play-podcast-icon-col').addEventListener('click', function(e) {
+                    handlePreviousPodcastClick(item, e);
+                });
+                // Add click listener to main text content column
+                if (mainContentCol) {
+                     mainContentCol.addEventListener('click', function(e) {
+                        handlePreviousPodcastClick(item, e);
                     });
-                    this.classList.add('active', 'bg-light');
                 }
-            });
+            }
             listContainer.appendChild(item);
         });
+    }
+
+    // New helper function to handle click on previous podcast item (refactored from renderPreviousPodcasts)
+    function handlePreviousPodcastClick(itemElement, event) {
+        event.preventDefault(); // Prevent default if it was a link (though it's a div now)
+        event.stopPropagation(); // Stop event from bubbling up if actions are nested
+
+        const audioUrl = itemElement.dataset.audioUrl;
+        const podcastTitle = itemElement.dataset.podcastTitle;
+        const podcastDate = itemElement.dataset.podcastDate;
+        const podcastDuration = itemElement.dataset.podcastDuration;
+        const visualizer = document.getElementById('podcast-visualizer-latest');
+
+        if (audioUrl) {
+            const latestPodcastContainer = document.getElementById('latest-podcast-section');
+            let durationHtml = podcastDuration ? `<small class="text-muted ms-2">(${podcastDuration})</small>` : '';
+            
+            latestPodcastContainer.innerHTML = `
+                <div class="card bg-light border-0 shadow-sm p-2 small">
+                    <h6 class="mb-1 text-primary">${podcastTitle}</h6>
+                    <audio controls autoplay class="w-100 mt-1" src="${audioUrl}" style="height: 35px;" id="previous-podcast-audio-active"></audio>
+                    <div class="d-flex justify-content-between align-items-center mt-1">
+                        <small class="text-muted">Published: ${podcastDate}</small>
+                        ${durationHtml}
+                    </div>
+                    <p class="small text-muted mt-1 fst-italic">Now playing: previous briefing.</p>
+                </div>
+            `;
+            
+            const audioElement = document.getElementById('previous-podcast-audio-active');
+            if (audioElement && visualizer) {
+                visualizer.classList.add('playing');
+                audioElement.onplay = () => visualizer.classList.add('playing');
+                audioElement.onpause = () => visualizer.classList.remove('playing');
+                audioElement.onended = () => visualizer.classList.remove('playing');
+            }
+            
+            document.querySelectorAll('#previous-podcasts-list .list-group-item').forEach(el => {
+                el.classList.remove('active', 'bg-light'); // Bootstrap 'active' also adds blue bg, remove if not desired
+            });
+            itemElement.classList.add('active', 'bg-light'); // Add 'active' for Bootstrap's styling or custom
+        }
+    }
+
+    // Function to download podcast transcript (similar to podcastdirector.html)
+    async function downloadDashboardPodcastTranscript(podcastId, podcastTitle) {
+        if (!podcastId) {
+            console.error("No podcast ID provided for transcript download.");
+            alert("Cannot download transcript: Missing Podcast ID.");
+            return;
+        }
+        try {
+            const response = await fetch(`/api/podcast/${podcastId}/transcript`);
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+                throw new Error(`HTTP error! status: ${response.status} - ${errorData.detail}`);
+            }
+            
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            // Sanitize title for filename
+            const safeTitle = podcastTitle.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            a.download = `${safeTitle}_transcript.txt`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Error downloading transcript:', error);
+            alert(`Error downloading transcript: ${error.message}`);
+        }
     }
 
     // --- Helper Functions ---
