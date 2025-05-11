@@ -485,6 +485,7 @@ If you're not using Flask's url_for, use the direct URL: "/newsletter-compiler"
 // Global variables
 let simplemde; // Our SimpleMDE editor instance
 const loadingSpinner = document.getElementById('loadingSpinner');
+let originalMarkdownContent = ""; // Store the full content with base64
 
 // Initialize SimpleMDE editor
 window.onload = function() {
@@ -518,8 +519,38 @@ window.onload = function() {
         
         console.log("SimpleMDE initialized successfully");
         
+        // Save original value method
+        const originalGetValue = simplemde.value.bind(simplemde);
+        const originalSetValue = simplemde.value;
+        
+        // Override the value() method to handle base64 images
+        simplemde.value = function(val) {
+            if (val === undefined) {
+                // Getting the value - return original content with base64
+                return originalMarkdownContent || originalGetValue();
+            } else {
+                // Setting the value - store original and set condensed version
+                originalMarkdownContent = val;
+                
+                // Replace base64 content with placeholders in the editor
+                const condensedVal = replaceBase64WithPlaceholders(val);
+                originalSetValue.call(simplemde, condensedVal);
+                
+                return simplemde;
+            }
+        };
+        
         // Set up change handler for preview updates
         simplemde.codemirror.on("change", function() {
+            // Get editor content (which may have placeholders)
+            const editorContent = simplemde.codemirror.getValue();
+            
+            // If user edited something, update the original content too
+            if (editorContent !== replaceBase64WithPlaceholders(originalMarkdownContent)) {
+                // Find and restore any image placeholders that might have been edited
+                originalMarkdownContent = restorePlaceholdersIfNeeded(editorContent, originalMarkdownContent);
+            }
+            
             updatePreview();
         });
         
@@ -532,10 +563,45 @@ window.onload = function() {
     }
 };
 
+// Function to replace base64 content with placeholders
+function replaceBase64WithPlaceholders(markdown) {
+    if (!markdown) return markdown;
+    
+    // Pattern to match Markdown image syntax with base64 data
+    const imagePattern = /!\[([^\]]*)\]\(data:image\/[^;]+;base64,([A-Za-z0-9+/=]{30})[A-Za-z0-9+/=]+\)/g;
+    
+    // Replace with placeholder but keep alt text and image type
+    return markdown.replace(imagePattern, (match, altText, base64Start) => {
+        return `![${altText}][IMAGE: ${base64Start}...]`;
+    });
+}
+
+// Function to restore placeholders when needed
+function restorePlaceholdersIfNeeded(editorContent, originalContent) {
+    if (!editorContent || !originalContent) return originalContent;
+    
+    // Look for placeholder pattern
+    const placeholderPattern = /!\[([^\]]*)\]\[IMAGE: ([A-Za-z0-9+/=]{30})...\]/g;
+    
+    return editorContent.replace(placeholderPattern, (match, altText, base64Start) => {
+        // Try to find the corresponding original image in the stored content
+        const originalImagePattern = new RegExp(`!\\[${altText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\]\\(data:image\\/[^;]+;base64,${base64Start}[A-Za-z0-9+/=]+\\)`, 'g');
+        const originalMatches = originalContent.match(originalImagePattern);
+        
+        if (originalMatches && originalMatches.length > 0) {
+            return originalMatches[0]; // Return the original image markdown with full base64
+        }
+        
+        // If not found, just return the placeholder
+        return match;
+    });
+}
+
 // Function to get markdown content
 function getMarkdownContent() {
     if (simplemde) {
-        return simplemde.value();
+        // Return original content with full base64 images
+        return originalMarkdownContent || simplemde.value();
     }
     return "";
 }
@@ -550,6 +616,7 @@ function setMarkdownContent(markdown) {
 
 // Update the preview from markdown content
 function updatePreview() {
+    // Use original content with full base64 data for preview
     const markdownContent = getMarkdownContent();
     const previewElement = document.getElementById('preview-content');
     
@@ -636,7 +703,7 @@ function updatePreview() {
     }
 }
 
-// Download markdown content
+// Download markdown content - use full content with base64
 function downloadMarkdown() {
     const markdownContent = getMarkdownContent();
     
