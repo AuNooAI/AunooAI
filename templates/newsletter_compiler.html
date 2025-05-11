@@ -310,6 +310,18 @@
         padding: 0 5px;
         color: #6c757d;
     }
+
+    /* Add tooltip styles */
+    .tooltip-inner {
+        max-width: 300px;
+        padding: 8px 12px;
+        font-size: 14px;
+        line-height: 1.4;
+    }
+
+    [data-toggle="tooltip"] {
+        cursor: help;
+    }
 </style>
 {% endblock %}
 
@@ -337,8 +349,11 @@
                 <div class="card-body">
                     <form id="newsletterForm">
                         <div class="form-group">
-                            <label for="frequency">Frequency:</label>
-                            <select class="form-control" id="frequency" name="frequency" required>
+                            <label for="frequency" data-toggle="tooltip" data-placement="right" 
+                                   title="Select how often this newsletter should be generated">Frequency:</label>
+                            <select class="form-control" id="frequency" name="frequency" required
+                                    data-toggle="tooltip" data-placement="right" 
+                                    title="Choose between daily, weekly, or monthly newsletter frequency">
                                 <option value="daily">Daily</option>
                                 <option value="weekly">Weekly</option>
                                 <option value="monthly">Monthly</option>
@@ -346,8 +361,11 @@
                         </div>
                         
                         <div class="form-group">
-                            <label for="topics">Topics:</label>
-                            <select class="form-control" id="topics" name="topics" multiple required>
+                            <label for="topics" data-toggle="tooltip" data-placement="right" 
+                                   title="Select one or more topics to include in your newsletter">Topics:</label>
+                            <select class="form-control" id="topics" name="topics" multiple required
+                                    data-toggle="tooltip" data-placement="right" 
+                                    title="Hold Ctrl/Cmd to select multiple topics. These will be the main subjects covered in your newsletter">
                                 <!-- Will be populated via API -->
                                 <option value="" disabled>Loading topics...</option>
                             </select>
@@ -355,9 +373,12 @@
                         </div>
                         
                         <div class="form-group">
-                            <label>Content Types:</label>
+                            <label data-toggle="tooltip" data-placement="right" 
+                                   title="Choose which types of content to include in your newsletter">Content Types:</label>
                             <div class="mb-2">
-                                <button type="button" id="selectAllContentTypes" class="btn btn-sm btn-primary">Select All</button>
+                                <button type="button" id="selectAllContentTypes" class="btn btn-sm btn-primary"
+                                        data-toggle="tooltip" data-placement="right" 
+                                        title="Toggle selection of all content types">Select All</button>
                             </div>
                             <table class="table table-borderless" id="contentTypesTable">
                                 <tbody>
@@ -367,28 +388,43 @@
                         </div>
                         
                         <div class="form-group">
-                            <label>Date Range (Optional):</label>
+                            <label data-toggle="tooltip" data-placement="right" 
+                                   title="Optionally specify a custom date range for the newsletter content">Date Range (Optional):</label>
                             <div class="row mb-2">
                                 <div class="col-auto">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="dayRangeBtn">Day</button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="weekRangeBtn">Week</button>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="monthRangeBtn">Month</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="dayRangeBtn"
+                                            data-toggle="tooltip" data-placement="top" 
+                                            title="Set date range to last 24 hours">Day</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="weekRangeBtn"
+                                            data-toggle="tooltip" data-placement="top" 
+                                            title="Set date range to last 7 days">Week</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="monthRangeBtn"
+                                            data-toggle="tooltip" data-placement="top" 
+                                            title="Set date range to last 30 days">Month</button>
                                 </div>
                             </div>
                             <div class="row">
                                 <div class="col-md-6">
-                                    <label for="startDate">Start Date:</label>
-                                    <input type="date" class="form-control" id="startDate" name="startDate">
+                                    <label for="startDate" data-toggle="tooltip" data-placement="right" 
+                                           title="Start date for newsletter content">Start Date:</label>
+                                    <input type="date" class="form-control" id="startDate" name="startDate"
+                                           data-toggle="tooltip" data-placement="right" 
+                                           title="Select the start date for content inclusion">
                                 </div>
                                 <div class="col-md-6">
-                                    <label for="endDate">End Date:</label>
-                                    <input type="date" class="form-control" id="endDate" name="endDate">
+                                    <label for="endDate" data-toggle="tooltip" data-placement="right" 
+                                           title="End date for newsletter content">End Date:</label>
+                                    <input type="date" class="form-control" id="endDate" name="endDate"
+                                           data-toggle="tooltip" data-placement="right" 
+                                           title="Select the end date for content inclusion">
                                 </div>
                             </div>
                             <small class="form-text text-muted">If not specified, dates will be calculated based on frequency</small>
                         </div>
                         
-                        <button type="button" id="compileButton" class="btn btn-primary">Fetch & Compile Content</button>
+                        <button type="button" id="compileButton" class="btn btn-primary"
+                                data-toggle="tooltip" data-placement="right" 
+                                title="Generate newsletter content based on your selections">Fetch & Compile Content</button>
                     </form>
                 </div>
             </div>
@@ -404,11 +440,21 @@
                     <h5>Actions</h5>
                 </div>
                 <div class="card-body">
-                    <button type="button" id="updatePreviewButton" class="btn btn-secondary mb-2">Update Preview</button>
-                    <button type="button" id="downloadMarkdownButton" class="btn btn-success mb-2">Download Markdown</button>
-                    <button type="button" id="downloadPdfButton" class="btn btn-info mb-2" disabled>Download PDF (Coming Soon)</button>
-                    <button type="button" id="sendEmailButton" class="btn btn-warning mb-2" disabled>Send via Email (Coming Soon)</button>
-                    <button type="button" id="sendSlackButton" class="btn btn-dark mb-2" disabled>Send to Slack (Coming Soon)</button>
+                    <button type="button" id="updatePreviewButton" class="btn btn-secondary mb-2"
+                            data-toggle="tooltip" data-placement="top" 
+                            title="Refresh the preview with latest editor content">Update Preview</button>
+                    <button type="button" id="downloadMarkdownButton" class="btn btn-success mb-2"
+                            data-toggle="tooltip" data-placement="top" 
+                            title="Download the newsletter content as a Markdown file">Download Markdown</button>
+                    <button type="button" id="downloadPdfButton" class="btn btn-info mb-2" disabled
+                            data-toggle="tooltip" data-placement="top" 
+                            title="Coming soon: Download as PDF">Download PDF (Coming Soon)</button>
+                    <button type="button" id="sendEmailButton" class="btn btn-warning mb-2" disabled
+                            data-toggle="tooltip" data-placement="top" 
+                            title="Coming soon: Send newsletter via email">Send via Email (Coming Soon)</button>
+                    <button type="button" id="sendSlackButton" class="btn btn-dark mb-2" disabled
+                            data-toggle="tooltip" data-placement="top" 
+                            title="Coming soon: Send newsletter to Slack">Send to Slack (Coming Soon)</button>
                 </div>
             </div>
         </div>
@@ -1044,6 +1090,12 @@ document.addEventListener('DOMContentLoaded', function() {
     if (monthRangeBtn) {
         monthRangeBtn.addEventListener('click', function() { setDateRange(30); });
     }
+
+    // Initialize tooltips when the DOM is loaded
+    $('[data-toggle="tooltip"]').tooltip({
+        trigger: 'hover',
+        html: true
+    });
 });
 </script>
 {% endblock %} 

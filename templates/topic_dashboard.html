@@ -717,7 +717,7 @@
             
             {# Column for Topic Selector - push to the right #}
             <div class="col-md ms-md-auto" style="max-width: 300px;"> 
-                 <select id="topicSelector" class="form-select form-select-sm">
+                 <select id="topicSelector" class="form-select form-select-sm" data-bs-toggle="tooltip" data-bs-placement="right" title="Select a topic to view its dashboard and insights.">
                     <option value="" selected disabled>Select a Topic...</option>
                     {% for topic in topics %}
                     <option value="{{ topic }}">{{ topic }}</option>
@@ -729,14 +729,14 @@
         {# Row for Date Range Controls (now below the title/topic row) #}
         <div class="row align-items-center gy-2">
             <div class="col-auto">
-                <label class="form-label mb-0 small">Date Range:</label>
+                <label class="form-label mb-0 small" data-bs-toggle="tooltip" data-bs-placement="right" title="Choose a date range for the dashboard data.">Date Range:</label>
              </div>
              <div class="col-auto btn-group btn-group-sm" role="group">
-                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="1">Today</button>
-                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="7">Week</button>
-                <button type="button" class="btn btn-outline-secondary date-preset-btn active" data-days="30">Month</button>
-                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="90">Quarter</button>
-                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="365">Year</button>
+                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="1" data-bs-toggle="tooltip" data-bs-placement="top" title="Show data for today only.">Today</button>
+                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="7" data-bs-toggle="tooltip" data-bs-placement="top" title="Show data for the last 7 days.">Week</button>
+                <button type="button" class="btn btn-outline-secondary date-preset-btn active" data-days="30" data-bs-toggle="tooltip" data-bs-placement="top" title="Show data for the last 30 days.">Month</button>
+                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="90" data-bs-toggle="tooltip" data-bs-placement="top" title="Show data for the last 90 days.">Quarter</button>
+                <button type="button" class="btn btn-outline-secondary date-preset-btn" data-days="365" data-bs-toggle="tooltip" data-bs-placement="top" title="Show data for the last year.">Year</button>
             </div>
             {# Hidden original date inputs - kept for potential future re-enablement via JS #}
             <div class="col-auto" style="display: none;">
@@ -798,10 +798,10 @@
         <div class="dashboard-section" id="stories-section">
             <ul class="nav nav-tabs nav-fill nav-sm mb-3" id="storiesTab" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="top-stories-tab" data-bs-toggle="tab" data-bs-target="#top-stories-content" type="button" role="tab" aria-controls="top-stories-content" aria-selected="true">Top Stories</button>
+                    <button class="nav-link active" id="top-stories-tab" data-bs-toggle="tab" data-bs-target="#top-stories-content" type="button" role="tab" aria-controls="top-stories-content" aria-selected="true" data-bs-toggle="tooltip" data-bs-placement="top" title="View the most important stories for this topic.">Top Stories</button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="articles-tab" data-bs-toggle="tab" data-bs-target="#articles-content" type="button" role="tab" aria-controls="articles-content" aria-selected="false">All Articles</button>
+                    <button class="nav-link" id="articles-tab" data-bs-toggle="tab" data-bs-target="#articles-content" type="button" role="tab" aria-controls="articles-content" aria-selected="false" data-bs-toggle="tooltip" data-bs-placement="top" title="View all articles for this topic.">All Articles</button>
                 </li>
             </ul>
             <div class="tab-content" id="storiesTabContent">
@@ -809,7 +809,7 @@
                 <div class="tab-pane fade show active" id="top-stories-content" role="tabpanel" aria-labelledby="top-stories-tab">
                     <div class="d-flex justify-content-end mb-2 align-items-center"> 
                         <div class="d-flex align-items-center">
-                            <label for="topStoriesCountSelect" class="me-2 small">Show:</label>
+                            <label for="topStoriesCountSelect" class="me-2 small" data-bs-toggle="tooltip" data-bs-placement="top" title="Select how many top stories to display.">Show:</label>
                             <select class="form-select form-select-sm" id="topStoriesCountSelect" style="width: auto;"> 
                                 <option value="1">1</option>
                                 <option value="3">3</option>
@@ -827,7 +827,7 @@
                 <div class="tab-pane fade" id="articles-content" role="tabpanel" aria-labelledby="articles-tab">
                     <div class="d-flex justify-content-between align-items-center">
                         <h6 id="articles-section-title" class="mb-2">Articles</h6>
-                        <button id="reset-article-filter-btn" class="btn btn-sm btn-outline-secondary" style="display: none;">Show All Articles</button>
+                        <button id="reset-article-filter-btn" class="btn btn-sm btn-outline-secondary" style="display: none;" data-bs-toggle="tooltip" data-bs-placement="top" title="Reset article filters and show all articles.">Show All Articles</button>
                     </div>
                     <div id="articles-list" class="list-group list-group-flush mt-2">
                         <div class="loading-indicator">Select a topic to view articles.</div>
@@ -846,13 +846,13 @@
             <h5 class="mb-3">Generated Insights</h5>
             <ul class="nav nav-tabs nav-fill nav-sm mb-3" id="insightsTab" role="tablist">
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="trend-insights-tab" data-bs-toggle="tab" data-bs-target="#trend-insights-content" type="button" role="tab" aria-controls="trend-insights-content" aria-selected="true">Trend Insights</button>
+                    <button class="nav-link active" id="trend-insights-tab" data-bs-toggle="tab" data-bs-target="#trend-insights-content" type="button" role="tab" aria-controls="trend-insights-content" aria-selected="true" data-bs-toggle="tooltip" data-bs-placement="top" title="View AI-generated trend insights for this topic.">Trend Insights</button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="article-insights-tab" data-bs-toggle="tab" data-bs-target="#article-insights-content" type="button" role="tab" aria-controls="article-insights-content" aria-selected="false">Article Insights</button>
+                    <button class="nav-link" id="article-insights-tab" data-bs-toggle="tab" data-bs-target="#article-insights-content" type="button" role="tab" aria-controls="article-insights-content" aria-selected="false" data-bs-toggle="tooltip" data-bs-placement="top" title="View AI-generated article insights for this topic.">Article Insights</button>
                 </li>
                 <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="category-insights-tab" data-bs-toggle="tab" data-bs-target="#category-insights-content" type="button" role="tab" aria-controls="category-insights-content" aria-selected="false">Category Insights</button>
+                    <button class="nav-link" id="category-insights-tab" data-bs-toggle="tab" data-bs-target="#category-insights-content" type="button" role="tab" aria-controls="category-insights-content" aria-selected="false" data-bs-toggle="tooltip" data-bs-placement="top" title="View insights grouped by article category.">Category Insights</button>
                 </li>
             </ul>
             <div class="tab-content" id="insightsTabContent">
@@ -894,7 +894,7 @@
                             <div class="d-flex justify-content-between align-items-center">
                                 <h6>Volume Over Time</h6>
                                 <div class="chart-controls">
-                                    <label for="volumeStackBy">Stack by:</label>
+                                    <label for="volumeStackBy" data-bs-toggle="tooltip" data-bs-placement="top" title="Choose how to group the volume chart: by category or sentiment.">Stack by:</label>
                                     <select id="volumeStackBy" class="form-select form-select-sm">
                                         <option value="category" selected>Category</option>
                                         <option value="sentiment">Sentiment</option>
@@ -3460,6 +3460,16 @@
             setTimeout(() => bootstrap.Alert.getOrCreateInstance(alertDiv)?.close(), 5000);
         }
     }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // ... existing code ...
+        // Initialize Bootstrap tooltips for all elements with data-bs-toggle="tooltip"
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.forEach(function (tooltipTriggerEl) {
+            new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+        // ... existing code ...
+    });
 </script>
 
 {% endblock %} 
