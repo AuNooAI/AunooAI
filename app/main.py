@@ -66,6 +66,7 @@ from app.routes.topic_map_routes import (
     page_router as topic_map_page_router,
 )
 from app.routes.auspex_routes import router as auspex_router
+from app.routes.newsletter_routes import router as newsletter_router, page_router as newsletter_page_router
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -227,6 +228,10 @@ app.include_router(scenario_page_router)
 app.include_router(topic_map_api_router)
 app.include_router(topic_map_page_router)
 app.include_router(auspex_router)
+
+# Add newsletter routers
+app.include_router(newsletter_router)
+app.include_router(newsletter_page_router)
 
 class ArticleData(BaseModel):
     title: str
@@ -3629,3 +3634,84 @@ async def api_get_full_config():
     except Exception as exc:
         logger.error("Error fetching full config: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail=str(exc))
+
+# Add a direct route for newsletter topics
+@app.get("/api/newsletter/topics")
+async def get_newsletter_topics():
+    """Get available topics for newsletter compilation."""
+    try:
+        logger = logging.getLogger(__name__)
+        logger.info("Newsletter topics endpoint called")
+        
+        # Try to identify calling client for debugging
+        request = getattr(get_newsletter_topics, '_request', None)
+        if request:
+            client_info = f"Client: {request.client.host}:{request.client.port}" if hasattr(request, 'client') else "Unknown client"
+            logger.info(f"Request from {client_info}")
+            logger.info(f"Request headers: {dict(request.headers)}")
+        
+        # Debug: log path to config file
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'config.json')
+        logger.info(f"Loading config from: {config_path}")
+        
+        try:
+            # Load config to get topics
+            config = load_config()
+            logger.info(f"Config loaded, keys: {list(config.keys())}")
+            logger.info(f"Topics in config: {len(config.get('topics', []))}")
+            
+            # Extract topics
+            topics = [topic["name"] for topic in config.get("topics", [])]
+            logger.info(f"Extracted topic names: {topics}")
+        except Exception as config_err:
+            logger.error(f"Error loading topics from config: {str(config_err)}", exc_info=True)
+            # Fallback to static list on config error
+            topics = ["AI and Machine Learning", "Trend Monitoring", "Competitor Analysis"]
+            logger.warning(f"Using fallback topics after config error: {topics}")
+        
+        # Fallback to static list if no topics found
+        if not topics:
+            logger.warning("No topics found in config, returning static list")
+            topics = ["AI and Machine Learning", "Trend Monitoring", "Competitor Analysis"]
+        
+        logger.info(f"Returning topics for newsletter: {topics}")
+        return topics
+        
+    except Exception as e:
+        logger.error(f"Error getting topics for newsletter: {str(e)}", exc_info=True)
+        # Return static list on error
+        static_topics = ["AI and Machine Learning", "Trend Monitoring", "Competitor Analysis"]
+        logger.info(f"Returning static topics due to error: {static_topics}")
+        return static_topics
+
+# Add a direct route for newsletter content types
+@app.get("/api/newsletter/content_types")
+async def get_newsletter_content_types():
+    """Get available content types for newsletter compilation."""
+    logger = logging.getLogger(__name__)
+    logger.info("Newsletter content types endpoint called")
+    
+    content_types = [
+        {"id": "topic_summary", "name": "Topic Summary", 
+         "description": "AI-generated summary of the topic"},
+        {"id": "key_charts", "name": "Key Charts", 
+         "description": "Relevant charts from analytics"},
+        {"id": "trend_analysis", "name": "Trend Analysis", 
+         "description": "AI-generated trend analysis"},
+        {"id": "article_insights", "name": "Article Insights", 
+         "description": "Thematic analysis of articles"},
+        {"id": "key_articles", "name": "Key Articles", 
+         "description": "List of key articles with links"},
+        {"id": "latest_podcast", "name": "Latest Podcast", 
+         "description": "Link to the latest podcast for the topic"}
+    ]
+    return content_types
+
+# Add a very simple debug endpoint for testing topic loading
+@app.get("/api/debug/topics")
+async def debug_topics():
+    """Simple debug endpoint that returns a static list of topics."""
+    logger = logging.getLogger(__name__)
+    logger.info("Debug topics endpoint called")
+    topics = ["AI and Machine Learning", "Trend Monitoring", "Competitor Analysis"]
+    return topics

@@ -1,0 +1,518 @@
+{% extends "base.html" %}
+
+{% block title %}Newsletter Compiler{% endblock %}
+
+{% block styles %}
+<style>
+    #editorPane, #previewPane {
+        height: 500px;
+        overflow-y: auto;
+        border: 1px solid #ccc;
+        padding: 10px;
+    }
+    
+    #markdownEditor {
+        width: 100%;
+        height: 100%;
+        border: none;
+        resize: none;
+        font-family: monospace;
+    }
+    
+    #htmlPreview {
+        height: 100%;
+    }
+    
+    .control-panel {
+        margin-bottom: 20px;
+    }
+    
+    .form-group {
+        margin-bottom: 15px;
+    }
+    
+    .content-type-item {
+        margin: 10px 0;
+    }
+    
+    .loading-spinner {
+        display: none;
+        text-align: center;
+        margin: 20px;
+    }
+    
+    @media (max-width: 768px) {
+        #editorPane, #previewPane {
+            height: 300px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Newsletter Compiler</h1>
+    
+    <div class="row control-panel">
+        <div class="col-md-6">
+            <!-- Newsletter Configuration Form -->
+            <div class="card">
+                <div class="card-header">
+                    <h5>Newsletter Configuration</h5>
+                </div>
+                <div class="card-body">
+                    <form id="newsletterForm">
+                        <div class="form-group">
+                            <label for="frequency">Frequency:</label>
+                            <select class="form-control" id="frequency" name="frequency" required>
+                                <option value="daily">Daily</option>
+                                <option value="weekly">Weekly</option>
+                                <option value="monthly">Monthly</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="topics">Topics:</label>
+                            <select class="form-control" id="topics" name="topics" multiple required>
+                                <!-- Will be populated via API -->
+                                <option value="" disabled>Loading topics...</option>
+                            </select>
+                            <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple topics</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Content Types:</label>
+                            <div class="mb-2">
+                                <button type="button" id="selectAllContentTypes" class="btn btn-sm btn-outline-primary">Select All</button>
+                            </div>
+                            <div id="contentTypes">
+                                <!-- Will be populated via API -->
+                                <div class="text-muted">Loading content types...</div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Date Range (Optional):</label>
+                            <div class="row mb-2">
+                                <div class="col-auto">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="dayRangeBtn">Day</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="weekRangeBtn">Week</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="monthRangeBtn">Month</button>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label for="startDate">Start Date:</label>
+                                    <input type="date" class="form-control" id="startDate" name="startDate">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="endDate">End Date:</label>
+                                    <input type="date" class="form-control" id="endDate" name="endDate">
+                                </div>
+                            </div>
+                            <small class="form-text text-muted">If not specified, dates will be calculated based on frequency</small>
+                        </div>
+                        
+                        <button type="button" id="compileButton" class="btn btn-primary">Fetch & Compile Content</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <!-- Action Buttons -->
+            <div class="card">
+                <div class="card-header">
+                    <h5>Actions</h5>
+                </div>
+                <div class="card-body">
+                    <button type="button" id="updatePreviewButton" class="btn btn-secondary mb-2">Update Preview</button>
+                    <button type="button" id="downloadMarkdownButton" class="btn btn-success mb-2">Download Markdown</button>
+                    <button type="button" id="downloadPdfButton" class="btn btn-info mb-2" disabled>Download PDF (Coming Soon)</button>
+                    <button type="button" id="sendEmailButton" class="btn btn-warning mb-2" disabled>Send via Email (Coming Soon)</button>
+                    <button type="button" id="sendSlackButton" class="btn btn-dark mb-2" disabled>Send to Slack (Coming Soon)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="loading-spinner" id="loadingSpinner">
+        <div class="spinner-border text-primary" role="status">
+            <span class="sr-only">Loading...</span>
+        </div>
+        <p>Compiling newsletter content...</p>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <!-- Markdown Editor -->
+            <h4>Markdown Editor</h4>
+            <div id="editorPane">
+                <textarea id="markdownEditor" placeholder="Newsletter content will appear here after compilation..."></textarea>
+            </div>
+        </div>
+        
+        <div class="col-md-6">
+            <!-- HTML Preview -->
+            <h4>HTML Preview</h4>
+            <div id="previewPane">
+                <div id="htmlPreview">
+                    <p class="text-muted">Preview will appear here...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // DOM Elements
+    const frequencySelect = document.getElementById('frequency');
+    const topicsSelect = document.getElementById('topics');
+    const contentTypesContainer = document.getElementById('contentTypes');
+    const startDateInput = document.getElementById('startDate');
+    const endDateInput = document.getElementById('endDate');
+    const compileButton = document.getElementById('compileButton');
+    const updatePreviewButton = document.getElementById('updatePreviewButton');
+    const downloadMarkdownButton = document.getElementById('downloadMarkdownButton');
+    const markdownEditor = document.getElementById('markdownEditor');
+    const htmlPreview = document.getElementById('htmlPreview');
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    
+    // Load topics from API
+    async function loadTopics() {
+        try {
+            console.log('Starting to fetch topics...');
+            topicsSelect.innerHTML = '<option value="" disabled>Loading topics...</option>';
+            
+            // Try multiple endpoints in sequence until one works
+            const endpoints = [
+                '/api/topics',            // Regular endpoint
+                '/api/newsletter/topics', // Newsletter-specific endpoint
+                '/api/debug/topics'       // Fallback debug endpoint
+            ];
+            
+            let response = null;
+            let endpoint = null;
+            
+            // Try each endpoint in sequence
+            for (const ep of endpoints) {
+                try {
+                    console.log(`Trying to fetch from ${ep}...`);
+                    const tempResponse = await fetch(ep);
+                    console.log(`Response from ${ep}:`, tempResponse);
+                    
+                    if (tempResponse.ok) {
+                        response = tempResponse;
+                        endpoint = ep;
+                        console.log(`Successfully connected to ${ep}`);
+                        break;
+                    } else {
+                        console.warn(`Endpoint ${ep} returned status: ${tempResponse.status}`);
+                    }
+                } catch (fetchError) {
+                    console.warn(`Failed to fetch from ${ep}:`, fetchError);
+                }
+            }
+            
+            if (!response) {
+                throw new Error(`Failed to fetch topics from any endpoint. Tried: ${endpoints.join(', ')}`);
+            }
+            
+            console.log(`Using endpoint: ${endpoint}`);
+            
+            const rawText = await response.text();
+            console.log('Raw response text:', rawText);
+            
+            let data;
+            try {
+                data = JSON.parse(rawText);
+                console.log('Parsed data:', data);
+            } catch (parseError) {
+                console.error('Failed to parse JSON:', parseError);
+                throw new Error(`Invalid JSON response: ${rawText.substring(0, 100)}...`);
+            }
+            
+            // Clear select element
+            topicsSelect.innerHTML = '';
+            
+            if (!Array.isArray(data)) {
+                console.error('Topics data is not an array:', typeof data, data);
+                topicsSelect.innerHTML = '<option value="" disabled>Error: Invalid data format</option>';
+                return;
+            }
+            
+            if (data.length === 0) {
+                console.warn('No topics returned from API');
+                topicsSelect.innerHTML = '<option value="" disabled>No topics available</option>';
+                return;
+            }
+            
+            console.log(`Adding ${data.length} topics to select dropdown...`);
+            
+            // Handle different data formats (array of strings vs array of objects)
+            data.forEach((topic, index) => {
+                let topicValue, topicText;
+                
+                if (typeof topic === 'string') {
+                    // Handle topic as simple string
+                    topicValue = topic;
+                    topicText = topic;
+                    console.log(`Adding topic ${index + 1}/${data.length} (string):`, topicValue);
+                } else if (topic && typeof topic === 'object') {
+                    // Handle topic as object with name property
+                    topicValue = topic.name || topic.id || "Unknown Topic";
+                    topicText = topic.displayName || topic.name || topic.id || "Unknown Topic";
+                    console.log(`Adding topic ${index + 1}/${data.length} (object):`, topicValue, topic);
+                } else {
+                    console.warn(`Skipping invalid topic at index ${index}:`, topic);
+                    return; // Skip invalid format
+                }
+                
+                const option = document.createElement('option');
+                option.value = topicValue;
+                option.textContent = topicText;
+                topicsSelect.appendChild(option);
+            });
+            
+            console.log('Topics loaded successfully, final select HTML:', topicsSelect.innerHTML);
+            
+        } catch (error) {
+            console.error('Error loading topics:', error);
+            console.error('Error details:', error.stack || 'No stack trace available');
+            topicsSelect.innerHTML = '<option value="" disabled>Failed to load topics: ' + error.message + '</option>';
+            alert('Failed to load topics. Please check browser console for details. Error: ' + error.message);
+        }
+    }
+    
+    // Load content types from API
+    async function loadContentTypes() {
+        try {
+            console.log('Fetching content types from /api/newsletter/content_types');
+            contentTypesContainer.innerHTML = '<div class="text-muted">Loading content types...</div>';
+            
+            const response = await fetch('/api/newsletter/content_types');
+            console.log('Content types API response status:', response.status);
+            
+            if (!response.ok) {
+                throw new Error(`API returned status: ${response.status}`);
+            }
+            
+            const contentTypes = await response.json();
+            console.log('Content types API response data:', contentTypes);
+            
+            // Clear container
+            contentTypesContainer.innerHTML = '';
+            
+            if (!Array.isArray(contentTypes)) {
+                console.error('Content types data is not an array:', contentTypes);
+                contentTypesContainer.innerHTML = '<div class="text-danger">Error: Invalid data format</div>';
+                return;
+            }
+            
+            if (contentTypes.length === 0) {
+                console.warn('No content types returned from API');
+                contentTypesContainer.innerHTML = '<div class="text-muted">No content types available</div>';
+                return;
+            }
+            
+            // Add checkboxes for each content type
+            contentTypes.forEach(type => {
+                const div = document.createElement('div');
+                div.className = 'content-type-item';
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `content-type-${type.id}`;
+                checkbox.name = 'contentTypes';
+                checkbox.value = type.id;
+                checkbox.className = 'mr-2';
+                
+                const label = document.createElement('label');
+                label.htmlFor = `content-type-${type.id}`;
+                label.className = 'form-check-label';
+                label.textContent = type.name;
+                
+                const description = document.createElement('small');
+                description.className = 'form-text text-muted';
+                description.textContent = type.description;
+                
+                div.appendChild(checkbox);
+                div.appendChild(label);
+                div.appendChild(document.createElement('br'));
+                div.appendChild(description);
+                
+                contentTypesContainer.appendChild(div);
+            });
+            
+            console.log('Content types loaded successfully');
+            
+        } catch (error) {
+            console.error('Error loading content types:', error);
+            contentTypesContainer.innerHTML = '<div class="text-danger">Failed to load content types</div>';
+            alert('Failed to load content types. Please refresh the page. Error: ' + error.message);
+        }
+    }
+    
+    // Update preview from markdown content
+    async function updatePreview() {
+        const markdownContent = markdownEditor.value;
+        
+        if (!markdownContent.trim()) {
+            htmlPreview.innerHTML = '<p class="text-muted">Preview will appear here...</p>';
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/markdown_to_html', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ markdown: markdownContent })
+            });
+            
+            const data = await response.json();
+            htmlPreview.innerHTML = data.html;
+        } catch (error) {
+            console.error('Error updating preview:', error);
+            htmlPreview.innerHTML = '<p class="text-danger">Error rendering preview</p>';
+        }
+    }
+    
+    // Compile newsletter content
+    async function compileNewsletter() {
+        // Get form values
+        const frequency = frequencySelect.value;
+        const topics = Array.from(topicsSelect.selectedOptions).map(option => option.value);
+        const contentTypes = Array.from(document.querySelectorAll('input[name="contentTypes"]:checked')).map(checkbox => checkbox.value);
+        const startDate = startDateInput.value;
+        const endDate = endDateInput.value;
+        
+        // Validate form
+        if (topics.length === 0) {
+            alert('Please select at least one topic');
+            return;
+        }
+        
+        if (contentTypes.length === 0) {
+            alert('Please select at least one content type');
+            return;
+        }
+        
+        // Prepare request payload
+        const payload = {
+            frequency,
+            topics,
+            content_types: contentTypes
+        };
+        
+        // Add optional dates if provided
+        if (startDate) payload.start_date = startDate;
+        if (endDate) payload.end_date = endDate;
+        
+        // Show loading spinner
+        loadingSpinner.style.display = 'block';
+        
+        try {
+            const response = await fetch('/api/newsletter/compile', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Error: ${response.status} ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            // Update markdown editor with compiled content
+            markdownEditor.value = data.compiled_markdown;
+            
+            // Update preview
+            await updatePreview();
+            
+        } catch (error) {
+            console.error('Error compiling newsletter:', error);
+            alert('Failed to compile newsletter. Please try again.');
+        } finally {
+            // Hide loading spinner
+            loadingSpinner.style.display = 'none';
+        }
+    }
+    
+    // Download markdown content
+    function downloadMarkdown() {
+        const markdownContent = markdownEditor.value;
+        
+        if (!markdownContent.trim()) {
+            alert('No content to download');
+            return;
+        }
+        
+        // Create filename with date
+        const today = new Date();
+        const dateStr = today.toISOString().split('T')[0];
+        const frequency = frequencySelect.value;
+        const topics = Array.from(topicsSelect.selectedOptions).map(option => option.value).join('-');
+        
+        const filename = `${frequency}_${topics}_${dateStr}.md`;
+        
+        // Create download link
+        const element = document.createElement('a');
+        element.setAttribute('href', 'data:text/markdown;charset=utf-8,' + encodeURIComponent(markdownContent));
+        element.setAttribute('download', filename);
+        element.style.display = 'none';
+        
+        // Add to body, click, and remove
+        document.body.appendChild(element);
+        element.click();
+        document.body.removeChild(element);
+    }
+    
+    // Event Listeners
+    compileButton.addEventListener('click', compileNewsletter);
+    updatePreviewButton.addEventListener('click', updatePreview);
+    downloadMarkdownButton.addEventListener('click', downloadMarkdown);
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+        console.log('Page loaded, initializing...');
+        loadTopics();
+        loadContentTypes();
+
+        // Select All Content Types
+        const selectAllBtn = document.getElementById('selectAllContentTypes');
+        selectAllBtn.addEventListener('click', () => {
+            document.querySelectorAll('input[name="contentTypes"]').forEach(cb => {
+                cb.checked = true;
+            });
+        });
+
+        // Date Range Buttons
+        const dayBtn = document.getElementById('dayRangeBtn');
+        const weekBtn = document.getElementById('weekRangeBtn');
+        const monthBtn = document.getElementById('monthRangeBtn');
+        const startDateInput = document.getElementById('startDate');
+        const endDateInput = document.getElementById('endDate');
+
+        function setDateRange(days) {
+            const today = new Date();
+            const endDate = today.toISOString().split('T')[0];
+            const start = new Date(today);
+            start.setDate(today.getDate() - days);
+            const startDate = start.toISOString().split('T')[0];
+            startDateInput.value = startDate;
+            endDateInput.value = endDate;
+        }
+
+        dayBtn.addEventListener('click', () => setDateRange(1));
+        weekBtn.addEventListener('click', () => setDateRange(7));
+        monthBtn.addEventListener('click', () => setDateRange(30));
+    });
+</script>
+{% endblock %} 
