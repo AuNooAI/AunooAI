@@ -1,28 +1,9 @@
 {% extends "base.html" %}
 
-{% block title %}Newsletter Compiler{% endblock %}
+{% block title %}Newsletter Composer{% endblock %}
 
 {% block styles %}
-<!-- 
-IMPORTANT: To add this page to your main navigation menu:
 
-1. Edit your base template or navigation file (e.g., base.html, navbar.html, or sidebar.html)
-2. Find the Analysis section in your navigation menu
-3. Add the following link inside that section:
-
-For a Bootstrap navbar:
-<li class="nav-item">
-    <a class="nav-link" href="{{ url_for('newsletter_compiler') }}">Newsletter Compiler</a>
-</li>
-
-For a sidebar menu:
-<li>
-    <a href="{{ url_for('newsletter_compiler') }}">Newsletter Compiler</a>
-</li>
-
-Make sure the URL matches your actual route for this page.
-If you're not using Flask's url_for, use the direct URL: "/newsletter-compiler" 
--->
 
 <!-- SimpleMDE Markdown Editor CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simplemde@1.11.2/dist/simplemde.min.css">
@@ -339,7 +320,7 @@ If you're not using Flask's url_for, use the direct URL: "/newsletter-compiler"
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="/">Home</a></li>
             <li class="breadcrumb-item"><a href="/analysis">Analysis</a></li>
-            <li class="breadcrumb-item active">Newsletter Compiler</li>
+            <li class="breadcrumb-item active">Newsletter Composer</li>
         </ol>
     </div>
 

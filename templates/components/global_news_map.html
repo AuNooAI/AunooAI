@@ -200,16 +200,61 @@
     }
     
     /* Modal Customization */
-    #citySelectionModal .modal-dialog {
-        max-width: 400px;
+    #citySelectionModal .modal-content {
+        background: #fff !important;
+        color: #212529 !important;
+        border-radius: 12px;
+        border: 1.5px solid #FF69B4;
+        box-shadow: 0 6px 32px rgba(255,105,180,0.10), 0 1.5px 6px rgba(0,0,0,0.04);
     }
-    
-    #citySelectionCheckboxes .form-check {
-        margin-bottom: 0.5rem;
+    #citySelectionModal .modal-header, #citySelectionModal .modal-footer {
+        background: #fff !important;
+        border-bottom: 1px solid #f8f9fa !important;
+        border-top: 1px solid #f8f9fa !important;
     }
-    
+    #citySelectionModal .modal-title {
+        color: #FF69B4 !important;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+    }
+    #citySelectionModal .btn-close {
+        filter: none !important;
+    }
+    #citySelectionModal .btn-primary {
+        background: #FF69B4;
+        border-color: #FF69B4;
+        color: #fff;
+        font-weight: 600;
+        border-radius: 6px;
+        box-shadow: 0 2px 8px rgba(255,105,180,0.08);
+    }
+    #citySelectionModal .btn-primary:hover {
+        background: #FF1493;
+        border-color: #FF1493;
+    }
+    #citySelectionModal .btn-secondary {
+        background: #f8f9fa;
+        color: #212529;
+        border-radius: 6px;
+        border: 1px solid #dee2e6;
+    }
+    #citySelectionCheckboxes .form-check-input:checked {
+        background-color: #FF69B4;
+        border-color: #FF69B4;
+    }
+    #citySelectionCheckboxes .form-check-input:focus {
+        box-shadow: 0 0 0 0.15rem rgba(255,105,180,0.25);
+        border-color: #FF69B4;
+    }
     #citySelectionCheckboxes .form-check-label {
-        font-size: 0.9rem;
+        color: #212529;
+        font-size: 1rem;
+        font-weight: 500;
+    }
+    #citySelectionCounter {
+        color: #FF69B4 !important;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
     }
 </style>
 
@@ -242,7 +287,8 @@ document.addEventListener('DOMContentLoaded', function() {
         { name: 'Toronto', timezone: 'America/Toronto', country: 'Canada', coords: { x: '24%', y: '33%' } },
         { name: 'Amsterdam', timezone: 'Europe/Amsterdam', country: 'Netherlands', coords: { x: '48.5%', y: '29%' } },
         { name: 'Prague', timezone: 'Europe/Prague', country: 'Czech Republic', coords: { x: '51.5%', y: '31.5%' } },
-        { name: 'Dublin', timezone: 'Europe/Dublin', country: 'Ireland', coords: { x: '45.5%', y: '29.5%' } }
+        { name: 'Dublin', timezone: 'Europe/Dublin', country: 'Ireland', coords: { x: '45.5%', y: '29.5%' } },
+        { name: 'Athens', timezone: 'Europe/Athens', country: 'Greece', coords: { x: '54%', y: '39%' } }
     ];
 
     const cityClocksRow = document.getElementById('cityClocksRow');
@@ -335,8 +381,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const selectedCities = getSelectedCities();
 
         const countryToCityMap = {
-            'United States': ['San Francisco', 'New York', 'Toronto'], // Toronto added to US for map display simplification if no distinct Canada data
-            'United Kingdom': ['London', 'Dublin'], // Dublin added to UK for map display if no distinct Ireland data
+            'United States': ['San Francisco', 'New York', 'Toronto'],
+            'United Kingdom': ['London', 'Dublin'],
             'Germany': ['Berlin'],
             'China': ['Beijing'],
             'Japan': ['Tokyo'],
@@ -354,23 +400,24 @@ document.addEventListener('DOMContentLoaded', function() {
             'Argentina': ['Buenos Aires'],
             'Spain': ['Madrid'],
             'Netherlands': ['Amsterdam'],
-            'Czech Republic': ['Prague']
+            'Czech Republic': ['Prague'],
+            'Greece': ['Athens']
         };
         
         // City coordinates (approximate positions for the hotspots on the new map)
         // These values will likely need further fine-tuning by visually checking the map.
         const cityCoordinates = {
-            'San Francisco': { x: '14%', y: '42%' }, 
-            'New York': { x: '22%', y: '40%' },    
-            'London': { x: '45%', y: '32%' },      
-            'Berlin': { x: '49%', y: '33%' },      
-            'Beijing': { x: '72%', y: '40%' },     
-            'Tokyo': { x: '80%', y: '40%' },       
-            'Sydney': { x: '83%', y: '78%' }, 
-            'Sao Paulo': { x: '32%', y: '70%' }, 
-            'Moscow': { x: '59%', y: '28%' }, 
-            'Johannesburg': { x: '53%', y: '75%' }, 
-            'Dubai': { x: '61%', y: '48%' },  
+            'San Francisco': { x: '14%', y: '42%' },
+            'New York': { x: '22%', y: '40%' },
+            'London': { x: '45%', y: '32%' },
+            'Berlin': { x: '49%', y: '33%' },
+            'Beijing': { x: '72%', y: '40%' },
+            'Tokyo': { x: '80%', y: '40%' },
+            'Sydney': { x: '83%', y: '78%' },
+            'Sao Paulo': { x: '32%', y: '70%' },
+            'Moscow': { x: '59%', y: '28%' },
+            'Johannesburg': { x: '53%', y: '75%' },
+            'Dubai': { x: '61%', y: '48%' },
             'Singapore': { x: '71%', y: '60%' },
             'Paris': { x: '47%', y: '34%' },
             'Rome': { x: '49.5%', y: '37%' },
@@ -382,7 +429,8 @@ document.addEventListener('DOMContentLoaded', function() {
             'Toronto': { x: '23%', y: '34%' },
             'Amsterdam': { x: '48%', y: '30%' },
             'Prague': { x: '51%', y: '32%' },
-            'Dublin': { x: '44.5%', y: '29%' }
+            'Dublin': { x: '44.5%', y: '29%' },
+            'Athens': { x: '54%', y: '39%' }
         };
         
         // If no data, use dummy data for now - this time organized by country
