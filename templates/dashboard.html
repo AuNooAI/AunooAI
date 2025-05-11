@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}AuNoo AI - News Monitoring Dashboard{% endblock %}
+{% block title %}AuNoo AI - OSINT Monitoring Dashboard{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -277,6 +277,106 @@
         min-width: 120px;
         flex-shrink: 0;
     }
+
+    /* Engagement Metrics Styles */
+    .engagement-metrics {
+        display: flex;
+        gap: 16px;
+        color: var(--dark-gray);
+        font-size: 0.9rem;
+    }
+    
+    .metric {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        background-color: var(--light-gray);
+        border-radius: 4px;
+        transition: background-color 0.2s;
+    }
+    
+    .metric:hover {
+        background-color: var(--medium-gray);
+    }
+    
+    .metric i {
+        color: var(--primary-color);
+    }
+    
+    /* Hashtags and Mentions Styles */
+    .hashtags, .mentions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+    
+    .badge {
+        font-size: 0.85rem;
+        padding: 4px 8px;
+        border-radius: 4px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+    }
+    
+    .badge i {
+        font-size: 0.8rem;
+    }
+    
+    /* Enhanced Article Item Styles */
+    .article-item {
+        transition: transform 0.2s, box-shadow 0.2s;
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 20px;
+        background-color: white;
+    }
+    
+    .article-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+    
+    .article-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin-bottom: 12px;
+        line-height: 1.4;
+    }
+    
+    .article-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        color: var(--dark-gray);
+        font-size: 0.9rem;
+        margin-bottom: 12px;
+    }
+    
+    .article-summary {
+        font-size: 1rem;
+        line-height: 1.6;
+        color: var(--text-color);
+        margin-bottom: 16px;
+    }
+    
+    /* Responsive Adjustments */
+    @media (max-width: 768px) {
+        .engagement-metrics {
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .metric {
+            font-size: 0.85rem;
+        }
+        
+        .badge {
+            font-size: 0.8rem;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -285,7 +385,7 @@
     <!-- Add status messages section -->
     <div class="d-flex justify-content-between align-items-start mb-4">
         <div>
-            <h2 class="mb-3">News Monitoring Dashboard</h2>
+            <h2 class="mb-3">OSINT Monitoring Dashboard</h2>
             <div class="d-flex flex-column gap-2">
                 {% if last_error %}
                     <div class="alert alert-warning d-flex align-items-center">
@@ -293,18 +393,6 @@
                         {{ last_error }}
                     </div>
                 {% endif %}
-                <div class="d-flex align-items-center gap-3">
-                    <div class="text-muted">
-                        <i class="fas fa-chart-line"></i> API Requests Today: 
-                        <span id="requestCount">0</span>/<span id="requestLimit">100</span>
-                    </div>
-                    {% if is_rate_limited %}
-                        <span class="text-warning">
-                            <i class="fas fa-exclamation-triangle"></i>
-                            Daily request limit reached. Some content may be unavailable.
-                        </span>
-                    {% endif %}
-                </div>
             </div>
         </div>
     </div>
@@ -322,17 +410,26 @@
                                 <label class="mb-0">Show:</label>
                                 <select class="form-control form-control-sm" 
                                         id="articleCount-{{ topic.topic }}"
-                                        onchange="loadArticles('{{ topic.topic }}')">
+                                        onchange="loadArticles('{{ topic.topic }}')"
+                                        data-bs-toggle="tooltip" 
+                                        data-bs-placement="top" 
+                                        title="Number of articles to display">
                                     {% for n in [3, 5, 10, 15, 20] %}
                                     <option value="{{ n }}" {% if n == 5 %}selected{% endif %}>{{ n }}</option>
                                     {% endfor %}
                                 </select>
                             </div>
-                            <button class="btn-refresh" onclick="loadArticles('{{ topic.topic }}')">
+                            <button class="btn-refresh" onclick="loadArticles('{{ topic.topic }}')"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="Refresh articles">
                                 <i class="fas fa-sync-alt"></i>
                                 <span class="d-none d-sm-inline">Refresh</span>
                             </button>
-                            <button class="btn-delete" onclick="deleteTopic('{{ topic.topic }}')">
+                            <button class="btn-delete" onclick="deleteTopic('{{ topic.topic }}')"
+                                    data-bs-toggle="tooltip" 
+                                    data-bs-placement="top" 
+                                    title="Delete this topic">
                                 <i class="fas fa-trash"></i>
                                 <span class="d-none d-sm-inline">Delete</span>
                             </button>
@@ -350,19 +447,30 @@
                                     <span>Bluesky Posts</span>
                                     <div class="keyword-badge">
                                         <span id="newsKeyword-{{ topic.topic }}">{{ topic.news_query }}</span>
-                                        <button class="btn-edit" onclick="editKeyword('news', '{{ topic.topic }}')">
+                                        <button class="btn-edit" onclick="editKeyword('news', '{{ topic.topic }}')"
+                                                data-bs-toggle="tooltip" 
+                                                data-bs-placement="top" 
+                                                title="Edit news keyword">
                                             <i class="fas fa-pencil-alt"></i>
                                         </button>
                                     </div>
                                     <div class="section-controls">
                                         <div class="btn-group me-2">
-                                            <button type="button" class="btn btn-sm btn-outline-primary active" id="sourceBluesky-{{ topic.topic }}" onclick="setSource('{{ topic.topic }}', 'bluesky')">
+                                            <button type="button" class="btn btn-sm btn-outline-primary active" 
+                                                    id="sourceBluesky-{{ topic.topic }}" 
+                                                    onclick="setSource('{{ topic.topic }}', 'bluesky')"
+                                                    data-bs-toggle="tooltip" 
+                                                    data-bs-placement="top" 
+                                                    title="View Bluesky posts">
                                                 <i class="fab fa-at"></i> Bluesky
                                             </button>
                                         </div>
                                         <select class="form-control form-control-sm sort-select" 
                                                 id="newsSort-{{ topic.topic }}"
-                                                onchange="loadArticles('{{ topic.topic }}')">
+                                                onchange="loadArticles('{{ topic.topic }}')"
+                                                data-bs-toggle="tooltip" 
+                                                data-bs-placement="top" 
+                                                title="Sort articles by">
                                             <option value="publishedAt">Newest First</option>
                                             <option value="relevancy">Most Relevant</option>
                                             <option value="popularity">Most Popular</option>
@@ -390,7 +498,10 @@
                                     <span class="me-2">Papers</span>
                                     <div class="keyword-badge">
                                         <span id="paperKeyword-{{ topic.topic }}">{{ topic.paper_query }}</span>
-                                        <button class="btn-edit ms-2" onclick="editKeyword('paper', '{{ topic.topic }}')">
+                                        <button class="btn-edit ms-2" onclick="editKeyword('paper', '{{ topic.topic }}')"
+                                                data-bs-toggle="tooltip" 
+                                                data-bs-placement="top" 
+                                                title="Edit paper keyword">
                                             <i class="fas fa-pencil-alt"></i>
                                         </button>
                                     </div>
@@ -646,9 +757,6 @@ function updateArticlesDisplay(topicId, data, type = 'both') {
 function updateNewsContainer(topicId, articles) {
     const container = document.getElementById(`latestNews-${topicId}`);
     
-    // Log what we're getting
-    console.log(`Updating news container for ${topicId} with:`, articles);
-    
     if (!articles || articles.length === 0) {
         container.innerHTML = `
             <div class="alert alert-info">
@@ -664,23 +772,29 @@ function updateNewsContainer(topicId, articles) {
         return;
     }
     
-    // Safely access properties with fallbacks
     container.innerHTML = articles.map(article => {
-        // Make sure required properties exist with fallbacks
         const title = article.title || 'Untitled Post';
         const url = article.url || '#';
         const source = article.source || 'Bluesky';
         const date = article.date || '';
         const author = article.author || 'Unknown';
         const summary = article.summary || 'No content';
-        const imageUrl = article.image_url || null;
+        // Handle Bluesky images properly
+        const imageUrl = article.images && article.images.length > 0 ? article.images[0].url : null;
+        const likes = article.likes || 0;
+        const reposts = article.reposts || 0;
+        const replies = article.replies || 0;
+        const quotes = article.quotes || 0;
+        const hashtags = article.hashtags || [];
+        const mentions = article.mentions || [];
         
         return `
         <div class="article-item" data-article-url="${url}">
             <div class="row">
                 ${imageUrl ? `
                     <div class="col-md-3">
-                        <img src="${imageUrl}" class="img-fluid rounded" alt="Article image">
+                        <img src="${imageUrl}" class="img-fluid rounded" alt="Post image" 
+                             onerror="this.onerror=null; this.style.display='none'; this.parentElement.style.display='none';">
                     </div>
                     <div class="col-md-9">
                 ` : '<div class="col-12">'}
@@ -695,17 +809,66 @@ function updateNewsContainer(topicId, articles) {
                         ${author ? `<span><i class="fas fa-user"></i> ${author}</span>` : ''}
                     </div>
                     <p class="article-summary">${summary}</p>
+                    
+                    <!-- Engagement Metrics -->
+                    <div class="engagement-metrics mt-2 mb-2">
+                        <span class="metric" data-bs-toggle="tooltip" title="Likes">
+                            <i class="fas fa-heart"></i> ${likes.toLocaleString()}
+                        </span>
+                        <span class="metric" data-bs-toggle="tooltip" title="Reposts">
+                            <i class="fas fa-retweet"></i> ${reposts.toLocaleString()}
+                        </span>
+                        <span class="metric" data-bs-toggle="tooltip" title="Replies">
+                            <i class="fas fa-comment"></i> ${replies.toLocaleString()}
+                        </span>
+                        ${quotes ? `
+                        <span class="metric" data-bs-toggle="tooltip" title="Quotes">
+                            <i class="fas fa-quote-right"></i> ${quotes.toLocaleString()}
+                        </span>
+                        ` : ''}
+                    </div>
+                    
+                    <!-- Hashtags and Mentions -->
+                    ${hashtags.length > 0 ? `
+                        <div class="hashtags mb-2">
+                            ${hashtags.map(tag => `
+                                <span class="badge bg-light text-dark me-1">
+                                    <i class="fas fa-hashtag"></i> ${tag}
+                                </span>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    
+                    ${mentions.length > 0 ? `
+                        <div class="mentions mb-2">
+                            ${mentions.map(mention => `
+                                <span class="badge bg-info text-white me-1">
+                                    <i class="fas fa-at"></i> ${mention}
+                                </span>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                    
                     <div class="mt-2">
                         <a href="${url}" target="_blank" rel="noopener noreferrer" 
-                           class="btn btn-sm btn-outline-primary me-2">
+                           class="btn btn-sm btn-outline-primary me-2"
+                           data-bs-toggle="tooltip" 
+                           data-bs-placement="top" 
+                           title="View original post">
                             <i class="fas fa-external-link-alt"></i> View on Bluesky
                         </a>
                         <a href="/research?url=${encodeURIComponent(url)}&topic=${encodeURIComponent(topicId)}" 
-                           class="btn btn-sm btn-outline-success me-2">
+                           class="btn btn-sm btn-outline-success me-2"
+                           data-bs-toggle="tooltip" 
+                           data-bs-placement="top" 
+                           title="Analyze this post">
                             <i class="fas fa-microscope"></i> Analyze
                         </a>
                         <button onclick="hideArticle('${url}', '${topicId}', 'news')"
-                                class="btn btn-sm btn-outline-danger">
+                                class="btn btn-sm btn-outline-danger"
+                                data-bs-toggle="tooltip" 
+                                data-bs-placement="top" 
+                                title="Hide this post">
                             <i class="fas fa-eye-slash"></i> Hide
                         </button>
                     </div>
@@ -714,6 +877,9 @@ function updateNewsContainer(topicId, articles) {
         </div>
         `;
     }).join('');
+    
+    // Initialize tooltips for the new content
+    initializeTooltips();
 }
 
 // Helper function to update papers container
@@ -733,25 +899,40 @@ function updatePapersContainer(topicId, articles) {
             <p class="article-summary">${article.summary}</p>
             <div class="mt-2">
                 <a href="${article.url}" target="_blank" rel="noopener noreferrer" 
-                   class="btn btn-sm btn-outline-primary me-2">
+                   class="btn btn-sm btn-outline-primary me-2"
+                   data-bs-toggle="tooltip" 
+                   data-bs-placement="top" 
+                   title="View original paper">
                     <i class="fas fa-external-link-alt"></i> View
                 </a>
                 <a href="https://archive.is/${encodeURIComponent(article.url)}" 
                    target="_blank" rel="noopener noreferrer"
-                   class="btn btn-sm btn-outline-secondary me-2">
-                            <i class="fas fa-unlock"></i> Bypass Paywall
-                        </a>
+                   class="btn btn-sm btn-outline-secondary me-2"
+                   data-bs-toggle="tooltip" 
+                   data-bs-placement="top" 
+                   title="Access paper through archive">
+                    <i class="fas fa-unlock"></i> Bypass Paywall
+                </a>
                 <a href="/research?url=${encodeURIComponent(article.url)}&topic=${encodeURIComponent(topicId)}" 
-                   class="btn btn-sm btn-outline-success me-2">
+                   class="btn btn-sm btn-outline-success me-2"
+                   data-bs-toggle="tooltip" 
+                   data-bs-placement="top" 
+                   title="Analyze this paper">
                     <i class="fas fa-microscope"></i> Analyze
                 </a>
                 <button onclick="hideArticle('${article.url}', '${topicId}', 'papers')"
-                        class="btn btn-sm btn-outline-danger">
+                        class="btn btn-sm btn-outline-danger"
+                        data-bs-toggle="tooltip" 
+                        data-bs-placement="top" 
+                        title="Hide this paper">
                     <i class="fas fa-eye-slash"></i> Hide
                 </button>
             </div>
         </div>
     `).join('') : '<div class="alert alert-info">No papers found</div>';
+    
+    // Initialize tooltips for the new content
+    initializeTooltips();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -885,6 +1066,29 @@ setInterval(updateRequestStatus, 60000);
 
 // Initial load
 document.addEventListener('DOMContentLoaded', updateRequestStatus);
+
+document.addEventListener('DOMContentLoaded', function() {
+    updateClocks();
+    setInterval(updateClocks, 1000);
+    
+    // Initialize all tooltips
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl, {
+            trigger: 'hover'
+        });
+    });
+});
+
+// Add tooltip initialization after dynamic content updates
+function initializeTooltips() {
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function (tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl, {
+            trigger: 'hover'
+        });
+    });
+}
 </script>
 {% endblock %}
 
