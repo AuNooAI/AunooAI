@@ -57,9 +57,15 @@ async def get_newsletter_content_types():
         {"id": "article_insights", "name": "Article Insights", 
          "description": "Thematic analysis of articles"},
         {"id": "key_articles", "name": "Key Articles", 
-         "description": "List of key articles with links"},
+         "description": "List of key articles with links and 'why it merits attention'"},
         {"id": "latest_podcast", "name": "Latest Podcast", 
-         "description": "Link to the latest podcast for the topic"}
+         "description": "Link and summary for the latest podcast"},
+        {"id": "ethical_societal_impact", "name": "Ethical & Societal Impact",
+         "description": "Analysis of ethical and societal implications"},
+        {"id": "business_impact", "name": "Business Impact",
+         "description": "Analysis of business implications and opportunities"},
+        {"id": "market_impact", "name": "Market Impact",
+         "description": "Analysis of market trends and competitive landscape"}
     ]
     return JSONResponse(content=content_types)
 

@@ -28,36 +28,56 @@ class NewsletterService:
         Returns:
             str: Compiled markdown content
         """
-        logger.info(f"Compiling newsletter with frequency: {request.frequency}, topics: {request.topics}")
+        logger.info(f"Received newsletter compilation request: {request.model_dump_json(indent=2)}")
         
-        # Calculate effective date range if not provided
-        start_date, end_date = self._calculate_date_range(
-            request.frequency, 
-            request.start_date, 
-            request.end_date
-        )
-        
-        # Initialize the markdown content
-        markdown_content = self._create_header(request.frequency, request.topics, start_date, end_date)
-        
-        # Process each topic and content type
-        for topic in request.topics:
-            topic_content = f"## {topic}\n\n"
+        try:
+            # Calculate effective date range if not provided
+            start_date, end_date = self._calculate_date_range(
+                request.frequency, 
+                request.start_date, 
+                request.end_date
+            )
+            logger.info(f"Calculated date range: {start_date} to {end_date}")
             
-            for content_type in request.content_types:
-                section_content = await self._generate_content_section(
-                    topic, 
-                    content_type, 
-                    start_date, 
-                    end_date
-                )
-                if section_content:
-                    topic_content += f"### {self._get_content_type_display_name(content_type)}\n\n"
-                    topic_content += f"{section_content}\n\n"
+            # Initialize the markdown content
+            markdown_content = self._create_header(request.frequency, request.topics, start_date, end_date)
             
-            markdown_content += topic_content
-        
-        return markdown_content
+            # Process each topic and content type
+            for topic in request.topics:
+                logger.info(f"Processing topic: {topic}")
+                topic_content = f"## {topic}\n\n"
+                
+                for content_type in request.content_types:
+                    logger.info(f"Generating content for topic '{topic}', type: '{content_type}'")
+                    try:
+                        section_content = await self._generate_content_section(
+                            topic, 
+                            content_type, 
+                            start_date, 
+                            end_date
+                        )
+                        if section_content:
+                            logger.info(f"Successfully generated content for '{topic}' - '{content_type}'")
+                            topic_content += f"### {self._get_content_type_display_name(content_type)}\n\n"
+                            topic_content += f"{section_content}\n\n"
+                        else:
+                            logger.warning(f"No content generated or returned for '{topic}' - '{content_type}'")
+                    except Exception as e_section:
+                        logger.error(f"Error generating section '{content_type}' for topic '{topic}': {str(e_section)}", exc_info=True)
+                        topic_content += f"### {self._get_content_type_display_name(content_type)}\n\n"
+                        topic_content += f"_Error generating this section._\n\n"
+                
+                markdown_content += topic_content
+            
+            logger.info(f"Newsletter compilation completed for request: {request.frequency}, topics: {request.topics}")
+            # logger.debug(f"Final Markdown (first 500 chars):\n{markdown_content[:500]}") # Optional: log snippet of content
+            return markdown_content
+
+        except Exception as e_compile:
+            logger.error(f"Fatal error during newsletter compilation: {str(e_compile)}", exc_info=True)
+            # Reraise the exception so FastAPI can handle it and return a 500, or return a generic error message string
+            # For now, let it propagate to ensure the 500 error is still triggered if not caught by FastAPI's error handling
+            raise
 
     def _calculate_date_range(
         self, 
@@ -155,6 +175,12 @@ class NewsletterService:
             return await self._generate_key_articles_list(topic, start_date, end_date)
         elif content_type == "latest_podcast":
             return await self._generate_latest_podcast(topic)
+        elif content_type == "ethical_societal_impact":
+            return await self._generate_ethical_societal_impact_section(topic, start_date, end_date)
+        elif content_type == "business_impact":
+            return await self._generate_business_impact_section(topic, start_date, end_date)
+        elif content_type == "market_impact":
+            return await self._generate_market_impact_section(topic, start_date, end_date)
         else:
             logger.warning(f"Unknown content type: {content_type}")
             return None
@@ -199,7 +225,7 @@ class NewsletterService:
             else:
                 return str(response)
         except Exception as e:
-            logger.error(f"Error generating topic summary: {str(e)}")
+            logger.error(f"Error generating topic summary for '{topic}': {str(e)}", exc_info=True)
             return "Error generating topic summary."
 
     async def _generate_key_charts(
@@ -248,7 +274,7 @@ class NewsletterService:
         end_date: datetime.date
     ) -> str:
         """
-        Generate trend analysis based on article metadata.
+        Generate trend analysis based on article metadata, now with article citations.
         
         Args:
             topic: Topic to analyze
@@ -258,8 +284,8 @@ class NewsletterService:
         Returns:
             str: Markdown trend analysis
         """
-        # Fetch articles for the topic within date range
-        articles = self._fetch_articles(topic, start_date, end_date)
+        # Fetch articles for the topic within date range - limit for metadata and prompt
+        articles = self._fetch_articles(topic, start_date, end_date, limit=50) # Fetch up to 50 for metadata
         
         if not articles:
             return "No articles found for trend analysis in this period."
@@ -267,9 +293,16 @@ class NewsletterService:
         # Extract trend data (sentiment, categories, future signals, etc.)
         trend_data = self._extract_trend_data(articles)
         
+        # Prepare a concise list of article titles and URIs for citation in the prompt
+        articles_for_citation_prompt_str = ""
+        for art in articles[:15]: # Use first 15 articles for citation context
+            title = art.get("title", "Untitled")
+            uri = art.get("uri", "#")
+            articles_for_citation_prompt_str += f"- Title: {title}, URI: {uri}\\n"
+        
         # Generate analysis using AI model
         ai_model = get_ai_model(model_name="gpt-3.5-turbo")
-        prompt = self._create_trend_analysis_prompt(topic, trend_data)
+        prompt = self._create_trend_analysis_prompt(topic, trend_data, articles_for_citation_prompt_str)
         
         try:
             response = await ai_model.generate(prompt)
@@ -281,7 +314,7 @@ class NewsletterService:
             else:
                 return str(response)
         except Exception as e:
-            logger.error(f"Error generating trend analysis: {str(e)}")
+            logger.error(f"Error generating trend analysis for '{topic}': {str(e)}", exc_info=True)
             return "Error generating trend analysis."
 
     async def _generate_article_insights(
@@ -442,7 +475,7 @@ class NewsletterService:
             return self._format_article_insights_from_api(final_themed_insights)
                 
         except Exception as e:
-            logger.error(f"Error generating article insights: {str(e)}", exc_info=True)
+            logger.error(f"Error generating article insights for '{topic}': {str(e)}", exc_info=True)
             return f"Error generating article insights: {str(e)}"
 
     def _format_article_insights_from_api(self, themed_insights: list) -> str:
@@ -488,7 +521,7 @@ class NewsletterService:
         topic: str, 
         start_date: datetime.date, 
         end_date: datetime.date,
-        limit: int = 10
+        limit: int = 6
     ) -> str:
         """
         Generate a list of key articles with links and brief summaries using the report markdown template.
@@ -496,7 +529,10 @@ class NewsletterService:
         articles = self._fetch_articles(topic, start_date, end_date, limit=limit)
         if not articles:
             return "No key articles found for this period."
-        result = "**Note:** The following articles are referenced in the Article Insights section.\n\n"
+        
+        result = "**Key Articles for Your Attention:**\\n\\n" 
+        ai_model = get_ai_model(model_name="gpt-3.5-turbo") # Initialize model once
+
         for idx, article in enumerate(articles, 1):
             title = article.get("title", "Untitled")
             uri = article.get("uri", "#")
@@ -510,40 +546,105 @@ class NewsletterService:
                     tag_str = ", ".join(tags)
                 elif isinstance(tags, str):
                     tag_str = tags
+
+            # Generate 'Why this merits your attention' blurb
+            why_merits_attention = "Analysis of importance pending."
+            if summary != "No summary available.":
+                try:
+                    attention_prompt = self._create_why_merits_attention_prompt(title, summary)
+                    response = await ai_model.generate(attention_prompt)
+                    if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                        why_merits_attention = response.message.content.strip()
+                    elif hasattr(response, 'content'):
+                        why_merits_attention = response.content.strip()
+                    else:
+                        why_merits_attention = str(response).strip()
+                except Exception as e:
+                    logger.error(f"Error generating 'why merits attention' for '{title}': {str(e)}", exc_info=True)
+                    why_merits_attention = "Could not generate importance analysis."
+            else:
+                why_merits_attention = "Full summary not available to determine specific importance."
+
             result += (
-                f"- **[{title}]({uri})**  \n"
-                f"  *Source:* {source}  |  *Date:* {pub_date}\n"
-                f"  *Summary:* {summary}\n"
-                f"  {'*Tags:* ' + tag_str if tag_str else ''}\n\n"
+                f"- **[{title}]({uri})**\\n"
+                f"  *Source:* {source}  |  *Date:* {pub_date}\\n"
+                f"  *Summary:* {summary}\\n"
+                f"  *Why this merits your attention:* {why_merits_attention}\\n"
+                f"  {'\*Tags:* ' + tag_str if tag_str else ''}\\n\\n"
             )
         return result
 
+    def _create_why_merits_attention_prompt(self, article_title: str, article_summary: str) -> str:
+        """Create prompt to explain why an article merits a decision maker's attention."""
+        return (
+            f"Article Title: \"{article_title}\"\n"
+            f"Article Summary: \"{article_summary}\"\n\n"
+            f"Based on the title and summary above, provide a single, concise sentence (max 25 words) explaining to a busy decision maker why this specific article merits their attention. Focus on its key insight, implication, or relevance for strategic thinking."
+        )
+
     async def _generate_latest_podcast(self, topic: str) -> str:
         """
-        Generate link to the latest podcast, including a clickable link if available.
+        Generate link to the latest podcast, including a clickable link if available,
+        an image, and an AI-generated summary of its transcript.
         """
+        podcast_data = None
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
+            # Assuming a 'transcript_text' field exists in the podcasts table
             cursor.execute(
                 """
-                SELECT id, title, created_at, audio_url
+                SELECT id, title, created_at, audio_url, transcript_text 
                 FROM podcasts
+                WHERE topic = ? OR topic IS NULL OR topic = 'General' # Added topic filter, fallback to NULL or General
                 ORDER BY created_at DESC
                 LIMIT 1
-                """
+                """,
+                (topic,)
             )
-            result = cursor.fetchone()
-        if not result:
-            return "No podcasts available."
-        podcast_id, title, created_at, audio_url = result
+            podcast_data = cursor.fetchone()
+
+        if not podcast_data:
+            return "No recent podcasts available for this topic."
+        
+        podcast_id, title, created_at, audio_url, transcript_text = podcast_data
+        
+        podcast_summary = "Summary not available."
+        if transcript_text and transcript_text.strip():
+            try:
+                ai_model = get_ai_model(model_name="gpt-3.5-turbo")
+                summary_prompt = self._create_podcast_summary_prompt(title, transcript_text)
+                response = await ai_model.generate(summary_prompt)
+                if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                    podcast_summary = response.message.content.strip()
+                elif hasattr(response, 'content'):
+                    podcast_summary = response.content.strip()
+                else:
+                    podcast_summary = str(response).strip()
+            except Exception as e:
+                logger.error(f"Error generating podcast summary for '{title}': {str(e)}", exc_info=True)
+                podcast_summary = "Could not generate summary."
+        elif not transcript_text or not transcript_text.strip():
+             podcast_summary = "Transcript not available for summarization."
+
+        # Image markdown - assuming static path
+        image_markdown = "![Podcast Briefing](/static/img/trend_daily_briefing_square.gif)\\n"
+        
+        result = image_markdown
+        result += f"**Latest Podcast: {title}** (Published: {created_at.strftime('%Y-%m-%d')})\\n"
         if audio_url:
-            return (
-                f"Latest podcast: [{title}]({audio_url}) "
-                f"(Created on {created_at})"
-            )
+            result += f"[Listen Now]({audio_url})\\n"
+        result += f"*Summary:* {podcast_summary}\\n"
+        
+        return result
+
+    def _create_podcast_summary_prompt(self, podcast_title: str, transcript: str) -> str:
+        """Create prompt for summarizing a podcast transcript."""
+        # Take first N characters of transcript to avoid overly long prompts
+        transcript_snippet = transcript[:3000] 
         return (
-            f"Latest podcast: {title} "
-            f"(Created on {created_at})"
+            f"Podcast Title: \"{podcast_title}\"\n"
+            f"Transcript Snippet:\n\"{transcript_snippet}...\"\n\n"
+            f"Based on the podcast title and transcript snippet, provide a concise 2-3 sentence summary highlighting the key topics or insights discussed. Focus on what would be most relevant for a busy decision maker."
         )
 
     def _fetch_articles(
@@ -594,6 +695,7 @@ class NewsletterService:
             article_dict = dict(zip(column_names, row))
             result.append(article_dict)
             
+        logger.info(f"Fetched {len(articles)} articles for topic '{topic}' between {start_str} and {end_str}.")
         return result
 
     def _prepare_articles_data(self, articles: List[Dict]) -> str:
@@ -679,47 +781,85 @@ class NewsletterService:
 
     def _create_summary_prompt(self, topic: str, article_data: str) -> str:
         """
-        Create prompt for topic summary generation with explicit structure.
+        Create prompt for topic summary generation with explicit structure and links,
+        tailored for a decision-making audience.
         """
-        return f"""
-        Write a structured summary for the topic \"{topic}\" based on the following articles. Use the following format:
+        return (
+            f"You are an AI assistant analyzing articles about '{topic}' for a busy decision-maker.\n"
+            f"Write a concise, structured summary based on the provided articles. Focus on the most critical information. Use bullet points for lists.\n"
+            f"Do not reference article numbers in your output.\n\n"
+            f"Use the following format:\n\n"
+            f"**Summary of {topic}**\n"
+            f"- Provide a brief (2-3 sentences) high-level overview of the current state of '{topic}'.\n\n"
+            f"**Top Three Developments**\n"
+            f"- Development 1: [Briefly state the development]. **Why this is need-to-know:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n"
+            f"- Development 2: [Briefly state the development]. **Why this is need-to-know:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n"
+            f"- Development 3: [Briefly state the development]. **Why this is need-to-know:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n\n"
+            f"**Top 3 Industry Trends**\n"
+            f"- Trend 1: [Briefly state the trend]. **Why this is interesting:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n"
+            f"- Trend 2: [Briefly state the trend]. **Why this is interesting:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n"
+            f"- Trend 3: [Briefly state the trend]. **Why this is interesting:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n\n"
+            f"**Strategic Takeaways for Decision Makers:**\n"
+            f"- Provide 2-3 high-level strategic implications or actionable insights derived from the above points that a decision maker should consider.\n\n"
+            f"Important: Always use the exact article titles and URIs from the data. Be very concise and focus on impact.\n\n"
+            f"Articles for analysis:\n{article_data}"
+        )
 
-        **Key Developments:**
-        - Bullet points summarizing the most important news or events.
-
-        **Ethical & Societal Impacts:**
-        - Bullet points on ethical, legal, or societal issues raised in the articles.
-
-        **Industry Trends:**
-        - Bullet points on business, technology, or adoption trends.
-
-        Use clear subheadings and concise bullet points. Reference article numbers (see Key Articles section) where relevant.
-
-        Articles:
-        {article_data}
+    def _create_trend_analysis_prompt(self, topic: str, trend_data: Dict, article_data_str: str) -> str:
         """
-
-    def _create_trend_analysis_prompt(self, topic: str, trend_data: Dict) -> str:
+        Create prompt for trend analysis content with insight-driven format,
+        now including a placeholder for article data for citation.
         """
-        Create prompt for trend analysis generation, matching dashboard style.
-        """
-        categories_str = "\n".join([f"- {k}: {v}" for k, v in trend_data.get("categories", {}).items()])
-        signals_str = "\n".join([f"- {k}: {v}" for k, v in trend_data.get("future_signals", {}).items()])
-        sentiments_str = "\n".join([f"- {k}: {v}" for k, v in trend_data.get("sentiments", {}).items()])
-        impacts_str = "\n".join([f"- {k}: {v}" for k, v in trend_data.get("time_to_impacts", {}).items()])
-        top_tags = sorted(trend_data.get("tags", {}).items(), key=lambda x: x[1], reverse=True)[:10]
-        tags_str = ", ".join([f"{k}" for k, v in top_tags])
-        return f"""
-        Analyze the following trend data for \"{topic}\". Provide a concise, analytical overview with clear subheadings:
+        # Format data for prompt
+        categories = trend_data.get("categories", {})
+        sentiments = trend_data.get("sentiments", {})
+        future_signals = trend_data.get("future_signals", {})
+        time_to_impacts = trend_data.get("time_to_impacts", {})
+        # Ensure top_tags is a list of tuples/lists if it comes from items()
+        tags_data = trend_data.get("tags", {})
+        if isinstance(tags_data, dict):
+            # Sort tags by count and take top N, e.g., top 10
+            top_tags_list = sorted(tags_data.items(), key=lambda item: item[1], reverse=True)[:10]
+        elif isinstance(tags_data, list): # Assuming it might already be a list of [tag, count] pairs
+            top_tags_list = sorted(tags_data, key=lambda item: item[1], reverse=True)[:10]
+        else:
+            top_tags_list = [] # Default to empty list if format is unexpected
 
-        **Categories Distribution:**\n{categories_str}
-        **Future Signals:**\n{signals_str}
-        **Sentiment Distribution:**\n{sentiments_str}
-        **Time to Impact:**\n{impacts_str}
-        **Top Tags:** {tags_str}
-
-        Write 2-3 paragraphs highlighting patterns, shifts, and key insights. Use the same analytical style as the dashboard.
-        """
+        # Format each section nicely for the prompt
+        categories_str = "\\n".join([f"- {k}: {v}" for k, v in categories.items()])
+        sentiments_str = "\\n".join([f"- {k}: {v}" for k, v in sentiments.items()])
+        signals_str = "\\n".join([f"- {k}: {v}" for k, v in future_signals.items()])
+        tti_str = "\\n".join([f"- {k}: {v}" for k, v in time_to_impacts.items()])
+        tags_str = ", ".join([f"{k} ({v})" for k, v in top_tags_list]) # Show count for tags as well
+        
+        return (
+            f"Analyze the following trend data for '{topic}'. "
+            f"Provide a concise, structured analysis of trends and patterns, noting emerging themes and developments based on these data patterns.\n\n"
+            f"**Overall Trend Data for {topic}:**\n"
+            f"- Categories Distribution: {categories_str}\n"
+            f"- Sentiment Distribution: {sentiments_str}\n"
+            f"- Future Signal Distribution: {signals_str}\n"
+            f"- Time to Impact Distribution: {tti_str}\n"
+            f"- Top Tags (up to 10 with counts): {tags_str}\n\n"
+            f"**Analysis & Insights:**\n"
+            f"Begin with a 1-2 sentence overview of the general sentiment and activity level for '{topic}'.\n"
+            f"Then, for each of the following aspects, provide 2-3 bullet points highlighting key patterns, shifts, or noteworthy observations. If an observation is particularly illustrated by a specific article, cite it using **[Article Title](Article URI)** from the reference list below:\n"
+            f"  - **Category Insights:** (e.g., Dominant categories, significant shifts in category focus, surprising under/over-representation).\
+          *Observation 1... Cite if applicable.*\
+          *Observation 2... Cite if applicable.*\n"
+            f"  - **Sentiment Insights:** (e.g., Predominant sentiment, changes over time if inferable, sentiment drivers).\
+          *Observation 1... Cite if applicable.*\
+          *Observation 2... Cite if applicable.*\n"
+            f"  - **Future Outlook (Signals & TTI):** (e.g., Implications of future signals, common TTI, alignment or divergence between signals and TTI).\
+          *Observation 1... Cite if applicable.*\
+          *Observation 2... Cite if applicable.*\n"
+            f"  - **Key Tag Themes:** (e.g., Dominant tags and what they signify, clusters of related tags appearing frequently).\
+          *Observation 1... Cite if applicable.*\
+          *Observation 2... Cite if applicable.*\n\n"
+            f"Conclude with a 2-3 sentence synthesis on any connections between these different distributions or overall strategic insights valuable for decision-making.\n\n"
+            f"Reference Articles (for citation purposes only if applicable to the data patterns observed):\n{article_data_str}"
+            f"Be specific and data-driven. Avoid generic statements."
+        )
 
     def _create_insights_prompt(self, topic: str, article_data: str) -> str:
         """
@@ -727,7 +867,7 @@ class NewsletterService:
         This is kept for backward compatibility but no longer used.
         """
         return f"""
-        Identify 3-5 major themes from the articles about \"{topic}\". For each theme:
+        Identify 3-5 major themes from the articles about "{topic}". For each theme:
         - Provide a theme title
         - Write a 1-2 sentence summary of the theme
         - List the relevant articles for the theme, each with:
@@ -764,10 +904,89 @@ class NewsletterService:
             "trend_analysis": "Trend Analysis",
             "article_insights": "Article Insights",
             "key_articles": "Key Articles",
-            "latest_podcast": "Latest Podcast"
+            "latest_podcast": "Latest Podcast",
+            "ethical_societal_impact": "Ethical & Societal Impact",
+            "business_impact": "Business Impact",
+            "market_impact": "Market Impact"
         }
         
         return display_names.get(content_type, content_type.replace("_", " ").title())
+
+    # Placeholder for new impact section generators and their prompts
+    async def _generate_ethical_societal_impact_section(self, topic: str, start_date: datetime.date, end_date: datetime.date) -> Optional[str]:
+        articles = self._fetch_articles(topic, start_date, end_date, limit=15)
+        if not articles:
+            return "No articles found for Ethical & Societal Impact analysis."
+        article_data = self._prepare_articles_data(articles)
+        ai_model = get_ai_model(model_name="gpt-3.5-turbo")
+        prompt = self._create_ethical_societal_impact_prompt(topic, article_data)
+        try:
+            response = await ai_model.generate(prompt)
+            if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                return response.message.content
+            elif hasattr(response, 'content'):
+                return response.content
+            return str(response)
+        except Exception as e:
+            logger.error(f"Error generating ethical/societal impact section for '{topic}': {str(e)}", exc_info=True)
+            return "Error generating ethical/societal impact section."
+
+    def _create_ethical_societal_impact_prompt(self, topic: str, article_data: str) -> str:
+        return (
+            f"Analyze the ethical and societal impacts related to '{topic}' based on the following articles.\n"
+            f"Provide a concise analysis (2-3 paragraphs) highlighting key ethical dilemmas, societal consequences, and considerations. Cite specific examples from the articles provided using markdown links: **[Article Title](Article URI)**.\n\n"
+            f"Articles for analysis:\n{article_data}"
+        )
+
+    async def _generate_business_impact_section(self, topic: str, start_date: datetime.date, end_date: datetime.date) -> Optional[str]:
+        articles = self._fetch_articles(topic, start_date, end_date, limit=15)
+        if not articles:
+            return "No articles found for Business Impact analysis."
+        article_data = self._prepare_articles_data(articles)
+        ai_model = get_ai_model(model_name="gpt-3.5-turbo")
+        prompt = self._create_business_impact_prompt(topic, article_data)
+        try:
+            response = await ai_model.generate(prompt)
+            if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                return response.message.content
+            elif hasattr(response, 'content'):
+                return response.content
+            return str(response)
+        except Exception as e:
+            logger.error(f"Error generating business impact section for '{topic}': {str(e)}", exc_info=True)
+            return "Error generating business impact section."
+
+    def _create_business_impact_prompt(self, topic: str, article_data: str) -> str:
+        return (
+            f"Analyze the business impacts and opportunities related to '{topic}' based on the following articles.\n"
+            f"Provide a concise analysis (2-3 paragraphs) highlighting key business implications, potential opportunities, disruptions, and strategic considerations for businesses. Cite specific examples from the articles provided using markdown links: **[Article Title](Article URI)**.\n\n"
+            f"Articles for analysis:\n{article_data}"
+        )
+
+    async def _generate_market_impact_section(self, topic: str, start_date: datetime.date, end_date: datetime.date) -> Optional[str]:
+        articles = self._fetch_articles(topic, start_date, end_date, limit=15)
+        if not articles:
+            return "No articles found for Market Impact analysis."
+        article_data = self._prepare_articles_data(articles)
+        ai_model = get_ai_model(model_name="gpt-3.5-turbo")
+        prompt = self._create_market_impact_prompt(topic, article_data)
+        try:
+            response = await ai_model.generate(prompt)
+            if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                return response.message.content
+            elif hasattr(response, 'content'):
+                return response.content
+            return str(response)
+        except Exception as e:
+            logger.error(f"Error generating market impact section for '{topic}': {str(e)}", exc_info=True)
+            return "Error generating market impact section."
+
+    def _create_market_impact_prompt(self, topic: str, article_data: str) -> str:
+        return (
+            f"Analyze the market impacts, trends, and competitive landscape related to '{topic}' based on the following articles.\n"
+            f"Provide a concise analysis (2-3 paragraphs) highlighting key market trends, competitive dynamics, potential market shifts, and implications for market positioning. Cite specific examples from the articles provided using markdown links: **[Article Title](Article URI)**.\n\n"
+            f"Articles for analysis:\n{article_data}"
+        )
 
 
 # Factory function for dependency injection

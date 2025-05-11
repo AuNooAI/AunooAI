@@ -3,24 +3,63 @@
 {% block title %}Newsletter Compiler{% endblock %}
 
 {% block styles %}
+<!-- SimpleMDE Markdown Editor CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simplemde@1.11.2/dist/simplemde.min.css">
 <style>
     #editorPane, #previewPane {
         height: 500px;
-        overflow-y: auto;
         border: 1px solid #ccc;
-        padding: 10px;
+        box-sizing: border-box;
+        background-color: white;
+        border-radius: 4px;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
     }
     
-    #markdownEditor {
-        width: 100%;
-        height: 100%;
+    #editorPane {
+        padding: 0;
+    }
+    
+    #previewPane {
+        padding: 10px;
+        overflow-y: auto;
+    }
+    
+    /* Editor styles */
+    .CodeMirror {
+        height: 100% !important;
+        border-bottom-left-radius: 4px;
+        border-bottom-right-radius: 4px;
+    }
+    
+    .editor-toolbar {
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
         border: none;
-        resize: none;
-        font-family: monospace;
+        opacity: 1;
+    }
+    
+    .editor-toolbar a {
+        color: #333 !important;
+    }
+    
+    .editor-toolbar a.active, 
+    .editor-toolbar a:hover {
+        background: #e9ecef;
+        border-color: #ced4da;
+    }
+    
+    .CodeMirror, .CodeMirror-scroll {
+        min-height: 100px;
+    }
+    
+    .editor-preview-side {
+        z-index: 100;
     }
     
     #htmlPreview {
         height: 100%;
+        overflow-y: auto;
+        background-color: white;
     }
     
     .control-panel {
@@ -40,10 +79,37 @@
         text-align: center;
         margin: 20px;
     }
+
+    .editor-section {
+        margin-bottom: 20px;
+    }
+    
+    .editor-card { 
+        background-color: white;
+        border: 1px solid #dee2e6;
+        border-radius: 0.25rem;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        margin-bottom: 20px;
+    }
+    
+    .editor-card-header {
+        padding: 0.75rem 1.25rem;
+        margin-bottom: 0;
+        background-color: #f8f9fa;
+        border-bottom: 1px solid #dee2e6;
+        border-top-left-radius: calc(0.25rem - 1px);
+        border-top-right-radius: calc(0.25rem - 1px);
+    }
+
+    .editor-card-header h5 {
+        margin-bottom: 0;
+        font-size: 1rem;
+        font-weight: 500;
+    }
     
     @media (max-width: 768px) {
         #editorPane, #previewPane {
-            height: 300px;
+            height: 350px;
         }
     }
 </style>
@@ -53,8 +119,9 @@
 <div class="container mt-4">
     <h1>Newsletter Compiler</h1>
     
-    <div class="row control-panel">
-        <div class="col-md-6">
+    <!-- Row 1: Newsletter Configuration -->
+    <div class="row mb-4">
+        <div class="col-md-12">
             <!-- Newsletter Configuration Form -->
             <div class="card">
                 <div class="card-header">
@@ -118,8 +185,11 @@
                 </div>
             </div>
         </div>
-        
-        <div class="col-md-6">
+    </div>
+    
+    <!-- Row 2: Actions -->
+    <div class="row mb-4">
+        <div class="col-md-12">
             <!-- Action Buttons -->
             <div class="card">
                 <div class="card-header">
@@ -144,20 +214,28 @@
     </div>
     
     <div class="row">
-        <div class="col-md-6">
+        <div class="col-md-6 editor-section">
             <!-- Markdown Editor -->
-            <h4>Markdown Editor</h4>
-            <div id="editorPane">
-                <textarea id="markdownEditor" placeholder="Newsletter content will appear here after compilation..."></textarea>
+            <div class="editor-card">
+                <div class="editor-card-header">
+                    <h5 class="mb-0">Markdown Editor</h5>
+                </div>
+                <div id="editorPane">
+                    <textarea id="markdownEditor"></textarea>
+                </div>
             </div>
         </div>
         
-        <div class="col-md-6">
+        <div class="col-md-6 editor-section">
             <!-- HTML Preview -->
-            <h4>HTML Preview</h4>
-            <div id="previewPane">
-                <div id="htmlPreview">
-                    <p class="text-muted">Preview will appear here...</p>
+            <div class="editor-card">
+                <div class="editor-card-header">
+                    <h5 class="mb-0">HTML Preview</h5>
+                </div>
+                <div id="previewPane">
+                    <div id="htmlPreview">
+                        <p class="text-muted">Preview will appear here...</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -166,6 +244,10 @@
 {% endblock %}
 
 {% block scripts %}
+<!-- SimpleMDE Markdown Editor -->
+<script src="https://cdn.jsdelivr.net/npm/simplemde@1.11.2/dist/simplemde.min.js"></script>
+<!-- Marked for Markdown parsing -->
+<script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/lib/marked.umd.min.js"></script>
 <script>
     // DOM Elements
     const frequencySelect = document.getElementById('frequency');
@@ -176,9 +258,11 @@
     const compileButton = document.getElementById('compileButton');
     const updatePreviewButton = document.getElementById('updatePreviewButton');
     const downloadMarkdownButton = document.getElementById('downloadMarkdownButton');
-    const markdownEditor = document.getElementById('markdownEditor');
+    const markdownEditorElement = document.getElementById('markdownEditor');
     const htmlPreview = document.getElementById('htmlPreview');
     const loadingSpinner = document.getElementById('loadingSpinner');
+    
+    let editor; // SimpleMDE editor instance
     
     // Load topics from API
     async function loadTopics() {
@@ -355,9 +439,36 @@
         }
     }
     
+    // Get Markdown content from the editor
+    function getMarkdownContent() {
+        try {
+            // SimpleMDE provides a direct getValue() method to get markdown
+            return editor.value();
+        } catch (error) {
+            console.error('Error getting markdown content:', error);
+            return '';
+        }
+    }
+    
+    // Set Markdown content to the editor
+    function setMarkdownContent(markdown) {
+        try {
+            // SimpleMDE provides a direct setValue() method
+            if (editor) {
+                editor.value(markdown);
+            } else {
+                console.error('Editor is not available');
+            }
+        } catch (error) {
+            console.error('Error setting markdown content:', error);
+            alert('Failed to set content in editor: ' + error.message);
+        }
+    }
+    
     // Update preview from markdown content
     async function updatePreview() {
-        const markdownContent = markdownEditor.value;
+        // Get markdown content from the editor
+        const markdownContent = getMarkdownContent();
         
         if (!markdownContent.trim()) {
             htmlPreview.innerHTML = '<p class="text-muted">Preview will appear here...</p>';
@@ -365,6 +476,16 @@
         }
         
         try {
+            // First try client-side rendering with marked
+            try {
+                const html = marked.parse(markdownContent);
+                htmlPreview.innerHTML = html;
+                return;
+            } catch (clientError) {
+                console.warn('Client-side markdown rendering failed, falling back to server:', clientError);
+            }
+            
+            // Fall back to server-side rendering
             const response = await fetch('/api/markdown_to_html', {
                 method: 'POST',
                 headers: {
@@ -373,11 +494,15 @@
                 body: JSON.stringify({ markdown: markdownContent })
             });
             
+            if (!response.ok) {
+                throw new Error(`API returned status: ${response.status}`);
+            }
+            
             const data = await response.json();
-            htmlPreview.innerHTML = data.html;
+            htmlPreview.innerHTML = data.html_content || data.html || '';
         } catch (error) {
             console.error('Error updating preview:', error);
-            htmlPreview.innerHTML = '<p class="text-danger">Error rendering preview</p>';
+            htmlPreview.innerHTML = '<p class="text-danger">Error rendering preview: ' + error.message + '</p>';
         }
     }
     
@@ -431,7 +556,7 @@
             const data = await response.json();
             
             // Update markdown editor with compiled content
-            markdownEditor.value = data.compiled_markdown;
+            setMarkdownContent(data.compiled_markdown || '');
             
             // Update preview
             await updatePreview();
@@ -447,7 +572,7 @@
     
     // Download markdown content
     function downloadMarkdown() {
-        const markdownContent = markdownEditor.value;
+        const markdownContent = getMarkdownContent();
         
         if (!markdownContent.trim()) {
             alert('No content to download');
@@ -474,6 +599,31 @@
         document.body.removeChild(element);
     }
     
+    // Add a sample guide content
+    function loadGuideContent() {
+        const guide = `# Intro
+
+Go ahead, play around with the editor! Be sure to check out **bold** and *italic* styling, or even [links](https://google.com).
+
+## Lists
+
+Unordered lists can be started using the toolbar:
+* Lists are a piece of cake
+* They even auto continue as you type
+* A double enter will end them
+
+Ordered lists work too:
+1. Numbered lists...
+2. ...work too!
+
+## What about images?
+
+![Yes](https://i.imgur.com/sZlktY7.png)`;
+
+        setMarkdownContent(guide);
+        updatePreview(); // Automatically update preview when loading guide
+    }
+    
     // Event Listeners
     compileButton.addEventListener('click', compileNewsletter);
     updatePreviewButton.addEventListener('click', updatePreview);
@@ -482,6 +632,40 @@
     // Initialize
     document.addEventListener('DOMContentLoaded', () => {
         console.log('Page loaded, initializing...');
+        
+        try {
+            // Initialize SimpleMDE editor
+            editor = new SimpleMDE({
+                element: markdownEditorElement,
+                spellChecker: false,
+                autofocus: true,
+                toolbar: [
+                    'bold', 'italic', 'heading', '|',
+                    'quote', 'unordered-list', 'ordered-list', '|',
+                    'link', 'image', '|',
+                    'preview', 'side-by-side', 'fullscreen', '|',
+                    'guide'
+                ],
+                placeholder: 'Type markdown content here...',
+                status: false,
+                tabSize: 4
+            });
+            
+            // Load sample content to ensure editor works
+            setTimeout(() => {
+                loadGuideContent();
+            }, 500); // Small delay to ensure components are fully loaded
+            
+            // Set up preview toggle to update the separate preview pane
+            editor.codemirror.on("change", function() {
+                // We could automatically update preview here, but we'll use the button for now
+                // updatePreview();
+            });
+        } catch (error) {
+            console.error('Error initializing editor:', error);
+            alert('Failed to initialize the markdown editor: ' + error.message);
+        }
+        
         loadTopics();
         loadContentTypes();
 
@@ -497,8 +681,6 @@
         const dayBtn = document.getElementById('dayRangeBtn');
         const weekBtn = document.getElementById('weekRangeBtn');
         const monthBtn = document.getElementById('monthRangeBtn');
-        const startDateInput = document.getElementById('startDate');
-        const endDateInput = document.getElementById('endDate');
 
         function setDateRange(days) {
             const today = new Date();
