@@ -6,54 +6,72 @@
 <!-- SimpleMDE Markdown Editor CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simplemde@1.11.2/dist/simplemde.min.css">
 <style>
-    #editorPane, #previewPane {
+    /* Custom container styling */
+    .newsletter-container {
+        padding: 20px;
+        max-width: 100%;
+    }
+
+    #editorPane { /* This div wraps the SimpleMDE textarea */
+        height: 460px; /* Adjust height to fit within the card, considering toolbar */
+        position: relative; /* Needed for CodeMirror absolute positioning */
+        border: none; /* editor-card provides the border */
+        padding: 0;
+    }
+    
+    #previewPane {
         height: 500px;
         border: 1px solid #ccc;
         box-sizing: border-box;
         background-color: white;
         border-radius: 4px;
         box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-    }
-    
-    #editorPane {
-        padding: 0;
-    }
-    
-    #previewPane {
         padding: 10px;
         overflow-y: auto;
     }
     
-    /* Editor styles */
-    .CodeMirror {
-        height: 100% !important;
-        border-bottom-left-radius: 4px;
-        border-bottom-right-radius: 4px;
-    }
-    
+    /* SimpleMDE Specific Overrides and Styling */
     .editor-toolbar {
-        border-top-left-radius: 4px;
-        border-top-right-radius: 4px;
-        border: none;
+        background-color: #f8f9fa !important; /* Match card header */
+        border-bottom: 1px solid #dee2e6 !important; /* Match card header border */
+        border-top-left-radius: calc(0.25rem - 1px); /* Match card radius */
+        border-top-right-radius: calc(0.25rem - 1px); /* Match card radius */
         opacity: 1;
+        padding: 2px; 
     }
-    
+
     .editor-toolbar a {
-        color: #333 !important;
+        color: #495057 !important; /* Neutral icon color */
+        border: 1px solid transparent !important;
+        margin: 1px !important;
     }
-    
-    .editor-toolbar a.active, 
+
+    .editor-toolbar a.active,
     .editor-toolbar a:hover {
-        background: #e9ecef;
-        border-color: #ced4da;
+        background: #e9ecef !important;
+        border-color: #ced4da !important;
+        color: #000 !important;
     }
     
-    .CodeMirror, .CodeMirror-scroll {
-        min-height: 100px;
+    .CodeMirror-fullscreen, .editor-preview-full {
+        z-index: 1050 !important; /* Ensure fullscreen is above other elements */
+    }
+
+    /* Ensure CodeMirror (editor area) fits within #editorPane and card */
+    #editorPane .CodeMirror {
+        height: 100% !important; /* Fill the #editorPane height */
+        border: none !important; /* Remove CodeMirror's default border */
+        border-bottom-left-radius: 0.25rem;
+        border-bottom-right-radius: 0.25rem;
+    }
+
+    #editorPane .CodeMirror-scroll {
+        min-height: 400px; /* Adjust as needed */
     }
     
     .editor-preview-side {
         z-index: 100;
+        border-left: 1px solid #dee2e6 !important; 
     }
     
     #htmlPreview {
@@ -90,6 +108,7 @@
         border-radius: 0.25rem;
         box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
         margin-bottom: 20px;
+        overflow: hidden; 
     }
     
     .editor-card-header {
@@ -111,12 +130,15 @@
         #editorPane, #previewPane {
             height: 350px;
         }
+        #editorPane .CodeMirror-scroll {
+            min-height: 300px; 
+        }
     }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container mt-4">
+<div class="container-fluid newsletter-container" id="newsletterCompilerApp">
     <h1>Newsletter Compiler</h1>
     
     <!-- Row 1: Newsletter Configuration -->
@@ -213,6 +235,7 @@
         <p>Compiling newsletter content...</p>
     </div>
     
+    <!-- Row 3: Editor and Preview -->
     <div class="row">
         <div class="col-md-6 editor-section">
             <!-- Markdown Editor -->
@@ -541,6 +564,7 @@
         loadingSpinner.style.display = 'block';
         
         try {
+            console.log('Sending request to /api/newsletter/compile with payload:', JSON.stringify(payload));
             const response = await fetch('/api/newsletter/compile', {
                 method: 'POST',
                 headers: {
@@ -550,10 +574,13 @@
             });
             
             if (!response.ok) {
-                throw new Error(`Error: ${response.status} ${response.statusText}`);
+                const errorText = await response.text();
+                console.error('Server error response:', errorText);
+                throw new Error(`Error ${response.status}: ${response.statusText}. ${errorText}`);
             }
             
             const data = await response.json();
+            console.log('Received response:', data);
             
             // Update markdown editor with compiled content
             setMarkdownContent(data.compiled_markdown || '');
@@ -563,7 +590,11 @@
             
         } catch (error) {
             console.error('Error compiling newsletter:', error);
-            alert('Failed to compile newsletter. Please try again.');
+            // Show error in editor instead of just an alert
+            setMarkdownContent(`# Error Compiling Newsletter\n\n${error.message}\n\nPlease try again or check the browser console for more details.`);
+            // Also update the preview
+            await updatePreview();
+            alert('Failed to compile newsletter: ' + error.message);
         } finally {
             // Hide loading spinner
             loadingSpinner.style.display = 'none';

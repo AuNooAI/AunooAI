@@ -62,10 +62,12 @@ class NewsletterService:
                             topic_content += f"{section_content}\n\n"
                         else:
                             logger.warning(f"No content generated or returned for '{topic}' - '{content_type}'")
+                            topic_content += f"### {self._get_content_type_display_name(content_type)}\n\n"
+                            topic_content += f"_No content available for this section._\n\n"
                     except Exception as e_section:
                         logger.error(f"Error generating section '{content_type}' for topic '{topic}': {str(e_section)}", exc_info=True)
                         topic_content += f"### {self._get_content_type_display_name(content_type)}\n\n"
-                        topic_content += f"_Error generating this section._\n\n"
+                        topic_content += f"_Error generating this section: {str(e_section)}_\n\n"
                 
                 markdown_content += topic_content
             
@@ -75,9 +77,16 @@ class NewsletterService:
 
         except Exception as e_compile:
             logger.error(f"Fatal error during newsletter compilation: {str(e_compile)}", exc_info=True)
-            # Reraise the exception so FastAPI can handle it and return a 500, or return a generic error message string
-            # For now, let it propagate to ensure the 500 error is still triggered if not caught by FastAPI's error handling
-            raise
+            # Return a basic error report rather than raising an exception
+            error_markdown = f"# Newsletter Compilation Error\n\n"
+            error_markdown += f"**Error Message:** {str(e_compile)}\n\n"
+            error_markdown += f"**Request Details:**\n"
+            error_markdown += f"- Frequency: {request.frequency}\n"
+            error_markdown += f"- Topics: {', '.join(request.topics)}\n"
+            error_markdown += f"- Content Types: {', '.join(request.content_types)}\n"
+            error_markdown += f"- Date Range: {request.start_date} to {request.end_date}\n\n"
+            error_markdown += f"Please check the server logs for more details about this error."
+            return error_markdown
 
     def _calculate_date_range(
         self, 
@@ -212,7 +221,7 @@ class NewsletterService:
         article_data = self._prepare_articles_data(articles)
         
         # Generate summary using AI model
-        ai_model = get_ai_model(model_name="gpt-3.5-turbo")
+        ai_model = get_ai_model(model_name="gpt-4o-mini")
         prompt = self._create_summary_prompt(topic, article_data)
         
         try:
@@ -301,7 +310,7 @@ class NewsletterService:
             articles_for_citation_prompt_str += f"- Title: {title}, URI: {uri}\\n"
         
         # Generate analysis using AI model
-        ai_model = get_ai_model(model_name="gpt-3.5-turbo")
+        ai_model = get_ai_model(model_name="gpt-4o-mini")
         prompt = self._create_trend_analysis_prompt(topic, trend_data, articles_for_citation_prompt_str)
         
         try:
@@ -359,7 +368,7 @@ class NewsletterService:
         combined_article_text = "\n---\n".join(article_details_for_llm)
         
         # 3. Initialize LLM and create prompt for thematic analysis
-        ai_model = get_ai_model(model_name="gpt-3.5-turbo")  # Use available model
+        ai_model = get_ai_model(model_name="gpt-4o-mini")  # Use available model
         if not ai_model:
             return "Failed to initialize AI model for article insights."
         
@@ -425,9 +434,18 @@ class NewsletterService:
             # Try to extract JSON from the response - handle both clean JSON and markdown code blocks
             json_match = re.search(r'```json\s*(\[\s*\{.*\}\s*\])\s*```|```(\[\s*\{.*\}\s*\])```|\[\s*\{.*\}\s*\]', response_text, re.DOTALL)
             if json_match:
-                # Get the first non-None capturing group
-                json_str = next(group for group in json_match.groups() if group is not None)
-                llm_themes = json.loads(json_str)
+                try:
+                    # Get the first non-None capturing group
+                    matching_groups = [group for group in json_match.groups() if group is not None]
+                    if matching_groups:
+                        json_str = matching_groups[0]
+                        llm_themes = json.loads(json_str)
+                    else:
+                        logger.warning("Regex matched but no capturing groups found")
+                        llm_themes = []
+                except Exception as json_ex:
+                    logger.error(f"Error extracting JSON from regex match: {str(json_ex)}")
+                    llm_themes = []
             else:
                 # Fallback - try parsing the whole response as JSON
                 try:
@@ -530,8 +548,8 @@ class NewsletterService:
         if not articles:
             return "No key articles found for this period."
         
-        result = "**Key Articles for Your Attention:**\\n\\n" 
-        ai_model = get_ai_model(model_name="gpt-3.5-turbo") # Initialize model once
+        result = "**Key Articles for Your Attention:**\n\n" 
+        ai_model = get_ai_model(model_name="gpt-4o-mini") # Initialize model once
 
         for idx, article in enumerate(articles, 1):
             title = article.get("title", "Untitled")
@@ -565,13 +583,21 @@ class NewsletterService:
             else:
                 why_merits_attention = "Full summary not available to determine specific importance."
 
-            result += (
-                f"- **[{title}]({uri})**\\n"
-                f"  *Source:* {source}  |  *Date:* {pub_date}\\n"
-                f"  *Summary:* {summary}\\n"
-                f"  *Why this merits your attention:* {why_merits_attention}\\n"
-                f"  {'\*Tags:* ' + tag_str if tag_str else ''}\\n\\n"
-            )
+            # Use proper markdown formatting with the requested template:
+            # ### {title}
+            # **Source:** | Date | {news_source} | 
+            # {summary}
+            # [Link to Publication]({url})
+            result += f"### {title}\n"
+            result += f"**Source:** | {source} | **Date:** {pub_date}\n\n"
+            result += f"{summary}\n\n"
+            result += f"[Link to Publication]({uri})\n\n"
+            if why_merits_attention and why_merits_attention != "Analysis of importance pending.":
+                result += f"**Why this matters:** {why_merits_attention}\n\n"
+            if tag_str:
+                result += f"**Tags:** {tag_str}\n\n"
+            result += "---\n\n"
+        
         return result
 
     def _create_why_merits_attention_prompt(self, article_title: str, article_summary: str) -> str:
@@ -585,33 +611,67 @@ class NewsletterService:
     async def _generate_latest_podcast(self, topic: str) -> str:
         """
         Generate link to the latest podcast, including a clickable link if available,
-        an image, and an AI-generated summary of its transcript.
+        an image, and a brief description.
         """
         podcast_data = None
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            # Assuming a 'transcript_text' field exists in the podcasts table
-            cursor.execute(
-                """
-                SELECT id, title, created_at, audio_url, transcript_text 
+            # Get column information to handle table schema dynamically
+            cursor.execute("PRAGMA table_info(podcasts)")
+            table_info = cursor.fetchall()
+            column_names = [col[1] for col in table_info]  # Column name is at index 1
+            
+            # Build a query that works with the available columns
+            has_transcript = 'transcript_text' in column_names
+            has_topic = 'topic' in column_names
+            
+            # Base columns we need
+            select_columns = ["id", "title", "created_at"]
+            if "audio_url" in column_names:
+                select_columns.append("audio_url")
+            if has_transcript:
+                select_columns.append("transcript_text")
+            
+            # Build the query
+            query = f"""
+                SELECT {', '.join(select_columns)}
                 FROM podcasts
-                WHERE topic = ? OR topic IS NULL OR topic = 'General' # Added topic filter, fallback to NULL or General
+            """
+            
+            # Add WHERE clause if topic column exists
+            params = []
+            if has_topic:
+                query += "WHERE topic = ? OR topic IS NULL OR topic = 'General' "
+                params.append(topic)
+            
+            # Add ORDER BY and LIMIT
+            query += """
                 ORDER BY created_at DESC
                 LIMIT 1
-                """,
-                (topic,)
-            )
+            """
+            
+            # Execute the query
+            cursor.execute(query, tuple(params))
             podcast_data = cursor.fetchone()
 
         if not podcast_data:
             return "No recent podcasts available for this topic."
         
-        podcast_id, title, created_at, audio_url, transcript_text = podcast_data
+        # Unpack data based on which columns we selected
+        column_count = len(select_columns)
+        podcast_id = podcast_data[0] if column_count > 0 else None
+        title = podcast_data[1] if column_count > 1 else "Untitled Podcast"
+        created_at = podcast_data[2] if column_count > 2 else None
+        audio_url = podcast_data[3] if column_count > 3 and "audio_url" in select_columns else None
+        transcript_text = podcast_data[4] if column_count > 4 and has_transcript else None
         
+        # Set podcast summary
         podcast_summary = "Summary not available."
-        if transcript_text and transcript_text.strip():
+        
+        # Try to generate summary if transcript is available
+        if has_transcript and transcript_text and transcript_text.strip():
             try:
-                ai_model = get_ai_model(model_name="gpt-3.5-turbo")
+                ai_model = get_ai_model(model_name="gpt-4o-mini")
                 summary_prompt = self._create_podcast_summary_prompt(title, transcript_text)
                 response = await ai_model.generate(summary_prompt)
                 if hasattr(response, 'message') and hasattr(response.message, 'content'):
@@ -623,17 +683,53 @@ class NewsletterService:
             except Exception as e:
                 logger.error(f"Error generating podcast summary for '{title}': {str(e)}", exc_info=True)
                 podcast_summary = "Could not generate summary."
-        elif not transcript_text or not transcript_text.strip():
-             podcast_summary = "Transcript not available for summarization."
+        else:
+            podcast_summary = "Listen to the latest AI and Machine Learning insights from our podcast series."
 
-        # Image markdown - assuming static path
-        image_markdown = "![Podcast Briefing](/static/img/trend_daily_briefing_square.gif)\\n"
+        # Create better formatted podcast section with properly sized image
+        # Use HTML img tag with direct width/height attributes instead of markdown attributes
+        image_markdown = "<img src=\"/static/img/trend_daily_briefing_square.gif\" alt=\"Podcast Briefing\" width=\"400\" height=\"400\">\n\n"
         
         result = image_markdown
-        result += f"**Latest Podcast: {title}** (Published: {created_at.strftime('%Y-%m-%d')})\\n"
+        # Handle created_at date formatting - it could be a string or datetime
+        if created_at:
+            try:
+                if isinstance(created_at, str):
+                    # Try to parse the string date
+                    from datetime import datetime
+                    # Try common formats
+                    for fmt in ['%Y-%m-%d', '%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f']:
+                        try:
+                            date_obj = datetime.strptime(created_at, fmt)
+                            date_str = date_obj.strftime('%Y-%m-%d')
+                            break
+                        except ValueError:
+                            continue
+                    else:
+                        # If none of the formats match
+                        date_str = created_at  # Use the original string
+                else:
+                    # It's already a datetime object
+                    date_str = created_at.strftime('%Y-%m-%d')
+            except Exception as e:
+                logger.warning(f"Error formatting podcast date: {str(e)}")
+                date_str = "Recent"
+        else:
+            date_str = "Recent"
+        
+        # Format podcast summary if available
         if audio_url:
-            result += f"[Listen Now]({audio_url})\\n"
-        result += f"*Summary:* {podcast_summary}\\n"
+            # Format as proper markdown with clickable button
+            result += f"## Latest Podcast: {title}\n\n"
+            result += f"**Published:** {date_str}\n\n"
+            result += f"[**🎧 Listen Now**]({audio_url})\n\n"
+            result += f"**Summary:** {podcast_summary}\n\n"
+        else:
+            # No audio URL available
+            result += f"## Latest Podcast: {title}\n\n"
+            result += f"**Published:** {date_str}\n\n"
+            result += f"**Summary:** {podcast_summary}\n\n"
+            result += f"_Link not available_\n\n"
         
         return result
 
@@ -790,7 +886,9 @@ class NewsletterService:
             f"Do not reference article numbers in your output.\n\n"
             f"Use the following format:\n\n"
             f"**Summary of {topic}**\n"
-            f"- Provide a brief (2-3 sentences) high-level overview of the current state of '{topic}'.\n\n"
+            f"- Provide a brief (2-3 sentences) high-level overview of the current state of '{topic}'.\n"
+            f"- For EVERY fact or assertion, include a proper citation using this format: **[Article Title](Article URI)**\n"
+            f"- Ensure your overview is directly based on the articles provided, not general knowledge.\n\n"
             f"**Top Three Developments**\n"
             f"- Development 1: [Briefly state the development]. **Why this is need-to-know:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n"
             f"- Development 2: [Briefly state the development]. **Why this is need-to-know:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n"
@@ -801,7 +899,8 @@ class NewsletterService:
             f"- Trend 3: [Briefly state the trend]. **Why this is interesting:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n\n"
             f"**Strategic Takeaways for Decision Makers:**\n"
             f"- Provide 2-3 high-level strategic implications or actionable insights derived from the above points that a decision maker should consider.\n\n"
-            f"Important: Always use the exact article titles and URIs from the data. Be very concise and focus on impact.\n\n"
+            f"Important: Always use the exact article titles and URIs from the data. Be very concise and focus on impact.\n"
+            f"Each section MUST include proper citation links to the original articles. DO NOT skip adding links.\n\n"
             f"Articles for analysis:\n{article_data}"
         )
 
@@ -918,7 +1017,7 @@ class NewsletterService:
         if not articles:
             return "No articles found for Ethical & Societal Impact analysis."
         article_data = self._prepare_articles_data(articles)
-        ai_model = get_ai_model(model_name="gpt-3.5-turbo")
+        ai_model = get_ai_model(model_name="gpt-4o-mini")
         prompt = self._create_ethical_societal_impact_prompt(topic, article_data)
         try:
             response = await ai_model.generate(prompt)
@@ -943,7 +1042,7 @@ class NewsletterService:
         if not articles:
             return "No articles found for Business Impact analysis."
         article_data = self._prepare_articles_data(articles)
-        ai_model = get_ai_model(model_name="gpt-3.5-turbo")
+        ai_model = get_ai_model(model_name="gpt-4o-mini")
         prompt = self._create_business_impact_prompt(topic, article_data)
         try:
             response = await ai_model.generate(prompt)
@@ -968,7 +1067,7 @@ class NewsletterService:
         if not articles:
             return "No articles found for Market Impact analysis."
         article_data = self._prepare_articles_data(articles)
-        ai_model = get_ai_model(model_name="gpt-3.5-turbo")
+        ai_model = get_ai_model(model_name="gpt-4o-mini")
         prompt = self._create_market_impact_prompt(topic, article_data)
         try:
             response = await ai_model.generate(prompt)
