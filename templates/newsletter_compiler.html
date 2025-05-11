@@ -3,8 +3,34 @@
 {% block title %}Newsletter Compiler{% endblock %}
 
 {% block styles %}
+<!-- 
+IMPORTANT: To add this page to your main navigation menu:
+
+1. Edit your base template or navigation file (e.g., base.html, navbar.html, or sidebar.html)
+2. Find the Analysis section in your navigation menu
+3. Add the following link inside that section:
+
+For a Bootstrap navbar:
+<li class="nav-item">
+    <a class="nav-link" href="{{ url_for('newsletter_compiler') }}">Newsletter Compiler</a>
+</li>
+
+For a sidebar menu:
+<li>
+    <a href="{{ url_for('newsletter_compiler') }}">Newsletter Compiler</a>
+</li>
+
+Make sure the URL matches your actual route for this page.
+If you're not using Flask's url_for, use the direct URL: "/newsletter-compiler" 
+-->
+
 <!-- SimpleMDE Markdown Editor CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simplemde@1.11.2/dist/simplemde.min.css">
+<!-- Font Awesome for editor toolbar icons - using preload to prioritize loading -->
+<link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" as="style">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+<!-- Highlight.js for code syntax highlighting -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.7.0/styles/github.min.css">
 <style>
     /* Custom container styling */
     .newsletter-container {
@@ -12,10 +38,10 @@
         max-width: 100%;
     }
 
-    #editorPane { /* This div wraps the SimpleMDE textarea */
-        height: 460px; /* Adjust height to fit within the card, considering toolbar */
-        position: relative; /* Needed for CodeMirror absolute positioning */
-        border: none; /* editor-card provides the border */
+    #editorPane { 
+        height: 500px;
+        position: relative;
+        border: none;
         padding: 0;
     }
     
@@ -32,18 +58,27 @@
     
     /* SimpleMDE Specific Overrides and Styling */
     .editor-toolbar {
-        background-color: #f8f9fa !important; /* Match card header */
-        border-bottom: 1px solid #dee2e6 !important; /* Match card header border */
-        border-top-left-radius: calc(0.25rem - 1px); /* Match card radius */
-        border-top-right-radius: calc(0.25rem - 1px); /* Match card radius */
-        opacity: 1;
-        padding: 2px; 
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-bottom: none;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        opacity: 1 !important;
+        padding: 4px;
     }
 
     .editor-toolbar a {
-        color: #495057 !important; /* Neutral icon color */
+        color: #495057 !important;
         border: 1px solid transparent !important;
-        margin: 1px !important;
+        margin: 2px !important;
+        width: 30px !important;
+        height: 30px !important;
+        text-align: center;
+        line-height: 30px !important;
+    }
+
+    .editor-toolbar a:before {
+        line-height: 30px !important;
     }
 
     .editor-toolbar a.active,
@@ -54,19 +89,43 @@
     }
     
     .CodeMirror-fullscreen, .editor-preview-full {
-        z-index: 1050 !important; /* Ensure fullscreen is above other elements */
+        z-index: 1050 !important;
     }
 
     /* Ensure CodeMirror (editor area) fits within #editorPane and card */
-    #editorPane .CodeMirror {
-        height: 100% !important; /* Fill the #editorPane height */
-        border: none !important; /* Remove CodeMirror's default border */
-        border-bottom-left-radius: 0.25rem;
-        border-bottom-right-radius: 0.25rem;
+    .CodeMirror {
+        height: 100% !important;
+        border: 1px solid #dee2e6 !important;
+        border-top: none !important;
+        border-bottom-left-radius: 4px;
+        border-bottom-right-radius: 4px;
+        font-size: 16px;
+        line-height: 1.5;
+        padding: 10px;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
     }
 
-    #editorPane .CodeMirror-scroll {
-        min-height: 400px; /* Adjust as needed */
+    /* Fix cursor visibility issues */
+    .CodeMirror-cursor {
+        border-left: 1px solid black !important;
+        border-right: none !important;
+        width: 0 !important;
+        opacity: 1 !important;
+    }
+    
+    /* Improve focus and selection styling */
+    .CodeMirror-focused .CodeMirror-selected {
+        background: rgba(0, 0, 255, 0.1) !important;
+    }
+    
+    /* Make sure cursor is visible in editor */
+    .CodeMirror pre.CodeMirror-line, 
+    .CodeMirror pre.CodeMirror-line-like {
+        z-index: 1;
+    }
+
+    .CodeMirror-scroll {
+        min-height: 450px;
     }
     
     .editor-preview-side {
@@ -77,7 +136,7 @@
     #htmlPreview {
         height: 100%;
         overflow-y: auto;
-        background-color: white;
+        padding: 15px;
     }
     
     .control-panel {
@@ -104,9 +163,7 @@
     
     .editor-card { 
         background-color: white;
-        border: 1px solid #dee2e6;
         border-radius: 0.25rem;
-        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
         margin-bottom: 20px;
         overflow: hidden; 
     }
@@ -126,19 +183,166 @@
         font-weight: 500;
     }
     
+    /* Style for code blocks in preview */
+    #htmlPreview pre {
+        background-color: #f5f5f5;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        padding: 10px;
+    }
+    
+    #htmlPreview code {
+        font-family: 'Courier New', Courier, monospace;
+    }
+    
     @media (max-width: 768px) {
         #editorPane, #previewPane {
-            height: 350px;
+            height: 400px;
         }
-        #editorPane .CodeMirror-scroll {
-            min-height: 300px; 
+        .CodeMirror-scroll {
+            min-height: 350px; 
         }
+    }
+
+    /* Ensure Font Awesome icons display correctly in the toolbar */
+    .editor-toolbar a:before {
+        font-family: FontAwesome, sans-serif !important;
+        display: inline-block;
+        font-size: 16px;
+        width: 100%;
+        text-align: center;
+    }
+    
+    /* Fix specific icon issues by providing direct icon code points */
+    .editor-toolbar a.fa-header:before { content: "\f1dc"; }
+    .editor-toolbar a.fa-bold:before { content: "\f032"; }
+    .editor-toolbar a.fa-italic:before { content: "\f033"; }
+    .editor-toolbar a.fa-strikethrough:before { content: "\f0cc"; }
+    .editor-toolbar a.fa-link:before { content: "\f0c1"; }
+    .editor-toolbar a.fa-quote-left:before { content: "\f10d"; }
+    .editor-toolbar a.fa-list-ul:before { content: "\f0ca"; }
+    .editor-toolbar a.fa-list-ol:before { content: "\f0cb"; }
+    .editor-toolbar a.fa-table:before { content: "\f0ce"; }
+    .editor-toolbar a.fa-picture-o:before { content: "\f03e"; }
+    .editor-toolbar a.fa-code:before { content: "\f121"; }
+    .editor-toolbar a.fa-question-circle:before { content: "\f059"; }
+    .editor-toolbar a.fa-eye:before { content: "\f06e"; }
+    .editor-toolbar a.fa-columns:before { content: "\f0db"; }
+    .editor-toolbar a.fa-arrows-alt:before { content: "\f0b2"; }
+    .editor-toolbar a.fa-minus:before { content: "\f068"; }
+
+    /* Improved content type selection layout */
+    .content-types-container {
+        display: block;
+        margin-bottom: 15px;
+    }
+    
+    .content-type-item {
+        padding: 8px 12px;
+        margin-bottom: 8px;
+        border: 1px solid #eee;
+        border-radius: 4px;
+        background-color: #f9f9f9;
+    }
+    
+    .content-type-checkbox-wrapper {
+        display: flex;
+        align-items: center;
+    }
+    
+    .content-type-item label {
+        font-weight: 500;
+        margin-left: 8px;
+        margin-bottom: 0;
+        cursor: pointer;
+    }
+    
+    .content-type-item small {
+        display: block;
+        margin-left: 25px;
+        margin-top: 5px;
+        color: #6c757d;
+    }
+    
+    /* Control chart sizes in the preview - more aggressive size limitations */
+    .preview-container img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 15px auto;
+    }
+    
+    /* Specifically target chart images to ensure they're not too large */
+    .preview-container img[src*="chart"], 
+    .preview-container img[alt*="Chart"],
+    .preview-container img[alt*="chart"],
+    .preview-container img[src*="sentiment"],
+    .preview-container img[src*="radar"],
+    .preview-container img[src*="graph"] {
+        max-width: 550px;
+        max-height: 400px;
+        width: auto !important;
+        height: auto !important;
+        object-fit: contain;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 5px;
+        background-color: white;
+    }
+    
+    /* Ensure the loading spinner is centered and visible */
+    #loadingSpinner {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(255, 255, 255, 0.9);
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 1000;
+    }
+
+    /* Navigation styles */
+    .breadcrumb-container {
+        background-color: #f5f5f5;
+        padding: 8px 15px;
+        margin-bottom: 20px;
+        border-radius: 4px;
+    }
+    
+    .breadcrumb {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+    }
+    
+    .breadcrumb-item {
+        display: inline-block;
+        margin-right: 5px;
+    }
+    
+    .breadcrumb-item + .breadcrumb-item::before {
+        content: "/";
+        padding: 0 5px;
+        color: #6c757d;
     }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container-fluid newsletter-container" id="newsletterCompilerApp">
+    <!-- Add breadcrumb navigation -->
+    <div class="breadcrumb-container">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="/">Home</a></li>
+            <li class="breadcrumb-item"><a href="/analysis">Analysis</a></li>
+            <li class="breadcrumb-item active">Newsletter Compiler</li>
+        </ol>
+    </div>
+
     <h1>Newsletter Compiler</h1>
     
     <!-- Row 1: Newsletter Configuration -->
@@ -172,12 +376,13 @@
                         <div class="form-group">
                             <label>Content Types:</label>
                             <div class="mb-2">
-                                <button type="button" id="selectAllContentTypes" class="btn btn-sm btn-outline-primary">Select All</button>
+                                <button type="button" id="selectAllContentTypes" class="btn btn-sm btn-primary">Select All</button>
                             </div>
-                            <div id="contentTypes">
-                                <!-- Will be populated via API -->
-                                <div class="text-muted">Loading content types...</div>
-                            </div>
+                            <table class="table table-borderless" id="contentTypesTable">
+                                <tbody>
+                                    <tr><td colspan="2" class="text-muted">Loading content types...</td></tr>
+                                </tbody>
+                            </table>
                         </div>
                         
                         <div class="form-group">
@@ -228,7 +433,7 @@
         </div>
     </div>
     
-    <div class="loading-spinner" id="loadingSpinner">
+    <div class="loading-spinner" id="loadingSpinner" style="display: none; text-align: center; margin: 20px;">
         <div class="spinner-border text-primary" role="status">
             <span class="sr-only">Loading...</span>
         </div>
@@ -238,26 +443,27 @@
     <!-- Row 3: Editor and Preview -->
     <div class="row">
         <div class="col-md-6 editor-section">
-            <!-- Markdown Editor -->
-            <div class="editor-card">
-                <div class="editor-card-header">
+            <!-- Simple editor container with explicit styling -->
+            <div class="card" style="margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div class="card-header" style="background-color: #f8f9fa; padding: 10px 15px;">
                     <h5 class="mb-0">Markdown Editor</h5>
                 </div>
-                <div id="editorPane">
-                    <textarea id="markdownEditor"></textarea>
+                <div class="card-body" style="padding: 0;">
+                    <!-- Keep our working textarea -->
+                    <textarea id="basic-editor" style="width: 100%; height: 600px; padding: 15px; border: 1px solid #dee2e6;"></textarea>
                 </div>
             </div>
         </div>
         
         <div class="col-md-6 editor-section">
             <!-- HTML Preview -->
-            <div class="editor-card">
-                <div class="editor-card-header">
+            <div class="card" style="margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                <div class="card-header" style="background-color: #f8f9fa; padding: 10px 15px;">
                     <h5 class="mb-0">HTML Preview</h5>
                 </div>
-                <div id="previewPane">
-                    <div id="htmlPreview">
-                        <p class="text-muted">Preview will appear here...</p>
+                <div class="card-body" style="padding: 15px; height: 600px; overflow-y: auto;">
+                    <div id="preview-content" class="preview-container">
+                        <p>Preview content will appear here...</p>
                     </div>
                 </div>
             </div>
@@ -267,465 +473,529 @@
 {% endblock %}
 
 {% block scripts %}
-<!-- SimpleMDE Markdown Editor -->
-<script src="https://cdn.jsdelivr.net/npm/simplemde@1.11.2/dist/simplemde.min.js"></script>
-<!-- Marked for Markdown parsing -->
+<!-- Keep the working SimpleMDE implementation -->
+<script src="https://unpkg.com/simplemde@1.11.2/dist/simplemde.min.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/simplemde@1.11.2/dist/simplemde.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
+
+<!-- Add back the marked library for markdown parsing -->
 <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/lib/marked.umd.min.js"></script>
+
 <script>
-    // DOM Elements
-    const frequencySelect = document.getElementById('frequency');
-    const topicsSelect = document.getElementById('topics');
-    const contentTypesContainer = document.getElementById('contentTypes');
-    const startDateInput = document.getElementById('startDate');
-    const endDateInput = document.getElementById('endDate');
-    const compileButton = document.getElementById('compileButton');
-    const updatePreviewButton = document.getElementById('updatePreviewButton');
-    const downloadMarkdownButton = document.getElementById('downloadMarkdownButton');
-    const markdownEditorElement = document.getElementById('markdownEditor');
-    const htmlPreview = document.getElementById('htmlPreview');
-    const loadingSpinner = document.getElementById('loadingSpinner');
+// Global variables
+let simplemde; // Our SimpleMDE editor instance
+const loadingSpinner = document.getElementById('loadingSpinner');
+
+// Initialize SimpleMDE editor
+window.onload = function() {
+    console.log("Window loaded, initializing SimpleMDE editor");
     
-    let editor; // SimpleMDE editor instance
-    
-    // Load topics from API
-    async function loadTopics() {
-        try {
-            console.log('Starting to fetch topics...');
-            topicsSelect.innerHTML = '<option value="" disabled>Loading topics...</option>';
-            
-            // Try multiple endpoints in sequence until one works
-            const endpoints = [
-                '/api/topics',            // Regular endpoint
-                '/api/newsletter/topics', // Newsletter-specific endpoint
-                '/api/debug/topics'       // Fallback debug endpoint
-            ];
-            
-            let response = null;
-            let endpoint = null;
-            
-            // Try each endpoint in sequence
-            for (const ep of endpoints) {
-                try {
-                    console.log(`Trying to fetch from ${ep}...`);
-                    const tempResponse = await fetch(ep);
-                    console.log(`Response from ${ep}:`, tempResponse);
-                    
-                    if (tempResponse.ok) {
-                        response = tempResponse;
-                        endpoint = ep;
-                        console.log(`Successfully connected to ${ep}`);
-                        break;
-                    } else {
-                        console.warn(`Endpoint ${ep} returned status: ${tempResponse.status}`);
-                    }
-                } catch (fetchError) {
-                    console.warn(`Failed to fetch from ${ep}:`, fetchError);
-                }
-            }
-            
-            if (!response) {
-                throw new Error(`Failed to fetch topics from any endpoint. Tried: ${endpoints.join(', ')}`);
-            }
-            
-            console.log(`Using endpoint: ${endpoint}`);
-            
-            const rawText = await response.text();
-            console.log('Raw response text:', rawText);
-            
-            let data;
-            try {
-                data = JSON.parse(rawText);
-                console.log('Parsed data:', data);
-            } catch (parseError) {
-                console.error('Failed to parse JSON:', parseError);
-                throw new Error(`Invalid JSON response: ${rawText.substring(0, 100)}...`);
-            }
-            
-            // Clear select element
-            topicsSelect.innerHTML = '';
-            
-            if (!Array.isArray(data)) {
-                console.error('Topics data is not an array:', typeof data, data);
-                topicsSelect.innerHTML = '<option value="" disabled>Error: Invalid data format</option>';
-                return;
-            }
-            
-            if (data.length === 0) {
-                console.warn('No topics returned from API');
-                topicsSelect.innerHTML = '<option value="" disabled>No topics available</option>';
-                return;
-            }
-            
-            console.log(`Adding ${data.length} topics to select dropdown...`);
-            
-            // Handle different data formats (array of strings vs array of objects)
-            data.forEach((topic, index) => {
-                let topicValue, topicText;
-                
-                if (typeof topic === 'string') {
-                    // Handle topic as simple string
-                    topicValue = topic;
-                    topicText = topic;
-                    console.log(`Adding topic ${index + 1}/${data.length} (string):`, topicValue);
-                } else if (topic && typeof topic === 'object') {
-                    // Handle topic as object with name property
-                    topicValue = topic.name || topic.id || "Unknown Topic";
-                    topicText = topic.displayName || topic.name || topic.id || "Unknown Topic";
-                    console.log(`Adding topic ${index + 1}/${data.length} (object):`, topicValue, topic);
-                } else {
-                    console.warn(`Skipping invalid topic at index ${index}:`, topic);
-                    return; // Skip invalid format
-                }
-                
-                const option = document.createElement('option');
-                option.value = topicValue;
-                option.textContent = topicText;
-                topicsSelect.appendChild(option);
-            });
-            
-            console.log('Topics loaded successfully, final select HTML:', topicsSelect.innerHTML);
-            
-        } catch (error) {
-            console.error('Error loading topics:', error);
-            console.error('Error details:', error.stack || 'No stack trace available');
-            topicsSelect.innerHTML = '<option value="" disabled>Failed to load topics: ' + error.message + '</option>';
-            alert('Failed to load topics. Please check browser console for details. Error: ' + error.message);
-        }
+    // Check if the textarea exists
+    const textArea = document.getElementById('basic-editor');
+    if (!textArea) {
+        console.error("Textarea not found");
+        return;
     }
     
-    // Load content types from API
-    async function loadContentTypes() {
-        try {
-            console.log('Fetching content types from /api/newsletter/content_types');
-            contentTypesContainer.innerHTML = '<div class="text-muted">Loading content types...</div>';
-            
-            const response = await fetch('/api/newsletter/content_types');
-            console.log('Content types API response status:', response.status);
-            
-            if (!response.ok) {
-                throw new Error(`API returned status: ${response.status}`);
-            }
-            
-            const contentTypes = await response.json();
-            console.log('Content types API response data:', contentTypes);
-            
-            // Clear container
-            contentTypesContainer.innerHTML = '';
-            
-            if (!Array.isArray(contentTypes)) {
-                console.error('Content types data is not an array:', contentTypes);
-                contentTypesContainer.innerHTML = '<div class="text-danger">Error: Invalid data format</div>';
-                return;
-            }
-            
-            if (contentTypes.length === 0) {
-                console.warn('No content types returned from API');
-                contentTypesContainer.innerHTML = '<div class="text-muted">No content types available</div>';
-                return;
-            }
-            
-            // Add checkboxes for each content type
-            contentTypes.forEach(type => {
-                const div = document.createElement('div');
-                div.className = 'content-type-item';
-                
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.id = `content-type-${type.id}`;
-                checkbox.name = 'contentTypes';
-                checkbox.value = type.id;
-                checkbox.className = 'mr-2';
-                
-                const label = document.createElement('label');
-                label.htmlFor = `content-type-${type.id}`;
-                label.className = 'form-check-label';
-                label.textContent = type.name;
-                
-                const description = document.createElement('small');
-                description.className = 'form-text text-muted';
-                description.textContent = type.description;
-                
-                div.appendChild(checkbox);
-                div.appendChild(label);
-                div.appendChild(document.createElement('br'));
-                div.appendChild(description);
-                
-                contentTypesContainer.appendChild(div);
-            });
-            
-            console.log('Content types loaded successfully');
-            
-        } catch (error) {
-            console.error('Error loading content types:', error);
-            contentTypesContainer.innerHTML = '<div class="text-danger">Failed to load content types</div>';
-            alert('Failed to load content types. Please refresh the page. Error: ' + error.message);
-        }
+    // Check if SimpleMDE exists
+    if (typeof SimpleMDE === 'undefined') {
+        console.error("SimpleMDE library not loaded");
+        textArea.value = "SimpleMDE library could not be loaded. Please check your internet connection.";
+        return;
     }
     
-    // Get Markdown content from the editor
-    function getMarkdownContent() {
-        try {
-            // SimpleMDE provides a direct getValue() method to get markdown
-            return editor.value();
-        } catch (error) {
-            console.error('Error getting markdown content:', error);
-            return '';
-        }
-    }
-    
-    // Set Markdown content to the editor
-    function setMarkdownContent(markdown) {
-        try {
-            // SimpleMDE provides a direct setValue() method
-            if (editor) {
-                editor.value(markdown);
-            } else {
-                console.error('Editor is not available');
-            }
-        } catch (error) {
-            console.error('Error setting markdown content:', error);
-            alert('Failed to set content in editor: ' + error.message);
-        }
-    }
-    
-    // Update preview from markdown content
-    async function updatePreview() {
-        // Get markdown content from the editor
-        const markdownContent = getMarkdownContent();
+    try {
+        // Initialize SimpleMDE
+        simplemde = new SimpleMDE({ 
+            element: textArea,
+            spellChecker: false,
+            autofocus: true,
+            placeholder: "Type markdown content here...",
+            initialValue: "# Newsletter Content\n\nYour newsletter content will appear here after compilation.",
+            toolbar: ["bold", "italic", "heading", "|", "quote", "unordered-list", "ordered-list", "|", 
+                     "link", "image", "table", "|", "preview", "side-by-side", "fullscreen"]
+        });
         
-        if (!markdownContent.trim()) {
-            htmlPreview.innerHTML = '<p class="text-muted">Preview will appear here...</p>';
+        console.log("SimpleMDE initialized successfully");
+        
+        // Set up change handler for preview updates
+        simplemde.codemirror.on("change", function() {
+            updatePreview();
+        });
+        
+        // Initial preview update
+        updatePreview();
+        
+    } catch (error) {
+        console.error("Error initializing SimpleMDE:", error);
+        textArea.value = "Error initializing editor: " + error.message;
+    }
+};
+
+// Function to get markdown content
+function getMarkdownContent() {
+    if (simplemde) {
+        return simplemde.value();
+    }
+    return "";
+}
+
+// Function to set markdown content
+function setMarkdownContent(markdown) {
+    if (simplemde) {
+        simplemde.value(markdown);
+        updatePreview();
+    }
+}
+
+// Update the preview from markdown content
+function updatePreview() {
+    const markdownContent = getMarkdownContent();
+    const previewElement = document.getElementById('preview-content');
+    
+    if (!markdownContent || !markdownContent.trim()) {
+        previewElement.innerHTML = '<p>Preview will appear here...</p>';
+        return;
+    }
+    
+    try {
+        // Use marked for markdown rendering
+        if (typeof marked !== 'undefined') {
+            const html = marked.parse(markdownContent);
+            previewElement.innerHTML = html;
+            
+            // Apply image processing to ensure color charts display properly
+            const images = previewElement.querySelectorAll('img');
+            images.forEach(img => {
+                // Fix data URLs - ensure no space after base64,
+                if (img.src && img.src.startsWith('data:image') && img.src.includes('base64, ')) {
+                    img.src = img.src.replace('base64, ', 'base64,');
+                }
+                
+                // Skip cache busting for data URLs
+                if (img.src && !img.src.startsWith('data:') && !img.src.includes('cache=')) {
+                    img.src = img.src + (img.src.includes('?') ? '&' : '?') + 'cache=' + new Date().getTime();
+                }
+                
+                // Add specific classes for charts
+                if (img.src && (img.src.includes('chart') || img.src.includes('sentiment') || 
+                    img.src.includes('radar') || img.alt && (img.alt.includes('Chart') || 
+                    img.alt.includes('chart')))) {
+                    img.classList.add('newsletter-chart');
+                    // Explicitly set dimensions to override any inline styles
+                    img.style.maxWidth = '550px';
+                    img.style.maxHeight = '400px';
+                    img.style.width = 'auto';
+                    img.style.height = 'auto';
+                }
+                
+                // Add error handler to log any issues with images
+                img.onerror = function() {
+                    console.error('Error loading image:', this.src);
+                    // Replace with error message directly in the image
+                    this.style.display = 'inline-block';
+                    this.style.padding = '5px';
+                    this.style.border = '1px solid #f55';
+                    this.style.backgroundColor = '#fee';
+                    this.style.color = '#333';
+                    this.style.fontStyle = 'italic';
+                    this.style.fontSize = '14px';
+                    this.style.height = 'auto';
+                    this.style.width = 'auto';
+                    this.style.minHeight = '50px';
+                    this.style.textAlign = 'center';
+                    this.style.lineHeight = '50px';
+                    this.alt = 'Image failed to load';
+                    
+                    // Set a data attribute to mark this as an error
+                    this.setAttribute('data-load-error', 'true');
+                    
+                    // Replace the src with a transparent pixel so it stops trying to load
+                    // but only if it's not a data URL to avoid recursive errors
+                    if (!this.src.startsWith('data:')) {
+                        this.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+                    }
+                };
+            });
+        } else {
+            // Fallback to basic rendering
+            let html = markdownContent
+                .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+                .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+                .replace(/\*\*(.*)\*\*/gm, '<strong>$1</strong>')
+                .replace(/\*(.*)\*/gm, '<em>$1</em>')
+                .replace(/\[([^\]]+)\]\(([^)]+)\)/gm, '<a href="$2">$1</a>')
+                .replace(/\n/gm, '<br>');
+            
+            previewElement.innerHTML = html;
+        }
+    } catch (error) {
+        console.error("Error updating preview:", error);
+        previewElement.innerHTML = "<p>Error rendering preview: " + error.message + "</p>";
+    }
+}
+
+// Download markdown content
+function downloadMarkdown() {
+    const markdownContent = getMarkdownContent();
+    
+    if (!markdownContent.trim()) {
+        alert('No content to download');
+        return;
+    }
+    
+    // Create filename with date
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+    const frequency = document.getElementById('frequency').value;
+    const topicsSelect = document.getElementById('topics');
+    const topics = Array.from(topicsSelect.selectedOptions).map(option => option.value).join('-');
+    
+    const filename = `${frequency}_${topics || 'newsletter'}_${dateStr}.md`;
+    
+    // Create download link
+    const element = document.createElement('a');
+    element.setAttribute('href', 'data:text/markdown;charset=utf-8,' + encodeURIComponent(markdownContent));
+    element.setAttribute('download', filename);
+    element.style.display = 'none';
+    
+    // Add to body, click, and remove
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
+}
+
+// Load topics from API
+async function loadTopics() {
+    try {
+        console.log('Starting to fetch topics...');
+        const topicsSelect = document.getElementById('topics');
+        topicsSelect.innerHTML = '<option value="" disabled>Loading topics...</option>';
+        
+        // Try multiple endpoints in sequence until one works
+        const endpoints = [
+            '/api/topics',
+            '/api/newsletter/topics',
+            '/api/debug/topics'
+        ];
+        
+        let response = null;
+        let endpoint = null;
+        
+        // Try each endpoint in sequence
+        for (const ep of endpoints) {
+            try {
+                console.log(`Trying to fetch from ${ep}...`);
+                const tempResponse = await fetch(ep);
+                
+                if (tempResponse.ok) {
+                    response = tempResponse;
+                    endpoint = ep;
+                    console.log(`Successfully connected to ${ep}`);
+                    break;
+                } else {
+                    console.warn(`Endpoint ${ep} returned status: ${tempResponse.status}`);
+                }
+            } catch (fetchError) {
+                console.warn(`Failed to fetch from ${ep}:`, fetchError);
+            }
+        }
+        
+        if (!response) {
+            throw new Error(`Failed to fetch topics from any endpoint`);
+        }
+        
+        const data = await response.json();
+        
+        // Clear select element
+        topicsSelect.innerHTML = '';
+        
+        if (!Array.isArray(data)) {
+            console.error('Topics data is not an array:', data);
+            topicsSelect.innerHTML = '<option value="" disabled>Error: Invalid data format</option>';
             return;
         }
         
-        try {
-            // First try client-side rendering with marked
-            try {
-                const html = marked.parse(markdownContent);
-                htmlPreview.innerHTML = html;
-                return;
-            } catch (clientError) {
-                console.warn('Client-side markdown rendering failed, falling back to server:', clientError);
-            }
-            
-            // Fall back to server-side rendering
-            const response = await fetch('/api/markdown_to_html', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ markdown: markdownContent })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`API returned status: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            htmlPreview.innerHTML = data.html_content || data.html || '';
-        } catch (error) {
-            console.error('Error updating preview:', error);
-            htmlPreview.innerHTML = '<p class="text-danger">Error rendering preview: ' + error.message + '</p>';
+        if (data.length === 0) {
+            console.warn('No topics returned from API');
+            topicsSelect.innerHTML = '<option value="" disabled>No topics available</option>';
+            return;
         }
-    }
-    
-    // Compile newsletter content
-    async function compileNewsletter() {
-        // Get form values
-        const frequency = frequencySelect.value;
-        const topics = Array.from(topicsSelect.selectedOptions).map(option => option.value);
-        const contentTypes = Array.from(document.querySelectorAll('input[name="contentTypes"]:checked')).map(checkbox => checkbox.value);
-        const startDate = startDateInput.value;
-        const endDate = endDateInput.value;
         
-        // Validate form
-        if (topics.length === 0) {
-            alert('Please select at least one topic');
+        // Handle different data formats
+        data.forEach((topic) => {
+            let topicValue, topicText;
+            
+            if (typeof topic === 'string') {
+                topicValue = topic;
+                topicText = topic;
+            } else if (topic && typeof topic === 'object') {
+                topicValue = topic.name || topic.id || "Unknown Topic";
+                topicText = topic.displayName || topic.name || topic.id || "Unknown Topic";
+            } else {
+                return; // Skip invalid format
+            }
+            
+            const option = document.createElement('option');
+            option.value = topicValue;
+            option.textContent = topicText;
+            topicsSelect.appendChild(option);
+        });
+        
+        console.log('Topics loaded successfully');
+        
+    } catch (error) {
+        console.error('Error loading topics:', error);
+        const topicsSelect = document.getElementById('topics');
+        topicsSelect.innerHTML = '<option value="" disabled>Failed to load topics</option>';
+    }
+}
+
+// Load content types from API
+async function loadContentTypes() {
+    try {
+        console.log('Fetching content types...');
+        const contentTypesTable = document.getElementById('contentTypesTable');
+        if (!contentTypesTable) {
+            console.error('Content types table element not found');
+            return;
+        }
+        
+        // Get the tbody element
+        const tbody = contentTypesTable.querySelector('tbody');
+        tbody.innerHTML = '<tr><td colspan="2" class="text-muted">Loading content types...</td></tr>';
+        
+        const response = await fetch('/api/newsletter/content_types');
+        
+        if (!response.ok) {
+            throw new Error(`API returned status: ${response.status}`);
+        }
+        
+        const contentTypes = await response.json();
+        
+        // Clear container
+        tbody.innerHTML = '';
+        
+        if (!Array.isArray(contentTypes)) {
+            tbody.innerHTML = '<tr><td colspan="2" class="text-danger">Error: Invalid data format</td></tr>';
             return;
         }
         
         if (contentTypes.length === 0) {
-            alert('Please select at least one content type');
+            tbody.innerHTML = '<tr><td colspan="2" class="text-muted">No content types available</td></tr>';
             return;
         }
         
-        // Prepare request payload
-        const payload = {
-            frequency,
-            topics,
-            content_types: contentTypes
-        };
-        
-        // Add optional dates if provided
-        if (startDate) payload.start_date = startDate;
-        if (endDate) payload.end_date = endDate;
-        
-        // Show loading spinner
-        loadingSpinner.style.display = 'block';
-        
-        try {
-            console.log('Sending request to /api/newsletter/compile with payload:', JSON.stringify(payload));
-            const response = await fetch('/api/newsletter/compile', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            });
+        // Add checkboxes for each content type with table layout
+        contentTypes.forEach(type => {
+            const row = document.createElement('tr');
             
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Server error response:', errorText);
-                throw new Error(`Error ${response.status}: ${response.statusText}. ${errorText}`);
+            // Create checkbox cell
+            const checkboxCell = document.createElement('td');
+            checkboxCell.width = '30'; // Fixed width for checkbox cell
+            checkboxCell.style.verticalAlign = 'top';
+            checkboxCell.style.paddingRight = '0';
+            
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.id = `content-type-${type.id}`;
+            checkbox.name = 'contentTypes';
+            checkbox.value = type.id;
+            checkbox.checked = true;
+            checkboxCell.appendChild(checkbox);
+            
+            // Create label cell
+            const labelCell = document.createElement('td');
+            
+            const label = document.createElement('label');
+            label.htmlFor = `content-type-${type.id}`;
+            label.textContent = type.name || 'Unnamed Type';
+            label.style.fontWeight = '500';
+            label.style.marginBottom = '0';
+            label.style.display = 'block';
+            labelCell.appendChild(label);
+            
+            if (type.description) {
+                const description = document.createElement('small');
+                description.className = 'text-muted';
+                description.textContent = type.description;
+                description.style.display = 'block';
+                labelCell.appendChild(description);
             }
             
-            const data = await response.json();
-            console.log('Received response:', data);
+            // Add cells to row
+            row.appendChild(checkboxCell);
+            row.appendChild(labelCell);
             
-            // Update markdown editor with compiled content
-            setMarkdownContent(data.compiled_markdown || '');
-            
-            // Update preview
-            await updatePreview();
-            
-        } catch (error) {
-            console.error('Error compiling newsletter:', error);
-            // Show error in editor instead of just an alert
-            setMarkdownContent(`# Error Compiling Newsletter\n\n${error.message}\n\nPlease try again or check the browser console for more details.`);
-            // Also update the preview
-            await updatePreview();
-            alert('Failed to compile newsletter: ' + error.message);
-        } finally {
-            // Hide loading spinner
-            loadingSpinner.style.display = 'none';
-        }
-    }
-    
-    // Download markdown content
-    function downloadMarkdown() {
-        const markdownContent = getMarkdownContent();
-        
-        if (!markdownContent.trim()) {
-            alert('No content to download');
-            return;
-        }
-        
-        // Create filename with date
-        const today = new Date();
-        const dateStr = today.toISOString().split('T')[0];
-        const frequency = frequencySelect.value;
-        const topics = Array.from(topicsSelect.selectedOptions).map(option => option.value).join('-');
-        
-        const filename = `${frequency}_${topics}_${dateStr}.md`;
-        
-        // Create download link
-        const element = document.createElement('a');
-        element.setAttribute('href', 'data:text/markdown;charset=utf-8,' + encodeURIComponent(markdownContent));
-        element.setAttribute('download', filename);
-        element.style.display = 'none';
-        
-        // Add to body, click, and remove
-        document.body.appendChild(element);
-        element.click();
-        document.body.removeChild(element);
-    }
-    
-    // Add a sample guide content
-    function loadGuideContent() {
-        const guide = `# Intro
-
-Go ahead, play around with the editor! Be sure to check out **bold** and *italic* styling, or even [links](https://google.com).
-
-## Lists
-
-Unordered lists can be started using the toolbar:
-* Lists are a piece of cake
-* They even auto continue as you type
-* A double enter will end them
-
-Ordered lists work too:
-1. Numbered lists...
-2. ...work too!
-
-## What about images?
-
-![Yes](https://i.imgur.com/sZlktY7.png)`;
-
-        setMarkdownContent(guide);
-        updatePreview(); // Automatically update preview when loading guide
-    }
-    
-    // Event Listeners
-    compileButton.addEventListener('click', compileNewsletter);
-    updatePreviewButton.addEventListener('click', updatePreview);
-    downloadMarkdownButton.addEventListener('click', downloadMarkdown);
-    
-    // Initialize
-    document.addEventListener('DOMContentLoaded', () => {
-        console.log('Page loaded, initializing...');
-        
-        try {
-            // Initialize SimpleMDE editor
-            editor = new SimpleMDE({
-                element: markdownEditorElement,
-                spellChecker: false,
-                autofocus: true,
-                toolbar: [
-                    'bold', 'italic', 'heading', '|',
-                    'quote', 'unordered-list', 'ordered-list', '|',
-                    'link', 'image', '|',
-                    'preview', 'side-by-side', 'fullscreen', '|',
-                    'guide'
-                ],
-                placeholder: 'Type markdown content here...',
-                status: false,
-                tabSize: 4
-            });
-            
-            // Load sample content to ensure editor works
-            setTimeout(() => {
-                loadGuideContent();
-            }, 500); // Small delay to ensure components are fully loaded
-            
-            // Set up preview toggle to update the separate preview pane
-            editor.codemirror.on("change", function() {
-                // We could automatically update preview here, but we'll use the button for now
-                // updatePreview();
-            });
-        } catch (error) {
-            console.error('Error initializing editor:', error);
-            alert('Failed to initialize the markdown editor: ' + error.message);
-        }
-        
-        loadTopics();
-        loadContentTypes();
-
-        // Select All Content Types
-        const selectAllBtn = document.getElementById('selectAllContentTypes');
-        selectAllBtn.addEventListener('click', () => {
-            document.querySelectorAll('input[name="contentTypes"]').forEach(cb => {
-                cb.checked = true;
-            });
+            // Add row to table
+            tbody.appendChild(row);
         });
-
-        // Date Range Buttons
-        const dayBtn = document.getElementById('dayRangeBtn');
-        const weekBtn = document.getElementById('weekRangeBtn');
-        const monthBtn = document.getElementById('monthRangeBtn');
-
-        function setDateRange(days) {
-            const today = new Date();
-            const endDate = today.toISOString().split('T')[0];
-            const start = new Date(today);
-            start.setDate(today.getDate() - days);
-            const startDate = start.toISOString().split('T')[0];
-            startDateInput.value = startDate;
-            endDateInput.value = endDate;
+        
+        // Set initial text for Select All button to "Deselect All" since all are checked by default
+        const selectAllBtn = document.getElementById('selectAllContentTypes');
+        if (selectAllBtn) {
+            selectAllBtn.textContent = 'Deselect All';
         }
+        
+        console.log('Content types loaded successfully');
+        
+    } catch (error) {
+        console.error('Error loading content types:', error);
+        const contentTypesTable = document.getElementById('contentTypesTable');
+        if (contentTypesTable) {
+            const tbody = contentTypesTable.querySelector('tbody');
+            if (tbody) {
+                tbody.innerHTML = '<tr><td colspan="2" class="text-danger">Failed to load content types</td></tr>';
+            }
+        }
+    }
+}
 
-        dayBtn.addEventListener('click', () => setDateRange(1));
-        weekBtn.addEventListener('click', () => setDateRange(7));
-        monthBtn.addEventListener('click', () => setDateRange(30));
-    });
+// Compile newsletter content
+async function compileNewsletter() {
+    // Get form values
+    const frequency = document.getElementById('frequency').value;
+    const topicsSelect = document.getElementById('topics');
+    const topics = Array.from(topicsSelect.selectedOptions).map(option => option.value);
+    const contentTypes = Array.from(document.querySelectorAll('input[name="contentTypes"]:checked')).map(checkbox => checkbox.value);
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+    
+    // Validate form
+    if (topics.length === 0) {
+        alert('Please select at least one topic');
+        return;
+    }
+    
+    if (contentTypes.length === 0) {
+        alert('Please select at least one content type');
+        return;
+    }
+    
+    // Prepare request payload
+    const payload = {
+        frequency,
+        topics,
+        content_types: contentTypes
+    };
+    
+    // Add optional dates if provided
+    if (startDate) payload.start_date = startDate;
+    if (endDate) payload.end_date = endDate;
+    
+    // Show loading spinner
+    loadingSpinner.style.display = 'block';
+    
+    try {
+        console.log('Sending request to /api/newsletter/compile with payload:', JSON.stringify(payload));
+        const response = await fetch('/api/newsletter/compile', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Server error response:', errorText);
+            throw new Error(`Error ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('Received response:', data);
+        
+        // Update markdown editor with compiled content
+        setMarkdownContent(data.compiled_markdown || '');
+        
+    } catch (error) {
+        console.error('Error compiling newsletter:', error);
+        setMarkdownContent(`# Error Compiling Newsletter\n\n${error.message}\n\nPlease try again or check the browser console for more details.`);
+    } finally {
+        // Hide loading spinner
+        loadingSpinner.style.display = 'none';
+    }
+}
+
+// Initialize everything when the DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, setting up event listeners');
+    
+    // Load data from APIs
+    loadTopics();
+    loadContentTypes();
+    
+    // Set up event listeners for buttons
+    
+    // Compile button
+    const compileButton = document.getElementById('compileButton');
+    if (compileButton) {
+        compileButton.addEventListener('click', compileNewsletter);
+    }
+    
+    // Update preview button
+    const updatePreviewButton = document.getElementById('updatePreviewButton');
+    if (updatePreviewButton) {
+        updatePreviewButton.addEventListener('click', updatePreview);
+    }
+    
+    // Download markdown button
+    const downloadMarkdownButton = document.getElementById('downloadMarkdownButton');
+    if (downloadMarkdownButton) {
+        downloadMarkdownButton.addEventListener('click', downloadMarkdown);
+    }
+    
+    // Select all content types button - set initial text and handling
+    const selectAllContentTypes = document.getElementById('selectAllContentTypes');
+    if (selectAllContentTypes) {
+        // Initial text will be set after content types are loaded
+        
+        selectAllContentTypes.addEventListener('click', function() {
+            const checkboxes = document.querySelectorAll('input[name="contentTypes"]');
+            
+            // Check if all are already checked
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            
+            // Toggle the checked state based on current state
+            checkboxes.forEach(cb => {
+                cb.checked = !allChecked;
+            });
+            
+            // Update button text
+            this.textContent = allChecked ? 'Select All' : 'Deselect All';
+        });
+    }
+    
+    // Date range buttons
+    function setDateRange(days) {
+        const today = new Date();
+        const endDate = today.toISOString().split('T')[0];
+        const start = new Date(today);
+        start.setDate(today.getDate() - days);
+        const startDate = start.toISOString().split('T')[0];
+        
+        const startDateInput = document.getElementById('startDate');
+        const endDateInput = document.getElementById('endDate');
+        
+        if (startDateInput) startDateInput.value = startDate;
+        if (endDateInput) endDateInput.value = endDate;
+    }
+    
+    const dayRangeBtn = document.getElementById('dayRangeBtn');
+    if (dayRangeBtn) {
+        dayRangeBtn.addEventListener('click', function() { setDateRange(1); });
+    }
+    
+    const weekRangeBtn = document.getElementById('weekRangeBtn');
+    if (weekRangeBtn) {
+        weekRangeBtn.addEventListener('click', function() { setDateRange(7); });
+    }
+    
+    const monthRangeBtn = document.getElementById('monthRangeBtn');
+    if (monthRangeBtn) {
+        monthRangeBtn.addEventListener('click', function() { setDateRange(30); });
+    }
+});
 </script>
 {% endblock %} 
