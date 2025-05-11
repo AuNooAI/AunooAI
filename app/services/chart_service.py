@@ -85,48 +85,210 @@ class ChartService:
         # Count combinations of future_signal and sentiment
         grouped = df.groupby(['future_signal', 'sentiment']).size().reset_index(name='count')
         sentiments = grouped['sentiment'].unique()
-        # Define sentiment colors (customize as needed)
+        
+        # Define sentiment colors with very bright, high-contrast colors
         SENTIMENT_COLORS = {
-            'positive': '#4caf50',
-            'negative': '#f44336',
-            'neutral': '#9e9e9e',
-            'mixed': '#ff9800',
-            'critical': '#673ab7',
-            'hyperbolic': '#03a9f4',
+            'positive': 'rgb(76, 175, 80)',     # Bright green
+            'negative': 'rgb(244, 67, 54)',     # Bright red
+            'neutral': 'rgb(158, 158, 158)',    # Gray
+            'mixed': 'rgb(255, 152, 0)',        # Orange
+            'critical': 'rgb(156, 39, 176)',    # Purple
+            'hyperbolic': 'rgb(33, 150, 243)',  # Blue
+            # Fallbacks for other sentiments
+            'unknown': 'rgb(0, 0, 0)',          # Black
+            'other': 'rgb(233, 30, 99)'         # Pink
         }
+        
         fig = go.Figure()
+        
         for sentiment in sentiments:
             sentiment_data = grouped[grouped['sentiment'] == sentiment]
+            color = SENTIMENT_COLORS.get(sentiment, SENTIMENT_COLORS['unknown'])
+            
             fig.add_trace(go.Scatterpolar(
                 r=sentiment_data['count'],
                 theta=sentiment_data['future_signal'],
                 name=sentiment,
                 marker=dict(
-                    color=SENTIMENT_COLORS.get(sentiment, '#000'),
+                    color=color,
                     size=sentiment_data['count'],
                     sizemode='area',
                     sizeref=2.*max(grouped['count'])/(60.**2) if max(grouped['count']) > 0 else 1,
-                    sizemin=4
+                    sizemin=4,
+                    line=dict(color=color, width=2)
                 ),
                 mode='markers+lines',
-                line=dict(color=SENTIMENT_COLORS.get(sentiment, '#000')),
+                line=dict(color=color, width=4),
                 fill='toself',
-                opacity=0.6
+                opacity=0.7
             ))
+            
+        # Enhanced layout
         fig.update_layout(
-            title='Radar Chart of Articles by Future Signal and Sentiment',
+            title={
+                'text': "Signal Analysis by Sentiment",
+                'font': {'size': 24, 'color': 'black'}
+            },
             polar=dict(
                 radialaxis=dict(
                     visible=True,
-                    range=[0, max(grouped['count'])*1.1 if len(grouped['count']) > 0 else 1]
-                )
+                    range=[0, max(grouped['count'])*1.1 if len(grouped['count']) > 0 else 1],
+                    color='black',
+                    linecolor='black',
+                    linewidth=2
+                ),
+                angularaxis=dict(
+                    color='black',
+                    linecolor='black',
+                    linewidth=2
+                ),
+                bgcolor='white'
             ),
             showlegend=True,
-            legend_title='Sentiment'
+            legend=dict(
+                title="Sentiment",
+                font=dict(size=14, color="black")
+            ),
+            paper_bgcolor='white',
+            plot_bgcolor='white',
+            font=dict(color='black'),
+            colorway=[SENTIMENT_COLORS[s] if s in SENTIMENT_COLORS else SENTIMENT_COLORS['unknown'] 
+                     for s in sentiments]
         )
+        
+        return self._fig_to_base64(fig)
+
+    def generate_sentiment_over_time_chart(
+        self,
+        articles: List[Dict],
+        start_date: date,
+        end_date: date
+    ) -> str:
+        """
+        Generate a line chart showing article volume over time with separate lines for each sentiment.
+        """
+        if not articles:
+            return ""
+            
+        df = pd.DataFrame(articles)
+        if 'publication_date' not in df.columns or 'sentiment' not in df.columns:
+            return ""
+            
+        # Convert publication_date to datetime
+        df['publication_date'] = pd.to_datetime(df['publication_date'], format='%Y-%m-%d', errors='coerce')
+        
+        # Group by date and sentiment
+        sentiment_over_time = df.groupby(['publication_date', 'sentiment']).size().unstack(fill_value=0)
+        
+        # Define sentiment colors with very bright, high-contrast colors
+        SENTIMENT_COLORS = {
+            'positive': 'rgb(76, 175, 80)',     # Bright green
+            'negative': 'rgb(244, 67, 54)',     # Bright red
+            'neutral': 'rgb(158, 158, 158)',    # Gray
+            'mixed': 'rgb(255, 152, 0)',        # Orange
+            'critical': 'rgb(156, 39, 176)',    # Purple
+            'hyperbolic': 'rgb(33, 150, 243)',  # Blue
+            # Fallbacks for other sentiments
+            'unknown': 'rgb(0, 0, 0)',          # Black
+            'other': 'rgb(233, 30, 99)'         # Pink
+        }
+        
+        # Create figure with white background
+        fig = go.Figure()
+        
+        # Add a line for each sentiment with vibrant colors and thicker lines
+        for sentiment in sentiment_over_time.columns:
+            color = SENTIMENT_COLORS.get(sentiment, SENTIMENT_COLORS['unknown'])
+            fig.add_trace(
+                go.Scatter(
+                    x=sentiment_over_time.index,
+                    y=sentiment_over_time[sentiment],
+                    name=sentiment,
+                    mode='lines+markers',
+                    line=dict(
+                        color=color,
+                        width=4
+                    ),
+                    marker=dict(
+                        color=color,
+                        size=10,
+                        line=dict(
+                            color=color,
+                            width=2
+                        )
+                    )
+                )
+            )
+        
+        # Use a cleaner, more modern layout
+        fig.update_layout(
+            title={
+                'text': "Sentiment Over Time",
+                'font': {'size': 24, 'color': 'black'}
+            },
+            xaxis_title={
+                'text': "Date", 
+                'font': {'size': 18, 'color': 'black'}
+            },
+            yaxis_title={
+                'text': "Article Count", 
+                'font': {'size': 18, 'color': 'black'}
+            },
+            hovermode="x unified",
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1,
+                font=dict(size=14, color="black")
+            ),
+            paper_bgcolor='white',
+            plot_bgcolor='white',
+            font=dict(color='black'),
+            colorway=[SENTIMENT_COLORS[s] if s in SENTIMENT_COLORS else SENTIMENT_COLORS['unknown'] 
+                     for s in sentiment_over_time.columns]
+        )
+        
+        # Update axes
+        fig.update_xaxes(
+            gridcolor='lightgray', 
+            zerolinecolor='black',
+            showgrid=True,
+            linecolor='black',
+            linewidth=2
+        )
+        fig.update_yaxes(
+            gridcolor='lightgray', 
+            zerolinecolor='black',
+            showgrid=True,
+            linecolor='black',
+            linewidth=2
+        )
+        
         return self._fig_to_base64(fig)
 
     def _fig_to_base64(self, fig: go.Figure) -> str:
-        img_bytes = fig.to_image(format="png")
+        """Convert figure to base64 encoded image with enhanced quality settings."""
+        # Set higher quality for image rendering
+        config = {
+            'toImageButtonOptions': {
+                'format': 'png',
+                'filename': 'chart',
+                'height': 800,
+                'width': 1200,
+                'scale': 2  # Higher scale for better resolution
+            }
+        }
+        
+        # Use higher quality settings for the image
+        img_bytes = fig.to_image(
+            format="png", 
+            engine="kaleido", 
+            width=1000,
+            height=800,
+            scale=2
+        )
+        
         base64_str = base64.b64encode(img_bytes).decode('utf-8')
         return f"data:image/png;base64,{base64_str}" 

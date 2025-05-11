@@ -146,9 +146,11 @@ class NewsletterService:
         date_format = "%Y-%m-%d"
         date_range = f"{start_date.strftime(date_format)} to {end_date.strftime(date_format)}"
         
-        header = f"# {frequency.capitalize()} Newsletter: {topic_str}\n\n"
-        header += f"**Period**: {date_range}\n\n"
-        header += f"**Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        # Add banner image (placeholder for now, would be replaced with uploaded banner)
+        header = "<img src=\"/static/img/aunoonewsnetwork.png\" alt=\"Newsletter Banner\" width=\"100%\">\n\n"
+        header += f"# {frequency.capitalize()} Newsletter: {topic_str}\n\n"
+        header += f"Covering the period from {date_range}\n\n"
+        header += f"Published on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
         header += "---\n\n"
         
         return header
@@ -181,9 +183,12 @@ class NewsletterService:
         elif content_type == "article_insights":
             return await self._generate_article_insights(topic, start_date, end_date)
         elif content_type == "key_articles":
-            return await self._generate_key_articles_list(topic, start_date, end_date)
+            # Add divider before key articles section
+            return "---\n\n" + await self._generate_key_articles_list(topic, start_date, end_date)
         elif content_type == "latest_podcast":
-            return await self._generate_latest_podcast(topic)
+            podcast_content = await self._generate_latest_podcast(topic)
+            # Add divider after podcast summary
+            return podcast_content + "---\n\n"
         elif content_type == "ethical_societal_impact":
             return await self._generate_ethical_societal_impact_section(topic, start_date, end_date)
         elif content_type == "business_impact":
@@ -252,24 +257,19 @@ class NewsletterService:
         if not articles:
             return "No articles found for chart generation in this period."
             
-        # Generate charts
-        volume_chart = self.chart_service.generate_volume_chart(
+        # Generate charts - removed volume chart, keep sentiment over time and radar chart
+        sentiment_over_time_chart = self.chart_service.generate_sentiment_over_time_chart(
             articles, start_date, end_date
         )
-        sentiment_chart = self.chart_service.generate_sentiment_chart(articles)
         radar_chart = self.chart_service.generate_radar_chart(articles)
         
-        # Combine charts into markdown
-        result = "### Key Charts\n\n"
-        result += "#### Volume Over Time\n"
+        # Combine charts into markdown - with updated headings
+        result = ""
+        result += "#### Sentiment Over Time\n"
         result += (
-            f"![Volume Chart]({volume_chart})\n\n"
+            f"![Sentiment Over Time Chart]({sentiment_over_time_chart})\n\n"
         )
-        result += "#### Sentiment Distribution\n"
-        result += (
-            f"![Sentiment Chart]({sentiment_chart})\n\n"
-        )
-        result += "#### Signal Analysis\n"
+        result += "#### Future Signals Analysis\n"
         result += (
             f"![Radar Chart]({radar_chart})\n\n"
         )
@@ -584,14 +584,12 @@ class NewsletterService:
                 why_merits_attention = "Full summary not available to determine specific importance."
 
             # Use proper markdown formatting with the requested template:
-            # ### {title}
-            # **Source:** | Date | {news_source} | 
+            # ### [title](url)
+            # **Source:** | {news_source} | **Date:** {date}
             # {summary}
-            # [Link to Publication]({url})
-            result += f"### {title}\n"
+            result += f"### [{title}]({uri})\n"
             result += f"**Source:** | {source} | **Date:** {pub_date}\n\n"
             result += f"{summary}\n\n"
-            result += f"[Link to Publication]({uri})\n\n"
             if why_merits_attention and why_merits_attention != "Analysis of importance pending.":
                 result += f"**Why this matters:** {why_merits_attention}\n\n"
             if tag_str:
@@ -888,19 +886,21 @@ class NewsletterService:
             f"**Summary of {topic}**\n"
             f"- Provide a brief (2-3 sentences) high-level overview of the current state of '{topic}'.\n"
             f"- For EVERY fact or assertion, include a proper citation using this format: **[Article Title](Article URI)**\n"
+            f"- Each citation must be on its own line, not inline with text.\n"
             f"- Ensure your overview is directly based on the articles provided, not general knowledge.\n\n"
             f"**Top Three Developments**\n"
-            f"- Development 1: [Briefly state the development]. **Why this is need-to-know:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n"
-            f"- Development 2: [Briefly state the development]. **Why this is need-to-know:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n"
-            f"- Development 3: [Briefly state the development]. **Why this is need-to-know:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n\n"
+            f"- Development 1: [Briefly state the development].\n  **Why this is need-to-know:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
+            f"- Development 2: [Briefly state the development].\n  **Why this is need-to-know:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
+            f"- Development 3: [Briefly state the development].\n  **Why this is need-to-know:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n\n"
             f"**Top 3 Industry Trends**\n"
-            f"- Trend 1: [Briefly state the trend]. **Why this is interesting:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n"
-            f"- Trend 2: [Briefly state the trend]. **Why this is interesting:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n"
-            f"- Trend 3: [Briefly state the trend]. **Why this is interesting:** [Explain its significance in 1-2 sentences]. Cite: **[Relevant Article Title](Article URI)**\n\n"
+            f"- Trend 1: [Briefly state the trend].\n  **Why this is interesting:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
+            f"- Trend 2: [Briefly state the trend].\n  **Why this is interesting:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
+            f"- Trend 3: [Briefly state the trend].\n  **Why this is interesting:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n\n"
             f"**Strategic Takeaways for Decision Makers:**\n"
             f"- Provide 2-3 high-level strategic implications or actionable insights derived from the above points that a decision maker should consider.\n\n"
             f"Important: Always use the exact article titles and URIs from the data. Be very concise and focus on impact.\n"
-            f"Each section MUST include proper citation links to the original articles. DO NOT skip adding links.\n\n"
+            f"Each section MUST include proper citation links to the original articles. DO NOT skip adding links.\n"
+            f"PUT LINKS ON THEIR OWN LINES - this is critical for rendering.\n\n"
             f"Articles for analysis:\n{article_data}"
         )
 
@@ -909,7 +909,7 @@ class NewsletterService:
         Create prompt for trend analysis content with insight-driven format,
         now including a placeholder for article data for citation.
         """
-        # Format data for prompt
+        # Extract data from trend_data
         categories = trend_data.get("categories", {})
         sentiments = trend_data.get("sentiments", {})
         future_signals = trend_data.get("future_signals", {})
@@ -942,19 +942,27 @@ class NewsletterService:
             f"- Top Tags (up to 10 with counts): {tags_str}\n\n"
             f"**Analysis & Insights:**\n"
             f"Begin with a 1-2 sentence overview of the general sentiment and activity level for '{topic}'.\n"
-            f"Then, for each of the following aspects, provide 2-3 bullet points highlighting key patterns, shifts, or noteworthy observations. If an observation is particularly illustrated by a specific article, cite it using **[Article Title](Article URI)** from the reference list below:\n"
-            f"  - **Category Insights:** (e.g., Dominant categories, significant shifts in category focus, surprising under/over-representation).\
-          *Observation 1... Cite if applicable.*\
-          *Observation 2... Cite if applicable.*\n"
-            f"  - **Sentiment Insights:** (e.g., Predominant sentiment, changes over time if inferable, sentiment drivers).\
-          *Observation 1... Cite if applicable.*\
-          *Observation 2... Cite if applicable.*\n"
-            f"  - **Future Outlook (Signals & TTI):** (e.g., Implications of future signals, common TTI, alignment or divergence between signals and TTI).\
-          *Observation 1... Cite if applicable.*\
-          *Observation 2... Cite if applicable.*\n"
-            f"  - **Key Tag Themes:** (e.g., Dominant tags and what they signify, clusters of related tags appearing frequently).\
-          *Observation 1... Cite if applicable.*\
-          *Observation 2... Cite if applicable.*\n\n"
+            f"Then, for each of the following aspects, provide 2-3 bullet points highlighting key patterns, shifts, or noteworthy observations. If an observation is particularly illustrated by a specific article, cite it using **[Article Title](Article URI)** from the reference list below. Put each citation on its own line for proper rendering:\n"
+            f"  - **Category Insights:** (e.g., Dominant categories, significant shifts in category focus, surprising under/over-representation).\n"
+            f"    *Observation 1... \n"
+            f"    Cite if applicable.*\n"
+            f"    *Observation 2... \n"
+            f"    Cite if applicable.*\n"
+            f"  - **Sentiment Insights:** (e.g., Predominant sentiment, changes over time if inferable, sentiment drivers).\n"
+            f"    *Observation 1... \n"
+            f"    Cite if applicable.*\n"
+            f"    *Observation 2... \n"
+            f"    Cite if applicable.*\n"
+            f"  - **Future Outlook (Signals & TTI):** (e.g., Implications of future signals, common TTI, alignment or divergence between signals and TTI).\n"
+            f"    *Observation 1... \n"
+            f"    Cite if applicable.*\n"
+            f"    *Observation 2... \n"
+            f"    Cite if applicable.*\n"
+            f"  - **Key Tag Themes:** (e.g., Dominant tags and what they signify, clusters of related tags appearing frequently).\n"
+            f"    *Observation 1... \n"
+            f"    Cite if applicable.*\n"
+            f"    *Observation 2... \n"
+            f"    Cite if applicable.*\n\n"
             f"Conclude with a 2-3 sentence synthesis on any connections between these different distributions or overall strategic insights valuable for decision-making.\n\n"
             f"Reference Articles (for citation purposes only if applicable to the data patterns observed):\n{article_data_str}"
             f"Be specific and data-driven. Avoid generic statements."
