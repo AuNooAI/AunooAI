@@ -102,8 +102,14 @@ async def compile_newsletter(
         )
         
     except Exception as e:
-        logger.error(f"Error compiling newsletter: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error compiling newsletter: {str(e)}")
+        logger.error(f"Error compiling newsletter: {str(e)}", exc_info=True)
+        # Return a response with an error message but don't raise an HTTP exception
+        # This allows the frontend to handle the error gracefully
+        return NewsletterResponse(
+            message=f"Error compiling newsletter: {str(e)}",
+            compiled_markdown=f"# Newsletter Compilation Error\n\n{str(e)}",
+            request_payload=request
+        )
 
 
 @router.post("/api/newsletter/markdown_to_html")
