@@ -15,45 +15,51 @@
                 <div class="card-body">
                     <form id="articleSearchForm">
                         <div class="mb-3">
-                            <label for="topicSelect" class="form-label">Topic</label>
+                            <label for="topicSelect" class="form-label" data-bs-toggle="tooltip" title="Select the main topic to filter articles">Topic</label>
                             <select id="topicSelect" name="topic" class="form-select">
                                 <option value="">Select a topic</option>
                             </select>
                         </div>
 
                         <div class="mb-3">
-                            <label for="category" class="form-label">Categories</label>
+                            <label for="category" class="form-label" data-bs-toggle="tooltip" title="Filter articles by one or more categories">Categories</label>
+                            <small class="form-text text-muted">Categories are loaded based on the selected topic.</small>
                             <select id="category" name="category" class="form-select" multiple disabled>
                                 <!-- Categories will be populated based on selected topic -->
                             </select>
                         </div>
 
                         <div class="mb-3">
-                            <label for="futureSignal" class="form-label">Future Signals</label>
+                            <label for="futureSignal" class="form-label" data-bs-toggle="tooltip" title="Filter by future signals identified in articles">Future Signals</label>
+                            <small class="form-text text-muted">Select one or more future signals to narrow your search.</small>
                             <select id="futureSignal" name="future_signal" class="form-select" multiple>
                                 <!-- Options will be populated dynamically -->
                             </select>
                         </div>
 
                         <div class="mb-3">
-                            <label for="sentiment" class="form-label">Sentiments</label>
+                            <label for="sentiment" class="form-label" data-bs-toggle="tooltip" title="Filter by sentiment (positive, negative, neutral)">Sentiments</label>
+                            <small class="form-text text-muted">Choose sentiments to focus on articles with a particular tone.</small>
                             <select id="sentiment" name="sentiment" class="form-select" multiple>
                                 <!-- Options will be populated dynamically -->
                             </select>
                         </div>
 
                         <div class="mb-3">
-                            <label for="tags" class="form-label">Tags</label>
+                            <label for="tags" class="form-label" data-bs-toggle="tooltip" title="Filter by tags (comma-separated)">Tags</label>
+                            <small class="form-text text-muted">Enter tags separated by commas to filter articles.</small>
                             <input type="text" id="tags" name="tags" class="form-control" placeholder="Enter tags separated by commas">
                         </div>
 
                         <div class="mb-3">
-                            <label for="keyword" class="form-label">Keyword</label>
+                            <label for="keyword" class="form-label" data-bs-toggle="tooltip" title="Search for a specific keyword in articles">Keyword</label>
+                            <small class="form-text text-muted">Type a keyword to search within article titles and summaries.</small>
                             <input type="text" id="keyword" name="keyword" class="form-control" placeholder="Enter keyword">
                         </div>
 
                         <div class="mb-3">
-                            <label for="dateRange" class="form-label">Date Range</label>
+                            <label for="dateRange" class="form-label" data-bs-toggle="tooltip" title="Select a date range for articles">Date Range</label>
+                            <small class="form-text text-muted">Choose a preset or custom date range for your search.</small>
                             <select id="dateRange" name="dateRange" class="form-select">
                                 <option value="all">All Time</option>
                                 <option value="7">Last 7 Days</option>
@@ -65,24 +71,25 @@
 
                         <div id="customDateRange" style="display: none;">
                             <div class="mb-3">
-                                <label for="startDate" class="form-label">Start Date</label>
+                                <label for="startDate" class="form-label" data-bs-toggle="tooltip" title="Start date for custom range">Start Date</label>
                                 <input type="date" id="startDate" name="startDate" class="form-control">
                             </div>
                             <div class="mb-3">
-                                <label for="endDate" class="form-label">End Date</label>
+                                <label for="endDate" class="form-label" data-bs-toggle="tooltip" title="End date for custom range">End Date</label>
                                 <input type="date" id="endDate" name="endDate" class="form-control">
                             </div>
                         </div>
 
                         <div class="mb-3">
-                            <label for="dateType" class="form-label">Date Type</label>
+                            <label for="dateType" class="form-label" data-bs-toggle="tooltip" title="Choose which date field to use for filtering">Date Type</label>
+                            <small class="form-text text-muted">Publication date is when the article was published; submission date is when it was added to the system.</small>
                             <select id="dateType" name="date_type" class="form-select">
                                 <option value="publication">Publication Date</option>
                                 <option value="submission">Submission Date</option>
                             </select>
                         </div>
 
-                        <button type="submit" class="btn btn-primary">Search</button>
+                        <button type="submit" class="btn btn-primary" data-bs-toggle="tooltip" title="Search for articles using the selected filters">Search</button>
                     </form>
                 </div>
             </div>
@@ -93,7 +100,8 @@
             <div class="card">
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <h5 class="mb-0">Search Results <span id="totalCount"></span></h5>
-                    <button id="selectAllBtn" class="btn btn-secondary btn-sm">Select All</button>
+                    <small class="form-text text-muted">Add articles to include them in your podcast script.</small>
+                    <button id="selectAllBtn" class="btn btn-secondary btn-sm" data-bs-toggle="tooltip" title="Select or deselect all visible articles">Select All</button>
                 </div>
                 <div id="articleList" class="article-list-container">
                     <!-- Articles will be displayed here -->
@@ -141,31 +149,37 @@
                             <div class="col-md-6">
                                 <div class="mb-3">
                                     <label for="podcastName" class="form-label" data-bs-toggle="tooltip" title="Name of the overall podcast series">Podcast Name</label>
+                                    <small class="form-text text-muted">This will appear as the main title of your podcast series.</small>
                                     <input type="text" class="form-control" id="podcastName" required placeholder="Enter the name of your podcast series" value="Aunoo News">
                                 </div>
 
                                 <div class="mb-3">
                                     <label for="episodeTitle" class="form-label" data-bs-toggle="tooltip" title="Title of the specific episode">Episode Title</label>
+                                    <small class="form-text text-muted">Give each episode a unique, descriptive title.</small>
                                     <input type="text" class="form-control" id="episodeTitle" required placeholder="Enter the title for this episode" value="Latest Debate">
                                 </div>
 
                                 <div class="mb-3">
                                     <label for="hostName" class="form-label" data-bs-toggle="tooltip" title="Name of the host">Host Name</label>
+                                    <small class="form-text text-muted">The host will introduce and guide the podcast.</small>
                                     <input type="text" class="form-control" id="hostName" value="Aunoo" placeholder="Enter the host's name">
                                 </div>
 
                                 <div class="mb-3">
                                     <label for="ttsHostVoice" class="form-label" data-bs-toggle="tooltip" title="Voice of the host">Host Voice</label>
+                                    <small class="form-text text-muted">Choose a synthetic voice for the host narration.</small>
                                     <select class="form-control" id="ttsHostVoice"></select>
                                 </div>
 
                                 <div class="mb-3">
                                     <label for="guestName" class="form-label" data-bs-toggle="tooltip" title="Name of the guest">Guest Name</label>
+                                    <small class="form-text text-muted">The guest will participate in conversation mode podcasts.</small>
                                     <input type="text" class="form-control" id="guestName" required placeholder="Enter the guest's name" value="Auspex">
                                 </div>
 
                                 <div class="mb-3">
                                     <label for="guestTitle" class="form-label" data-bs-toggle="tooltip" title="Title of the guest">Guest Title</label>
+                                    <small class="form-text text-muted">Select a predefined title or enter a custom one for your guest.</small>
                                     <select class="form-control mb-2" id="guestTitle" onchange="toggleCustomTitle()">
                                         <option value="chief_futurist">Chief Futurist at Aunoo</option>
                                         <option value="special_correspondent">Special Correspondent</option>
@@ -178,11 +192,13 @@
 
                                 <div class="mb-3" id="ttsGuestVoiceSection">
                                     <label for="ttsGuestVoice" class="form-label" data-bs-toggle="tooltip" title="Voice of the guest">Guest Voice</label>
+                                    <small class="form-text text-muted">Choose a synthetic voice for the guest (conversation mode only).</small>
                                     <select class="form-control" id="ttsGuestVoice"></select>
                                 </div>
 
                                 <div class="mb-3">
                                     <label for="llmModel" class="form-label" data-bs-toggle="tooltip" title="Script generation model">Script Generation Model</label>
+                                    <small class="form-text text-muted">Select the AI model used to generate the podcast script.</small>
                                     <select class="form-control" id="llmModel">
                                         <option value="gpt-4o">GPT-4 Optimized</option>
                                         <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet</option>
@@ -192,6 +208,7 @@
 
                                 <div class="mb-3">
                                     <label for="ttsMode" class="form-label" data-bs-toggle="tooltip" title="Conversation uses host + guest. Bulletin uses only the host voice">Podcast Mode</label>
+                                    <small class="form-text text-muted">Conversation mode features a host and guest; bulletin mode is a solo host.</small>
                                     <select class="form-control" id="ttsMode" onchange="toggleTTSGuestVoice()">
                                         <option value="conversation" selected>Conversation</option>
                                         <option value="bulletin">Bulletin</option>
@@ -200,6 +217,7 @@
 
                                 <div class="mb-3">
                                     <label for="ttsDuration" class="form-label" data-bs-toggle="tooltip" title="Short: ~2 min, Medium: ~4 min, Long: ~7+ min">Duration</label>
+                                    <small class="form-text text-muted">Choose the approximate length of the podcast episode.</small>
                                     <select class="form-control" id="ttsDuration">
                                         <option value="short">Short (~2 min)</option>
                                         <option value="medium" selected>Medium (~4 min)</option>
@@ -208,7 +226,8 @@
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="voiceSpeed" class="form-label" data-bs-toggle="tooltip" title="Voice speed multiplier &mdash; 1.0 is normal, lower is slower, higher is faster">Voice Speed</label>
+                                    <label for="voiceSpeed" class="form-label" data-bs-toggle="tooltip" title="Voice speed multiplier — 1.0 is normal, lower is slower, higher is faster">Voice Speed</label>
+                                    <small class="form-text text-muted">Adjust the speaking speed of the generated voices.</small>
                                     <input type="number" class="form-control" id="voiceSpeed" step="0.05" min="0.5" max="1.5" value="0.9">
                                 </div>
 
@@ -216,24 +235,20 @@
 
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label class="form-label">Script Template</label>
+                                    <label class="form-label" data-bs-toggle="tooltip" title="Choose a template for the podcast script structure">Script Template</label>
+                                    <small class="form-text text-muted">Templates define the structure and style of your podcast script.</small>
                                     <div class="d-flex justify-content-between align-items-center mb-2">
                                         <select class="form-control me-2" id="scriptTemplate"></select>
-                                        <button type="button" class="btn btn-secondary" id="editTemplate">
-                                            Edit Template
-                                        </button>
+                                        <button type="button" class="btn btn-secondary" id="editTemplate" data-bs-toggle="tooltip" title="Edit the selected script template">Edit Template</button>
                                     </div>
                                 </div>
 
                                 <div class="mb-3">
-                                    <label for="scriptPreview" class="form-label">Generated Script</label>
+                                    <label for="scriptPreview" class="form-label" data-bs-toggle="tooltip" title="Preview or edit the generated script">Generated Script</label>
+                                    <small class="form-text text-muted">Review or edit the script before generating audio.</small>
                                     <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <button type="button" class="btn btn-primary" id="generateScript">
-                                            Generate Script
-                                        </button>
-                                        <button type="button" class="btn btn-secondary" id="editScript">
-                                            Edit Script
-                                        </button>
+                                        <button type="button" class="btn btn-primary" id="generateScript" data-bs-toggle="tooltip" title="Generate a podcast script using the selected articles and settings">Generate Script</button>
+                                        <button type="button" class="btn btn-secondary" id="editScript" data-bs-toggle="tooltip" title="Edit the generated script in a full editor">Edit Script</button>
                                     </div>
                                     <!-- Preview / inline editor container -->
                                     <div id="scriptPreview" class="border rounded p-3 bg-light" style="min-height: 300px;"></div>
@@ -242,7 +257,7 @@
                         </div>
 
                         <div class="d-flex align-items-center gap-2">
-                            <button type="submit" class="btn btn-primary">Generate TTS Podcast</button>
+                            <button type="submit" class="btn btn-primary" data-bs-toggle="tooltip" title="Generate the podcast audio using ElevenLabs TTS">Generate TTS Podcast</button>
                             <button type="button" class="btn btn-outline-secondary" id="saveDefaultsBtn" data-bs-toggle="tooltip" title="Save current selections as defaults for this mode">Save Defaults</button>
                         </div>
                     </form>
@@ -252,16 +267,18 @@
                 <div class="tab-pane fade" id="dia-config" role="tabpanel">
                     <form id="diaConfigForm" class="mt-3" style="max-width: 500px;">
                         <div class="mb-3">
-                            <label for="diaApiKey" class="form-label">Dia API Key</label>
+                            <label for="diaApiKey" class="form-label" data-bs-toggle="tooltip" title="Your Dia API key for TTS generation">Dia API Key</label>
+                            <small class="form-text text-muted">Required for using Dia TTS features.</small>
                             <input type="text" class="form-control" id="diaApiKey" placeholder="Enter Dia API Key" required>
                         </div>
                         <div class="mb-3">
-                            <label for="diaApiUrl" class="form-label">Dia Base URL</label>
+                            <label for="diaApiUrl" class="form-label" data-bs-toggle="tooltip" title="Base URL for your Dia TTS server">Dia Base URL</label>
+                            <small class="form-text text-muted">Example: http://localhost:8000/v1/tts</small>
                             <input type="text" class="form-control" id="diaApiUrl" placeholder="http://localhost:8000/v1/tts" required>
                         </div>
                         <div class="d-flex gap-2">
-                            <button type="submit" class="btn btn-primary">Save</button>
-                            <button type="button" id="diaDeleteBtn" class="btn btn-danger">Remove</button>
+                            <button type="submit" class="btn btn-primary" data-bs-toggle="tooltip" title="Save Dia TTS configuration">Save</button>
+                            <button type="button" id="diaDeleteBtn" class="btn btn-danger" data-bs-toggle="tooltip" title="Remove Dia TTS configuration">Remove</button>
                         </div>
                         <div id="diaConfigStatus" class="mt-2"></div>
                     </form>
@@ -273,27 +290,33 @@
                         <div class="row">
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label for="diaPodcastName" class="form-label">Podcast Name</label>
+                                    <label for="diaPodcastName" class="form-label" data-bs-toggle="tooltip" title="Name of the podcast series for Dia TTS">Podcast Name</label>
+                                    <small class="form-text text-muted">This will be used as the main title for Dia-generated podcasts.</small>
                                     <input type="text" class="form-control" id="diaPodcastName" placeholder="Enter podcast name" value="Aunoo News">
                                 </div>
                                 <div class="mb-3">
-                                    <label for="diaEpisodeTitle" class="form-label">Episode Title</label>
+                                    <label for="diaEpisodeTitle" class="form-label" data-bs-toggle="tooltip" title="Title of the episode for Dia TTS">Episode Title</label>
+                                    <small class="form-text text-muted">Provide a unique title for this episode.</small>
                                     <input type="text" class="form-control" id="diaEpisodeTitle" placeholder="Enter episode title" value="Latest Debate">
                                 </div>
                                 <div class="mb-3">
-                                    <label for="diaHostName" class="form-label">Host Name</label>
+                                    <label for="diaHostName" class="form-label" data-bs-toggle="tooltip" title="Name of the host for Dia TTS">Host Name</label>
+                                    <small class="form-text text-muted">The host will narrate the podcast.</small>
                                     <input type="text" class="form-control" id="diaHostName" value="Aunoo">
                                 </div>
                                 <div class="mb-3">
-                                    <label for="diaGuestName" class="form-label">Guest Name</label>
+                                    <label for="diaGuestName" class="form-label" data-bs-toggle="tooltip" title="Name of the guest for Dia TTS">Guest Name</label>
+                                    <small class="form-text text-muted">The guest will participate in the conversation.</small>
                                     <input type="text" class="form-control" id="diaGuestName" value="Auspex">
                                 </div>
                                 <div class="mb-3">
-                                    <label for="diaGuestTitle" class="form-label">Guest Title</label>
+                                    <label for="diaGuestTitle" class="form-label" data-bs-toggle="tooltip" title="Title of the guest for Dia TTS">Guest Title</label>
+                                    <small class="form-text text-muted">Specify the guest's title or role.</small>
                                     <input type="text" class="form-control" id="diaGuestTitle" value="Chief Futurist">
                                 </div>
                                 <div class="mb-3">
-                                    <label for="diaDuration" class="form-label">Duration</label>
+                                    <label for="diaDuration" class="form-label" data-bs-toggle="tooltip" title="Select the duration for the Dia TTS podcast">Duration</label>
+                                    <small class="form-text text-muted">Choose how long the generated podcast should be.</small>
                                     <select class="form-control" id="diaDuration">
                                         <option value="short">Short (~2 min)</option>
                                         <option value="medium" selected>Medium (~4 min)</option>
@@ -301,7 +324,8 @@
                                     </select>
                                 </div>
                                 <div class="mb-3">
-                                    <label for="diaLlmModel" class="form-label">Script Generation Model</label>
+                                    <label for="diaLlmModel" class="form-label" data-bs-toggle="tooltip" title="Select the AI model for script generation in Dia TTS">Script Generation Model</label>
+                                    <small class="form-text text-muted">Choose the AI model for generating the podcast script.</small>
                                     <select class="form-control" id="diaLlmModel">
                                         <option value="gpt-4o">GPT-4 Optimized</option>
                                         <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet</option>
@@ -311,23 +335,19 @@
                             </div>
                             <div class="col-md-6">
                                 <div class="mb-3">
-                                    <label class="form-label">Script Template</label>
+                                    <label class="form-label" data-bs-toggle="tooltip" title="Choose a template for the Dia TTS script structure">Script Template</label>
+                                    <small class="form-text text-muted">Templates define the structure and style of your Dia TTS script.</small>
                                     <div class="d-flex justify-content-between align-items-center mb-2">
                                         <select class="form-control me-2" id="diaScriptTemplate"></select>
-                                        <button type="button" class="btn btn-secondary" id="diaEditTemplate">
-                                            Edit Template
-                                        </button>
+                                        <button type="button" class="btn btn-secondary" id="diaEditTemplate" data-bs-toggle="tooltip" title="Edit the selected Dia script template">Edit Template</button>
                                     </div>
                                 </div>
                                 <div class="mb-3">
-                                    <label class="form-label">Generated Script</label>
+                                    <label class="form-label" data-bs-toggle="tooltip" title="Preview or edit the generated Dia script">Generated Script</label>
+                                    <small class="form-text text-muted">Review or edit the script before generating Dia audio.</small>
                                     <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <button type="button" class="btn btn-primary" id="diaGenerateScript">
-                                            Generate Script
-                                        </button>
-                                        <button type="button" class="btn btn-secondary" id="diaEditScript">
-                                            Edit Script
-                                        </button>
+                                        <button type="button" class="btn btn-primary" id="diaGenerateScript" data-bs-toggle="tooltip" title="Generate a Dia podcast script using the selected articles and settings">Generate Script</button>
+                                        <button type="button" class="btn btn-secondary" id="diaEditScript" data-bs-toggle="tooltip" title="Edit the generated Dia script in a full editor">Edit Script</button>
                                     </div>
                                     <div id="diaScriptPreview" class="border rounded p-3 bg-light" style="min-height: 300px;"></div>
                                 </div>
@@ -335,7 +355,8 @@
                         </div>
                         <div class="d-flex align-items-center gap-2">
                             <div class="mb-3 col-md-3">
-                                <label for="diaOutputFormat" class="form-label">Output Format</label>
+                                <label for="diaOutputFormat" class="form-label" data-bs-toggle="tooltip" title="Choose the output audio format for Dia TTS">Output Format</label>
+                                <small class="form-text text-muted">Select mp3 for most use cases; wav for higher quality.</small>
                                 <select class="form-control" id="diaOutputFormat">
                                     <option value="mp3" selected>mp3</option>
                                     <option value="wav">wav</option>
@@ -343,12 +364,13 @@
                             </div>
                             <div class="mb-3 col-md-3">
                                 <label for="diaSpeedFactor" class="form-label" data-bs-toggle="tooltip" title="Playback speed multiplier – 1.0 = normal, lower is slower">Speed&nbsp;Factor</label>
+                                <small class="form-text text-muted">Adjust the playback speed of the generated audio.</small>
                                 <div class="d-flex align-items-center gap-2">
                                     <input type="range" class="form-range flex-grow-1" id="diaSpeedFactor" min="0.8" max="1.0" step="0.02" value="0.94">
                                     <span id="diaSpeedValue" style="width:3rem;">0.94</span>
                                 </div>
                             </div>
-                            <button type="submit" class="btn btn-primary mt-auto">Generate Dia Podcast</button>
+                            <button type="submit" class="btn btn-primary mt-auto" data-bs-toggle="tooltip" title="Generate the podcast audio using Dia TTS">Generate Dia Podcast</button>
                             <span id="diaTtsStatus" class="ms-3"></span>
                         </div>
                         <div class="mt-4" id="diaTtsPlayerContainer" style="display:none;">
@@ -388,8 +410,8 @@
                 <div id="transcript" class="border p-3 bg-light"></div>
             </div>
             <div class="mb-3">
-                <button class="btn btn-success" onclick="downloadPodcast()">Download Podcast</button>
-                <button class="btn btn-info" onclick="downloadTranscript()">Download Transcript</button>
+                <button class="btn btn-success" onclick="downloadPodcast()" data-bs-toggle="tooltip" title="Download the generated podcast audio">Download Podcast</button>
+                <button class="btn btn-info" onclick="downloadTranscript()" data-bs-toggle="tooltip" title="Download the transcript as a text file">Download Transcript</button>
             </div>
         </div>
     </div>
@@ -1306,18 +1328,10 @@ async function loadPastPodcasts() {
                         ${metaBadges.join(' ')}
                     </div>
                     <div class="btn-group mt-2 mt-md-0">
-                        <button class="btn btn-sm btn-primary play-btn">
-                            <i class="fas fa-play"></i> Play
-                        </button>
-                        <button class="btn btn-sm btn-info transcript-btn">
-                            <i class="fas fa-file-alt"></i> Transcript
-                        </button>
-                        <button class="btn btn-sm btn-success download-btn">
-                            <i class="fas fa-download"></i> Download
-                        </button>
-                        <button class="btn btn-sm btn-danger delete-btn">
-                            <i class="fas fa-trash"></i>
-                        </button>
+                        <button class="btn btn-sm btn-primary play-btn" data-bs-toggle="tooltip" title="Play this podcast episode"><i class="fas fa-play"></i> Play</button>
+                        <button class="btn btn-sm btn-info transcript-btn" data-bs-toggle="tooltip" title="Download the transcript for this episode"><i class="fas fa-file-alt"></i> Transcript</button>
+                        <button class="btn btn-sm btn-success download-btn" data-bs-toggle="tooltip" title="Download the audio for this episode"><i class="fas fa-download"></i> Download</button>
+                        <button class="btn btn-sm btn-danger delete-btn" data-bs-toggle="tooltip" title="Delete this podcast episode"><i class="fas fa-trash"></i></button>
                     </div>
                 </div>
             `;

@@ -120,6 +120,25 @@ IMPORTANT: You must follow these exact steps in order:
           ]
       }}
 
+   c) For future impact analysis:
+      - Use future_signal parameter for specific signals
+      - Use time_to_impact parameter for impact timing
+      - Combine with category or date_range as needed
+      Example:
+      {{
+          "queries": [
+              {{
+                  "description": "Get articles about specific future impact",
+                  "params": {{
+                      "category": ["AI Ethics"] or null,
+                      "future_signal": ["Disruption"] or null,
+                      "time_to_impact": ["Short-term"] or null,
+                      "date_range": "90" or null
+                  }}
+              }}
+          ]
+      }}
+
 2. FOR ALL OTHER REQUESTS:
 1. ALWAYS check the available categories first:
     - Look at the list of available categories above
@@ -164,6 +183,7 @@ IMPORTANT: You must follow these exact steps in order:
 Remember:
 - For trend analysis, use ONLY date_range parameter
 - For sentiment analysis, use ONLY category parameter if specified
+- For future impact analysis, use future_signal and time_to_impact parameters
 - For category summaries, use both category and date_range parameters
 - ALWAYS check categories first for other queries
 - Use EXACT category names from the list
@@ -181,6 +201,7 @@ Return your search strategy in this format:""" + r"""
                 "keyword": "main search term OR alternative term OR another term",
                 "sentiment": "exact sentiment" or null,
                 "future_signal": "exact signal" or null,
+                "time_to_impact": "exact impact timing" or null,
                 "tags": ["relevant", "search", "terms"],
                 "date_range": "7/30/365" or null
             }
@@ -336,6 +357,27 @@ You can help users find and analyze articles by:
 - Filtering by any of the above attributes
 - Filtering by date ranges
 - Combining multiple criteria
+
+When analyzing articles, consider:
+1. Sentiment Analysis:
+   - Distribution of sentiments across articles
+   - Sentiment trends over time
+   - Correlation between sentiment and other attributes
+
+2. Future Impact Analysis:
+   - Distribution of future signals
+   - Time to impact predictions
+   - Driver types and their explanations
+
+3. Category Analysis:
+   - Distribution of articles across categories
+   - Category-specific trends
+   - Cross-category comparisons
+
+4. Temporal Analysis:
+   - Publication date patterns
+   - Submission date trends
+   - Time-based impact analysis
 
 Format your responses using markdown for better readability:
 - Use ## for section headings
