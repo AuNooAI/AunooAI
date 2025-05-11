@@ -371,10 +371,13 @@
 
         <div class="example-queries">
             <label>Example Queries:</label>
-            <button class="query-button" data-template="summarize">Summarize a category</button>
-            <button class="query-button" data-template="trends">Analyze trends</button>
-            <button class="query-button" data-template="sentiment">Analyze sentiment</button>
-            <button class="query-button" data-template="compare">Compare categories</button>
+            <button class="query-button" data-template="summarize">Category Summary</button>
+            <button class="query-button" data-template="trends">Trend Analysis</button>
+            <button class="query-button" data-template="sentiment">Sentiment Analysis</button>
+            <button class="query-button" data-template="future_impact">Future Impact</button>
+            <button class="query-button" data-template="driver_analysis">Driver Analysis</button>
+            <button class="query-button" data-template="emerging_topics">Emerging Topics</button>
+            <button class="query-button" data-template="risk_analysis">Risk Analysis</button>
             <div id="categoryButtons" class="category-buttons"></div>
         </div>
 
@@ -454,7 +457,7 @@ const templates = {
         ]
     },
     sentiment: {
-        base: "Analyze sentiment distribution {filter_clause}",
+        base: "Analyze sentiment distribution {filter_clause}. What are the key positive and negative developments?",
         needsCategory: false,
         type: "sentiment_analysis",
         options: [
@@ -466,11 +469,50 @@ const templates = {
             { label: "By category", value: "category" }
         ]
     },
-    compare: {
-        base: "Compare and contrast articles from the {category1} and {category2} categories. What are the key differences and similarities?",
-        needsCategory: true,
-        type: "category_comparison",
-        needsTwoCategories: true
+    future_impact: {
+        base: "Analyze future impact {filter_clause}. What are the key signals and their potential timing?",
+        needsCategory: false,
+        type: "future_impact_analysis",
+        options: [
+            { label: "All signals", value: "all" },
+            { label: "Short-term impact", value: "short" },
+            { label: "Medium-term impact", value: "medium" },
+            { label: "Long-term impact", value: "long" },
+            { label: "By category", value: "category" }
+        ]
+    },
+    driver_analysis: {
+        base: "Analyze the key drivers and their explanations {filter_clause}. What are the main factors influencing these developments?",
+        needsCategory: false,
+        type: "driver_analysis",
+        options: [
+            { label: "All drivers", value: "all" },
+            { label: "Last 30 days", value: "30" },
+            { label: "Last 90 days", value: "90" },
+            { label: "By category", value: "category" }
+        ]
+    },
+    emerging_topics: {
+        base: "What are the emerging topics and themes {filter_clause}? Focus on recent developments and their implications.",
+        needsCategory: false,
+        type: "emerging_topics",
+        options: [
+            { label: "Last 30 days", value: "30" },
+            { label: "Last 90 days", value: "90" },
+            { label: "Last 6 months", value: "180" },
+            { label: "By category", value: "category" }
+        ]
+    },
+    risk_analysis: {
+        base: "Analyze potential risks and challenges {filter_clause}. What are the key concerns and mitigation strategies?",
+        needsCategory: false,
+        type: "risk_analysis",
+        options: [
+            { label: "All articles", value: "all" },
+            { label: "Last 30 days", value: "30" },
+            { label: "Last 90 days", value: "90" },
+            { label: "By category", value: "category" }
+        ]
     }
 };
 
@@ -496,10 +538,17 @@ queryButtons.forEach(button => {
             case 'sentiment_analysis':
                 showSentimentOptions(template.options, availableCategories);
                 break;
-            case 'category_comparison':
-                if (availableCategories.length > 0) {
-                    showCategoryComparison(availableCategories);
-                }
+            case 'future_impact_analysis':
+                showFutureImpactOptions(template.options, availableCategories);
+                break;
+            case 'driver_analysis':
+                showDriverAnalysisOptions(template.options, availableCategories);
+                break;
+            case 'emerging_topics':
+                showEmergingTopicsOptions(template.options, availableCategories);
+                break;
+            case 'risk_analysis':
+                showRiskAnalysisOptions(template.options, availableCategories);
                 break;
             default:
                 if (template.needsCategory) {
@@ -768,44 +817,6 @@ function showTimeframeSelection(timeframes) {
     });
 }
 
-function showCategoryComparison(categories) {
-    let selectedCategory1 = null;
-    categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select first category:</div>';
-    categories.forEach(category => {
-        const button = document.createElement('button');
-        button.className = 'category-badge';
-        button.textContent = category;
-        button.addEventListener('click', () => {
-            if (!selectedCategory1) {
-                selectedCategory1 = category;
-                categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select second category:</div>';
-                categories.filter(c => c !== category).forEach(c => {
-                    const btn = document.createElement('button');
-                    btn.className = 'category-badge';
-                    btn.textContent = c;
-                    btn.addEventListener('click', () => {
-                        const template = templates['compare'];
-                        userInput.value = template.base
-                            .replace('{category1}', selectedCategory1)
-                            .replace('{category2}', c);
-                        document.querySelector('.example-queries').classList.remove('category-mode');
-                        categoryButtons.style.display = 'none';
-                    });
-                    categoryButtons.appendChild(btn);
-                });
-            } else {
-                const template = templates['compare'];
-                userInput.value = template.base
-                    .replace('{category1}', selectedCategory1)
-                    .replace('{category2}', category);
-                document.querySelector('.example-queries').classList.remove('category-mode');
-                categoryButtons.style.display = 'none';
-            }
-        });
-        categoryButtons.appendChild(button);
-    });
-}
-
 function showSentimentOptions(options, categories) {
     categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select analysis type:</div>';
     
@@ -837,6 +848,161 @@ function showSentimentOptions(options, categories) {
             } else {
                 const template = templates['sentiment'];
                 userInput.value = template.base.replace('{filter_clause}', `for the last ${option.label.toLowerCase()}`);
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            }
+        });
+        categoryButtons.appendChild(button);
+    });
+}
+
+// Add new helper function for future impact analysis
+function showFutureImpactOptions(options, categories) {
+    categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select analysis type:</div>';
+    
+    options.forEach(option => {
+        const button = document.createElement('button');
+        button.className = 'category-badge';
+        button.textContent = option.label;
+        button.addEventListener('click', () => {
+            if (option.value === 'category') {
+                // Show category selection
+                categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select category to analyze:</div>';
+                categories.forEach(category => {
+                    const btn = document.createElement('button');
+                    btn.className = 'category-badge';
+                    btn.textContent = category;
+                    btn.addEventListener('click', () => {
+                        const template = templates['future_impact'];
+                        userInput.value = template.base.replace('{filter_clause}', `in the ${category} category`);
+                        document.querySelector('.example-queries').classList.remove('category-mode');
+                        categoryButtons.style.display = 'none';
+                    });
+                    categoryButtons.appendChild(btn);
+                });
+            } else if (option.value === 'all') {
+                const template = templates['future_impact'];
+                userInput.value = template.base.replace('{filter_clause}', 'across all articles');
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            } else {
+                const template = templates['future_impact'];
+                userInput.value = template.base.replace('{filter_clause}', `for ${option.label.toLowerCase()} impact`);
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            }
+        });
+        categoryButtons.appendChild(button);
+    });
+}
+
+// Add new helper function for driver analysis
+function showDriverAnalysisOptions(options, categories) {
+    categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select analysis type:</div>';
+    
+    options.forEach(option => {
+        const button = document.createElement('button');
+        button.className = 'category-badge';
+        button.textContent = option.label;
+        button.addEventListener('click', () => {
+            if (option.value === 'category') {
+                // Show category selection
+                categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select category to analyze:</div>';
+                categories.forEach(category => {
+                    const btn = document.createElement('button');
+                    btn.className = 'category-badge';
+                    btn.textContent = category;
+                    btn.addEventListener('click', () => {
+                        const template = templates['driver_analysis'];
+                        userInput.value = template.base.replace('{filter_clause}', `in the ${category} category`);
+                        document.querySelector('.example-queries').classList.remove('category-mode');
+                        categoryButtons.style.display = 'none';
+                    });
+                    categoryButtons.appendChild(btn);
+                });
+            } else if (option.value === 'all') {
+                const template = templates['driver_analysis'];
+                userInput.value = template.base.replace('{filter_clause}', 'across all articles');
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            } else {
+                const template = templates['driver_analysis'];
+                userInput.value = template.base.replace('{filter_clause}', `from the ${option.label.toLowerCase()}`);
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            }
+        });
+        categoryButtons.appendChild(button);
+    });
+}
+
+// Add new helper function for emerging topics
+function showEmergingTopicsOptions(options, categories) {
+    categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select time period:</div>';
+    
+    options.forEach(option => {
+        const button = document.createElement('button');
+        button.className = 'category-badge';
+        button.textContent = option.label;
+        button.addEventListener('click', () => {
+            if (option.value === 'category') {
+                // Show category selection
+                categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select category to analyze:</div>';
+                categories.forEach(category => {
+                    const btn = document.createElement('button');
+                    btn.className = 'category-badge';
+                    btn.textContent = category;
+                    btn.addEventListener('click', () => {
+                        const template = templates['emerging_topics'];
+                        userInput.value = template.base.replace('{filter_clause}', `in the ${category} category`);
+                        document.querySelector('.example-queries').classList.remove('category-mode');
+                        categoryButtons.style.display = 'none';
+                    });
+                    categoryButtons.appendChild(btn);
+                });
+            } else {
+                const template = templates['emerging_topics'];
+                userInput.value = template.base.replace('{filter_clause}', `from the ${option.label.toLowerCase()}`);
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            }
+        });
+        categoryButtons.appendChild(button);
+    });
+}
+
+// Add new helper function for risk analysis
+function showRiskAnalysisOptions(options, categories) {
+    categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select analysis scope:</div>';
+    
+    options.forEach(option => {
+        const button = document.createElement('button');
+        button.className = 'category-badge';
+        button.textContent = option.label;
+        button.addEventListener('click', () => {
+            if (option.value === 'category') {
+                // Show category selection
+                categoryButtons.innerHTML = '<div class="compare-instructions" style="width: 100%; margin-bottom: 10px; color: var(--dark-gray);">Select category to analyze:</div>';
+                categories.forEach(category => {
+                    const btn = document.createElement('button');
+                    btn.className = 'category-badge';
+                    btn.textContent = category;
+                    btn.addEventListener('click', () => {
+                        const template = templates['risk_analysis'];
+                        userInput.value = template.base.replace('{filter_clause}', `in the ${category} category`);
+                        document.querySelector('.example-queries').classList.remove('category-mode');
+                        categoryButtons.style.display = 'none';
+                    });
+                    categoryButtons.appendChild(btn);
+                });
+            } else if (option.value === 'all') {
+                const template = templates['risk_analysis'];
+                userInput.value = template.base.replace('{filter_clause}', 'across all articles');
+                document.querySelector('.example-queries').classList.remove('category-mode');
+                categoryButtons.style.display = 'none';
+            } else {
+                const template = templates['risk_analysis'];
+                userInput.value = template.base.replace('{filter_clause}', `from the ${option.label.toLowerCase()}`);
                 document.querySelector('.example-queries').classList.remove('category-mode');
                 categoryButtons.style.display = 'none';
             }
