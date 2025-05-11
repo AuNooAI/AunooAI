@@ -108,66 +108,77 @@
             <div class="menu-container">
                 <ul class="menu-items">
                     <li class="menu-item">
-                        <a class="menu-link" href="/">
+                        <a class="menu-link" href="/" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Return to the main operations dashboard">
                             <i class="fas fa-home"></i> Operations HQ
                         </a>
                     </li>
                     
                     <li class="menu-item menu-dropdown dropdown">
-                        <a class="menu-link dropdown-toggle" href="#" id="intelligenceDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-brain"></i> Intelligence
+                        <a class="menu-link dropdown-toggle" href="#" id="intelligenceDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="Discover insights and research tools">
+                            <i class="fas fa-brain"></i> Discover
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="intelligenceDropdown">
-                            <li><a class="dropdown-item" href="/topic-dashboard"><i class="fas fa-sun"></i> Daily Insights</a></li>
-                            <li><a class="dropdown-item" href="/keyword-alerts"><i class="fas fa-chart-line"></i> News Trends</a></li>
-                            <li><a class="dropdown-item" href="/dashboard"><i class="fas fa-newspaper"></i> OSINT Monitoring</a></li>
+                            <small class="text-muted"> Daily Insights</small><br>
+                            <li><a class="dropdown-item" href="/topic-dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="View daily insights and analysis"><i class="fas fa-sun"></i> Daily Insights</a></li>
+                            <li><a class="dropdown-item" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="right" title="Monitor news trends and keyword alerts"><i class="fas fa-chart-line"></i> News Trends</a></li>
+                            <li><a class="dropdown-item" href="/dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Access OSINT monitoring dashboard"><i class="fas fa-newspaper"></i> OSINT Monitoring</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <small class="text-muted"> Ad-Hoc Research</small><br>
+                            <li><a class="dropdown-item" href="/collect" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform ad-hoc research and analysis"><i class="fas fa-search"></i> Ad-Hoc Research</a></li>
+                            <li><a class="dropdown-item" href="/research" data-bs-toggle="tooltip" data-bs-placement="right" title="Manually add and analyze articles"><i class="fas fa-plus-circle"></i> Manually Add Article</a></li>
+                            <li><a class="dropdown-item" href="/bulk-research" data-bs-toggle="tooltip" data-bs-placement="right" title="Upload and analyze multiple articles"><i class="fas fa-file-upload"></i> Add Articles in Bulk</a></li>
                         </ul>
                     </li>
                     
                     <li class="menu-item menu-dropdown dropdown">
-                        <a class="menu-link dropdown-toggle" href="#" id="researchDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-search"></i> Research
+                        <a class="menu-link dropdown-toggle" href="#" id="researchDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="Analyze data and trends">
+                            <i class="fas fa-search"></i> Analyze
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="researchDropdown">
-                            <li><a class="dropdown-item" href="/collect"><i class="fas fa-search"></i> Ad-Hoc Research</a></li>
-                            <li><a class="dropdown-item" href="/research"><i class="fas fa-plus-circle"></i> Add Article</a></li>
-                            <li><a class="dropdown-item" href="/bulk-research"><i class="fas fa-file-upload"></i> Add Articles in Bulk</a></li>
+                            <small class="text-muted"> Exploratory Analysis</small><br>
+                            <li><a class="dropdown-item" href="/vector-analysis" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform exploratory vector analysis"><i class="fas fa-vector-square"></i>Exploratory Analysis</a></li>
+                            <li><a class="dropdown-item" href="/database-chat" data-bs-toggle="tooltip" data-bs-placement="right" title="Chat with Auspex AI assistant"><i class="fas fa-comments"></i> Chat with Auspex</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <small class="text-muted"> Trend Analysis</small><br>
+                            <li><a class="dropdown-item" href="/follow-flow" data-bs-toggle="tooltip" data-bs-placement="right" title="Follow and analyze information flow"><i class="fas fa-stream"></i> Follow the Flow</a></li>
+                            <li><a class="dropdown-item" href="/analytics" data-bs-toggle="tooltip" data-bs-placement="right" title="Visualize trend data and charts"><i class="fas fa-chart-line"></i> Trend Chart Visualizer</a></li>
                         </ul>
                     </li>
                     
                     <li class="menu-item menu-dropdown dropdown">
-                        <a class="menu-link dropdown-toggle" href="#" id="analysisDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-chart-bar"></i> Analysis
+                        <a class="menu-link dropdown-toggle" href="#" id="analysisDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="Create and distribute content">
+                            <i class="fas fa-chart-bar"></i> Communicate
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="analysisDropdown">
-                            <li><a class="dropdown-item" href="/vector-analysis"><i class="fas fa-vector-square"></i>Exploratory Analysis</a></li>
-                            <li><a class="dropdown-item" href="/database-chat"><i class="fas fa-comments"></i> Chat with Auspex</a></li>
-                            <li><a class="dropdown-item" href="/newsletter_compiler"><i class="fas fa-file-alt"></i> Newsletter Composer</a></li>
-                            <li><a class="dropdown-item" href="/follow-flow"><i class="fas fa-stream"></i> Follow the Flow</a></li>
-                            <li><a class="dropdown-item" href="/podcastdirector"><i class="fas fa-microphone"></i> Podcast Director</a></li>
-                            <li><a class="dropdown-item" href="/analytics"><i class="fas fa-chart-line"></i> Trend Chart Visualizer</a></li>
-                            <li><a class="dropdown-item" href="/report"><i class="fas fa-file-alt"></i> Report Composer (Old)</a></li>
+                            <small class="text-muted"> Distribution</small><br>
+                            <li><a class="dropdown-item" href="/newsletter_compiler" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and compile newsletters"><i class="fas fa-file-alt"></i> Newsletter Composer</a></li>
+                            <li><a class="dropdown-item" href="/podcastdirector" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage and create podcasts"><i class="fas fa-microphone"></i> Podcast Director</a></li>
+                            <li><a class="dropdown-item" href="/report" data-bs-toggle="tooltip" data-bs-placement="right" title="Generate detailed reports"><i class="fas fa-file-alt"></i> Report Composer (Old)</a></li>
                         </ul>
                     </li>
                     
                     <li class="menu-item menu-dropdown dropdown">
-                        <a class="menu-link dropdown-toggle" href="#" id="configDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <a class="menu-link dropdown-toggle" href="#" id="configDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="Configure application settings">
                             <i class="fas fa-cog"></i> Settings
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="configDropdown">
-                            <li><a class="dropdown-item" href="/onboarding?redo=true"><i class="fas fa-tasks"></i> Topic Setup Wizard</a></li>
+                            <small class="text-muted"> Guided Topic Setup</small><br>
+                            <li><a class="dropdown-item" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-guided topic setup"><i class="fas fa-tasks"></i> Topic Setup Wizard</a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="/config"><i class="fas fa-sliders-h"></i> App Configuration</a></li>
-                            <li><a class="dropdown-item" href="/promptmanager"><i class="fas fa-brain"></i> Prompt Engineering</a></li>
-                            <li><a class="dropdown-item" href="/create_topic"><i class="fas fa-folder-plus"></i> Topic Management</a></li>
-                            <li><a class="dropdown-item" href="/scenario-editor"><i class="fas fa-layer-group"></i> Scenario Builder</a></li>
-                            <li><a class="dropdown-item" href="/database-editor"><i class="fas fa-edit"></i> Database Editor</a></li>
-                            <li><a class="dropdown-item" href="/keyword-monitor"><i class="fas fa-search"></i> Keyword Monitoring</a></li>
+                            <small class="text-muted">Knowledge Engineering</small><br>
+                            <li><a class="dropdown-item" href="/promptmanager" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage AI prompts and templates"><i class="fas fa-brain"></i> Prompt Engineering</a></li>
+                            <li><a class="dropdown-item" href="/create_topic" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and manage topics"><i class="fas fa-folder-plus"></i> Topic Management</a></li>
+                            <li><a class="dropdown-item" href="/scenario-editor" data-bs-toggle="tooltip" data-bs-placement="right" title="Build and edit scenarios"><i class="fas fa-layer-group"></i> Scenario Builder</a></li>
+                            <li><a class="dropdown-item" href="/keyword-monitor" data-bs-toggle="tooltip" data-bs-placement="right" title="Monitor keywords and alerts"><i class="fas fa-search"></i> Keyword Monitoring</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <small class="text-muted">App Configuration</small><br>
+                            <li><a class="dropdown-item" href="/config" data-bs-toggle="tooltip" data-bs-placement="right" title="Configure application settings"><i class="fas fa-sliders-h"></i> App Configuration</a></li>
+                            <li><a class="dropdown-item" href="/database-editor" data-bs-toggle="tooltip" data-bs-placement="right" title="Edit database entries"><i class="fas fa-edit"></i> Database Editor</a></li>
                         </ul>
                     </li>
                     
                     <li class="menu-item menu-dropdown dropdown">
-                        <a class="menu-link dropdown-toggle" href="#" id="appInfoDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        <a class="menu-link dropdown-toggle" href="#" id="appInfoDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="View application information">
                             <i class="fas fa-info-circle"></i> App Info
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="appInfoDropdown">
@@ -253,6 +264,14 @@
 
     <script>
     document.addEventListener('DOMContentLoaded', function() {
+        // Initialize all tooltips
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl, {
+                trigger: 'hover'
+            })
+        });
+
         if (document.querySelector('.app-version')) {
             fetch('/api/app-info')
                 .then(response => response.json())
