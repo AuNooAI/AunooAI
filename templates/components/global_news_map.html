@@ -1,7 +1,7 @@
 <!-- Global News Activity Map Component -->
 <div class="card mb-4 shadow-sm">
     <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <h5 class="card-title mb-0 text-dark">Global News Activity</h5>
+        <h5 class="card-title mb-0 text-dark">Global News Activity <span class="badge bg-info">Coming Soon</span></h5>
         <div class="d-flex align-items-center">
             <button class="btn btn-sm btn-outline-secondary me-2" id="map-settings-btn" title="Map Settings" data-bs-toggle="modal" data-bs-target="#citySelectionModal">
                 <i class="fas fa-cog"></i>
@@ -522,7 +522,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="time">${timeStr}</div>
                     <div class="d-flex justify-content-between align-items-center">
                         <div class="date small">${dateStr} • ${tzAbbr}</div>
-                        <span class="${alertBadgeClass}">${alertCount} ${alertCount === 1 ? 'alert' : 'alerts'}</span>
                     </div>
                 `;
             } catch (error) {
