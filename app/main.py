@@ -1211,6 +1211,14 @@ async def startup_event():
         else:
             logger.error("Failed to initialize application")
             
+        # Start the keyword monitor background task
+        try:
+            logger.info("Starting keyword monitor background task...")
+            asyncio.create_task(run_keyword_monitor())
+            logger.info("Keyword monitor background task started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start keyword monitor background task: {str(e)}")
+            
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
         raise
@@ -3612,17 +3620,34 @@ async def bulk_research_stream(
         raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ssl_context.load_cert_chain('cert.pem', keyfile='key.pem')
+    # Check if SSL certificates exist
+    cert_file = "cert.pem"
+    key_file = "key.pem"
+    use_ssl = os.path.exists(cert_file) and os.path.exists(key_file)
     
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8010,
-        ssl_keyfile="key.pem",
-        ssl_certfile="cert.pem",
-        reload=True
-    )
+    if use_ssl:
+        # Run with SSL if certificates are available
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_context.load_cert_chain(cert_file, keyfile=key_file)
+        
+        logger.info("Starting server with SSL on https://0.0.0.0:8010")
+        uvicorn.run(
+            "main:app",
+            host="0.0.0.0",
+            port=8010,
+            ssl_keyfile=key_file,
+            ssl_certfile=cert_file,
+            reload=True
+        )
+    else:
+        # Run without SSL if certificates are not available
+        logger.info("SSL certificates not found. Starting server without SSL on http://0.0.0.0:8010")
+        uvicorn.run(
+            "main:app",
+            host="0.0.0.0",
+            port=8010,
+            reload=True
+        )
 
 # Insert near other config routes, e.g., after get_topics endpoint
 @app.get("/api/config", response_class=JSONResponse)
