@@ -3,7 +3,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 from app.database import Database, get_database_instance
-from app.tasks.keyword_monitor import KeywordMonitor
+from app.tasks.keyword_monitor import KeywordMonitor, get_task_status
 from app.security.session import verify_session
 import logging
 import json
@@ -1479,4 +1479,83 @@ async def clean_all_orphaned(db=Depends(get_database_instance)):
     except Exception as e:
         logger.error(f"Error cleaning all orphaned data: {str(e)}")
         logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/status")
+async def get_keyword_monitor_status(db=Depends(get_database_instance)):
+    """Get the status of the keyword monitoring background task"""
+    try:
+        # Get status from the background task
+        task_status = get_task_status()
+        
+        # Get settings from the database
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get monitor settings
+            cursor.execute("""
+                SELECT 
+                    check_interval,
+                    interval_unit,
+                    is_enabled,
+                    search_date_range,
+                    daily_request_limit
+                FROM keyword_monitor_settings 
+                WHERE id = 1
+            """)
+            settings = cursor.fetchone()
+            
+            # Get keyword count
+            cursor.execute("SELECT COUNT(*) FROM monitored_keywords")
+            keyword_count = cursor.fetchone()[0]
+            
+            # Get request count for today
+            cursor.execute("""
+                SELECT requests_today, last_reset_date 
+                FROM keyword_monitor_status 
+                WHERE id = 1
+            """)
+            status_row = cursor.fetchone()
+            
+        # Format response
+        response = {
+            "background_task": task_status,
+            "settings": {
+                "check_interval": settings[0] if settings else 15,
+                "interval_unit": settings[1] if settings else 60,
+                "is_enabled": settings[2] if settings else True,
+                "search_date_range": settings[3] if settings else 7,
+                "daily_request_limit": settings[4] if settings else 100,
+                "display_interval": format_interval(
+                    settings[0] * settings[1] if settings else 900
+                ) if settings else "15 minutes"
+            },
+            "keywords": {
+                "count": keyword_count
+            },
+            "api_usage": {
+                "requests_today": status_row[0] if status_row else 0,
+                "last_reset_date": status_row[1] if status_row else None,
+                "limit": settings[4] if settings else 100
+            }
+        }
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error getting keyword monitor status: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+        
+def format_interval(seconds):
+    """Format interval in seconds to a human-readable string"""
+    if seconds < 60:
+        return f"{seconds} seconds"
+    elif seconds < 3600:
+        minutes = seconds // 60
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    elif seconds < 86400:
+        hours = seconds // 3600
+        return f"{hours} hour{'s' if hours != 1 else ''}"
+    else:
+        days = seconds // 86400
+        return f"{days} day{'s' if days != 1 else ''}" 

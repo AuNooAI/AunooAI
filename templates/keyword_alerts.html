@@ -838,25 +838,12 @@ async function togglePolling(enabled) {
             label.textContent = `Auto-polling ${enabled ? 'enabled' : 'disabled'}`;
         }
         
-        // Update the monitoring badge color
-        const monitoringBadge = document.querySelector('.badge');
-        if (monitoringBadge && monitoringBadge.textContent.trim() === 'Real time monitoring') {
-            monitoringBadge.className = `badge ${enabled ? 'bg-success' : 'bg-danger'} me-2`;
-        }
-        
         // Update the next check time display
         const nextCheckSpan = document.querySelector('span.text-muted i.fa-hourglass-half')?.parentElement;
         if (nextCheckSpan) {
-            const now = new Date();
-            const nextCheck = new Date(now.getTime() + (enabled ? 15 * 60 * 1000 : 0)); // 15 minutes from now if enabled
-            
             if (enabled) {
-                nextCheckSpan.innerHTML = `
-                    <i class="fas fa-hourglass-half"></i> 
-                    Next check: <span class="timeago" data-date="${nextCheck.toISOString()}">
-                        ${timeAgo(nextCheck)}
-                    </span>
-                `;
+                // Refresh the status to get accurate next check time
+                fetchMonitorStatus();
             } else {
                 nextCheckSpan.innerHTML = `<i class="fas fa-hourglass-half"></i> Polling disabled`;
             }
@@ -1359,6 +1346,104 @@ async function fixDuplicateAlerts() {
     } finally {
         button.disabled = false;
         button.innerHTML = originalHtml;
+    }
+}
+
+$(document).ready(function() {
+    // Fetch monitor status on page load
+    fetchMonitorStatus();
+    
+    // Set interval to refresh status every 30 seconds
+    setInterval(fetchMonitorStatus, 30000);
+    
+    // Initialize other components here...
+});
+
+function fetchMonitorStatus() {
+    fetch('/api/keyword-monitor/status')
+        .then(response => response.json())
+        .then(data => {
+            // Update next check time in the header
+            updateStatusDisplay(data);
+        })
+        .catch(error => {
+            console.error("Error fetching monitor status:", error);
+        });
+}
+
+function updateStatusDisplay(data) {
+    const bgTask = data.background_task;
+    const settings = data.settings;
+    
+    // Update last check time
+    if (bgTask.last_check_time) {
+        const lastCheckElem = document.querySelector('.fas.fa-clock').parentElement;
+        if (lastCheckElem) {
+            lastCheckElem.innerHTML = `<i class="fas fa-clock"></i> Last check: ${timeAgo(bgTask.last_check_time)}`;
+        }
+    }
+    
+    // Update next check time
+    if (bgTask.next_check_time) {
+        const nextCheckElem = document.querySelector('.fas.fa-hourglass-half').parentElement;
+        if (nextCheckElem) {
+            const now = new Date();
+            const nextCheck = new Date(bgTask.next_check_time);
+            
+            if (settings.is_enabled) {
+                if (nextCheck <= now) {
+                    nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Checking now...`;
+                } else {
+                    nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Next check: ${timeAgo(bgTask.next_check_time)}`;
+                }
+            } else {
+                nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Polling disabled`;
+            }
+        }
+    }
+    
+    // Update error message if there is one
+    if (bgTask.last_error) {
+        const lastErrorElem = document.querySelector('.fas.fa-exclamation-circle')?.parentElement;
+        if (lastErrorElem) {
+            lastErrorElem.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${bgTask.last_error}`;
+            lastErrorElem.style.display = 'inline-flex';
+        }
+    } else {
+        const lastErrorElem = document.querySelector('.fas.fa-exclamation-circle')?.parentElement;
+        if (lastErrorElem) {
+            lastErrorElem.style.display = 'none';
+        }
+    }
+    
+    // Update polling toggle status
+    const pollingToggle = document.getElementById('pollingToggle');
+    if (pollingToggle) {
+        pollingToggle.checked = settings.is_enabled;
+        const label = document.querySelector('label[for="pollingToggle"]');
+        if (label) {
+            label.textContent = `Auto-polling ${settings.is_enabled ? 'enabled' : 'disabled'}`;
+        }
+    }
+    
+    // Update API usage
+    if (data.api_usage) {
+        const resetTimer = document.getElementById('resetTimer');
+        if (resetTimer) {
+            const percentage = (data.api_usage.requests_today / data.api_usage.limit) * 100;
+            resetTimer.innerHTML = `<i class="fas fa-refresh"></i> API usage: ${data.api_usage.requests_today}/${data.api_usage.limit}`;
+            
+            if (percentage >= 100) {
+                resetTimer.classList.add('text-danger');
+                resetTimer.classList.remove('text-warning', 'text-muted');
+            } else if (percentage >= 80) {
+                resetTimer.classList.add('text-warning');
+                resetTimer.classList.remove('text-danger', 'text-muted');
+            } else {
+                resetTimer.classList.add('text-muted');
+                resetTimer.classList.remove('text-danger', 'text-warning');
+            }
+        }
     }
 }
 </script>

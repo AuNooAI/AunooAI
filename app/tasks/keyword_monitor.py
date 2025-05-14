@@ -3,11 +3,23 @@
 import logging
 import asyncio
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
 from app.collectors.newsapi_collector import NewsAPICollector
 from app.database import Database
 
 logger = logging.getLogger(__name__)
+
+# Global variable to track task status
+_background_task_status = {
+    "running": False,
+    "last_check_time": None,
+    "last_error": None,
+    "next_check_time": None
+}
+
+def get_task_status() -> Dict:
+    """Get the current status of the keyword monitor background task"""
+    return _background_task_status.copy()
 
 class KeywordMonitor:
     def __init__(self, db: Database):
@@ -402,8 +414,11 @@ class KeywordMonitor:
 
 async def run_keyword_monitor():
     """Background task to periodically check keywords"""
+    global _background_task_status
     db = Database()
     monitor = KeywordMonitor(db)
+    logger.info("Keyword monitor background task started")
+    _background_task_status["running"] = True
     
     while True:
         try:
@@ -415,9 +430,51 @@ async def run_keyword_monitor():
                 is_enabled = row[0] if row and row[0] is not None else True
 
             if is_enabled:
-                await monitor.check_keywords()
+                logger.info("Starting scheduled keyword check")
+                _background_task_status["last_check_time"] = datetime.now()
+                _background_task_status["last_error"] = None
+                
+                try:
+                    result = await monitor.check_keywords()
+                    if result.get("success", False):
+                        logger.info(
+                            f"Scheduled keyword check completed successfully. "
+                            f"Found {result.get('new_articles', 0)} new articles."
+                        )
+                    else:
+                        error_msg = result.get('error', 'Unknown error')
+                        logger.error(f"Scheduled keyword check failed: {error_msg}")
+                        _background_task_status["last_error"] = error_msg
+                except Exception as check_error:
+                    error_msg = str(check_error)
+                    logger.error(f"Error during scheduled keyword check: {error_msg}", exc_info=True)
+                    _background_task_status["last_error"] = error_msg
+            else:
+                logger.debug("Keyword checking is disabled in settings, skipping check")
                 
         except Exception as e:
-            logger.error(f"Keyword monitor error: {str(e)}")
+            error_msg = str(e)
+            logger.error(f"Keyword monitor error: {error_msg}", exc_info=True)
+            _background_task_status["last_error"] = error_msg
+            # Sleep a short time before retrying after error to prevent CPU spinning
+            await asyncio.sleep(30)
         
+        try:
+            # Refresh interval from settings in case it was changed
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT check_interval, interval_unit FROM keyword_monitor_settings WHERE id = 1"
+                )
+                settings = cursor.fetchone()
+                if settings:
+                    monitor.check_interval = settings[0] * settings[1]  # interval * unit
+        except Exception as e:
+            logger.error(f"Error refreshing check interval settings: {str(e)}", exc_info=True)
+        
+        # Calculate next check time
+        next_check = datetime.now() + timedelta(seconds=monitor.check_interval)
+        _background_task_status["next_check_time"] = next_check
+        
+        logger.debug(f"Sleeping for {monitor.check_interval} seconds until next keyword check")
         await asyncio.sleep(monitor.check_interval) 
