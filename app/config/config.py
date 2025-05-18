@@ -16,10 +16,21 @@ def load_config() -> Dict:
             litellm_config = yaml.safe_load(f)
             # Convert litellm config format to existing ai_models format
             ai_models = []
-            for model in litellm_config.get('model_list', []):
-                provider = model['litellm_params']['model'].split('/')[0]
+            for model_entry in litellm_config.get('model_list', []):
+                litellm_params = model_entry.get('litellm_params', {})
+                # Corrected provider logic: Prioritize model string prefix
+                model_str_from_params = litellm_params.get('model', '')
+                if '/' in model_str_from_params:
+                    provider = model_str_from_params.split('/', 1)[0]
+                else:
+                    provider = litellm_params.get('custom_llm_provider', '')
+                # Ensure provider is not empty if no prefix and no custom_llm_provider, could default or log warning
+                if not provider:
+                    print(f"Warning: Model '{model_entry['model_name']}' has no determinable provider. Check 'model' prefix and 'custom_llm_provider'.")
+                    # provider = "unknown" # Or some default
+                
                 ai_models.append({
-                    "name": model['model_name'],
+                    "name": model_entry['model_name'],
                     "provider": provider
                 })
             config['ai_models'] = ai_models

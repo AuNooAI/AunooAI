@@ -50,3 +50,5 @@ cache/*
 ffmpeg/ffmpeg-master-latest-win64-gpl/bin/*.exe
 ffmpeg/ffmpeg-master-latest-win64-gpl/bin/*.dll
 ffmpeg/ffmpeg-master-latest-win64-gpl/bin/*.bat
+.env
+app/data/*.db

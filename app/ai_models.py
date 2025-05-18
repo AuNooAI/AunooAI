@@ -5,6 +5,7 @@ import logging
 from app.env_loader import ensure_model_env_vars
 from typing import Optional, Dict, Any
 from litellm import completion
+import copy
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the default logging level
@@ -41,7 +42,9 @@ def clean_outdated_model_env_vars():
     
     # Define provider prefixes for environment variables
     provider_prefixes = {
+        'AUNOOAI_API_KEY_': 'aunooai',
         'OPENAI_API_KEY_': 'openai',
+        'OPENAI_COMPATIBLE_API_KEY_': 'openai_compatible',
         'ANTHROPIC_API_KEY_': 'anthropic',
         'AZURE_API_KEY_': 'azure',
         'HUGGINGFACE_API_KEY_': 'huggingface',
@@ -99,16 +102,20 @@ class AIModel:
 
     async def generate(self, prompt: str) -> Any:
         try:
-            # Set API key if provided
-            if self.api_key:
-                os.environ[f"{self.model.upper()}_API_KEY"] = self.api_key
+            model_to_pass_to_litellm = self.model
+            custom_provider = self.config.get("custom_llm_provider")
+            if custom_provider == "openai" and self.model.startswith("aunooai/"):
+                model_to_pass_to_litellm = self.model.split('/', 1)[1]
 
             # Generate completion
             response = completion(
-                model=self.model,
+                model=model_to_pass_to_litellm,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=self.max_tokens,
-                temperature=self.temperature
+                temperature=self.temperature,
+                custom_llm_provider=custom_provider,
+                api_base=self.config.get("api_base"),
+                api_key=self.api_key  # Pass api_key directly
             )
 
             return response.choices[0]
@@ -130,23 +137,25 @@ class AIModel:
         ----------
         messages : list[dict]
             The usual OpenAI-style message list:
-            ``{"role": "user|system|assistant", "content": str}``.
+            ``{\\"role\\": \\"user|system|assistant\\", \\"content\\": str}``.
         """
-
         try:
-            # Set API key if provided (important when multiple models/
-            # providers coexist)
-            if self.api_key:
-                os.environ[f"{self.model.upper()}_API_KEY"] = self.api_key
+            model_to_pass_to_litellm = self.model
+            custom_provider = self.config.get("custom_llm_provider")
+            if custom_provider == "openai" and self.model.startswith("aunooai/"):
+                model_to_pass_to_litellm = self.model.split('/', 1)[1]
 
             response = completion(
-                model=self.model,
+                model=model_to_pass_to_litellm,
                 messages=messages,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
+                custom_llm_provider=custom_provider,
+                api_base=self.config.get("api_base"),
+                api_key=self.api_key  # Ensure this essential fix is kept
             )
 
-            # Extract the content field in a generic way.
+            # Restore original return logic
             if (
                 hasattr(response, "choices")
                 and response.choices
@@ -301,19 +310,22 @@ class LiteLLMModel(AIModel):
         # Include all models in the router to support fallbacks
         filtered_model_list = []
         for model in config["model_list"]:
+            # Create a deep copy to avoid modifying the original
+            model_copy = copy.deepcopy(model)
+            
             # Check if model requires an API key
-            if 'api_key' in model['litellm_params']:
-                env_key = model['litellm_params']['api_key'].split('/')[-1]
+            if 'api_key' in model_copy['litellm_params']:
+                env_key = model_copy['litellm_params']['api_key'].split('/')[-1]
                 if env_key not in os.environ:
                     continue
-                model_copy = model.copy()
                 model_copy['litellm_params']['api_key'] = os.environ[env_key]
-            else:
-                # For models without API key (like local Ollama - testing)
-                model_copy = model.copy()
+            
+            # Ensure all necessary parameters are preserved
+            if 'api_base' in model_copy['litellm_params']:
+                print(f"[DEBUG] Preserving api_base for {model_copy['model_name']}: {model_copy['litellm_params']['api_base']}")
             
             filtered_model_list.append(model_copy)
-            print(f"[DEBUG] Added model to router: {model['model_name']}")
+            print(f"[DEBUG] Added model to router: {model_copy['model_name']} with config: {model_copy['litellm_params']}")
         
         if not filtered_model_list:
             raise ValueError(f"No properly configured models found in config")
@@ -325,7 +337,7 @@ class LiteLLMModel(AIModel):
             model_list=filtered_model_list,
             cache_responses=False,
             routing_strategy=config.get("routing_strategy", "simple-shuffle"),
-            set_verbose=False,
+            set_verbose=True,  # Enable verbose mode for debugging
             num_retries=config.get("max_retries", 0),
             default_litellm_params={"timeout": config.get("timeout", 30)},
             fallbacks=config.get("fallbacks", [])
@@ -359,12 +371,26 @@ class LiteLLMModel(AIModel):
             print(f"\n[DEBUG] Using model: {self.model_name} (fallback: {_is_fallback})")
             print(f"[DEBUG] Router config: {self.router.model_list}\n")
             
+            # Get the model's configuration from the router
+            model_config = next((m for m in self.router.model_list if m["model_name"] == self.model_name), None)
+            if not model_config:
+                raise ValueError(f"Model {self.model_name} not found in router configuration")
+            
+            print(f"\n[DEBUG] Making completion call with config:")
+            print(f"Model: {self.model_name}")
+            print(f"API Base: {model_config['litellm_params'].get('api_base')}")
+            print(f"Provider: {model_config['litellm_params'].get('custom_llm_provider')}")
+            print(f"Full config: {model_config['litellm_params']}\n")
+            
             # Let LiteLLM handle fallbacks automatically
             response = self.router.completion(
                 model=self.model_name,
                 messages=messages,
                 metadata={"model_name": self.model_name},
-                caching=False
+                caching=False,
+                api_base=model_config["litellm_params"].get("api_base"),
+                api_key=model_config["litellm_params"].get("api_key"),
+                custom_llm_provider=model_config["litellm_params"].get("custom_llm_provider")
             )
             
             # Extract content from response - handle different model formats
@@ -501,9 +527,29 @@ def get_available_models():
     models = []
     seen = set()  # Track unique model names
     
+    # Load the config file to get the correct model names
+    config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
+    model_name_to_env_var = {}  # Map to store which env var corresponds to which model
+    
+    try:
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+            # Build a mapping from environment variable names to actual model names in config
+            for model_entry_config in config.get('model_list', []): # Renamed to avoid conflict
+                model_name_cfg = model_entry_config['model_name'] # Renamed
+                if 'api_key' in model_entry_config.get('litellm_params', {}):
+                    env_var_path = model_entry_config['litellm_params']['api_key']
+                    if env_var_path.startswith("os.environ/"):
+                        env_var = env_var_path.split("/")[-1]
+                        model_name_to_env_var[env_var] = model_name_cfg
+    except Exception as e:
+        print(f"Warning: Couldn't load config models for env var mapping: {e}")
+    
     # Expanded provider prefixes based on LiteLLM supported providers
     provider_prefixes = {
+        'AUNOOAI_API_KEY_': 'aunooai',
         'OPENAI_API_KEY_': 'openai',
+        'OPENAI_COMPATIBLE_API_KEY_': 'openai_compatible',
         'ANTHROPIC_API_KEY_': 'anthropic',
         'AZURE_API_KEY_': 'azure',
         'HUGGINGFACE_API_KEY_': 'huggingface',
@@ -523,72 +569,109 @@ def get_available_models():
         'XAI_API_KEY_': 'xai'
     }
     
-    print("\nChecking environment variables for API keys:")
+    print("\nChecking environment variables for API keys (in get_available_models):")
     for key in os.environ:
-        for prefix, provider in provider_prefixes.items():
+        for prefix, provider_from_prefix in provider_prefixes.items(): # Renamed
             if key.startswith(prefix):
                 value = os.environ[key]
                 if value and not value.startswith("os.environ/"):
-                    # Extract model name from environment variable
-                    model_name = key.split("_", 3)[-1].lower()
-                    # Convert underscores to dashes but preserve dots
-                    if "_" in model_name:
-                        model_name = model_name.replace("_", "-")
+                    # Use the mapping we created from config file if available
+                    model_name_resolved = model_name_to_env_var.get(key)
+                    if not model_name_resolved:
+                        # Fallback to extracting from env var name if not in specific config map
+                        model_name_from_env = key.split("_", 3)[-1].lower()
+                        if "_" in model_name_from_env: # Renamed
+                            model_name_from_env = model_name_from_env.replace("_", "-")
+                        model_name_resolved = model_name_from_env
                     
-                    # Only add if we haven't seen this model/provider combination
-                    model_key = (model_name, provider)
-                    if model_key not in seen:
-                        seen.add(model_key)
+                    model_key_tuple = (model_name_resolved, provider_from_prefix) # Renamed
+                    if model_key_tuple not in seen:
+                        seen.add(model_key_tuple)
                         models.append({
-                            "name": model_name,
-                            "provider": provider
+                            "name": model_name_resolved,
+                            "provider": provider_from_prefix
                         })
-                        print(f"Added model: {model_name} ({provider}, {key})")
+                        print(f"Added model via env var: {model_name_resolved} ({provider_from_prefix}, based on {key})")
     
     if not models:
-        print("No configured models found. Please check your environment variables.")
+        print("No configured models found based on environment variables (in get_available_models).")
     else:
-        print(f"\nFinal configured models: {models}")
+        print(f"\nFinal models from get_available_models (based on set env vars): {models}")
     
     return models
 
 def ai_get_available_models():
-    """Get all supported models from litellm configuration.
-    This returns all models that the system supports, regardless of whether 
-    they have API keys configured. Used for displaying available options
-    that could be configured in the system.
+    """Get all supported models from litellm configuration that have their API keys set.
+    This is used for displaying available options in the UI.
+    The provider name is derived from the 'model' field in litellm_params (e.g., 'aunooai' from 'aunooai/mixtral')
+    or 'custom_llm_provider' as a fallback if no prefix exists in the model string.
     
     Returns:
         list: List of dicts with supported models, each containing:
             - name: The model name (e.g., 'gpt-4o')
-            - provider: The provider name (e.g., 'openai', 'anthropic')
+            - provider: The provider name (e.g., 'aunooai', 'openai')
     """
     config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
-    print(f"Looking for config file at: {config_path}")
+    print(f"Looking for config file for UI models at: {config_path}")
+    
+    ui_models = []
+    seen_ui_models = set() # To track (name, display_provider) tuples
+
     try:
         with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
+            config_data = yaml.safe_load(f)
         
-        # Convert litellm format to existing format
-        models = []
-        for model in config.get('model_list', []):
-            provider = model['litellm_params']['model'].split('/')[0]
-            models.append({
-                "name": model['model_name'],
-                "provider": provider
-            })
+        if not config_data or 'model_list' not in config_data:
+            print("Config file is empty or 'model_list' is missing.")
+            return []
+
+        for model_entry in config_data.get('model_list', []):
+            model_name = model_entry.get('model_name')
+            if not model_name:
+                print(f"Skipping model entry due to missing 'model_name': {model_entry}")
+                continue
+
+            litellm_params = model_entry.get('litellm_params', {})
+            
+            # Determine display provider for this entry
+            display_provider = ""
+            litellm_model_str = litellm_params.get('model', '') 
+
+            # PRIORITY 1: Provider from model string prefix (e.g., "aunooai" from "aunooai/mixtral")
+            if '/' in litellm_model_str:
+                display_provider = litellm_model_str.split('/', 1)[0]
+            # PRIORITY 2: Fallback to custom_llm_provider if no prefix in model string
+            else:
+                display_provider = litellm_params.get('custom_llm_provider', '') 
+                if not display_provider: 
+                     print(f"Warning: Model '{model_name}' has no provider prefix in 'model' field ('{litellm_model_str}') and no 'custom_llm_provider'. Provider will be empty.")
+
+            # Check if its API key (as specified in this entry) is set
+            api_key_config_path = litellm_params.get('api_key', '') 
+            key_is_set_for_this_entry = False
+            if api_key_config_path.startswith("os.environ/"):
+                env_var_to_check = api_key_config_path.split('/')[-1]
+                if os.environ.get(env_var_to_check): 
+                    key_is_set_for_this_entry = True
+            
+            if key_is_set_for_this_entry:
+                model_tuple_for_ui = (model_name, display_provider)
+                if model_tuple_for_ui not in seen_ui_models:
+                    seen_ui_models.add(model_tuple_for_ui)
+                    ui_models.append({
+                        "name": model_name,
+                        "provider": display_provider
+                    })
+                    print(f"Added to UI list: {model_name} (provider: {display_provider}) from config entry.")
+            else:
+                print(f"Skipping for UI list (API key not set for this entry): {model_name} (provider: {display_provider}) - Key path: {api_key_config_path}")
         
-        # Remove duplicates while preserving order
-        unique_models = []
-        seen = set()
-        for model in models:
-            model_key = (model['name'], model['provider'])
-            if model_key not in seen:
-                seen.add(model_key)
-                unique_models.append(model)
+        print(f"\nFinal unique models for UI (from ai_get_available_models): {ui_models}")
+        return ui_models
         
-        print(f"Available unique models from config: {unique_models}")
-        return unique_models
+    except FileNotFoundError:
+        print(f"Config file not found at {config_path}. No models available for UI.")
+        return []
     except Exception as e:
-        print(f"Error reading config file: {str(e)}")
+        print(f"Error reading or processing config file in ai_get_available_models: {str(e)}")
         return []
