@@ -1,0 +1,2158 @@
+{# 
+This is a partial template for the datasets tab in the config.html page.
+It manages data enrichment sources like media bias datasets.
+#}
+
+<!-- Required scripts for this template -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+
+<div class="config-layout">
+    <div class="left-panel">
+        <h2>Data Enrichment Sources</h2>
+        <p class="text-muted mb-4">Configure external datasets used for content enrichment and analysis.</p>
+        
+        <div class="config-item">
+            <h3>Media Bias</h3>
+            <p class="text-muted small mb-3">Configure media bias and factual reporting data for news source enrichment.</p>
+            
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" id="enable-media-bias" name="enable-media-bias">
+                <label class="form-check-label" for="enable-media-bias">
+                    Enable Media Bias Enrichment
+                </label>
+                <small class="form-text text-muted d-block mt-1">
+                    When enabled, news articles will be automatically enriched with media bias and reliability data.
+                </small>
+            </div>
+            
+            <div class="dataset-status-panel mb-4">
+                <div class="dataset-status-item">
+                    <span class="status-label">Status:</span>
+                    <span class="status-value" id="media-bias-status">Checking...</span>
+                </div>
+                <div class="dataset-status-item">
+                    <span class="status-label">Sources:</span>
+                    <span class="status-value" id="media-bias-count">-</span>
+                </div>
+                <div class="dataset-status-item">
+                    <span class="status-label">Last Updated:</span>
+                    <span class="status-value" id="media-bias-updated">-</span>
+                </div>
+            </div>
+            
+            <div class="dataset-operations">
+                <button id="load-media-bias" onclick="importMediaBias()">
+                    <i class="fas fa-sync"></i> Import/Update Dataset
+                </button>
+                <button id="reset-media-bias" class="danger" onclick="resetMediaBias()">
+                    <i class="fas fa-trash"></i> Reset Dataset
+                </button>
+            </div>
+        </div>
+        
+        <div class="config-item mt-5">
+            <h3>Add New Dataset</h3>
+            <p class="text-muted small mb-3">Upload a new data enrichment source.</p>
+            
+            <form id="upload-dataset-form">
+                <div class="form-group">
+                    <label for="dataset-type" class="form-label">Dataset Type</label>
+                    <select id="dataset-type" class="form-select">
+                        <option value="media_bias">Media Bias</option>
+                        <option value="custom" disabled>Custom (Coming Soon)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group mt-3">
+                    <label for="dataset-file" class="form-label">Dataset File</label>
+                    <input type="file" id="dataset-file" class="form-control" accept=".csv,.json">
+                    <small class="form-text text-muted">
+                        Upload a CSV or JSON file containing the dataset. 
+                    </small>
+                </div>
+                
+                <button type="submit" class="mt-3">
+                    <i class="fas fa-upload"></i> Upload Dataset
+                </button>
+            </form>
+        </div>
+    </div>
+    
+    <div class="right-panel">
+        <h2>Media Bias Data</h2>
+        <p class="text-muted mb-4">Preview of the media bias dataset currently in use.</p>
+        
+        <!-- Add search and filter section -->
+        <div class="mb-4">
+            <div class="search-filters">
+                <div class="search-box mb-3">
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="text" id="search-source" placeholder="Search sources..." class="form-control" 
+                               oninput="dynamicSearch()" autocomplete="off">
+                        <button class="btn btn-outline-secondary" type="button" id="clear-search" onclick="clearSearch()">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div id="search-results" class="search-results-dropdown"></div>
+                </div>
+                
+                <div class="filters-container mb-3">
+                    <div class="row gx-3">
+                        <div class="col-md-3 mb-3">
+                            <div class="filter-group">
+                                <label for="bias-filter" class="form-label">Bias</label>
+                                <select id="bias-filter" class="form-select" multiple>
+                                    <!-- Will be populated dynamically -->
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3">
+                            <div class="filter-group">
+                                <label for="factual-filter" class="form-label">Factual Reporting</label>
+                                <select id="factual-filter" class="form-select" multiple>
+                                    <!-- Will be populated dynamically -->
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3">
+                            <div class="filter-group">
+                                <label for="credibility-filter" class="form-label">Credibility</label>
+                                <select id="credibility-filter" class="form-select" multiple>
+                                    <!-- Will be populated dynamically -->
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-3 mb-3">
+                            <div class="filter-group">
+                                <label for="country-filter" class="form-label">Country</label>
+                                <select id="country-filter" class="form-select" multiple>
+                                    <!-- Will be populated dynamically -->
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Add filter badges container -->
+                    <div class="filter-badges" style="display: none;"></div>
+                    
+                    <div class="filter-actions mt-2 text-end">
+                        <button id="apply-filters" class="btn btn-sm btn-primary">
+                            <i class="fas fa-filter"></i> Apply
+                        </button>
+                        <button id="clear-filters" class="btn btn-sm btn-secondary">
+                            <i class="fas fa-broom"></i> Clear
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="d-flex flex-wrap justify-content-between mb-3">
+            <button id="add-new-source" class="btn btn-success btn-sm mb-2" onclick="openAddSourceModal()">
+                <i class="fas fa-plus"></i> Add New Source
+            </button>
+            <div id="pagination" class="d-flex flex-wrap align-items-center mb-2">
+                <button id="prev-page" class="btn btn-sm btn-outline-secondary" onclick="changePage(currentPage - 1)">
+                    <i class="fas fa-chevron-left"></i> Previous
+                </button>
+                <div id="pagination-links" class="btn-group mx-2"></div>
+                <button id="next-page" class="btn btn-sm btn-outline-secondary" onclick="changePage(currentPage + 1)">
+                    Next <i class="fas fa-chevron-right"></i>
+                </button>
+            </div>
+        </div>
+        
+        <div class="table-container">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover" id="media-bias-table">
+                    <thead class="sticky-top bg-light">
+                        <tr>
+                            <th>Source</th>
+                            <th>Bias</th>
+                            <th>Factual Reporting</th>
+                            <th>Credibility</th>
+                            <th width="100">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="media-bias-data">
+                        <tr>
+                            <td colspan="5" class="text-center">Loading data...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <div>
+                <span id="page-info" class="badge bg-light text-dark">Page 0 of 0</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Source Edit Modal -->
+<div class="modal fade" id="source-edit-modal" tabindex="-1" role="dialog" aria-labelledby="sourceEditModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="sourceEditModalLabel">Edit Media Source</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="source-edit-form">
+                    <input type="hidden" id="source-id">
+                    
+                    <div class="form-group mb-3">
+                        <label for="source-url" class="form-label">Source URL</label>
+                        <input type="text" class="form-control" id="source-url" placeholder="e.g., cnn.com" required>
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label for="source-country" class="form-label">Country</label>
+                        <input type="text" class="form-control" id="source-country" placeholder="e.g., usa">
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label for="source-bias" class="form-label">Bias</label>
+                        <select class="form-select" id="source-bias">
+                            <option value="">Select bias...</option>
+                            <option value="left">Left</option>
+                            <option value="left-center">Left-Center</option>
+                            <option value="center">Center</option>
+                            <option value="right-center">Right-Center</option>
+                            <option value="right">Right</option>
+                            <option value="least biased">Least Biased</option>
+                            <option value="extreme left">Extreme Left</option>
+                            <option value="extreme right">Extreme Right</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label for="source-factual" class="form-label">Factual Reporting</label>
+                        <select class="form-select" id="source-factual">
+                            <option value="">Select level...</option>
+                            <option value="very high">Very High</option>
+                            <option value="high">High</option>
+                            <option value="mostly factual">Mostly Factual</option>
+                            <option value="mixed">Mixed</option>
+                            <option value="low">Low</option>
+                            <option value="very low">Very Low</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label for="source-press-freedom" class="form-label">Press Freedom</label>
+                        <select class="form-select" id="source-press-freedom">
+                            <option value="">Select level...</option>
+                            <option value="free press">Free Press</option>
+                            <option value="mostly free">Mostly Free</option>
+                            <option value="partly free">Partly Free</option>
+                            <option value="not free">Not Free</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label for="source-media-type" class="form-label">Media Type</label>
+                        <input type="text" class="form-control" id="source-media-type" placeholder="e.g., newspaper/website">
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label for="source-popularity" class="form-label">Popularity</label>
+                        <select class="form-select" id="source-popularity">
+                            <option value="">Select popularity...</option>
+                            <option value="very high traffic">Very High Traffic</option>
+                            <option value="high traffic">High Traffic</option>
+                            <option value="medium traffic">Medium Traffic</option>
+                            <option value="low traffic">Low Traffic</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group mb-3">
+                        <label for="source-credibility" class="form-label">MBFC Credibility Rating</label>
+                        <select class="form-select" id="source-credibility">
+                            <option value="">Select rating...</option>
+                            <option value="high credibility">High Credibility</option>
+                            <option value="medium credibility">Medium Credibility</option>
+                            <option value="low credibility">Low Credibility</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn-primary" id="save-source">Save Changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="delete-confirm-modal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Confirm Deletion</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>Are you sure you want to delete the source <strong id="delete-source-name"></strong>?</p>
+                <p class="text-danger">This action cannot be undone.</p>
+                <input type="hidden" id="delete-source-id">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn-danger" id="confirm-delete" onclick="executeDeleteSource()">Delete</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* Additional styles for the datasets tab */
+    .dataset-status-panel {
+        background-color: var(--light-gray);
+        border-radius: 8px;
+        padding: 12px;
+        border: 1px solid var(--medium-gray);
+    }
+    
+    .dataset-status-item {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+    }
+    
+    .dataset-status-item:last-child {
+        margin-bottom: 0;
+    }
+    
+    .status-label {
+        font-weight: 600;
+        color: var(--dark-gray);
+    }
+    
+    .status-value {
+        font-family: monospace;
+    }
+    
+    .dataset-operations {
+        display: flex;
+        gap: 10px;
+    }
+    
+    #media-bias-table {
+        font-size: 0.9rem;
+    }
+    
+    #media-bias-table th {
+        position: sticky;
+        top: 0;
+        background: white;
+        border-bottom: 2px solid var(--primary-color);
+        z-index: 10;
+    }
+    
+    .bias-badge {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 500;
+    }
+    
+    .bias-left {
+        background-color: rgba(0, 123, 255, 0.1);
+        color: #0069d9;
+        border: 1px solid rgba(0, 123, 255, 0.2);
+    }
+    
+    .bias-right {
+        background-color: rgba(220, 53, 69, 0.1);
+        color: #c82333;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+    }
+    
+    .bias-center {
+        background-color: rgba(108, 117, 125, 0.1);
+        color: #5a6268;
+        border: 1px solid rgba(108, 117, 125, 0.2);
+    }
+    
+    .factual-high {
+        background-color: rgba(40, 167, 69, 0.1);
+        color: #218838;
+        border: 1px solid rgba(40, 167, 69, 0.2);
+    }
+    
+    .factual-mixed {
+        background-color: rgba(255, 193, 7, 0.1);
+        color: #e0a800;
+        border: 1px solid rgba(255, 193, 7, 0.2);
+    }
+    
+    .factual-low {
+        background-color: rgba(220, 53, 69, 0.1);
+        color: #c82333;
+        border: 1px solid rgba(220, 53, 69, 0.2);
+    }
+    
+    /* New styles for search and filters */
+    .search-filters {
+        margin-bottom: 1rem;
+        background-color: var(--light-gray);
+        padding: 1rem;
+        border-radius: 8px;
+        border: 1px solid var(--medium-gray);
+    }
+    
+    .search-box {
+        margin-bottom: 0.75rem;
+        position: relative;
+    }
+    
+    .filters-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+    }
+    
+    .filter-group {
+        flex: 1;
+        min-width: 150px;
+    }
+    
+    .filter-group label {
+        display: block;
+        font-size: 0.8rem;
+        margin-bottom: 0.25rem;
+        color: var(--dark-gray);
+    }
+    
+    .actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+    
+    .btn-danger {
+        background-color: #dc3545;
+        color: white;
+        border: none;
+    }
+    
+    .btn-danger:hover {
+        background-color: #c82333;
+    }
+    
+    .btn-secondary {
+        background-color: #6c757d;
+        color: white;
+        border: none;
+    }
+    
+    .btn-secondary:hover {
+        background-color: #5a6268;
+    }
+    
+    button.success {
+        background-color: rgba(40, 167, 69, 0.1);
+        border: 1px solid rgba(40, 167, 69, 0.2);
+        color: #218838;
+    }
+    
+    button.success:hover {
+        background-color: #218838;
+        color: white;
+    }
+    
+    button.danger {
+        background-color: rgba(220, 53, 69, 0.1);
+        border: 1px solid rgba(220, 53, 69, 0.2);
+        color: #c82333;
+    }
+    
+    button.danger:hover {
+        background-color: #c82333;
+        color: white;
+    }
+    
+    /* New styles for enhanced UI */
+    .search-results-dropdown {
+        position: absolute;
+        width: 100%;
+        max-height: 300px;
+        overflow-y: auto;
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 0 0 8px 8px;
+        z-index: 1000;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        display: none;
+        margin-top: -1px;
+    }
+    
+    .search-results-dropdown.active {
+        display: block;
+    }
+    
+    .search-result-item {
+        padding: 10px 15px;
+        cursor: pointer;
+        border-bottom: 1px solid #eee;
+    }
+    
+    .search-result-item:hover {
+        background-color: #f8f9fa;
+    }
+    
+    .search-result-item:last-child {
+        border-bottom: none;
+    }
+    
+    .search-box {
+        position: relative;
+    }
+    
+    .multiselect {
+        height: auto !important;
+        min-height: 38px;
+        max-height: 200px;
+        overflow-y: auto;
+        padding: 0.375rem 0.75rem;
+    }
+    
+    .multiselect option {
+        padding: 8px;
+        margin: 2px 0;
+    }
+    
+    .multiselect option:checked {
+        background-color: #0d6efd;
+        color: white;
+    }
+    
+    .action-btn {
+        width: 36px;
+        height: 36px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+    
+    .action-cell {
+        white-space: nowrap;
+        width: 80px;
+    }
+    
+    .action-cell .action-btn {
+        width: 28px;
+        height: 28px;
+        margin-right: 4px;
+    }
+    
+    .action-cell .action-btn:last-child {
+        margin-right: 0;
+    }
+
+    .badge-collection {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .filter-badge {
+        display: inline-block;
+        background: var(--light-gray);
+        border: 1px solid var(--medium-gray);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.7rem;
+        margin-top: 5px;
+    }
+    
+    .filter-badge .remove-filter {
+        cursor: pointer;
+        margin-left: 3px;
+    }
+    
+    .btn-outline-secondary {
+        color: var(--dark-gray);
+        border-color: var(--medium-gray);
+        background-color: transparent;
+    }
+    
+    .btn-outline-secondary:hover {
+        background-color: var(--light-gray);
+    }
+    
+    /* Update existing styles */
+    .table-container {
+        position: relative;
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        background: white;
+    }
+    
+    .table-container .table-responsive {
+        margin: 0;
+    }
+    
+    .table-container thead.sticky-top {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: white;
+    }
+    
+    .table-container thead.sticky-top th {
+        border-bottom: 2px solid var(--primary-color);
+        background: white;
+    }
+    
+    .form-select[multiple] {
+        height: auto;
+        min-height: 38px;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    
+    .form-select[multiple] option {
+        padding: 8px 12px;
+        cursor: pointer;
+    }
+    
+    .form-select[multiple] option:checked {
+        background-color: var(--primary-color);
+        color: white;
+    }
+    
+    .form-select[multiple] option:hover {
+        background-color: var(--light-gray);
+    }
+    
+    /* Pagination styles */
+    #pagination {
+        flex-wrap: wrap;
+        gap: 5px;
+        justify-content: flex-end;
+        margin-bottom: 10px;
+        width: auto;
+        max-width: 100%;
+    }
+    
+    #pagination-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        max-width: 100%;
+        overflow-x: hidden;
+    }
+    
+    #page-info {
+        white-space: normal;
+        text-align: center; 
+        margin-top: 10px;
+        width: 100%;
+    }
+    
+    /* Filter section styling */
+    .filter-section .row {
+        margin-bottom: 10px;
+    }
+    
+    .filter-section .form-group {
+        margin-bottom: 10px;
+    }
+    
+    .filter-badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-top: 10px;
+    }
+    
+    .filter-badge {
+        font-size: 0.8rem;
+        padding: 3px 8px;
+        background-color: #e9ecef;
+        border-radius: 16px;
+        margin-bottom: 5px;
+        display: inline-flex;
+        align-items: center;
+    }
+    
+    .filter-badge .remove-filter {
+        margin-left: 5px;
+        cursor: pointer;
+    }
+    
+    /* Media query for smaller screens */
+    @media (max-width: 768px) {
+        #pagination, .filter-badges, .filter-section .row {
+            flex-direction: column;
+        }
+        
+        #pagination-links {
+            justify-content: center;
+            margin: 5px 0;
+        }
+        
+        .filter-section label {
+            margin-bottom: 5px;
+        }
+        
+        .table-container {
+            max-height: 400px;
+        }
+        
+        .bias-badge, .factual-badge {
+            width: 100%;
+            margin-bottom: 3px;
+        }
+    }
+</style>
+
+<script>
+    // Declare variables in the global scope
+    let currentPage = 1;
+    let itemsPerPage = 10; // Set a reasonable default for pagination
+    let totalPages = 1;
+    let mediaBiasData = [];
+    let allSourcesData = [];
+    let searchTimeout;
+    let selectedFilters = {
+        bias: [],
+        factual: [],
+        credibility: [],
+        country: []
+    };
+    
+    // Global functions for pagination and filters
+    function changePage(page) {
+        if (page < 1 || page > totalPages) return;
+        
+        currentPage = page;
+        console.log(`Changing to page ${page} of ${totalPages}`);
+        
+        // Just update the display with the current data
+        displayMediaBiasData();
+        updatePagination();
+        
+        // Scroll to top of table
+        $('.table-container').scrollTop(0);
+    }
+    
+    function removeFilter(type, value) {
+        if (selectedFilters[type]) {
+            selectedFilters[type] = selectedFilters[type].filter(v => v !== value);
+            
+            // Update select element using jQuery for Select2
+            $(`#${type}-filter`).val(selectedFilters[type]).trigger('change');
+            
+            // Update badges and search
+            updateFilterBadges();
+            searchMediaBias();
+        }
+    }
+    
+    function clearFilters() {
+        try {
+            // Reset selected filters
+            selectedFilters = {
+                bias: [],
+                factual: [],
+                credibility: [],
+                country: []
+            };
+            
+            // Clear Select2 selections
+            $('#bias-filter, #factual-filter, #credibility-filter, #country-filter').val(null).trigger('change');
+            
+            // Clear search input
+            $('#search-source').val('');
+            $('#search-results').removeClass('active');
+            
+            // Reset page to 1
+            currentPage = 1;
+            
+            // Update filter badges (should be empty now)
+            updateFilterBadges();
+            
+            // Search with cleared filters
+            searchMediaBias();
+            
+            console.log('Filters cleared');
+        } catch (e) {
+            console.error('Error clearing filters:', e);
+        }
+    }
+    
+    function selectSearchResult(sourceName) {
+        $('#search-source').val(sourceName);
+        $('#search-results').removeClass('active');
+        searchMediaBias();
+    }
+    
+    function editSource(sourceId) {
+        // Find the source in the data
+        const source = mediaBiasData.find(s => s.id === sourceId);
+        if (!source) {
+            console.error(`Source with ID ${sourceId} not found`);
+            return;
+        }
+        
+        // Populate form fields
+        $('#source-id').val(source.id);
+        $('#source-url').val(source.source);
+        $('#source-country').val(source.country || '');
+        $('#source-bias').val(source.bias || '');
+        $('#source-factual').val(source.factual_reporting || '');
+        $('#source-press-freedom').val(source.press_freedom || '');
+        $('#source-media-type').val(source.media_type || '');
+        $('#source-popularity').val(source.popularity || '');
+        $('#source-credibility').val(source.mbfc_credibility_rating || '');
+        
+        // Update modal title
+        $('#sourceEditModalLabel').text('Edit Media Source');
+        
+        // Show modal
+        const modal = new bootstrap.Modal($('#source-edit-modal')[0]);
+        modal.show();
+    }
+    
+    function confirmDeleteSource(sourceId) {
+        // Find the source in data
+        const source = mediaBiasData.find(s => s.id === sourceId);
+        if (!source) {
+            console.error("Source not found:", sourceId);
+            return;
+        }
+        
+        // Update confirmation message
+        $('#delete-source-id').val(sourceId);
+        $('#delete-source-name').text(source.source || 'this source');
+        
+        // Show confirmation modal
+        const confirmModal = document.getElementById('delete-confirm-modal');
+        if (confirmModal) {
+            new bootstrap.Modal(confirmModal).show();
+        }
+    }
+    
+    function executeDeleteSource() {
+        const sourceId = $('#delete-source-id').val();
+        if (!sourceId) {
+            console.error("No source ID found for deletion");
+            return;
+        }
+        
+        deleteSourceById(sourceId);
+    }
+    
+    function deleteSourceById(sourceId) {
+        fetch(`/api/datasets/media_bias/${sourceId}`, {
+            method: 'DELETE'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Failed to delete: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Hide modal
+            const deleteModal = document.getElementById('delete-confirm-modal');
+            if (deleteModal) {
+                const modalInstance = bootstrap.Modal.getInstance(deleteModal);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
+            }
+            
+            // Show success message
+            showAlert('Source deleted successfully', 'success');
+            
+            // Reload data
+            loadMediaBiasData();
+            
+        })
+        .catch(error => {
+            console.error("Error deleting source:", error);
+            showAlert('Error deleting source: ' + error.message, 'danger');
+        });
+    }
+    
+    function openAddSourceModal() {
+        // Clear form
+        $('#source-edit-form').reset();
+        $('#source-id').val('');
+        
+        // Update modal title
+        $('#sourceEditModalLabel').text('Add New Media Source');
+        
+        // Show modal
+        const modal = new bootstrap.Modal(document.getElementById('source-edit-modal'));
+        modal.show();
+    }
+    
+    function saveSourceChanges() {
+        const sourceId = $('#source-id').val();
+        const sourceData = {
+            source: $('#source-url').val(),
+            url: $('#source-url').val(),
+            bias: $('#source-bias').val(),
+            factual_reporting: $('#source-factual').val(),
+            mbfc_credibility_rating: $('#source-credibility').val(),
+            country: $('#source-country').val()
+        };
+        
+        // Validate required fields
+        if (!sourceData.source) {
+            showAlert('Source name is required', 'warning');
+            return;
+        }
+        
+        let apiUrl, method;
+        
+        if (sourceId && sourceId !== 'new') {
+            // Update existing source
+            apiUrl = `/api/datasets/media_bias/${sourceId}`;
+            method = 'PUT';
+        } else {
+            // Add new source
+            apiUrl = '/api/datasets/media_bias/add';
+            method = 'POST';
+        }
+        
+        // Disable submit button
+        const saveButton = $('#save-source');
+        saveButton.prop('disabled', true);
+        saveButton.html('<i class="fas fa-spinner fa-spin"></i> Saving...');
+        
+        fetch(apiUrl, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(sourceData)
+        })
+        .then(response => {
+            if (!response.ok) {
+                return response.json().then(data => {
+                    throw new Error(data.detail || 'Failed to save source');
+                });
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Hide modal
+            const modal = bootstrap.Modal.getInstance($('#source-edit-modal')[0]);
+            if (modal) modal.hide();
+            
+            // Show success message
+            showAlert('Source saved successfully', 'success');
+            
+            // Reload data
+            loadMediaBiasData();
+        })
+        .catch(error => {
+            console.error('Error saving source:', error);
+            showAlert('Error saving source: ' + error.message, 'danger');
+        })
+        .finally(() => {
+            // Re-enable button
+            saveButton.prop('disabled', false);
+            saveButton.html('Save Changes');
+        });
+    }
+    
+    // Helper function to show alerts
+    function showAlert(message, type = 'info') {
+        // Create alert container if it doesn't exist
+        let alertContainer = document.getElementById('alert-container');
+        if (!alertContainer) {
+            alertContainer = document.createElement('div');
+            alertContainer.id = 'alert-container';
+            alertContainer.className = 'position-fixed top-0 end-0 p-3';
+            alertContainer.style.zIndex = '5000';
+            document.body.appendChild(alertContainer);
+        }
+        
+        // Create the alert element
+        const alertId = 'alert-' + Date.now();
+        const alertEl = document.createElement('div');
+        alertEl.className = `alert alert-${type} alert-dismissible fade show`;
+        alertEl.setAttribute('role', 'alert');
+        alertEl.id = alertId;
+        
+        // Add content
+        alertEl.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        
+        // Add to container
+        alertContainer.appendChild(alertEl);
+        
+        // Auto dismiss after 5 seconds
+        setTimeout(() => {
+            const alert = document.getElementById(alertId);
+            if (alert) {
+                const bsAlert = new bootstrap.Alert(alert);
+                bsAlert.close();
+            }
+        }, 5000);
+    }
+
+    // jQuery document ready to initialize the page
+    $(document).ready(async function() {
+        console.log("DOM ready - initializing datasets config UI");
+        
+        try {
+            // Initialize UI first
+            initializeUI();
+            
+            // Setup filter button handlers
+            $('#apply-filters').on('click', function() {
+                currentPage = 1;
+                searchMediaBias();
+            });
+            
+            $('#clear-filters').on('click', function() {
+                clearFilters();
+            });
+            
+            // Search input handling
+            $("#search-source").on("input", function() {
+                dynamicSearch();
+            });
+            
+            // Add new source button
+            $('#add-new-source').on('click', function() {
+                openAddSourceModal();
+            });
+            
+            // Setup other event handlers
+            setupEventHandlers();
+            
+            // Initial pagination setup
+            updatePagination();
+            
+            console.log("Starting data loading sequence...");
+            
+            // First load the main dataset
+            await loadMediaBiasData();
+            
+            // Then try to load filter options (or extract from data)
+            await loadFilterOptions();
+            
+            // Re-initialize Select2 to make sure filters are working
+            setTimeout(() => {
+                try {
+                    $("#bias-filter, #factual-filter, #credibility-filter, #country-filter").select2({
+                        placeholder: "Select options",
+                        allowClear: true,
+                        width: '100%'
+                    });
+                    
+                    // Add change handlers for filters
+                    $("#bias-filter, #factual-filter, #credibility-filter, #country-filter").on("change", function() {
+                        const filterType = $(this).attr("id").replace("-filter", "");
+                        const selectedValues = $(this).val() || [];
+                        console.log(`Filter ${filterType} changed to:`, selectedValues);
+                        selectedFilters[filterType] = selectedValues;
+                        updateFilterBadges();
+                    });
+                    
+                    console.log("Select2 dropdowns initialized");
+                } catch (e) {
+                    console.error("Error initializing Select2:", e);
+                }
+            }, 500);
+            
+            console.log("Data loading complete, UI fully initialized");
+        } catch (error) {
+            console.error("Error initializing media bias UI:", error);
+            showAlert('Error initializing interface: ' + error.message, 'danger');
+        }
+    });
+
+    // Update filter badges to show active filters
+    function updateFilterBadges() {
+        const badgesContainer = $('#filter-badges');
+        if (!badgesContainer.length) {
+            console.warn('Filter badges container not found');
+            return;
+        }
+        
+        badgesContainer.empty();
+        
+        let hasFilters = false;
+        
+        // Add bias badges
+        selectedFilters.bias.forEach(bias => {
+            if (!bias) return;
+            hasFilters = true;
+            badgesContainer.append(`
+                <span class="filter-badge">
+                    Bias: ${bias}
+                    <i class="fas fa-times remove-filter" onclick="removeFilter('bias', '${bias}')"></i>
+                </span>
+            `);
+        });
+        
+        // Add factual badges
+        selectedFilters.factual.forEach(factual => {
+            if (!factual) return;
+            hasFilters = true;
+            badgesContainer.append(`
+                <span class="filter-badge">
+                    Factual: ${factual}
+                    <i class="fas fa-times remove-filter" onclick="removeFilter('factual', '${factual}')"></i>
+                </span>
+            `);
+        });
+        
+        // Add credibility badges
+        selectedFilters.credibility.forEach(credibility => {
+            if (!credibility) return;
+            hasFilters = true;
+            badgesContainer.append(`
+                <span class="filter-badge">
+                    Credibility: ${credibility}
+                    <i class="fas fa-times remove-filter" onclick="removeFilter('credibility', '${credibility}')"></i>
+                </span>
+            `);
+        });
+        
+        // Add country badges
+        selectedFilters.country.forEach(country => {
+            if (!country) return;
+            hasFilters = true;
+            badgesContainer.append(`
+                <span class="filter-badge">
+                    Country: ${country}
+                    <i class="fas fa-times remove-filter" onclick="removeFilter('country', '${country}')"></i>
+                </span>
+            `);
+        });
+        
+        // If search query, add as filter
+        const searchQuery = $('#search-source').val().trim();
+        if (searchQuery) {
+            hasFilters = true;
+            badgesContainer.append(`
+                <span class="filter-badge">
+                    Search: ${searchQuery}
+                    <i class="fas fa-times remove-filter" onclick="clearSearch()"></i>
+                </span>
+            `);
+        }
+        
+        // Toggle clear filters button visibility
+        if (hasFilters) {
+            $('#clear-filters').show();
+        } else {
+            $('#clear-filters').hide();
+        }
+    }
+
+    // Remove a specific filter
+    function removeFilter(type, value) {
+        // Find the filter in the array and remove it
+        const index = selectedFilters[type].indexOf(value);
+        if (index !== -1) {
+            selectedFilters[type].splice(index, 1);
+        }
+        
+        // Update the select dropdown
+        const select = $(`#${type}-filter`);
+        if (select.length) {
+            // Get current values
+            const currentValues = select.val() || [];
+            // Remove the value
+            const newValues = currentValues.filter(val => val !== value);
+            // Set the new values
+            select.val(newValues).trigger('change');
+        }
+        
+        // Update badges
+        updateFilterBadges();
+        
+        // Refresh search
+        searchMediaBias();
+    }
+
+    // Function to set up additional event handlers
+    function setupEventHandlers() {
+        // Import/update dataset button
+        $('#load-media-bias').on('click', function() {
+            if (confirm('This will import or update the media bias dataset. Continue?')) {
+                fetch('/api/datasets/media_bias/import', {
+                    method: 'POST'
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.detail || 'Failed to import media bias data');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    showAlert(`Successfully imported ${data.imported_count} media sources`, 'success');
+                    loadMediaBiasData();
+                })
+                .catch(error => {
+                    console.error('Error importing media bias data:', error);
+                    showAlert('Error importing media bias data: ' + error.message, 'danger');
+                });
+            }
+        });
+        
+        // Reset dataset button
+        $('#reset-media-bias').on('click', function() {
+            if (confirm('WARNING: This will delete all media bias data. This action cannot be undone. Continue?')) {
+                fetch('/api/datasets/media_bias/reset', {
+                    method: 'POST'
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.detail || 'Failed to reset media bias data');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    showAlert('Media bias dataset has been reset', 'success');
+                    loadMediaBiasData();
+                })
+                .catch(error => {
+                    console.error('Error resetting media bias data:', error);
+                    showAlert('Error resetting media bias data: ' + error.message, 'danger');
+                });
+            }
+        });
+        
+        // Enable/disable media bias enrichment
+        $('#enable-media-bias').on('change', function(e) {
+            const isEnabled = $(this).prop('checked');
+            
+            fetch('/api/datasets/media_bias/enable', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ enabled: isEnabled })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.detail || 'Failed to update enrichment setting');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                showAlert(`Media bias enrichment ${isEnabled ? 'enabled' : 'disabled'}`, 'success');
+            })
+            .catch(error => {
+                console.error('Error updating enrichment setting:', error);
+                showAlert('Error updating setting: ' + error.message, 'danger');
+                // Revert checkbox state
+                $(this).prop('checked', !isEnabled);
+            });
+        });
+        
+        // Handle dataset upload form
+        $('#upload-dataset-form').on('submit', function(e) {
+            e.preventDefault();
+            
+            const datasetType = $('#dataset-type').val();
+            const fileInput = $('#dataset-file')[0];
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                showAlert('Please select a file to upload', 'warning');
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const submitButton = $(this).find('button[type="submit"]');
+            submitButton.prop('disabled', true);
+            submitButton.html('<i class="fas fa-spinner fa-spin"></i> Uploading...');
+            
+            fetch(`/api/datasets/${datasetType}/upload`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.detail || 'Failed to upload dataset');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                showAlert(`Successfully uploaded dataset with ${data.imported_count} entries`, 'success');
+                fileInput.value = '';
+                loadMediaBiasData();
+            })
+            .catch(error => {
+                console.error('Error uploading dataset:', error);
+                showAlert('Error uploading dataset: ' + error.message, 'danger');
+            })
+            .finally(() => {
+                submitButton.prop('disabled', false);
+                submitButton.html('<i class="fas fa-upload"></i> Upload Dataset');
+            });
+        });
+        
+        // Update save source button
+        $('#save-source').on('click', saveSourceChanges);
+    }
+
+    // Initialize UI components and settings
+    function initializeUI() {
+        console.log('Initializing Media Bias Dataset UI');
+        
+        // Set up select2 for filter dropdowns
+        try {
+            // Make sure jQuery and Select2 are available
+            if (typeof $ === 'undefined' || typeof $.fn.select2 === 'undefined') {
+                console.error('jQuery or Select2 is not loaded');
+                return;
+            }
+            
+            $("#bias-filter, #factual-filter, #credibility-filter, #country-filter").select2({
+                placeholder: "Select options",
+                allowClear: true,
+                width: '100%',
+                theme: 'bootstrap4',
+                // Add custom message when no results are found
+                language: {
+                    noResults: function() {
+                        return "No options available";
+                    }
+                },
+                // Hide the search box when there are no results
+                minimumResultsForSearch: 10
+            });
+            console.log('Select2 initialized successfully');
+        } catch (e) {
+            console.warn('Error initializing Select2:', e);
+        }
+        
+        // Initialize tooltips
+        try {
+            const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+            console.log('Tooltips initialized successfully');
+        } catch (error) {
+            console.warn('Error initializing tooltips:', error);
+        }
+    }
+
+    // Load all media bias data
+    async function loadMediaBiasData() {
+        try {
+            // Show loading indicator
+            $('#media-bias-data').html('<tr><td colspan="5" class="text-center"><i class="fas fa-spinner fa-spin me-2"></i>Loading media bias data...</td></tr>');
+            
+            // Fetch media bias data from the server
+            const response = await fetch('/api/datasets/media_bias');
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('API error response:', errorText);
+                throw new Error(`Failed to load media bias data: ${response.status} ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            console.log("Media bias data loaded:", data);
+            
+            // Set global variables - store these for filtering client-side
+            mediaBiasData = data.sources || [];
+            allSourcesData = [...mediaBiasData]; // Clone to keep a full copy
+            
+            // Initialize filters from the data
+            if (!data.filters) {
+                console.log("No filters in API response, extracting from data");
+                // Extract filter values from the data
+                const extractedFilters = {
+                    bias: [...new Set(mediaBiasData.map(s => s.bias).filter(Boolean))],
+                    factual_reporting: [...new Set(mediaBiasData.map(s => s.factual_reporting).filter(Boolean))],
+                    mbfc_credibility_rating: [...new Set(mediaBiasData.map(s => s.mbfc_credibility_rating).filter(Boolean))],
+                    country: [...new Set(mediaBiasData.map(s => s.country).filter(Boolean))]
+                };
+                console.log("Extracted filters:", extractedFilters);
+                
+                // Populate filters with extracted values
+                populateFilterDropdown('bias-filter', extractedFilters.bias);
+                populateFilterDropdown('factual-filter', extractedFilters.factual_reporting);
+                populateFilterDropdown('credibility-filter', extractedFilters.mbfc_credibility_rating);
+                populateFilterDropdown('country-filter', extractedFilters.country);
+            }
+            
+            // Calculate total pages based on data length
+            totalPages = Math.max(1, Math.ceil(mediaBiasData.length / itemsPerPage));
+            
+            // Update status panel
+            $('#media-bias-status').text(data.status?.enabled ? 'Enabled' : 'Disabled');
+            $('#media-bias-count').text(mediaBiasData.length);
+            $('#media-bias-updated').text(data.status?.last_updated || 'Never');
+            
+            // Update enable checkbox
+            $('#enable-media-bias').prop('checked', data.status?.enabled || false);
+            
+            // Display data with pagination
+            displayMediaBiasData();
+            
+            // Update pagination controls
+            updatePagination();
+            
+            console.log(`Media bias data loaded: ${mediaBiasData.length} items, ${totalPages} pages`);
+        } catch (error) {
+            console.error('Error loading media bias data:', error);
+            $('#media-bias-data').html(`<tr><td colspan="5" class="text-center text-danger">Error loading data: ${error.message}</td></tr>`);
+            showAlert('Error loading media bias data: ' + error.message, 'danger');
+        }
+    }
+
+    // Load all sources for dynamic search
+    async function loadAllSourcesData() {
+        try {
+            console.log("Loading all sources data for search...");
+            const response = await fetch('/api/datasets/media_bias/search?per_page=1000');
+            
+            if (!response.ok) {
+                throw new Error('Failed to load all sources data');
+            }
+            
+            const data = await response.json();
+            allSourcesData = data.sources || [];
+            console.log(`Loaded ${allSourcesData.length} sources for search functionality`);
+            
+            // Update search results if a search is already in progress
+            const searchInput = $('#search-source');
+            if (searchInput.val().trim().length > 0) {
+                dynamicSearch();
+            }
+        } catch (error) {
+            console.error('Error loading all sources data:', error);
+            showAlert('Error loading search data: ' + error.message, 'warning');
+            allSourcesData = [];
+        }
+    }
+
+    // Load filter options from API
+    async function loadFilterOptions() {
+        try {
+            console.log('Loading filter options from API...');
+            const response = await fetch('/api/datasets/media_bias/filters');
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('API error response:', errorText);
+                throw new Error(`Failed to load filter options: ${response.status} ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            console.log('Raw filter options data:', data);
+            
+            // Handle different possible response structures
+            let filterOptions = {};
+            
+            // Map the API response fields to our expected fields
+            // The API returns biases, factual_levels, and countries but we expect bias, factual_reporting, etc.
+            if (data.biases) filterOptions.bias = data.biases;
+            if (data.factual_levels) filterOptions.factual_reporting = data.factual_levels;
+            if (data.countries) filterOptions.country = data.countries;
+            
+            // Check all possible field names for credibility ratings
+            if (data.credibility_ratings) filterOptions.mbfc_credibility_rating = data.credibility_ratings;
+            else if (data.credibility) filterOptions.mbfc_credibility_rating = data.credibility;
+            else if (data.mbfc_credibility_rating) filterOptions.mbfc_credibility_rating = data.mbfc_credibility_rating;
+            else if (data.ratings) filterOptions.mbfc_credibility_rating = data.ratings;
+            
+            // Log the mapped filter options
+            console.log('Mapped filter options:', filterOptions);
+            
+            // If there are no filter options or specifically no credibility, extract from data
+            if (Object.keys(filterOptions).length === 0 || !filterOptions.mbfc_credibility_rating) {
+                if (mediaBiasData && mediaBiasData.length > 0) {
+                    console.log("Missing filter options, extracting from data");
+                    
+                    // Only extract missing filters
+                    if (!filterOptions.bias) {
+                        filterOptions.bias = [...new Set(mediaBiasData.map(s => s.bias).filter(Boolean))];
+                    }
+                    if (!filterOptions.factual_reporting) {
+                        filterOptions.factual_reporting = [...new Set(mediaBiasData.map(s => s.factual_reporting).filter(Boolean))];
+                    }
+                    if (!filterOptions.country) {
+                        filterOptions.country = [...new Set(mediaBiasData.map(s => s.country).filter(Boolean))];
+                    }
+                    
+                    // Always try to extract credibility since it's the problematic one
+                    // Check for different possible field names in the data
+                    const credibilityRatings = [];
+                    mediaBiasData.forEach(s => {
+                        if (s.mbfc_credibility_rating) credibilityRatings.push(s.mbfc_credibility_rating);
+                        else if (s.credibility) credibilityRatings.push(s.credibility);
+                        else if (s.credibility_rating) credibilityRatings.push(s.credibility_rating);
+                    });
+                    
+                    // If we found credibility ratings, use them
+                    if (credibilityRatings.length > 0) {
+                        filterOptions.mbfc_credibility_rating = [...new Set(credibilityRatings)];
+                        console.log("Extracted credibility ratings:", filterOptions.mbfc_credibility_rating);
+                    }
+                    
+                    console.log("Extracted filter options:", filterOptions);
+                }
+            }
+            
+            // Ensure each category is an array, even if it's empty or undefined
+            const biasOptions = ensureArray(filterOptions.bias);
+            const factualOptions = ensureArray(filterOptions.factual_reporting);
+            const credibilityOptions = ensureArray(filterOptions.mbfc_credibility_rating);
+            const countryOptions = ensureArray(filterOptions.country);
+            
+            console.log('Processed filter options for dropdowns:', {
+                bias: biasOptions, 
+                factual: factualOptions,
+                credibility: credibilityOptions,
+                country: countryOptions
+            });
+            
+            // Populate filter dropdowns with the extracted options
+            populateFilterDropdown('bias-filter', biasOptions);
+            populateFilterDropdown('factual-filter', factualOptions);
+            populateFilterDropdown('credibility-filter', credibilityOptions);
+            populateFilterDropdown('country-filter', countryOptions);
+        } catch (error) {
+            console.error('Error loading filter options:', error);
+            showAlert('Error loading filter options: ' + error.message, 'warning');
+            
+            // Try to extract filters from media bias data if available
+            if (mediaBiasData && mediaBiasData.length > 0) {
+                console.log("Error loading filters, extracting from data instead");
+                
+                // Check for different credibility field names in the data
+                const credibilityRatings = [];
+                mediaBiasData.forEach(s => {
+                    if (s.mbfc_credibility_rating) credibilityRatings.push(s.mbfc_credibility_rating);
+                    else if (s.credibility) credibilityRatings.push(s.credibility);
+                    else if (s.credibility_rating) credibilityRatings.push(s.credibility_rating);
+                });
+                
+                // Extract filter values from the data
+                const extractedFilters = {
+                    bias: [...new Set(mediaBiasData.map(s => s.bias).filter(Boolean))],
+                    factual_reporting: [...new Set(mediaBiasData.map(s => s.factual_reporting).filter(Boolean))],
+                    mbfc_credibility_rating: credibilityRatings.length > 0 ? 
+                        [...new Set(credibilityRatings)] : 
+                        [...new Set(mediaBiasData.map(s => s.mbfc_credibility_rating).filter(Boolean))],
+                    country: [...new Set(mediaBiasData.map(s => s.country).filter(Boolean))]
+                };
+                console.log("Extracted filters:", extractedFilters);
+                
+                // Populate filters with extracted values
+                populateFilterDropdown('bias-filter', extractedFilters.bias);
+                populateFilterDropdown('factual-filter', extractedFilters.factual_reporting);
+                populateFilterDropdown('credibility-filter', extractedFilters.mbfc_credibility_rating);
+                populateFilterDropdown('country-filter', extractedFilters.country);
+            } else {
+                // Initialize empty dropdowns on error
+                populateFilterDropdown('bias-filter', []);
+                populateFilterDropdown('factual-filter', []);
+                populateFilterDropdown('credibility-filter', []);
+                populateFilterDropdown('country-filter', []);
+            }
+        }
+    }
+    
+    // Helper function to ensure a value is an array and filter out empty/null values
+    function ensureArray(value) {
+        if (!value) return [];
+        if (Array.isArray(value)) return value.filter(item => item && String(item).trim() !== '');
+        return [value].filter(item => item && String(item).trim() !== '');
+    }
+    
+    // Helper function to populate filter dropdowns
+    function populateFilterDropdown(elementId, options) {
+        try {
+            const select = $('#' + elementId);
+            if (!select.length) {
+                console.warn(`Element with ID ${elementId} not found`);
+                return;
+            }
+            
+            // Clear existing options
+            select.empty();
+            
+            // Check if we have any valid options
+            if (!options || options.length === 0) {
+                console.log(`No options for ${elementId}, adding placeholder`);
+                // Add a placeholder option
+                select.append($('<option>').val('').text('Select options').prop('selected', true));
+                // Add a "No options" option
+                select.append($('<option>').val('').text('No options available').prop('disabled', true));
+            } else {
+                console.log(`Adding ${options.length} options to ${elementId}`);
+                
+                // Add placeholder option
+                select.append($('<option>').val('').text('Select options').prop('selected', true));
+                
+                // Add options
+                options.forEach(option => {
+                    if (!option && option !== 0) return; // Skip empty options but allow 0
+                    
+                    // Handle both string options and object options
+                    let value, text;
+                    
+                    if (typeof option === 'object' && option !== null) {
+                        // Object format (like {value: "val", text: "text"} or {id: "val", name: "text"})
+                        value = option.value || option.id || '';
+                        text = option.text || option.name || option.label || String(value);
+                    } else {
+                        // Simple string format
+                        value = option;
+                        text = option;
+                    }
+                    
+                    // Skip empty values
+                    if (!value && value !== 0) return;
+                    
+                    select.append($('<option>').text(text).val(value));
+                });
+                console.log(`Added ${options.length} options to ${elementId}`);
+            }
+            
+            // Destroy existing Select2 if present and recreate
+            if ($.fn.select2) {
+                if (select.hasClass('select2-hidden-accessible')) {
+                    select.select2('destroy');
+                }
+                
+                select.select2({
+                    placeholder: "Select options",
+                    allowClear: true,
+                    width: '100%',
+                    theme: 'bootstrap4',
+                    // Add custom "no results" text
+                    language: {
+                        noResults: function() {
+                            return "No matching options";
+                        }
+                    }
+                });
+                
+                // Make sure the dropdown shows options
+                select.on('select2:open', () => {
+                    $('.select2-search__field').attr('placeholder', 'Search...');
+                });
+                
+                console.log(`Select2 initialized for ${elementId}`);
+            } else {
+                console.warn(`Select2 library not available for ${elementId}`);
+            }
+        } catch (e) {
+            console.error(`Error in populateFilterDropdown for ${elementId}:`, e);
+        }
+    }
+
+    // Dynamic search as user types
+    function dynamicSearch() {
+        const searchInput = $('#search-source');
+        const searchResults = $('#search-results');
+        
+        if (!searchInput || !searchResults) return;
+        
+        const query = searchInput.val().trim().toLowerCase();
+        
+        // Clear previous timeout
+        clearTimeout(searchTimeout);
+        
+        // Clear results if query is empty
+        if (query.length === 0) {
+            searchResults.html('');
+            searchResults.removeClass('active');
+            return;
+        }
+        
+        // Set debounced search
+        searchTimeout = setTimeout(() => {
+            if (query.length < 2) return;
+            
+            // Filter sources that match the query
+            const matchedSources = allSourcesData.filter(source => 
+                source.source.toLowerCase().includes(query)
+            );
+            
+            // Limit to top 10 matches
+            const limitedMatches = matchedSources.slice(0, 10);
+            
+            // Show results dropdown
+            if (limitedMatches.length > 0) {
+                let resultsHtml = '';
+                
+                limitedMatches.forEach(source => {
+                    const sourceName = source.source;
+                    const biasClass = getBiasClass(source.bias);
+                    const factualClass = getFactualClass(source.factual_reporting);
+                    
+                    resultsHtml += `
+                        <div class="search-result-item" onclick="selectSearchResult('${sourceName}')">
+                            <div><strong>${sourceName}</strong></div>
+                            <div class="badge-collection mt-1">
+                                <span class="bias-badge ${biasClass}">${source.bias || 'Unknown'}</span>
+                                <span class="factual-badge ${factualClass}">${source.factual_reporting || 'Unknown'}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                searchResults.html(resultsHtml);
+                searchResults.addClass('active');
+            } else {
+                searchResults.html('<div class="search-result-item">No matching sources found</div>');
+                searchResults.addClass('active');
+            }
+        }, 300); // Debounce for 300ms
+    }
+
+    // Search for media bias sources with filters
+    async function searchMediaBias() {
+        try {
+            // Show loading indicator
+            $('#media-bias-data').html('<tr><td colspan="5" class="text-center"><i class="fas fa-spinner fa-spin me-2"></i>Searching...</td></tr>');
+            
+            // Build query parameters
+            const query = $('#search-source').val().trim();
+            
+            // If we already have data loaded, just filter it client-side
+            if (mediaBiasData && mediaBiasData.length > 0 && allSourcesData && allSourcesData.length > 0) {
+                console.log(`Filtering existing data (${allSourcesData.length} items) with:`, {
+                    query: query,
+                    filters: selectedFilters
+                });
+                
+                // Filter the data client-side
+                let filteredData = [...allSourcesData]; // Clone the array
+                
+                // Apply text search filter
+                if (query) {
+                    const searchTerms = query.toLowerCase().split(/\s+/);
+                    filteredData = filteredData.filter(source => {
+                        // Search in source name and URL
+                        const searchText = (source.source || '').toLowerCase() + ' ' + (source.url || '').toLowerCase();
+                        // Item matches if all search terms are found
+                        return searchTerms.every(term => searchText.includes(term));
+                    });
+                    console.log(`After text search filter: ${filteredData.length} items`);
+                }
+                
+                // Apply bias filter
+                if (selectedFilters.bias && selectedFilters.bias.length > 0) {
+                    filteredData = filteredData.filter(source => 
+                        selectedFilters.bias.includes(source.bias)
+                    );
+                    console.log(`After bias filter: ${filteredData.length} items`);
+                }
+                
+                // Apply factual filter
+                if (selectedFilters.factual && selectedFilters.factual.length > 0) {
+                    filteredData = filteredData.filter(source => 
+                        selectedFilters.factual.includes(source.factual_reporting)
+                    );
+                    console.log(`After factual filter: ${filteredData.length} items`);
+                }
+                
+                // Apply credibility filter
+                if (selectedFilters.credibility && selectedFilters.credibility.length > 0) {
+                    filteredData = filteredData.filter(source => {
+                        // Check different possible field names for credibility
+                        const credibilityValue = source.mbfc_credibility_rating || 
+                                               source.credibility || 
+                                               source.credibility_rating;
+                        return selectedFilters.credibility.includes(credibilityValue);
+                    });
+                    console.log(`After credibility filter: ${filteredData.length} items`);
+                }
+                
+                // Apply country filter
+                if (selectedFilters.country && selectedFilters.country.length > 0) {
+                    filteredData = filteredData.filter(source => 
+                        selectedFilters.country.includes(source.country)
+                    );
+                    console.log(`After country filter: ${filteredData.length} items`);
+                }
+                
+                // Update the data and pagination
+                mediaBiasData = filteredData;
+                totalPages = Math.max(1, Math.ceil(mediaBiasData.length / itemsPerPage));
+                
+                if (currentPage > totalPages) {
+                    currentPage = 1;
+                }
+                
+                // Display data and update pagination
+                displayMediaBiasData();
+                updatePagination();
+                
+                // Show filter badges
+                updateFilterBadges();
+                
+                // If no results, show a message
+                if (mediaBiasData.length === 0) {
+                    const hasFilters = selectedFilters.bias.length > 0 || 
+                                    selectedFilters.factual.length > 0 || 
+                                    selectedFilters.country.length > 0 || 
+                                    selectedFilters.credibility.length > 0 ||
+                                    query.length > 0;
+                    
+                    if (hasFilters) {
+                        // No results with filters applied
+                        $('#media-bias-data').html(`
+                            <tr>
+                                <td colspan="5" class="text-center p-4">
+                                    <div class="empty-results">
+                                        <i class="fas fa-search"></i>
+                                        <p>No results match your search criteria</p>
+                                        <button class="btn btn-sm btn-outline-secondary mt-2" onclick="clearFilters()">
+                                            <i class="fas fa-times"></i> Clear filters
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `);
+                    } else {
+                        // No results at all (empty database)
+                        $('#media-bias-data').html(`
+                            <tr>
+                                <td colspan="5" class="text-center p-4">
+                                    <div class="empty-results">
+                                        <i class="fas fa-database"></i>
+                                        <p>No media bias data found in the database</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        `);
+                    }
+                }
+                
+                return;
+            }
+            
+            // If we don't have cached data or it's forced, query the API
+            let params = new URLSearchParams();
+            
+            // Add pagination parameters
+            params.append('page', currentPage);
+            params.append('per_page', itemsPerPage);
+            
+            // Add search query if present
+            if (query) {
+                params.append('query', query);
+            }
+            
+            // Add filters if selected
+            if (selectedFilters.bias.length > 0) {
+                params.append('bias', selectedFilters.bias.join(','));
+            }
+            
+            if (selectedFilters.factual.length > 0) {
+                params.append('factual', selectedFilters.factual.join(','));
+            }
+            
+            if (selectedFilters.credibility.length > 0) {
+                // Try different possible parameter names for credibility
+                const credibilityValues = selectedFilters.credibility.join(',');
+                params.append('credibility', credibilityValues);
+                params.append('mbfc_credibility_rating', credibilityValues);
+                params.append('credibility_rating', credibilityValues);
+            }
+            
+            if (selectedFilters.country.length > 0) {
+                params.append('country', selectedFilters.country.join(','));
+            }
+            
+            // For debugging
+            console.log('Searching API with params:', params.toString());
+            
+            // Fetch data with filters
+            const response = await fetch(`/api/datasets/media_bias/search?${params.toString()}`);
+            
+            if (!response.ok) {
+                throw new Error('Failed to search media bias data');
+            }
+            
+            const data = await response.json();
+            console.log('Search response:', data);
+            
+            // Update data and pagination
+            mediaBiasData = data.sources || [];
+            
+            // Get total count and calculate pages
+            const totalCount = data.total || mediaBiasData.length;
+            totalPages = Math.max(1, Math.ceil(totalCount / itemsPerPage));
+            
+            console.log(`Total items: ${totalCount}, Total pages: ${totalPages}, Current page: ${currentPage}`);
+            
+            // Ensure current page is valid
+            if (currentPage > totalPages) {
+                currentPage = totalPages;
+            }
+            
+            // Display data and update pagination
+            displayMediaBiasData();
+            updatePagination();
+            
+            // Show filter badges
+            updateFilterBadges();
+            
+            // If no results, show a message
+            if (mediaBiasData.length === 0) {
+                const hasFilters = selectedFilters.bias.length > 0 || 
+                                  selectedFilters.factual.length > 0 || 
+                                  selectedFilters.country.length > 0 || 
+                                  selectedFilters.credibility.length > 0 ||
+                                  query.length > 0;
+                
+                if (hasFilters) {
+                    // No results with filters applied
+                    $('#media-bias-data').html(`
+                        <tr>
+                            <td colspan="5" class="text-center p-4">
+                                <div class="empty-results">
+                                    <i class="fas fa-search"></i>
+                                    <p>No results match your search criteria</p>
+                                    <button class="btn btn-sm btn-outline-secondary mt-2" onclick="clearFilters()">
+                                        <i class="fas fa-times"></i> Clear filters
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `);
+                } else {
+                    // No results at all (empty database)
+                    $('#media-bias-data').html(`
+                        <tr>
+                            <td colspan="5" class="text-center p-4">
+                                <div class="empty-results">
+                                    <i class="fas fa-database"></i>
+                                    <p>No media bias data found in the database</p>
+                                </div>
+                            </td>
+                        </tr>
+                    `);
+                }
+            }
+            
+        } catch (error) {
+            console.error('Error searching media bias data:', error);
+            $('#media-bias-data').html(`
+                <tr>
+                    <td colspan="5" class="text-center p-4">
+                        <div class="empty-results">
+                            <i class="fas fa-exclamation-triangle text-danger"></i>
+                            <p class="text-danger">Error searching data</p>
+                            <p class="small text-muted">${error.message}</p>
+                        </div>
+                    </td>
+                </tr>
+            `);
+        }
+    }
+
+    // Display media bias data in table with proper pagination
+    function displayMediaBiasData() {
+        const tableBody = $('#media-bias-data');
+        if (!tableBody) return;
+        
+        if (!mediaBiasData || mediaBiasData.length === 0) {
+            tableBody.html('<tr><td colspan="5" class="text-center">No media bias data found</td></tr>');
+            return;
+        }
+        
+        // Calculate pagination indices
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = Math.min(startIndex + itemsPerPage, mediaBiasData.length);
+        
+        // Get current page data
+        const currentPageData = mediaBiasData.slice(startIndex, endIndex);
+        console.log(`Displaying items ${startIndex+1}-${endIndex} of ${mediaBiasData.length}`);
+        
+        let html = '';
+        
+        // Generate table rows for current page only
+        currentPageData.forEach(source => {
+            const biasClass = getBiasClass(source.bias);
+            const factualClass = getFactualClass(source.factual_reporting);
+            
+            html += `
+                <tr>
+                    <td>
+                        <div><strong>${source.source}</strong></div>
+                        <div class="text-muted small">${source.url || source.source}</div>
+                    </td>
+                    <td><span class="bias-badge ${biasClass}">${source.bias || 'Unknown'}</span></td>
+                    <td><span class="factual-badge ${factualClass}">${source.factual_reporting || 'Unknown'}</span></td>
+                    <td>${source.mbfc_credibility_rating || 'Unknown'}</td>
+                    <td class="action-cell">
+                        <button class="action-btn btn-sm btn-outline-primary" onclick="editSource(${source.id})" 
+                                data-bs-toggle="tooltip" title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="action-btn btn-sm btn-outline-danger" onclick="confirmDeleteSource(${source.id})" 
+                                data-bs-toggle="tooltip" title="Delete">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        tableBody.html(html);
+        
+        // Update pagination display
+        $('#page-info').text(`Page ${currentPage} of ${totalPages} (${mediaBiasData.length} total items)`);
+        
+        // Reinitialize tooltips
+        try {
+            const tooltips = $('[data-bs-toggle="tooltip"]');
+            tooltips.tooltip();
+        } catch (error) {
+            console.warn('Error initializing tooltips:', error);
+        }
+    }
+
+    // Update pagination controls
+    function updatePagination() {
+        const prevButton = $('#prev-page');
+        const nextButton = $('#next-page');
+        const pageInfo = $('#page-info');
+        
+        if (!prevButton || !nextButton || !pageInfo) return;
+        
+        // Update page info with total count
+        pageInfo.text(`Page ${currentPage} of ${totalPages} (${mediaBiasData.length} total items)`);
+        
+        // Update button states
+        prevButton.prop('disabled', currentPage <= 1);
+        nextButton.prop('disabled', currentPage >= totalPages);
+        
+        // Create pagination links if many pages
+        const paginationContainer = $('#pagination-links');
+        if (!paginationContainer.length) return;
+        
+        let paginationHtml = '';
+        
+        if (totalPages > 1) {
+            // Create a simplified pagination control
+            if (totalPages <= 5) {
+                // Show all pages if 5 or fewer
+                for (let i = 1; i <= totalPages; i++) {
+                    paginationHtml += `
+                        <button class="btn btn-sm ${i === currentPage ? 'btn-primary' : 'btn-outline-secondary'} mx-1" 
+                                onclick="changePage(${i})">${i}</button>
+                    `;
+                }
+            } else {
+                // Show first, current-1, current, current+1, last for many pages
+                // Only show the first page button if we're not already on page 1 or 2
+                if (currentPage > 2) {
+                    paginationHtml += `<button class="btn btn-sm btn-outline-secondary mx-1" onclick="changePage(1)">1</button>`;
+                    if (currentPage > 3) {
+                        paginationHtml += `<span class="mx-1">...</span>`;
+                    }
+                }
+                
+                // Previous page button if not on page 1
+                if (currentPage > 1) {
+                    paginationHtml += `<button class="btn btn-sm btn-outline-secondary mx-1" onclick="changePage(${currentPage - 1})">${currentPage - 1}</button>`;
+                }
+                
+                // Current page button
+                paginationHtml += `<button class="btn btn-sm btn-primary mx-1" onclick="changePage(${currentPage})">${currentPage}</button>`;
+                
+                // Next page button if not on last page
+                if (currentPage < totalPages) {
+                    paginationHtml += `<button class="btn btn-sm btn-outline-secondary mx-1" onclick="changePage(${currentPage + 1})">${currentPage + 1}</button>`;
+                }
+                
+                // Ellipsis and last page button if we're not close to the end
+                if (currentPage < totalPages - 1) {
+                    if (currentPage < totalPages - 2) {
+                        paginationHtml += `<span class="mx-1">...</span>`;
+                    }
+                    paginationHtml += `<button class="btn btn-sm btn-outline-secondary mx-1" onclick="changePage(${totalPages})">${totalPages}</button>`;
+                }
+            }
+            
+            // Add pagination links
+            paginationContainer.html(paginationHtml);
+        } else {
+            // Clear pagination links if only 1 page
+            paginationContainer.html('');
+        }
+    }
+
+    // Helper functions to map bias and factual reporting to CSS classes
+    function getBiasClass(bias) {
+        if (!bias) return '';
+        
+        bias = bias.toLowerCase();
+        
+        if (bias.includes('left')) {
+            return 'bias-left';
+        } else if (bias.includes('right')) {
+            return 'bias-right';
+        } else if (bias.includes('center') || bias.includes('least')) {
+            return 'bias-center';
+        }
+        
+        return '';
+    }
+
+    function getFactualClass(factual) {
+        if (!factual) return '';
+        
+        factual = factual.toLowerCase();
+        
+        if (factual.includes('high') || factual.includes('mostly factual')) {
+            return 'factual-high';
+        } else if (factual.includes('mixed')) {
+            return 'factual-mixed';
+        } else if (factual.includes('low')) {
+            return 'factual-low';
+        }
+        
+        return '';
+    }
+
+    // Clear search input
+    function clearSearch() {
+        $('#search-source').val('');
+        $('#search-results').removeClass('active');
+        searchMediaBias();
+    }
+</script> 
