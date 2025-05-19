@@ -67,6 +67,7 @@ from app.routes.topic_map_routes import (
 )
 from app.routes.auspex_routes import router as auspex_router
 from app.routes.newsletter_routes import router as newsletter_router, page_router as newsletter_page_router
+from app.routes.dataset_routes import router as dataset_router
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -232,6 +233,9 @@ app.include_router(auspex_router)
 # Add newsletter routers
 app.include_router(newsletter_router)
 app.include_router(newsletter_page_router)
+
+# Add dataset router
+app.include_router(dataset_router)
 
 class ArticleData(BaseModel):
     title: str

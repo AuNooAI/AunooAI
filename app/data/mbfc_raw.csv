@@ -1,0 +1,11 @@
+source,country,bias,factual_reporting,press_freedom,media_type,popularity,mbfc_credibility_rating
+9news.com,usa,least biased,high,mostly free,tv station,high traffic,high credibility
+cnn.com,usa,left,mixed,mostly free,tv/website,very high traffic,medium credibility
+foxnews.com,usa,right,mixed,mostly free,tv/website,very high traffic,medium credibility
+nytimes.com,usa,left-center,high,mostly free,newspaper/website,very high traffic,high credibility
+washingtonpost.com,usa,left-center,high,mostly free,newspaper/website,high traffic,high credibility
+bbc.com,uk,left-center,high,free press,tv/website,very high traffic,high credibility
+reuters.com,international,least biased,very high,free press,news agency,high traffic,high credibility
+apnews.com,usa,least biased,very high,free press,news agency,high traffic,high credibility
+thehill.com,usa,center,mostly factual,free press,website,high traffic,high credibility
+wsj.com,usa,right-center,mostly factual,mostly free,newspaper/website,high traffic,high credibility 
