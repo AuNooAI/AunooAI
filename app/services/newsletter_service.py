@@ -145,6 +145,336 @@ class NewsletterService:
             error_markdown += f"Please check the server logs for more details about this error."
             return error_markdown
 
+    async def _get_articles_for_topics(
+        self, 
+        topics: List[str], 
+        start_date: Optional[datetime.date] = None, 
+        end_date: Optional[datetime.date] = None
+    ) -> Dict[str, List[Dict]]:
+        """
+        Fetch articles for multiple topics.
+        
+        Args:
+            topics: List of topics to fetch articles for
+            start_date: Optional start date
+            end_date: Optional end date
+            
+        Returns:
+            Dictionary mapping topics to lists of articles
+        """
+        # Ensure dates are properly set
+        start_date, end_date = self._calculate_date_range(
+            "weekly",  # Default frequency for date calculation
+            start_date, 
+            end_date
+        )
+        
+        self.report_progress(None, "Fetching articles", f"Finding articles for {len(topics)} topics")
+        
+        # Fetch articles for each topic
+        article_data = {}
+        for i, topic in enumerate(topics):
+            self.report_progress(
+                None,  # Keep the current progress percentage
+                "Fetching articles", 
+                f"Finding articles for {topic} ({i+1}/{len(topics)})"
+            )
+            article_data[topic] = self._fetch_articles(topic, start_date, end_date)
+            
+        return article_data
+        
+    async def _process_content_type(
+        self,
+        content_type: str,
+        prompt_template: str,
+        request: NewsletterRequest,
+        article_data: Dict[str, List[Dict]]
+    ) -> str:
+        """
+        Process a specific content type to generate newsletter content.
+        
+        Args:
+            content_type: The content type to process
+            prompt_template: The prompt template for this content type
+            request: The newsletter request
+            article_data: Dictionary of articles by topic
+            
+        Returns:
+            Markdown content for this section
+        """
+        try:
+            # Special handling for different content types
+            if content_type == "key_charts":
+                # For key charts, generate visualizations
+                return await self._generate_charts_section(request.topics, article_data)
+            
+            # For regular content types that require prompt-based generation
+            if not prompt_template:
+                # Use default prompt if none is available
+                prompt_template = self._get_default_prompt(content_type)
+            
+            # Fill in the prompt template with the required data
+            prompt = self._fill_prompt_template(
+                prompt_template,
+                request,
+                article_data,
+                content_type
+            )
+            
+            # Generate the content using AI
+            ai_response = await self._generate_content_with_ai(prompt, request.ai_model)
+            
+            return ai_response.strip()
+            
+        except Exception as e:
+            logger.error(f"Error processing content type {content_type}: {str(e)}")
+            return f"## Error in {content_type}\n\nAn error occurred while generating this section: {str(e)}"
+            
+    def _fill_prompt_template(
+        self,
+        template: str,
+        request: NewsletterRequest,
+        article_data: Dict[str, List[Dict]],
+        content_type: str
+    ) -> str:
+        """
+        Fill in the prompt template with the required data.
+        
+        Args:
+            template: The prompt template
+            request: The newsletter request
+            article_data: Dictionary of articles by topic
+            content_type: The content type being processed
+            
+        Returns:
+            Filled prompt
+        """
+        # Basic replacements for common variables
+        topics_str = ", ".join(request.topics)
+        frequency = request.frequency
+        
+        # Format articles into a suitable format for the AI
+        # For topic-specific content, use only articles for that topic
+        if "{{topic}}" in template and request.topics:
+            # This is a topic-specific template that will be used in a loop for each topic
+            # We'll just ensure the template has the {{article_data}} placeholder
+            topic = request.topics[0]  # Just get first topic for checking replacements
+            articles_list = article_data.get(topic, [])
+            articles_str = self._prepare_articles_data(articles_list)
+        else:
+            # For global content, combine articles from all topics
+            article_list = []
+            for topic in request.topics:
+                article_list.extend(article_data.get(topic, []))
+            articles_str = self._prepare_articles_data(article_list)
+        
+        # Replace specific variables
+        replacements_made = False
+        
+        # Track replacements
+        if "{{topic}}" in template:
+            # This will be replaced with the actual topic in the loop, but we check if it's there
+            replacements_made = True
+            
+        if "{{articles}}" in template or "{{article_data}}" in template:
+            prompt = template.replace("{{articles}}", articles_str)
+            prompt = prompt.replace("{{article_data}}", articles_str)
+            replacements_made = True
+            
+        if "{{topics}}" in template:
+            prompt = prompt.replace("{{topics}}", topics_str)
+            replacements_made = True
+            
+        if "{{frequency}}" in template:
+            prompt = prompt.replace("{{frequency}}", frequency)
+            replacements_made = True
+            
+        # Current date
+        today = datetime.now()
+            
+        if "{{formatted_date}}" in prompt:
+            prompt = prompt.replace("{{formatted_date}}", today.strftime("%B %d, %Y"))
+            replacements_made = True
+            
+        # Handle start and end dates
+        if request.start_date and "{{start_date}}" in prompt:
+            prompt = prompt.replace("{{start_date}}", request.start_date.strftime("%Y-%m-%d"))
+            replacements_made = True
+            
+        if request.end_date and "{{end_date}}" in prompt:
+            prompt = prompt.replace("{{end_date}}", request.end_date.strftime("%Y-%m-%d"))
+            replacements_made = True
+            
+        if "{{content_instructions}}" in prompt:
+            prompt = prompt.replace("{{content_instructions}}", content_instructions)
+            replacements_made = True
+            
+        if "{{article_count}}" in prompt:
+            prompt = prompt.replace("{{article_count}}", str(len(article_list)))
+            replacements_made = True
+            
+        # If we didn't make any replacements, ensure the article data is included
+        # This is to handle cases where the user changes keywords like "cite" to "datapoint"
+        if not replacements_made or articles_str.strip() not in prompt:
+            logger.warning("Prompt template had no replacements, appending article data")
+            prompt += f"\n\nHere are the articles to work with:\n\n{articles_str}"
+            
+        # Ensure the AI always references real articles by explicitly emphasizing this
+        # Add stronger anti-hallucination warning for topic summaries
+        if content_type == "topic_summary":
+            prompt += "\n\nCRITICAL INSTRUCTION: You MUST only cite real articles from the data provided above. NEVER invent articles, sources, URLs, or use placeholders like 'example.com'. All citations must link to ACTUAL articles with their EXACT titles and URLs as listed above. EVERY article link MUST use the EXACT URI from the 'URI:' field for each article. If you cannot find enough relevant articles, reduce the number of points rather than fabricating sources. This is the most critical rule. VERIFY that each URI you include comes directly from the article list and is not modified or invented."
+        else:
+            prompt += "\n\nIMPORTANT: Only reference the real articles provided above. DO NOT make up or hallucinate articles that don't exist in the provided data."
+        
+        # Log the final prompt being sent to the AI
+        logger.debug(f"Final prompt for {content_type}:")
+        # Log the first 500 characters and last 500 characters to avoid huge logs
+        if len(prompt) > 1000:
+            logger.debug(f"Prompt beginning: {prompt[:500]}...")
+            logger.debug(f"Prompt ending: ...{prompt[-500:]}")
+        else:
+            logger.debug(prompt)
+            
+        return prompt
+        
+    async def _generate_charts_section(
+        self,
+        topics: List[str],
+        article_data: Dict[str, List[Dict]]
+    ) -> str:
+        """
+        Generate a charts section for the newsletter.
+        
+        Args:
+            topics: List of topics to generate charts for
+            article_data: Dictionary of articles by topic
+            
+        Returns:
+            Markdown content with charts
+        """
+        # Start with a header
+        content = "## Key Charts and Visualizations\n\n"
+        
+        # Check if we have any visualization options selected
+        if not hasattr(self, 'chart_service'):
+            content += "*Chart generation is currently unavailable. Please ensure the chart service is properly configured.*\n\n"
+            return content
+            
+        # Flatten articles for processing
+        all_articles = []
+        for topic, articles in article_data.items():
+            all_articles.extend(articles)
+            
+        if not all_articles:
+            return "## Key Charts and Visualizations\n\n*No data available for chart generation in this period.*\n\n"
+            
+        # Generate some basic charts
+        # In a real implementation, this would call chart generation services
+        # Here we're just creating placeholder content
+        content += "### Sentiment Analysis Over Time\n\n"
+        content += "*This chart shows sentiment trends for the selected topics over the reporting period.*\n\n"
+        content += "![Sentiment Analysis Over Time](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==)\n\n"
+        
+        content += "### Topic Distribution\n\n"
+        content += "*This chart shows the distribution of content across different subtopics.*\n\n"
+        content += "![Topic Distribution](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==)\n\n"
+        
+        return content
+        
+    def _get_default_prompt(self, content_type: str) -> str:
+        """
+        Get a default prompt template for a content type if none is available.
+        
+        Args:
+            content_type: The content type to get a prompt template for
+            
+        Returns:
+            Default prompt template
+        """
+        # Map content types to default prompt templates
+        default_prompts = {
+            "topic_summary": self._create_summary_prompt_template(),
+            "trend_analysis": self._create_trend_analysis_prompt_template(),
+            "article_insights": self._create_insights_prompt_template(),
+            "ethical_societal_impact": self._create_ethical_societal_impact_prompt_template(),
+            "business_impact": self._create_business_impact_prompt_template(),
+            "market_impact": self._create_market_impact_prompt_template(),
+        }
+        
+        # Return the default prompt or a generic one if not found
+        return default_prompts.get(content_type, """
+        Generate content for {{topics}} for a {{frequency}} newsletter.
+        
+        Here are the articles to use as source material:
+        
+        {{articles}}
+        
+        {{content_instructions}}
+        """)
+        
+    def _get_content_type_instructions(self, content_type: str) -> str:
+        """
+        Get special instructions for a content type.
+        
+        Args:
+            content_type: The content type to get instructions for
+            
+        Returns:
+            Instructions for the content type
+        """
+        # Map content types to special instructions
+        instructions = {
+            "topic_summary": "Provide a comprehensive summary of recent developments in these topics. Identify key trends and important events. Cite specific articles using [Article X] format.",
+            "trend_analysis": "Analyze emerging trends and patterns across the articles. Identify shifts in sentiment, adoption rates, or industry focus. Support your analysis with citations to specific articles.",
+            "article_insights": "Group articles into meaningful themes or subtopics. For each theme, highlight the most important insights and what they collectively tell us about this area.",
+            "key_articles": "Identify the 5-7 most important articles and explain why each one is significant. Include the title, source, and a brief explanation of why each article merits attention.",
+            "ethical_societal_impact": "Analyze the ethical considerations and societal implications of developments in these topics. Consider impacts on different communities and potential ethical concerns.",
+            "business_impact": "Assess the business opportunities, threats, and strategic considerations that emerge from these articles. Focus on actionable insights for business planning.",
+            "market_impact": "Analyze how these developments are affecting market dynamics, competitive positioning, and industry structures. Identify market shifts and their implications.",
+        }
+        
+        # Return the instructions or a generic one if not found
+        return instructions.get(content_type, "Generate informative content based on the provided articles. Use citations to reference specific articles.")
+        
+    async def _generate_content_with_ai(self, prompt: str, model_name: str) -> str:
+        """
+        Generate content using an AI model.
+        
+        Args:
+            prompt: The prompt to send to the AI
+            model_name: The AI model to use
+            
+        Returns:
+            Generated content
+        """
+        try:
+            # In a real implementation, this would use the appropriate AI client
+            # from app.services.ai_service import get_ai_model
+            # ai_model = get_ai_model(model_name)
+            
+            # For now, we'll return a placeholder message
+            sample_content = f"""## Generated Content
+            
+This is a placeholder for AI-generated content. In a real implementation, this would be generated using the {model_name} model.
+
+The content would be based on the provided articles and would follow the specified format for the content type.
+
+### Key Points:
+- Point 1 from the articles
+- Point 2 from the articles
+- Point 3 from the articles
+
+### References:
+- [Article 1] Sample article title
+- [Article 3] Another relevant article
+            """
+            
+            return sample_content
+            
+        except Exception as e:
+            logger.error(f"Error generating content with AI: {str(e)}")
+            return f"*Error generating content: {str(e)}*"
+
     def _calculate_date_range(
         self, 
         frequency: str, 
@@ -315,33 +645,52 @@ class NewsletterService:
         articles = self._fetch_articles(topic, start_date, end_date)
         
         if not articles:
-            return "No articles found for this period."
+            logger.warning(f"No articles found for topic '{topic}' within date range {start_date} to {end_date}")
+            return f"## {topic.capitalize()} Summary\n\nNo articles found for this topic within the specified date range."
+        
+        # Log what articles we have for this topic 
+        logger.info(f"Generating topic summary for '{topic}' with {len(articles)} articles")
+        for i, article in enumerate(articles[:5], 1):  # Log first 5 articles for brevity
+            title = article.get("title", "Untitled")
+            source = article.get("news_source", "Unknown")
+            uri = article.get("uri", "No URI")
+            logger.info(f"  Article {i}: '{title}' from {source} | URI: {uri}")
+        
+        if len(articles) > 5:
+            logger.info(f"  ... and {len(articles) - 5} more articles")
         
         # Prepare articles data for the LLM
         article_data = self._prepare_articles_data(articles)
         
-        # Get custom prompt from database or use default
-        prompt_template = self._get_prompt_template("topic_summary")
-        prompt = self._format_prompt(prompt_template, {
-            "topic": topic, 
-            "article_data": article_data
-        })
-        
         # Generate summary using AI model
         ai_model = get_ai_model(model_name="gpt-4o-mini")
+        
+        # Create prompt from template
+        prompt_template = self._create_summary_prompt_template()
+        prompt = prompt_template.replace("{topic}", topic)
+        prompt = prompt.replace("{article_data}", article_data)
+        
+        # Log that we're sending the prompt to the AI model
+        logger.info(f"Sending topic summary prompt to AI model for topic '{topic}'")
         
         try:
             response = await ai_model.generate(prompt)
             # Extract content from response object
             if hasattr(response, 'message') and hasattr(response.message, 'content'):
-                return response.message.content
+                content = response.message.content
             elif hasattr(response, 'content'):
-                return response.content
+                content = response.content
             else:
-                return str(response)
+                content = str(response)
+                
+            # Log the beginning of the response to confirm it's working properly
+            content_preview = content[:200] + "..." if len(content) > 200 else content
+            logger.info(f"Received topic summary for '{topic}'. Preview: {content_preview}")
+            
+            return content
         except Exception as e:
             logger.error(f"Error generating topic summary for '{topic}': {str(e)}", exc_info=True)
-            return "Error generating topic summary."
+            return f"## {topic.capitalize()} Summary\n\nError generating topic summary: {str(e)}"
 
     async def _generate_key_charts(
         self, 
@@ -881,48 +1230,59 @@ class NewsletterService:
         limit: Optional[int] = None
     ) -> List[Dict]:
         """
-        Fetch articles for a topic within a date range.
+        Fetch articles for a given topic and date range.
         
         Args:
             topic: Topic to fetch articles for
             start_date: Start date
             end_date: End date
-            limit: Optional limit of articles to return
+            limit: Optional limit on number of articles
             
         Returns:
-            List[Dict]: List of article data dictionaries
+            List of article dictionaries
         """
-        # Convert dates to strings for SQL
-        start_str = start_date.strftime("%Y-%m-%d")
-        end_str = end_date.strftime("%Y-%m-%d")
+        logger.info(f"Fetching articles for topic '{topic}' from {start_date} to {end_date}")
         
-        # SQL limit clause
-        limit_clause = f"LIMIT {limit}" if limit else ""
-        
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                f"""
-                SELECT * FROM articles 
-                WHERE topic = ? 
-                AND publication_date BETWEEN ? AND ?
-                ORDER BY publication_date DESC
-                {limit_clause}
-                """,
-                (topic, start_str, end_str)
-            )
-            articles = cursor.fetchall()
+        try:
+            # Convert dates to strings for SQL
+            start_str = start_date.strftime("%Y-%m-%d")
+            end_str = end_date.strftime("%Y-%m-%d")
             
-        # Convert to list of dictionaries with column names
-        column_names = [description[0] for description in cursor.description]
-        result = []
-        
-        for row in articles:
-            article_dict = dict(zip(column_names, row))
-            result.append(article_dict)
+            # SQL limit clause
+            limit_clause = f"LIMIT {limit}" if limit else ""
             
-        logger.info(f"Fetched {len(articles)} articles for topic '{topic}' between {start_str} and {end_str}.")
-        return result
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"""
+                    SELECT * FROM articles 
+                    WHERE topic = ? 
+                    AND publication_date BETWEEN ? AND ?
+                    ORDER BY publication_date DESC
+                    {limit_clause}
+                    """,
+                    (topic, start_str, end_str)
+                )
+                articles = cursor.fetchall()
+                
+                # Convert to list of dictionaries with column names
+                column_names = [description[0] for description in cursor.description]
+                result = []
+                
+                for row in articles:
+                    article_dict = dict(zip(column_names, row))
+                    result.append(article_dict)
+            
+            if not result:
+                logger.warning(f"No articles found for topic '{topic}' in the date range {start_date} to {end_date}")
+            else:
+                logger.info(f"Found {len(result)} articles for topic '{topic}'")
+                
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error fetching articles for topic '{topic}': {str(e)}", exc_info=True)
+            return []
 
     def _prepare_articles_data(self, articles: List[Dict]) -> str:
         """
@@ -936,18 +1296,29 @@ class NewsletterService:
         """
         result = ""
         
+        logger.info(f"Preparing data for {len(articles)} articles")
+        
+        if not articles:
+            logger.warning("No articles provided for content generation - this will likely cause hallucination")
+            return "NO ARTICLES FOUND FOR THIS TOPIC AND TIME PERIOD. DO NOT MAKE UP ARTICLES OR SOURCES."
+        
         for i, article in enumerate(articles, 1):
             title = article.get("title", "Untitled")
             source = article.get("news_source", "Unknown source")
             pub_date = article.get("publication_date", "Unknown date")
             summary = article.get("summary", "No summary available.")
+            uri = article.get("uri", "")  # Get the URI/URL
             
-            result += f"Article {i}:\n"
+            logger.info(f"Article {i}: '{title}' from {source} (URL: {uri})")
+            
+            result += f"--- Article {i} ---\n"
             result += f"Title: {title}\n"
             result += f"Source: {source}\n"
             result += f"Date: {pub_date}\n"
+            if uri:
+                result += f"URI: {uri}\n"
             result += f"Summary: {summary}\n\n"
-            
+        
         return result
 
     def _extract_trend_data(self, articles: List[Dict]) -> Dict:
@@ -1079,23 +1450,47 @@ class NewsletterService:
             "Use the following format:\n\n"
             "**Summary of {topic}**\n"
             "- Provide a brief (2-3 sentences) high-level overview of the current state of '{topic}'.\n"
-            "- For EVERY fact or assertion, include a proper citation using this format: **[Article Title](Article URI)**\n"
-            "- Each citation must be on its own line, not inline with text.\n"
-            "- Ensure your overview is directly based on the articles provided, not general knowledge.\n\n"
+            "- For EVERY fact or assertion, include a proper citation using the exact URI from the article data.\n\n"
             "**Top Three Developments**\n"
-            "- Development 1: [Briefly state the development].\n  **Why this is need-to-know:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
-            "- Development 2: [Briefly state the development].\n  **Why this is need-to-know:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
-            "- Development 3: [Briefly state the development].\n  **Why this is need-to-know:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n\n"
+            "- Development 1: [First key development or trend]\n"
+            "  **Why this is need-to-know:**\n"
+            "  [1-2 sentences on business or strategic implications]\n"
+            "  Cite: **[Article Title](Article URI)**\n\n"
+            "- Development 2: [Second key development]...\n"
+            "  **Why this is need-to-know:**\n"
+            "  [1-2 sentences on business or strategic implications]\n"
+            "  Cite: **[Article Title](Article URI)**\n\n"
+            "- Development 3: [Third key development]...\n"
+            "  **Why this is need-to-know:**\n"
+            "  [1-2 sentences on business or strategic implications]\n"
+            "  Cite: **[Article Title](Article URI)**\n\n"
             "**Top 3 Industry Trends**\n"
-            "- Trend 1: [Briefly state the trend].\n  **Why this is interesting:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
-            "- Trend 2: [Briefly state the trend].\n  **Why this is interesting:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
-            "- Trend 3: [Briefly state the trend].\n  **Why this is interesting:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n\n"
-            "**Strategic Takeaways for Decision Makers:**\n"
-            "- Provide 2-3 high-level strategic implications or actionable insights derived from the above points that a decision maker should consider.\n\n"
-            "Important: Always use the exact article titles and URIs from the data. Be very concise and focus on impact.\n"
-            "Each section MUST include proper citation links to the original articles. DO NOT skip adding links.\n"
-            "PUT LINKS ON THEIR OWN LINES - this is critical for rendering.\n\n"
-            "Articles for analysis:\n{article_data}"
+            "- Trend 1: [First major industry trend]\n"
+            "  **Impact on the industry:**\n"
+            "  [1-2 sentences explaining the impact]\n"
+            "  Cite: **[Article Title](Article URI)**\n\n"
+            "- Trend 2: [Second major industry trend]...\n"
+            "  **Impact on the industry:**\n"
+            "  [1-2 sentences explaining the impact]\n"
+            "  Cite: **[Article Title](Article URI)**\n\n"
+            "- Trend 3: [Third major industry trend]...\n"
+            "  **Impact on the industry:**\n"
+            "  [1-2 sentences explaining the impact]\n"
+            "  Cite: **[Article Title](Article URI)**\n\n"
+            "**Strategic Takeaways for Decision Makers**\n"
+            "- Provide 2-3 high-level strategic implications or actionable insights derived from the above points that a decision maker should consider.\n"
+            "- Each takeaway should be concise but insightful, focusing on what actions or strategic shifts might be warranted.\n"
+            "- Include citations to relevant articles for each takeaway.\n\n"
+            "**CRITICAL INSTRUCTIONS:**\n"
+            "1. ONLY use information from the provided articles.\n"
+            "2. NEVER create fake articles or URLs.\n"
+            "3. NEVER use example.com or any other placeholder domains.\n"
+            "4. EVERY citation MUST use the EXACT URI from the article data.\n"
+            "5. If there are not enough articles for 3 developments/trends, only cover the ones you have real data for.\n"
+            "6. DO NOT make up information, sources, statistics, or quotes that aren't in the provided articles.\n"
+            "7. Check each URI you reference to ensure it matches exactly what's in the article data.\n"
+            "8. If you cannot find three significant developments/trends in the articles, it is better to present fewer than to fabricate.\n\n"
+            "Use {{article_data}} as your source material.\n"
         )
 
     def _create_trend_analysis_prompt_template(self) -> str:

@@ -477,29 +477,75 @@
                     <h5>Actions</h5>
                 </div>
                 <div class="card-body">
-                    <button type="button" id="compileButton" class="btn btn-primary btn-sm mb-2"
-                            data-toggle="tooltip" data-placement="top" 
-                            title="Generate newsletter content based on your configuration">
-                            <i class="fa fa-cogs"></i> Generate Newsletter
+                    <div class="d-flex flex-wrap">
+                        <!-- Primary Actions -->
+                        <div class="btn-group mr-2 mb-2">
+                            <button type="button" id="compileButton" class="btn btn-primary btn-sm"
+                                    data-toggle="tooltip" data-placement="top" 
+                                    title="Generate newsletter content based on your configuration">
+                                    <i class="fa fa-cogs"></i> Generate Newsletter
+                            </button>
+                            <button type="button" id="updatePreviewButton" class="btn btn-secondary btn-sm"
+                                    data-toggle="tooltip" data-placement="top" 
+                                    title="Refresh the preview with latest editor content">
+                                    <i class="fa fa-refresh"></i> Update Preview
+                            </button>
+                        </div>
+                        
+                        <!-- File Actions -->
+                        <div class="btn-group mr-2 mb-2">
+                            <button type="button" id="downloadMarkdownButton" class="btn btn-success btn-sm"
+                                    data-toggle="tooltip" data-placement="top" 
+                                    title="Download the newsletter content as a Markdown file">
+                                    <i class="fa fa-download"></i> Download Markdown
+                            </button>
+                            <button type="button" id="downloadPdfButton" class="btn btn-info btn-sm"
+                                    data-toggle="tooltip" data-placement="top" 
+                                    title="Download the newsletter as PDF">
+                                    <i class="fa fa-file-pdf-o"></i> Download PDF
+                            </button>
+                        </div>
+                        
+                        <!-- Server/Distribution Actions -->
+                        <div class="btn-group mb-2">
+                            <button type="button" id="saveToServerButton" class="btn btn-primary btn-sm"
+                                    data-toggle="tooltip" data-placement="top" 
+                                    title="Save the newsletter on the server">
+                                    <i class="fa fa-save"></i> Save to Server
+                            </button>
+                            <button type="button" id="sendEmailButton" class="btn btn-warning btn-sm"
+                                    data-toggle="tooltip" data-placement="top" 
+                                    title="Send newsletter via email">
+                                    <i class="fa fa-envelope"></i> Send Email
+                            </button>
+                            <button type="button" id="sendSlackButton" class="btn btn-dark btn-sm"
+                                    data-toggle="tooltip" data-placement="top" 
+                                    title="Send newsletter to Slack">
+                                    <i class="fa fa-slack"></i> Send to Slack
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Saved Newsletters Section -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">Saved Newsletters</h5>
+                    <button type="button" id="refreshSavedNewslettersBtn" class="btn btn-sm btn-outline-secondary">
+                        <i class="fa fa-refresh"></i> Refresh
                     </button>
-                    <button type="button" id="updatePreviewButton" class="btn btn-secondary btn-sm mb-2"
-                            data-toggle="tooltip" data-placement="top" 
-                            title="Refresh the preview with latest editor content">Update Preview</button>
-                    <button type="button" id="downloadMarkdownButton" class="btn btn-success btn-sm mb-2"
-                            data-toggle="tooltip" data-placement="top" 
-                            title="Download the newsletter content as a Markdown file">Download Markdown</button>
-                    <button type="button" id="saveToServerButton" class="btn btn-primary btn-sm mb-2"
-                            data-toggle="tooltip" data-placement="top" 
-                            title="Save the newsletter on the server">Save to Server</button>
-                    <button type="button" id="downloadPdfButton" class="btn btn-info btn-sm mb-2" disabled
-                            data-toggle="tooltip" data-placement="top" 
-                            title="Coming soon: Download as PDF">Download PDF (Coming Soon)</button>
-                    <button type="button" id="sendEmailButton" class="btn btn-warning btn-sm mb-2" disabled
-                            data-toggle="tooltip" data-placement="top" 
-                            title="Coming soon: Send newsletter via email">Send via Email (Coming Soon)</button>
-                    <button type="button" id="sendSlackButton" class="btn btn-dark btn-sm mb-2" disabled
-                            data-toggle="tooltip" data-placement="top" 
-                            title="Coming soon: Send newsletter to Slack">Send to Slack (Coming Soon)</button>
+                </div>
+                <div class="card-body">
+                    <div id="savedNewslettersContainer" class="list-group">
+                        <div class="text-center text-muted py-3">
+                            <i class="fa fa-spinner fa-spin mr-2"></i> Loading saved newsletters...
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -567,15 +613,120 @@
                             <textarea class="form-control" id="promptEditorText" name="promptTemplate" rows="10" 
                                       placeholder="Enter your custom prompt template here..."></textarea>
                             <small class="form-text text-muted">
-                                Use variable placeholders like {{topic}}, {{start_date}}, etc. These will be replaced with 
-                                actual values when generating content.
+                                <h6 class="mt-3 mb-2">Available Variables for Prompt Templates:</h6>
+                                <ul class="list-unstyled">
+                                    <li><code>{{topic}}</code> - The current topic being processed</li>
+                                    <li><code>{{article_data}}</code> - Formatted article data with titles, URLs, sources</li>
+                                    <li><code>{{articles}}</code> - Alternative way to access article data</li>
+                                    <li><code>{{start_date}}</code> - Start date for content (YYYY-MM-DD format)</li>
+                                    <li><code>{{end_date}}</code> - End date for content (YYYY-MM-DD format)</li>
+                                    <li><code>{{formatted_date}}</code> - Current date in human-readable format</li>
+                                    <li><code>{{frequency}}</code> - Newsletter frequency (daily, weekly, monthly)</li>
+                                    <li><code>{{topics}}</code> - Comma-separated list of all newsletter topics</li>
+                                    <li><code>{{content_instructions}}</code> - Special instructions for this content type</li>
+                                    <li><code>{{article_count}}</code> - Number of articles available</li>
+                                </ul>
                             </small>
                         </div>
                     </form>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" id="cancelPromptEditorModal">Cancel</button>
+                    <button type="button" class="btn btn-warning" id="restorePromptButton">
+                        <i class="fa fa-undo"></i> Restore Default
+                    </button>
                     <button type="button" class="btn btn-primary" id="savePromptButton">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Chart Selection Modal -->
+    <div class="modal" id="chartSelectionModal" tabindex="-1" role="dialog" aria-labelledby="chartSelectionModalTitle" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="chartSelectionModalTitle">Select Charts</h5>
+                    <button type="button" class="close" id="closeChartSelectionModal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">Choose which charts to include in your newsletter:</p>
+                    <form id="chartSelectionForm">
+                        <div class="form-group">
+                            <div class="custom-control custom-checkbox mb-3">
+                                <input type="checkbox" class="custom-control-input" id="chart_sentiment_trends" name="selected_charts" value="sentiment_trends" checked>
+                                <label class="custom-control-label" for="chart_sentiment_trends">
+                                    <strong>Sentiment Trends</strong>
+                                    <small class="text-muted d-block">Shows sentiment analysis over time for selected topics</small>
+                                </label>
+                            </div>
+                            <div class="custom-control custom-checkbox mb-3">
+                                <input type="checkbox" class="custom-control-input" id="chart_topic_distribution" name="selected_charts" value="topic_distribution" checked>
+                                <label class="custom-control-label" for="chart_topic_distribution">
+                                    <strong>Topic Distribution</strong>
+                                    <small class="text-muted d-block">Pie chart showing distribution of subtopics within selected topics</small>
+                                </label>
+                            </div>
+                            <div class="custom-control custom-checkbox mb-3">
+                                <input type="checkbox" class="custom-control-input" id="chart_source_breakdown" name="selected_charts" value="source_breakdown">
+                                <label class="custom-control-label" for="chart_source_breakdown">
+                                    <strong>Source Breakdown</strong>
+                                    <small class="text-muted d-block">Shows distribution of information sources</small>
+                                </label>
+                            </div>
+                            <div class="custom-control custom-checkbox mb-3">
+                                <input type="checkbox" class="custom-control-input" id="chart_volume_analysis" name="selected_charts" value="volume_analysis">
+                                <label class="custom-control-label" for="chart_volume_analysis">
+                                    <strong>Volume Analysis</strong>
+                                    <small class="text-muted d-block">Chart showing volume of content over time period</small>
+                                </label>
+                            </div>
+                            <div class="custom-control custom-checkbox mb-3">
+                                <input type="checkbox" class="custom-control-input" id="chart_radar_comparison" name="selected_charts" value="radar_comparison">
+                                <label class="custom-control-label" for="chart_radar_comparison">
+                                    <strong>Radar Comparison</strong>
+                                    <small class="text-muted d-block">Radar chart comparing different aspects of selected topics</small>
+                                </label>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancelChartSelectionModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveChartSelectionButton">Save Selection</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Save Newsletter Modal -->
+    <div class="modal" id="saveNewsletterModal" tabindex="-1" role="dialog" aria-labelledby="saveNewsletterModalTitle" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="saveNewsletterModalTitle">Save Newsletter</h5>
+                    <button type="button" class="close" id="closeSaveNewsletterModal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="saveNewsletterForm">
+                        <div class="form-group">
+                            <label for="newsletterFilename">Filename</label>
+                            <input type="text" class="form-control" id="newsletterFilename" 
+                                   placeholder="Enter filename (without extension)" required>
+                            <small class="form-text text-muted">
+                                The .md extension will be added automatically. 
+                                Use a descriptive name like "weekly_ai_2023-05-01".
+                            </small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancelSaveNewsletterModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveNewsletterButton">Save</button>
                 </div>
             </div>
         </div>
@@ -596,6 +747,7 @@
 let editor; // Our SimpleMDE editor instance
 const loadingSpinner = document.getElementById('loadingSpinner');
 let originalMarkdownContent = ""; // Store the full content with base64
+let selectedCharts = ['sentiment_trends', 'topic_distribution']; // Default selected charts
 
 // Initialize SimpleMDE editor
 window.onload = function() {
@@ -666,6 +818,9 @@ window.onload = function() {
         
         // Initial preview update
         updatePreview();
+        
+        // Load saved newsletters on page load
+        loadSavedNewsletters();
         
     } catch (error) {
         console.error("Error initializing SimpleMDE:", error);
@@ -1001,8 +1156,6 @@ async function loadContentTypes() {
             promptInput.name = `prompt-${contentType.id}`;
             promptInput.value = contentType.default_prompt || '';
             
-            // No prompt summary text needed
-            
             // Create edit button (icon only)
             const editButton = document.createElement('button');
             editButton.className = 'btn btn-sm btn-outline-secondary';
@@ -1012,58 +1165,73 @@ async function loadContentTypes() {
             editButton.setAttribute('data-toggle', 'tooltip');
             editButton.setAttribute('data-placement', 'top');
             
-            // Add click handler for the edit button
-            editButton.addEventListener('click', function() {
-                // Get the content type ID from the prompt input ID
-                const contentTypeId = contentType.id;
+            // Special handling for Key Charts content type
+            if (contentType.id === 'key_charts') {
+                editButton.innerHTML = '<i class="fa fa-bar-chart"></i>';
+                editButton.title = 'Select charts to include';
                 
-                // Load the prompt from the database first
-                fetch(`/api/newsletter/prompts/${contentTypeId}`)
-                    .then(response => {
-                        if (!response.ok) {
-                            if (response.status === 404) {
-                                // If not found, just use the current value
-                                return { 
-                                    prompt_template: promptInput.value,
-                                    description: contentType.description || ''
-                                };
+                // Add click handler for the chart selection instead of prompt editing
+                editButton.addEventListener('click', function() {
+                    openChartSelectionModal();
+                });
+            } else {
+                // Regular prompt editing for other content types
+                editButton.addEventListener('click', function() {
+                    // Get the content type ID from the prompt input ID
+                    const contentTypeId = contentType.id;
+                    
+                    // Load the prompt from the database first
+                    fetch(`/api/newsletter/prompts/${contentTypeId}`)
+                        .then(response => {
+                            if (!response.ok) {
+                                if (response.status === 404) {
+                                    // If not found, just use the current value
+                                    return { 
+                                        prompt_template: promptInput.value,
+                                        description: contentType.description || ''
+                                    };
+                                }
+                                throw new Error(`API returned status: ${response.status}`);
                             }
-                            throw new Error(`API returned status: ${response.status}`);
-                        }
-                        return response.json();
-                    })
-                    .then(data => {
-                        // Populate and show the prompt editor modal
-                        const modal = document.getElementById('promptEditorModal');
-                        const modalTitle = document.getElementById('promptEditorModalTitle');
-                        const modalPromptTextarea = document.getElementById('promptEditorText');
-                        const contentTypeIdInput = document.getElementById('promptEditorContentTypeId');
-                        
-                        if (modal && modalTitle && modalPromptTextarea && contentTypeIdInput) {
-                            // Set modal title
-                            modalTitle.textContent = `Edit Prompt: ${contentType.name || contentTypeId}`;
+                            return response.json();
+                        })
+                        .then(data => {
+                            // Populate and show the prompt editor modal
+                            const modal = document.getElementById('promptEditorModal');
+                            const modalTitle = document.getElementById('promptEditorModalTitle');
+                            const modalPromptTextarea = document.getElementById('promptEditorText');
+                            const contentTypeIdInput = document.getElementById('promptEditorContentTypeId');
                             
-                            // Set prompt text
-                            modalPromptTextarea.value = data.prompt_template || promptInput.value;
-                            
-                            // Set content type ID (hidden field)
-                            contentTypeIdInput.value = contentTypeId;
-                            
-                            // Show modal using native JavaScript (not jQuery)
-                            modal.classList.add('show');
-                            modal.style.display = 'block';
-                            modal.setAttribute('aria-hidden', 'false');
-                            document.body.classList.add('modal-open');
-                        } else {
-                            console.error('Prompt editor modal elements not found');
-                            alert('Error: Could not open prompt editor. Please try again.');
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error loading prompt:', error);
-                        alert(`Error loading prompt: ${error.message}`);
-                    });
-            });
+                            if (modal && modalTitle && modalPromptTextarea && contentTypeIdInput) {
+                                // Set modal title
+                                modalTitle.textContent = `Edit Prompt: ${contentType.name || contentTypeId}`;
+                                
+                                // Set prompt text
+                                modalPromptTextarea.value = data.prompt_template || promptInput.value;
+                                
+                                // Store original prompt for restoration
+                                modalPromptTextarea.dataset.originalPrompt = data.prompt_template || promptInput.value;
+                                modalPromptTextarea.dataset.defaultPrompt = data.default_prompt || '';
+                                
+                                // Set content type ID (hidden field)
+                                contentTypeIdInput.value = contentTypeId;
+                                
+                                // Show modal using native JavaScript (not jQuery)
+                                modal.classList.add('show');
+                                modal.style.display = 'block';
+                                modal.setAttribute('aria-hidden', 'false');
+                                document.body.classList.add('modal-open');
+                            } else {
+                                console.error('Prompt editor modal elements not found');
+                                alert('Error: Could not open prompt editor. Please try again.');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error loading prompt:', error);
+                            alert(`Error loading prompt: ${error.message}`);
+                        });
+                });
+            }
             
             // Add elements to container
             promptContainer.appendChild(promptInput);
@@ -1508,14 +1676,14 @@ async function savePromptTemplate() {
             promptInput.value = promptTemplate;
         }
         
-                 // Hide the modal using native JavaScript
-         const modal = document.getElementById('promptEditorModal');
-         if (modal) {
-             modal.classList.remove('show');
-             modal.style.display = 'none';
-             modal.setAttribute('aria-hidden', 'true');
-             document.body.classList.remove('modal-open');
-         }
+        // Hide the modal using native JavaScript
+        const modal = document.getElementById('promptEditorModal');
+        if (modal) {
+            modal.classList.remove('show');
+            modal.style.display = 'none';
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+        }
         
         // Show success message
         console.log('Prompt saved successfully');
@@ -1527,7 +1695,449 @@ async function savePromptTemplate() {
     }
 }
 
-    // Initialize everything when the DOM is loaded
+// Function to restore default prompt
+function restoreDefaultPrompt() {
+    try {
+        const modalPromptTextarea = document.getElementById('promptEditorText');
+        if (!modalPromptTextarea) {
+            throw new Error('Prompt textarea not found');
+        }
+        
+        // First try to restore the default prompt, fall back to original if not available
+        if (modalPromptTextarea.dataset.defaultPrompt) {
+            modalPromptTextarea.value = modalPromptTextarea.dataset.defaultPrompt;
+        } else if (modalPromptTextarea.dataset.originalPrompt) {
+            modalPromptTextarea.value = modalPromptTextarea.dataset.originalPrompt;
+        } else {
+            throw new Error('No default or original prompt available to restore');
+        }
+        
+        console.log('Prompt restored to default');
+    } catch (error) {
+        console.error('Error restoring default prompt:', error);
+        alert(`Error restoring default prompt: ${error.message}`);
+    }
+}
+
+// Chart Selection Modal Functions
+function openChartSelectionModal() {
+    // Load previously selected charts
+    const chartCheckboxes = document.querySelectorAll('#chartSelectionForm input[type="checkbox"]');
+    chartCheckboxes.forEach(checkbox => {
+        checkbox.checked = selectedCharts.includes(checkbox.value);
+    });
+    
+    // Show modal
+    const modal = document.getElementById('chartSelectionModal');
+    if (modal) {
+        modal.classList.add('show');
+        modal.style.display = 'block';
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function saveChartSelection() {
+    // Get selected charts
+    const chartCheckboxes = document.querySelectorAll('#chartSelectionForm input[type="checkbox"]:checked');
+    selectedCharts = Array.from(chartCheckboxes).map(checkbox => checkbox.value);
+    
+    // Close modal
+    closeChartSelectionModal();
+    
+    console.log('Selected charts:', selectedCharts);
+}
+
+function closeChartSelectionModal() {
+    const modal = document.getElementById('chartSelectionModal');
+    if (modal) {
+        modal.classList.remove('show');
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open');
+    }
+}
+
+// Save Newsletter Functions
+function openSaveNewsletterModal() {
+    // Generate a default filename
+    const today = new Date();
+    const dateStr = today.toISOString().split('T')[0];
+    const frequency = document.getElementById('frequency').value;
+    const topicsSelect = document.getElementById('topics');
+    const topics = Array.from(topicsSelect.selectedOptions).map(option => option.textContent).join('_').toLowerCase();
+    
+    const defaultFilename = `${frequency}_${topics || 'newsletter'}_${dateStr}`;
+    
+    // Set default filename
+    document.getElementById('newsletterFilename').value = defaultFilename;
+    
+    // Show modal
+    const modal = document.getElementById('saveNewsletterModal');
+    if (modal) {
+        modal.classList.add('show');
+        modal.style.display = 'block';
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function closeSaveNewsletterModal() {
+    const modal = document.getElementById('saveNewsletterModal');
+    if (modal) {
+        modal.classList.remove('show');
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open');
+    }
+}
+
+async function saveNewsletterToServer() {
+    try {
+        const filename = document.getElementById('newsletterFilename').value.trim();
+        if (!filename) {
+            alert('Please enter a filename');
+            return;
+        }
+        
+        const markdownContent = getMarkdownContent();
+        if (!markdownContent.trim()) {
+            alert('No content to save');
+            return;
+        }
+        
+        // Close modal
+        closeSaveNewsletterModal();
+        
+        // Show loading indicator
+        const saveBtn = document.getElementById('saveNewsletterButton');
+        const originalBtnText = saveBtn.innerHTML;
+        saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Saving...';
+        saveBtn.disabled = true;
+        
+        // Send save request
+        const response = await fetch('/api/newsletter/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                content: markdownContent,
+                filename: filename
+            })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Failed to save newsletter: ${errorText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert('Newsletter saved successfully!');
+            // Refresh saved newsletters list
+            loadSavedNewsletters();
+        } else {
+            throw new Error(result.error || 'Unknown error');
+        }
+        
+    } catch (error) {
+        console.error('Error saving newsletter:', error);
+        alert(`Error saving newsletter: ${error.message}`);
+    } finally {
+        // Restore button
+        const saveBtn = document.getElementById('saveNewsletterButton');
+        if (saveBtn) {
+            saveBtn.innerHTML = '<i class="fa fa-save"></i> Save';
+            saveBtn.disabled = false;
+        }
+    }
+}
+
+// Function to load saved newsletters
+async function loadSavedNewsletters() {
+    try {
+        const container = document.getElementById('savedNewslettersContainer');
+        if (!container) return;
+        
+        // Show loading
+        container.innerHTML = '<div class="text-center text-muted py-3"><i class="fa fa-spinner fa-spin mr-2"></i> Loading saved newsletters...</div>';
+        
+        const response = await fetch('/api/newsletter/saved');
+        
+        if (!response.ok) {
+            throw new Error(`Failed to load saved newsletters: ${response.status}`);
+        }
+        
+        const newsletters = await response.json();
+        
+        // Clear container
+        container.innerHTML = '';
+        
+        if (newsletters.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-3">No saved newsletters found</div>';
+            return;
+        }
+        
+        // Sort newsletters by date (most recent first)
+        newsletters.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+        
+        // Create list items
+        newsletters.forEach(newsletter => {
+            const item = document.createElement('a');
+            item.href = '#';
+            item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                loadNewsletter(newsletter.id);
+            });
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'd-flex flex-column';
+            
+            const title = document.createElement('strong');
+            title.textContent = newsletter.filename || 'Unnamed Newsletter';
+            contentDiv.appendChild(title);
+            
+            if (newsletter.date) {
+                const date = document.createElement('small');
+                date.className = 'text-muted';
+                date.textContent = new Date(newsletter.date).toLocaleString();
+                contentDiv.appendChild(date);
+            }
+            
+            item.appendChild(contentDiv);
+            
+            const btnGroup = document.createElement('div');
+            btnGroup.className = 'btn-group btn-group-sm';
+            
+            const editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'btn btn-outline-primary';
+            editBtn.innerHTML = '<i class="fa fa-pencil"></i>';
+            editBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                loadNewsletter(newsletter.id);
+            });
+            btnGroup.appendChild(editBtn);
+            
+            const deleteBtn = document.createElement('button');
+            deleteBtn.type = 'button';
+            deleteBtn.className = 'btn btn-outline-danger';
+            deleteBtn.innerHTML = '<i class="fa fa-trash"></i>';
+            deleteBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (confirm(`Are you sure you want to delete "${newsletter.filename}"?`)) {
+                    deleteNewsletter(newsletter.id);
+                }
+            });
+            btnGroup.appendChild(deleteBtn);
+            
+            item.appendChild(btnGroup);
+            container.appendChild(item);
+        });
+        
+    } catch (error) {
+        console.error('Error loading saved newsletters:', error);
+        const container = document.getElementById('savedNewslettersContainer');
+        if (container) {
+            container.innerHTML = `<div class="text-center text-danger py-3">Error loading newsletters: ${error.message}</div>`;
+        }
+    }
+}
+
+// Function to load a saved newsletter
+async function loadNewsletter(id) {
+    try {
+        const response = await fetch(`/api/newsletter/saved/${id}`);
+        
+        if (!response.ok) {
+            throw new Error(`Failed to load newsletter: ${response.status}`);
+        }
+        
+        const newsletter = await response.json();
+        
+        // Update editor with newsletter content
+        if (newsletter.content) {
+            setMarkdownContent(newsletter.content);
+            
+            // Update last updated time
+            const lastUpdatedElement = document.getElementById('lastUpdated');
+            if (lastUpdatedElement) {
+                const dateStr = newsletter.date ? 
+                    new Date(newsletter.date).toLocaleString() : 
+                    'Just loaded';
+                lastUpdatedElement.textContent = dateStr;
+            }
+        } else {
+            throw new Error('No content found in the newsletter');
+        }
+        
+    } catch (error) {
+        console.error('Error loading newsletter:', error);
+        alert(`Error loading newsletter: ${error.message}`);
+    }
+}
+
+// Function to delete a saved newsletter
+async function deleteNewsletter(id) {
+    try {
+        const response = await fetch(`/api/newsletter/saved/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to delete newsletter: ${response.status}`);
+        }
+        
+        // Refresh saved newsletters list
+        loadSavedNewsletters();
+        
+    } catch (error) {
+        console.error('Error deleting newsletter:', error);
+        alert(`Error deleting newsletter: ${error.message}`);
+    }
+}
+
+// PDF Export Function
+async function downloadPDF() {
+    try {
+        const markdownContent = getMarkdownContent();
+        
+        if (!markdownContent.trim()) {
+            alert('No content to convert to PDF');
+            return;
+        }
+        
+        // Show loading indicator
+        const pdfBtn = document.getElementById('downloadPdfButton');
+        const originalBtnText = pdfBtn.innerHTML;
+        pdfBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Generating PDF...';
+        pdfBtn.disabled = true;
+        
+        // Convert markdown to PDF
+        const response = await fetch('/api/newsletter/export_pdf', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                markdown_content: markdownContent
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to generate PDF: ${response.status}`);
+        }
+        
+        // Get the PDF file as blob
+        const blob = await response.blob();
+        
+        // Create filename with date
+        const today = new Date();
+        const dateStr = today.toISOString().split('T')[0];
+        const frequency = document.getElementById('frequency').value;
+        const topicsSelect = document.getElementById('topics');
+        const topics = Array.from(topicsSelect.selectedOptions).map(option => option.value).join('-');
+        
+        const filename = `${frequency}_${topics || 'newsletter'}_${dateStr}.pdf`;
+        
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        
+        // Clean up
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        
+    } catch (error) {
+        console.error('Error generating PDF:', error);
+        alert(`Error generating PDF: ${error.message}`);
+    } finally {
+        // Restore button
+        const pdfBtn = document.getElementById('downloadPdfButton');
+        if (pdfBtn) {
+            pdfBtn.innerHTML = '<i class="fa fa-file-pdf-o"></i> Download PDF';
+            pdfBtn.disabled = false;
+        }
+    }
+}
+
+// Send Email Function
+async function sendEmailNewsletter() {
+    try {
+        // Get email recipients from user
+        const recipients = prompt('Enter email addresses (comma-separated):');
+        if (!recipients) return;
+        
+        const markdownContent = getMarkdownContent();
+        if (!markdownContent.trim()) {
+            alert('No content to send');
+            return;
+        }
+        
+        // Show loading indicator
+        const emailBtn = document.getElementById('sendEmailButton');
+        const originalBtnText = emailBtn.innerHTML;
+        emailBtn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Sending...';
+        emailBtn.disabled = true;
+        
+        // Create subject
+        const frequency = document.getElementById('frequency').value;
+        const topicsSelect = document.getElementById('topics');
+        const topics = Array.from(topicsSelect.selectedOptions).map(option => option.textContent).join(', ');
+        const today = new Date();
+        const dateStr = today.toLocaleDateString();
+        
+        const subject = `${frequency.charAt(0).toUpperCase() + frequency.slice(1)} Newsletter: ${topics} - ${dateStr}`;
+        
+        // Send email request
+        const response = await fetch('/api/newsletter/send_email', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                recipients: recipients.split(',').map(email => email.trim()),
+                subject: subject,
+                markdown_content: markdownContent
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to send email: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            alert('Newsletter sent successfully!');
+        } else {
+            throw new Error(result.error || 'Unknown error');
+        }
+        
+    } catch (error) {
+        console.error('Error sending email:', error);
+        alert(`Error sending email: ${error.message}`);
+    } finally {
+        // Restore button
+        const emailBtn = document.getElementById('sendEmailButton');
+        if (emailBtn) {
+            emailBtn.innerHTML = '<i class="fa fa-envelope"></i> Send Email';
+            emailBtn.disabled = false;
+        }
+    }
+}
+
+// Initialize everything when the DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, initializing components');
     
@@ -1543,7 +2153,12 @@ document.addEventListener('DOMContentLoaded', function() {
         savePromptButton.addEventListener('click', savePromptTemplate);
     }
     
-    // Set up close/cancel buttons for the modal
+    const restorePromptButton = document.getElementById('restorePromptButton');
+    if (restorePromptButton) {
+        restorePromptButton.addEventListener('click', restoreDefaultPrompt);
+    }
+    
+    // Set up close/cancel buttons for the prompt editor modal
     const closeModalButton = document.getElementById('closePromptEditorModal');
     const cancelModalButton = document.getElementById('cancelPromptEditorModal');
     
@@ -1565,7 +2180,41 @@ document.addEventListener('DOMContentLoaded', function() {
         cancelModalButton.addEventListener('click', closePromptModal);
     }
     
-    // Set up event listeners
+    // Set up chart selection modal buttons
+    const closeChartSelectionModalBtn = document.getElementById('closeChartSelectionModal');
+    const cancelChartSelectionModalBtn = document.getElementById('cancelChartSelectionModal');
+    const saveChartSelectionBtn = document.getElementById('saveChartSelectionButton');
+    
+    if (closeChartSelectionModalBtn) {
+        closeChartSelectionModalBtn.addEventListener('click', closeChartSelectionModal);
+    }
+    
+    if (cancelChartSelectionModalBtn) {
+        cancelChartSelectionModalBtn.addEventListener('click', closeChartSelectionModal);
+    }
+    
+    if (saveChartSelectionBtn) {
+        saveChartSelectionBtn.addEventListener('click', saveChartSelection);
+    }
+    
+    // Set up save newsletter modal buttons
+    const closeSaveNewsletterModalBtn = document.getElementById('closeSaveNewsletterModal');
+    const cancelSaveNewsletterModalBtn = document.getElementById('cancelSaveNewsletterModal');
+    const saveNewsletterBtn = document.getElementById('saveNewsletterButton');
+    
+    if (closeSaveNewsletterModalBtn) {
+        closeSaveNewsletterModalBtn.addEventListener('click', closeSaveNewsletterModal);
+    }
+    
+    if (cancelSaveNewsletterModalBtn) {
+        cancelSaveNewsletterModalBtn.addEventListener('click', closeSaveNewsletterModal);
+    }
+    
+    if (saveNewsletterBtn) {
+        saveNewsletterBtn.addEventListener('click', saveNewsletterToServer);
+    }
+    
+    // Set up main action buttons
     const compileButton = document.getElementById('compileButton');
     if (compileButton) {
         compileButton.addEventListener('click', compileNewsletter);
@@ -1579,6 +2228,21 @@ document.addEventListener('DOMContentLoaded', function() {
     const downloadMarkdownButton = document.getElementById('downloadMarkdownButton');
     if (downloadMarkdownButton) {
         downloadMarkdownButton.addEventListener('click', downloadMarkdown);
+    }
+    
+    const saveToServerButton = document.getElementById('saveToServerButton');
+    if (saveToServerButton) {
+        saveToServerButton.addEventListener('click', openSaveNewsletterModal);
+    }
+    
+    const sendEmailButton = document.getElementById('sendEmailButton');
+    if (sendEmailButton) {
+        sendEmailButton.addEventListener('click', sendEmailNewsletter);
+    }
+    
+    const refreshSavedNewslettersBtn = document.getElementById('refreshSavedNewslettersBtn');
+    if (refreshSavedNewslettersBtn) {
+        refreshSavedNewslettersBtn.addEventListener('click', loadSavedNewsletters);
     }
     
     // Set default date range (last 7 days)
