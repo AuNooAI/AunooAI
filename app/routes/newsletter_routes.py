@@ -3,14 +3,31 @@ import logging
 import asyncio
 from typing import Dict, List, Optional
 import json
-import os
+import time
+from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, BackgroundTasks, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi import (
+    APIRouter, 
+    Depends, 
+    HTTPException, 
+    Request, 
+    BackgroundTasks, 
+    WebSocket, 
+    WebSocketDisconnect, 
+    Body
+)
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from starlette.templating import Jinja2Templates
 
 from app.database import Database, get_database_instance
-from app.schemas.newsletter import NewsletterRequest, NewsletterResponse, NewsletterPromptTemplate, NewsletterPromptUpdate, ProgressUpdate
+from app.schemas.newsletter import (
+    NewsletterRequest, 
+    NewsletterResponse, 
+    NewsletterPromptTemplate, 
+    NewsletterPromptUpdate, 
+    ProgressUpdate
+)
 from app.services.newsletter_service import NewsletterService
 from app.dependencies import get_newsletter_service
 from app.security.session import verify_session
@@ -25,6 +42,11 @@ router = APIRouter(tags=["newsletter"])
 active_compilations: Dict[str, Dict] = {}
 # Store WebSocket connections for progress updates
 active_connections: Dict[str, List[WebSocket]] = {}
+
+# Define the path for saved newsletters
+NEWSLETTERS_DIR = Path("data/newsletters")
+if not NEWSLETTERS_DIR.exists():
+    NEWSLETTERS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @router.get("/api/newsletter/topics")
@@ -101,6 +123,31 @@ async def compile_newsletter(
     logger.info(f"Received newsletter compilation request: {request}")
     
     try:
+        # Validate time period - make sure it's not too restrictive
+        if request.start_date and request.end_date:
+            from datetime import date, timedelta
+            
+            # Calculate time difference
+            time_diff = request.end_date - request.start_date
+            
+            # If date range is less than 2 days and not "daily" frequency
+            if time_diff.days < 2 and request.frequency != "daily":
+                logger.warning(f"Very short time period selected: {time_diff.days} days.")
+                
+                # For frequencies other than daily, suggest expanding the time range
+                if request.frequency == "weekly" and time_diff.days < 5:
+                    return NewsletterResponse(
+                        message=f"For weekly newsletters, we recommend a time period of at least 5 days to ensure enough content. You selected {time_diff.days} days.",
+                        compiled_markdown=f"# Time Period Warning\n\nFor weekly newsletters, we recommend a time period of at least 5 days to ensure enough content.\n\nYou selected {time_diff.days} days ({request.start_date} to {request.end_date}).\n\nPlease adjust your date range and try again.",
+                        request_payload=request
+                    )
+                elif request.frequency == "monthly" and time_diff.days < 15:
+                    return NewsletterResponse(
+                        message=f"For monthly newsletters, we recommend a time period of at least 15 days to ensure enough content. You selected {time_diff.days} days.",
+                        compiled_markdown=f"# Time Period Warning\n\nFor monthly newsletters, we recommend a time period of at least 15 days to ensure enough content.\n\nYou selected {time_diff.days} days ({request.start_date} to {request.end_date}).\n\nPlease adjust your date range and try again.",
+                        request_payload=request
+                    )
+        
         # Generate a unique ID for this compilation
         import uuid
         compilation_id = str(uuid.uuid4())
@@ -322,7 +369,23 @@ async def get_all_prompts(db: Database = Depends(get_database_instance)):
 
 @router.get("/api/newsletter/prompts/{content_type_id}", response_model=NewsletterPromptTemplate)
 async def get_prompt(content_type_id: str, db: Database = Depends(get_database_instance)):
-    """Get a specific newsletter prompt template."""
+    """Get a specific newsletter prompt template.
+    
+    Available prompt template variables:
+    - {topic} - The current topic being processed
+    - {article_data} - Formatted article data with titles, URLs, sources, etc.
+    - {articles} - Alternative way to access article data
+    - {formatted_date} - Current date in human-readable format (e.g., "January 1, 2025")
+    - {start_date} - Start date for newsletter content (format: YYYY-MM-DD)
+    - {end_date} - End date for newsletter content (format: YYYY-MM-DD)
+    - {frequency} - Newsletter frequency (daily, weekly, monthly)
+    - {topics} - Comma-separated list of all newsletter topics
+    - {content_instructions} - Special instructions for this content type
+    - {article_count} - Number of articles available for processing
+    
+    Note: For certain content types, additional specialized variables may be available.
+    Always ensure your prompt includes strong guidance against hallucinating article sources.
+    """
     try:
         prompt = db.get_newsletter_prompt(content_type_id)
         if not prompt:
@@ -347,7 +410,23 @@ async def update_prompt(
     prompt_update: NewsletterPromptUpdate,
     db: Database = Depends(get_database_instance)
 ):
-    """Update a specific newsletter prompt template."""
+    """Update a specific newsletter prompt template.
+    
+    Available prompt template variables:
+    - {topic} - The current topic being processed
+    - {article_data} - Formatted article data with titles, URLs, sources, etc.
+    - {articles} - Alternative way to access article data
+    - {formatted_date} - Current date in human-readable format (e.g., "January 1, 2025")
+    - {start_date} - Start date for newsletter content (format: YYYY-MM-DD)
+    - {end_date} - End date for newsletter content (format: YYYY-MM-DD)
+    - {frequency} - Newsletter frequency (daily, weekly, monthly)
+    - {topics} - Comma-separated list of all newsletter topics
+    - {content_instructions} - Special instructions for this content type
+    - {article_count} - Number of articles available for processing
+    
+    Note: For certain content types, additional specialized variables may be available.
+    Always ensure your prompt includes strong guidance against hallucinating article sources.
+    """
     try:
         success = db.update_newsletter_prompt(
             content_type_id,
@@ -374,50 +453,65 @@ async def update_prompt(
 
 @router.post("/api/newsletter/save")
 async def save_newsletter(
-    request: Request,
+    content: str = Body(..., embed=True),
+    filename: str = Body(..., embed=True),
     db: Database = Depends(get_database_instance)
 ):
     """
     Save a newsletter to the server.
     
     Args:
-        request: The request containing content and filename
+        content: The markdown content of the newsletter
+        filename: The filename to save as
         db: Database instance
         
     Returns:
-        JSONResponse with success message and file path
+        JSONResponse with success message and file ID
     """
     try:
-        # Get data from request
-        data = await request.json()
-        content = data.get('content')
-        filename = data.get('filename')
-        
+        # Validate input
         if not content or not filename:
+            logger.error("Missing content or filename in save request")
             return JSONResponse(
-                content={"error": "Missing content or filename"},
+                content={"success": False, "error": "Missing content or filename"},
                 status_code=400
             )
-            
-        # Create newsletters directory if it doesn't exist
-        newsletters_dir = os.path.join("data", "newsletters")
-        os.makedirs(newsletters_dir, exist_ok=True)
         
         # Ensure filename has .md extension
         if not filename.endswith('.md'):
             filename = f"{filename}.md"
             
+        # Create newsletters directory if it doesn't exist
+        NEWSLETTERS_DIR.mkdir(parents=True, exist_ok=True)
+            
+        # Create a unique newsletter ID and timestamp
+        newsletter_id = f"{int(time.time())}"
+        timestamp = datetime.now().isoformat()
+        
         # Save file
-        file_path = os.path.join(newsletters_dir, filename)
+        file_path = NEWSLETTERS_DIR / filename
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
+
+        # Create metadata file
+        metadata = {
+            "id": newsletter_id,
+            "filename": filename,
+            "date": timestamp,
+            "file_path": str(file_path)
+        }
+
+        metadata_path = NEWSLETTERS_DIR / f"{newsletter_id}.meta.json"
+        with open(metadata_path, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, indent=2)
             
         # Return success
         return JSONResponse(
             content={
                 "success": True,
-                "message": f"Newsletter saved successfully to {file_path}",
-                "file_path": file_path,
+                "message": f"Newsletter saved successfully as {filename}",
+                "newsletter_id": newsletter_id,
+                "file_path": str(file_path),
                 "file_name": filename
             }
         )
@@ -425,7 +519,322 @@ async def save_newsletter(
     except Exception as e:
         logger.error(f"Error saving newsletter: {str(e)}", exc_info=True)
         return JSONResponse(
-            content={"error": f"Failed to save newsletter: {str(e)}"},
+            content={"success": False, "error": f"Failed to save newsletter: {str(e)}"},
+            status_code=500
+        )
+
+
+@router.get("/api/newsletter/saved")
+async def get_saved_newsletters():
+    """
+    Get a list of all saved newsletters.
+    
+    Returns:
+        List of saved newsletter metadata
+    """
+    try:
+        # Ensure directory exists
+        NEWSLETTERS_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Find all .meta.json files
+        metadata_files = list(NEWSLETTERS_DIR.glob("*.meta.json"))
+        
+        if not metadata_files:
+            return []
+        
+        # Load metadata for each newsletter
+        newsletters = []
+        for meta_file in metadata_files:
+            try:
+                with open(meta_file, 'r', encoding='utf-8') as f:
+                    metadata = json.load(f)
+                    
+                # Check if the newsletter markdown file exists
+                file_path = Path(metadata.get("file_path", ""))
+                if file_path.exists():
+                    newsletters.append(metadata)
+                else:
+                    # If file doesn't exist, remove the metadata
+                    meta_file.unlink(missing_ok=True)
+                    
+            except Exception as e:
+                logger.error(f"Error reading newsletter metadata {meta_file}: {str(e)}")
+                continue
+        
+        return newsletters
+        
+    except Exception as e:
+        logger.error(f"Error getting saved newsletters: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting saved newsletters: {str(e)}"
+        )
+
+
+@router.get("/api/newsletter/saved/{newsletter_id}")
+async def get_saved_newsletter(newsletter_id: str):
+    """
+    Get a specific saved newsletter by ID.
+    
+    Args:
+        newsletter_id: The newsletter ID
+        
+    Returns:
+        Newsletter content and metadata
+    """
+    try:
+        # Look for metadata file
+        metadata_path = NEWSLETTERS_DIR / f"{newsletter_id}.meta.json"
+        
+        if not metadata_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Newsletter with ID {newsletter_id} not found"
+            )
+            
+        # Load metadata
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+            
+        # Load content
+        file_path = Path(metadata.get("file_path", ""))
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Newsletter file not found at {file_path}"
+            )
+            
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            
+        # Return newsletter data
+        return {
+            **metadata,
+            "content": content
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting saved newsletter: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting saved newsletter: {str(e)}"
+        )
+
+
+@router.delete("/api/newsletter/saved/{newsletter_id}")
+async def delete_saved_newsletter(newsletter_id: str):
+    """
+    Delete a saved newsletter by ID.
+    
+    Args:
+        newsletter_id: The newsletter ID
+        
+    Returns:
+        Success message
+    """
+    try:
+        # Look for metadata file
+        metadata_path = NEWSLETTERS_DIR / f"{newsletter_id}.meta.json"
+        
+        if not metadata_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Newsletter with ID {newsletter_id} not found"
+            )
+            
+        # Load metadata to get file path
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+            
+        # Delete content file
+        file_path = Path(metadata.get("file_path", ""))
+        if file_path.exists():
+            file_path.unlink()
+            
+        # Delete metadata file
+        metadata_path.unlink()
+            
+        # Return success
+        return {"success": True, "message": f"Newsletter with ID {newsletter_id} deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting saved newsletter: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error deleting saved newsletter: {str(e)}"
+        )
+
+
+@router.post("/api/newsletter/export_pdf")
+async def export_pdf(markdown_content: str = Body(..., embed=True)):
+    """
+    Export newsletter as PDF.
+    
+    Args:
+        markdown_content: The markdown content to convert to PDF
+        
+    Returns:
+        PDF file as a stream
+    """
+    try:
+        import markdown
+        import pdfkit
+        from io import BytesIO
+        
+        # Convert markdown to HTML
+        html_content = markdown.markdown(
+            markdown_content, 
+            extensions=["tables", "fenced_code"]
+        )
+        
+        # Add HTML wrapper with styles
+        full_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Newsletter</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
+                h1, h2, h3 {{ color: #333; }}
+                table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; }}
+                th {{ background-color: #f2f2f2; }}
+                img {{ max-width: 100%; height: auto; }}
+                .chart {{ max-width: 500px; margin: 15px auto; }}
+                code {{ background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; }}
+                pre {{ background-color: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto; }}
+            </style>
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        """
+        
+        # Generate PDF using pdfkit
+        pdf = pdfkit.from_string(full_html, False)
+        
+        # Return PDF as stream
+        return StreamingResponse(
+            BytesIO(pdf),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "attachment; filename=newsletter.pdf"}
+        )
+        
+    except Exception as e:
+        logger.error(f"Error exporting PDF: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error exporting PDF: {str(e)}"
+        )
+
+
+@router.post("/api/newsletter/send_email")
+async def send_email(
+    recipients: List[str] = Body(...),
+    subject: str = Body(...),
+    markdown_content: str = Body(...)
+):
+    """
+    Send newsletter via email.
+    
+    Args:
+        recipients: List of email addresses
+        subject: Email subject
+        markdown_content: The markdown content of the newsletter
+        
+    Returns:
+        Success status and message
+    """
+    try:
+        import markdown
+        import smtplib
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        
+        # Validate email addresses
+        if not recipients:
+            return JSONResponse(
+                content={"success": False, "error": "No recipients provided"},
+                status_code=400
+            )
+        
+        # Convert markdown to HTML
+        html_content = markdown.markdown(
+            markdown_content, 
+            extensions=["tables", "fenced_code"]
+        )
+        
+        # Add HTML wrapper with styles
+        full_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>{subject}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
+                h1, h2, h3 {{ color: #333; }}
+                table {{ border-collapse: collapse; width: 100%; margin: 15px 0; }}
+                th, td {{ border: 1px solid #ddd; padding: 8px; }}
+                th {{ background-color: #f2f2f2; }}
+                img {{ max-width: 100%; height: auto; }}
+                .chart {{ max-width: 500px; margin: 15px auto; }}
+                code {{ background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; }}
+                pre {{ background-color: #f5f5f5; padding: 10px; border-radius: 5px; overflow-x: auto; }}
+            </style>
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        """
+        
+        # Load config
+        config = load_config()
+        smtp_config = config.get("smtp", {})
+        
+        # Extract SMTP settings
+        smtp_server = smtp_config.get("server", "smtp.gmail.com")
+        smtp_port = smtp_config.get("port", 587)
+        smtp_username = smtp_config.get("username", "")
+        smtp_password = smtp_config.get("password", "")
+        sender_email = smtp_config.get("sender_email", smtp_username)
+        
+        # Create email message
+        message = MIMEMultipart("alternative")
+        message["Subject"] = subject
+        message["From"] = sender_email
+        message["To"] = ", ".join(recipients)
+        
+        # Add body parts
+        text_part = MIMEText(markdown_content, "plain")
+        html_part = MIMEText(full_html, "html")
+        message.attach(text_part)
+        message.attach(html_part)
+        
+        # Send the email
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_username, smtp_password)
+            server.send_message(message)
+        
+        return JSONResponse(content={
+            "success": True,
+            "message": f"Email sent successfully to {len(recipients)} recipient(s)"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error sending email: {str(e)}", exc_info=True)
+        return JSONResponse(
+            content={"success": False, "error": f"Failed to send email: {str(e)}"},
             status_code=500
         )
 
