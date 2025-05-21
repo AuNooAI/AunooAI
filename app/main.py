@@ -234,8 +234,14 @@ app.include_router(auspex_router)
 app.include_router(newsletter_router)
 app.include_router(newsletter_page_router)
 
+# Import media bias routes
+from app.routes import media_bias_routes
+
 # Add dataset router
 app.include_router(dataset_router)
+
+# Register media bias routes
+app.include_router(media_bias_routes.router)  # Add the new media bias routes
 
 class ArticleData(BaseModel):
     title: str
@@ -1429,6 +1435,35 @@ async def collect_articles(
             search_fields=search_fields_list,
             page=page
         )
+        
+        # Get media bias data for articles
+        try:
+            # Import here to avoid circular imports
+            from app.models.media_bias import MediaBias
+            media_bias = MediaBias(db)
+            
+            # Add media bias data to each article
+            for article in articles:
+                source_url = article.get('url', '')
+                source_name = article.get('source', '')
+                
+                # Try to get media bias data first from URL, then from source name
+                bias_data = media_bias.get_bias_for_source(source_url)
+                if not bias_data:
+                    bias_data = media_bias.get_bias_for_source(source_name)
+                    
+                # Add bias data to article if found
+                if bias_data:
+                    article['bias'] = bias_data.get('bias', '')
+                    article['factual_reporting'] = bias_data.get('factual_reporting', '')
+                    article['mbfc_credibility_rating'] = bias_data.get('mbfc_credibility_rating', '')
+                    article['bias_country'] = bias_data.get('country', '')
+                    article['press_freedom'] = bias_data.get('press_freedom', '')
+                    article['media_type'] = bias_data.get('media_type', '')
+                    article['popularity'] = bias_data.get('popularity', '')
+        except Exception as bias_error:
+            logger.warning(f"Error enriching articles with media bias data: {str(bias_error)}")
+            # Continue without media bias data
         
         return JSONResponse(content={
             "source": source,

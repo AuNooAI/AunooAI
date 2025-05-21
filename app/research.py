@@ -680,6 +680,25 @@ class Research:
             "analyzed": True  # Add analyzed flag
         }
 
+        # Add media bias data
+        from app.models.media_bias import MediaBias
+        media_bias = MediaBias(self.db)
+        domain = self.extract_source(uri)
+        bias_data = media_bias.get_bias_for_source(domain)
+        
+        if bias_data:
+            logger.debug(f"Adding media bias data for {domain} to analysis result")
+            analysis_result['bias'] = bias_data.get('bias')
+            analysis_result['factual_reporting'] = bias_data.get('factual_reporting')
+            analysis_result['mbfc_credibility_rating'] = bias_data.get('mbfc_credibility_rating')
+            analysis_result['bias_source'] = bias_data.get('source')
+            analysis_result['bias_country'] = bias_data.get('country')
+            analysis_result['press_freedom'] = bias_data.get('press_freedom')
+            analysis_result['media_type'] = bias_data.get('media_type')
+            analysis_result['popularity'] = bias_data.get('popularity')
+        else:
+            logger.debug(f"No media bias data found for {domain}")
+
         return analysis_result
 
     def extract_source(self, uri):
@@ -704,15 +723,69 @@ class Research:
                 raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
 
             # Convert tags list to string if necessary
-            if isinstance(article_data['tags'], list):
-                article_data['tags'] = ','.join(article_data['tags'])
+            if isinstance(article_data.get('tags'), list):
+                article_data['tags'] = ', '.join(article_data['tags'])
+
+            # Additional validation
+            if not article_data.get('news_source'):
+                logger.warning("Article saved without news source")
+                article_data['news_source'] = "Unknown"
             
-            result = await self.db.save_article(article_data)
-            logger.debug(f"Successfully saved article: {result}")
-            return result
+            # Add media bias data if not already present
+            if article_data.get('news_source') and not article_data.get('bias'):
+                try:
+                    from app.models.media_bias import MediaBias
+                    media_bias = MediaBias(self.db)
+                    
+                    # Check if media bias enrichment is enabled
+                    status = media_bias.get_status()
+                    if status.get('enabled', False):
+                        logger.debug(f"Media bias enrichment is enabled, looking up data for {article_data['news_source']}")
+                        
+                        # Get bias data for this source
+                        bias_data = media_bias.get_bias_for_source(article_data['news_source'])
+                        
+                        if bias_data:
+                            logger.debug(f"Found media bias data for {article_data['news_source']}: {bias_data}")
+                            
+                            # Add bias data to article
+                            article_data['bias'] = bias_data.get('bias', '')
+                            article_data['factual_reporting'] = bias_data.get('factual_reporting', '')
+                            article_data['mbfc_credibility_rating'] = bias_data.get('mbfc_credibility_rating', '')
+                            article_data['bias_source'] = bias_data.get('source', '')
+                            article_data['bias_country'] = bias_data.get('country', '')
+                            article_data['press_freedom'] = bias_data.get('press_freedom', '')
+                            article_data['media_type'] = bias_data.get('media_type', '')
+                            article_data['popularity'] = bias_data.get('popularity', '')
+                        else:
+                            logger.debug(f"No media bias data found for {article_data['news_source']}")
+                except Exception as e:
+                    logger.error(f"Error enriching article with media bias data: {str(e)}")
+                    # Don't fail if media bias enrichment fails
+
+            # Add analyzed field if not present  
+            if 'analyzed' not in article_data:
+                article_data['analyzed'] = True
             
+            # Add timestamp for submission_date if not present
+            if 'submission_date' not in article_data:
+                article_data['submission_date'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+            # Save to database
+            self.db.save_article(article_data)
+                
+            # Save raw markdown if available
+            if 'raw_markdown' in article_data and article_data['raw_markdown']:
+                self.db.save_raw_article(
+                    article_data['uri'], 
+                    article_data['raw_markdown'],
+                    article_data.get('topic', '')
+                )
+            
+            logger.info(f"Article saved successfully: {article_data['title']}")
+            return True
         except Exception as e:
-            logger.error(f"Error in save_article at {datetime.datetime.now().isoformat()}: {str(e)}")
+            logger.error(f"Error saving article: {str(e)}")
             raise
 
     async def get_categories(self, topic=None):

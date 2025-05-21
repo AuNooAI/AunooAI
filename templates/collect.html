@@ -197,6 +197,120 @@
         padding: 6px 12px;
         font-size: 0.8rem;
     }
+    
+    /* Media bias styling improvements */
+    .source-metadata {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 8px 0;
+        border-top: 1px solid var(--light-gray);
+        padding-top: 8px;
+    }
+    
+    .bias-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: white;
+        min-width: 100px;
+        text-align: center;
+    }
+    
+    .bias-left {
+        background-color: #3373CC;
+        color: white;
+    }
+    
+    .bias-left-center {
+        background-color: #6699EE;
+        color: white;
+    }
+    
+    .bias-least-biased, 
+    .bias-center {
+        background-color: #88CC88;
+        color: black;
+    }
+    
+    .bias-right-center {
+        background-color: #FF9966;
+        color: black;
+    }
+    
+    .bias-right {
+        background-color: #CC3333;
+        color: white;
+    }
+    
+    .factual-very-high {
+        background-color: #006600;
+        color: white;
+    }
+    
+    .factual-high, 
+    .factual-mostly-factual {
+        background-color: #339933;
+        color: white;
+    }
+    
+    .factual-mixed {
+        background-color: #CCCC00;
+        color: black;
+    }
+    
+    .factual-low, 
+    .factual-very-low {
+        background-color: #CC0000;
+        color: white;
+    }
+    
+    .source-tooltip {
+        position: relative;
+        display: inline-block;
+        cursor: help;
+    }
+    
+    .source-tooltip i {
+        color: var(--primary-color);
+        opacity: 0.8;
+        transition: opacity 0.2s;
+    }
+    
+    .source-tooltip:hover i {
+        opacity: 1;
+    }
+    
+    .source-tooltip .tooltip-content {
+        visibility: hidden;
+        position: absolute;
+        z-index: 100;
+        bottom: 125%;
+        left: 50%;
+        transform: translateX(-50%) translateY(10px);
+        background-color: white;
+        padding: 12px;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        width: max-content;
+        min-width: 260px;
+        max-width: 320px;
+        border: 1px solid var(--medium-gray);
+        opacity: 0;
+        transition: opacity 0.3s, transform 0.2s;
+        pointer-events: none;
+    }
+    
+    .source-tooltip:hover .tooltip-content {
+        visibility: visible;
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
 
     /* Style primary buttons */
     .btn-outline-primary {
@@ -281,6 +395,80 @@
         font-size: 0.9em;
         margin-right: 0.3em;
         opacity: 0.8;
+    }
+    
+    /* Media bias tooltip styling */
+    .source-tooltip {
+        position: relative;
+        display: inline-block;
+        margin-left: 5px;
+        cursor: help;
+    }
+
+    .source-tooltip i {
+        color: var(--primary-color);
+        font-size: 0.8rem;
+    }
+
+    .source-tooltip .tooltip-content {
+        visibility: hidden;
+        position: absolute;
+        z-index: 100;
+        bottom: 125%;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: white;
+        padding: 12px;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        width: max-content;
+        min-width: 240px;
+        max-width: 320px;
+        border: 1px solid var(--medium-gray);
+        opacity: 0;
+        transition: opacity 0.3s, transform 0.2s;
+        pointer-events: none;
+        transform: translateX(-50%) translateY(10px);
+    }
+
+    .source-tooltip:hover .tooltip-content {
+        visibility: visible;
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+
+    .source-tooltip .tooltip-content::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin-left: -5px;
+        border-width: 5px;
+        border-style: solid;
+        border-color: white transparent transparent transparent;
+    }
+    
+    /* Mobile tooltip adjustments */
+    @media (max-width: 767px) {
+        .source-tooltip .tooltip-content {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            bottom: auto;
+            transform: translate(-50%, -50%);
+            min-width: 280px;
+            max-width: 90vw;
+            z-index: 1050;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+        
+        .source-tooltip:hover .tooltip-content {
+            transform: translate(-50%, -50%);
+        }
+        
+        .source-tooltip .tooltip-content::after {
+            display: none;
+        }
     }
 </style>
 
@@ -1087,6 +1275,65 @@ function displayArticle(article) {
     const articleElement = document.createElement('div');
     articleElement.className = 'article-card mb-3 p-3 border rounded';
     
+    // Create media bias HTML if available
+    let mediaBiasHtml = '';
+    if (article.bias || article.factual_reporting) {
+        // Create a compact summary for the header
+        const biasSummary = `
+            <div class="d-flex flex-wrap align-items-center mt-2">
+                <div class="d-flex flex-wrap gap-2 align-items-center">
+                    ${article.bias ? 
+                        `<span class="bias-badge ${getBiasClass(article.bias)}" 
+                               style="font-size: 0.7rem; padding: 0.15rem 0.4rem;">
+                            <i class="fas fa-balance-scale-right me-1"></i>${article.bias}
+                         </span>` : ''}
+                    ${article.factual_reporting ? 
+                        `<span class="bias-badge ${getFactualClass(article.factual_reporting)}"
+                               style="font-size: 0.7rem; padding: 0.15rem 0.4rem;">
+                            <i class="fas fa-check-circle me-1"></i>${article.factual_reporting}
+                         </span>` : ''}
+                </div>
+            </div>`;
+
+        // Create detailed tooltip for more information
+        mediaBiasHtml = `
+            <div class="source-metadata">
+                <div class="d-flex align-items-center flex-wrap gap-2">
+                    ${article.bias ? 
+                        `<span class="bias-badge ${getBiasClass(article.bias)}">
+                            <i class="fas fa-balance-scale-right me-1"></i> ${article.bias}
+                        </span>` : ''}
+                    ${article.factual_reporting ? 
+                        `<span class="bias-badge ${getFactualClass(article.factual_reporting)}">
+                            <i class="fas fa-check-circle me-1"></i> ${article.factual_reporting}
+                        </span>` : ''}
+                    ${article.bias_country ? 
+                        `<span class="small badge bg-light text-dark border">
+                            ${formatCountry(article.bias_country)}
+                        </span>` : ''}
+                    ${article.mbfc_credibility_rating ? 
+                        `<span class="small badge bg-secondary">
+                            ${article.mbfc_credibility_rating}
+                        </span>` : ''}
+                    <span class="source-tooltip">
+                        <i class="fas fa-info-circle"></i>
+                        <div class="tooltip-content">
+                            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
+                            <table class="mb-0" style="font-size: 0.85rem; width: 100%;">
+                                ${article.bias ? `<tr><td><strong>Bias:</strong></td><td>${article.bias}</td></tr>` : ''}
+                                ${article.factual_reporting ? `<tr><td><strong>Factual:</strong></td><td>${article.factual_reporting}</td></tr>` : ''}
+                                ${article.mbfc_credibility_rating ? `<tr><td><strong>Rating:</strong></td><td>${article.mbfc_credibility_rating}</td></tr>` : ''}
+                                ${article.bias_country ? `<tr><td><strong>Country:</strong></td><td>${formatCountry(article.bias_country)}</td></tr>` : ''}
+                                ${article.press_freedom ? `<tr><td><strong>Press&nbsp;Freedom:</strong></td><td>${formatPressFreedom(article.press_freedom)}</td></tr>` : ''}
+                                ${article.media_type ? `<tr><td><strong>Media&nbsp;Type:</strong></td><td>${article.media_type}</td></tr>` : ''}
+                                ${article.popularity ? `<tr><td><strong>Popularity:</strong></td><td>${article.popularity}</td></tr>` : ''}
+                            </table>
+                        </div>
+                    </span>
+                </div>
+            </div>`;
+    }
+    
     // Header with checkbox
     const header = document.createElement('div');
     header.className = 'd-flex justify-content-between align-items-start';
@@ -1105,10 +1352,14 @@ function displayArticle(article) {
                         <span><i class="fas fa-user"></i> ${formatAuthors(article.authors, article.source, article)}</span>
                     </small>
                 </div>
+                ${mediaBiasHtml}
             </label>
         </div>
     `;
     articleElement.appendChild(header);
+
+    // We're already showing media bias info in the mediaBiasHtml variable, 
+    // so we don't need to add it to the metadata div again
 
     // Content
     const content = document.createElement('div');
@@ -1700,6 +1951,117 @@ function formatSourceName(article) {
         return article.raw_data?.author_handle ? `@${article.raw_data.author_handle}` : 'Bluesky';
     }
     return article.source || article.raw_data?.source?.name || 'Unknown Source';
+}
+
+// Add helper functions for bias and factual rating classifications
+function getBiasClass(bias) {
+    if (!bias) return '';
+    
+    bias = bias.toLowerCase();
+    
+    if (bias.includes('left') && !bias.includes('center')) {
+        return 'bias-left';
+    } else if (bias.includes('left-center')) {
+        return 'bias-left-center';
+    } else if (bias.includes('least biased')) {
+        return 'bias-least-biased';
+    } else if (bias.includes('center')) {
+        return 'bias-center';
+    } else if (bias.includes('right-center')) {
+        return 'bias-right-center';
+    } else if (bias.includes('right')) {
+        return 'bias-right';
+    } else if (bias.includes('pro-science')) {
+        return 'bias-pro-science';
+    } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
+        return 'bias-conspiracy-pseudoscience';
+    } else if (bias.includes('questionable')) {
+        return 'bias-questionable';
+    } else if (bias.includes('satire')) {
+        return 'bias-satire';
+    }
+    
+    return '';
+}
+
+function getFactualClass(factual) {
+    if (!factual) return '';
+    
+    factual = factual.toLowerCase();
+    
+    if (factual.includes('very high')) {
+        return 'factual-very-high';
+    } else if (factual.includes('high') && !factual.includes('very')) {
+        return 'factual-high';
+    } else if (factual.includes('mostly')) {
+        return 'factual-mostly-factual';
+    } else if (factual.includes('mixed')) {
+        return 'factual-mixed';
+    } else if (factual.includes('low') && !factual.includes('very')) {
+        return 'factual-low';
+    } else if (factual.includes('very low')) {
+        return 'factual-very-low';
+    }
+    
+    return '';
+}
+
+// Format country name with flag emoji if available
+function formatCountry(country) {
+    if (!country) return '';
+    
+    // Common country codes map
+    const countryFlags = {
+        'united states': '🇺🇸',
+        'usa': '🇺🇸',
+        'uk': '🇬🇧',
+        'united kingdom': '🇬🇧',
+        'canada': '🇨🇦',
+        'australia': '🇦🇺',
+        'india': '🇮🇳',
+        'germany': '🇩🇪',
+        'france': '🇫🇷',
+        'japan': '🇯🇵',
+        'china': '🇨🇳',
+        'russia': '🇷🇺',
+        'brazil': '🇧🇷',
+        'mexico': '🇲🇽',
+        'spain': '🇪🇸',
+        'italy': '🇮🇹'
+    };
+    
+    const lowerCountry = country.toLowerCase();
+    const flag = countryFlags[lowerCountry] || '';
+    
+    return flag ? `${flag} ${country}` : country;
+}
+
+// Format press freedom with colored indicator
+function formatPressFreedom(freedom) {
+    if (!freedom) return '';
+    
+    const lowerFreedom = freedom.toLowerCase();
+    let color = '';
+    let icon = '';
+    
+    if (lowerFreedom.includes('free') || lowerFreedom.includes('good')) {
+        color = 'success';
+        icon = 'check-circle';
+    } else if (lowerFreedom.includes('satisfactory') || lowerFreedom.includes('moderate')) {
+        color = 'info';
+        icon = 'info-circle';
+    } else if (lowerFreedom.includes('problematic') || lowerFreedom.includes('difficult')) {
+        color = 'warning';
+        icon = 'exclamation-triangle';
+    } else if (lowerFreedom.includes('bad') || lowerFreedom.includes('very serious')) {
+        color = 'danger';
+        icon = 'times-circle';
+    } else {
+        color = 'secondary';
+        icon = 'question-circle';
+    }
+    
+    return `<span class="text-${color}"><i class="fas fa-${icon} me-1"></i>${freedom}</span>`;
 }
 
 // Function to select active database

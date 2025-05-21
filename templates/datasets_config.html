@@ -506,6 +506,7 @@ It manages data enrichment sources like media bias datasets.
         padding: 10px 15px;
         cursor: pointer;
         border-bottom: 1px solid #eee;
+        position: relative;
     }
     
     .search-result-item:hover {
@@ -514,6 +515,60 @@ It manages data enrichment sources like media bias datasets.
     
     .search-result-item:last-child {
         border-bottom: none;
+    }
+    
+    .search-result-item .bias-tooltip {
+        margin-left: 5px;
+        display: inline-block;
+        position: relative;
+    }
+    
+    .search-result-item .bias-tooltip i {
+        color: var(--primary-color);
+        font-size: 0.8rem;
+        cursor: help;
+    }
+    
+    .search-result-item .bias-tooltip .tooltip-content {
+        visibility: hidden;
+        position: absolute;
+        z-index: 100;
+        bottom: 125%;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: white;
+        padding: 8px;
+        border-radius: 6px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        width: max-content;
+        max-width: 250px;
+        border: 1px solid var(--medium-gray);
+        opacity: 0;
+        transition: opacity 0.3s;
+        white-space: nowrap;
+    }
+    
+    .search-result-item .bias-tooltip:hover .tooltip-content {
+        visibility: visible;
+        opacity: 1;
+    }
+    
+    .search-result-item .bias-tooltip .tooltip-content::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin-left: -5px;
+        border-width: 5px;
+        border-style: solid;
+        border-color: white transparent transparent transparent;
+    }
+    
+    .search-result-item .source-metadata {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+        margin-top: 5px;
     }
     
     .search-box {
@@ -1679,14 +1734,104 @@ It manages data enrichment sources like media bias datasets.
         }
     }
 
-    // Dynamic search as user types
+    // Extract domain from URL to match with media bias sources
+    function extractDomain(url) {
+        try {
+            // For URLs with protocol
+            if (url.includes('://')) {
+                const urlObj = new URL(url);
+                return urlObj.hostname;
+            }
+            
+            // For domain strings without protocol
+            if (url.includes('.')) {
+                // If there's no protocol but it looks like a domain
+                return url.trim().split('/')[0];
+            }
+            
+            return url.trim();
+        } catch (e) {
+            console.warn('Error extracting domain:', e);
+            return url;
+        }
+    }
+
+    // Check if two domains match, including subdomain support
+    function domainsMatch(sourceDomain, targetDomain) {
+        if (!sourceDomain || !targetDomain) return false;
+        
+        sourceDomain = sourceDomain.toLowerCase();
+        targetDomain = targetDomain.toLowerCase();
+        
+        // Exact match
+        if (sourceDomain === targetDomain) return true;
+        
+        // Check if sourceDomain is a subdomain of targetDomain
+        if (sourceDomain.endsWith('.' + targetDomain)) return true;
+        
+        // Check if targetDomain is a subdomain of sourceDomain
+        if (targetDomain.endsWith('.' + sourceDomain)) return true;
+        
+        // Extract root domain (e.g., "example.com" from "sub.example.com")
+        const sourceRoot = sourceDomain.split('.').slice(-2).join('.');
+        const targetRoot = targetDomain.split('.').slice(-2).join('.');
+        
+        // Match on root domains
+        return sourceRoot === targetRoot;
+    }
+
+    // Fetch media bias data for a given source
+    async function getMediaBiasForSource(source) {
+        try {
+            console.log(`Fetching media bias data for source: ${source}`);
+            const domain = extractDomain(source);
+            console.log(`Extracted domain: ${domain}`);
+            
+            const response = await fetch(`/api/datasets/media_bias/source/${encodeURIComponent(domain)}`);
+            console.log(`API response status: ${response.status}`);
+            
+            if (!response.ok) {
+                console.log(`No match found for domain: ${domain}, trying variations`);
+                // Try with domain variations
+                const domainParts = domain.split('.');
+                if (domainParts.length > 2) {
+                    // Try with root domain only (e.g., "example.com" from "sub.example.com")
+                    const rootDomain = domainParts.slice(-2).join('.');
+                    console.log(`Trying with root domain: ${rootDomain}`);
+                    const rootResponse = await fetch(`/api/datasets/media_bias/source/${encodeURIComponent(rootDomain)}`);
+                    console.log(`Root domain API response status: ${rootResponse.status}`);
+                    if (rootResponse.ok) {
+                        const data = await rootResponse.json();
+                        console.log(`Found match with root domain: ${rootDomain}`, data);
+                        return data;
+                    }
+                }
+                
+                console.log(`No matches found for: ${domain}`);
+                return { found: false };
+            }
+            
+            const data = await response.json();
+            console.log(`Found match for: ${domain}`, data);
+            return data;
+        } catch (e) {
+            console.error('Error fetching media bias data:', e);
+            return { found: false };
+        }
+    }
+
+    // Update the dynamicSearch function to better debug
     function dynamicSearch() {
         const searchInput = $('#search-source');
         const searchResults = $('#search-results');
         
-        if (!searchInput || !searchResults) return;
+        if (!searchInput || !searchResults) {
+            console.error("Search input or results container not found");
+            return;
+        }
         
         const query = searchInput.val().trim().toLowerCase();
+        console.log(`Search query: "${query}"`);
         
         // Clear previous timeout
         clearTimeout(searchTimeout);
@@ -1699,44 +1844,115 @@ It manages data enrichment sources like media bias datasets.
         }
         
         // Set debounced search
-        searchTimeout = setTimeout(() => {
+        searchTimeout = setTimeout(async () => {
             if (query.length < 2) return;
+            
+            console.log(`Performing search for query: "${query}" on ${allSourcesData.length} sources`);
             
             // Filter sources that match the query
             const matchedSources = allSourcesData.filter(source => 
                 source.source.toLowerCase().includes(query)
             );
+            console.log(`Found ${matchedSources.length} matches for query: "${query}"`);
             
             // Limit to top 10 matches
             const limitedMatches = matchedSources.slice(0, 10);
             
             // Show results dropdown
             if (limitedMatches.length > 0) {
+                console.log(`Processing ${limitedMatches.length} matches to display`);
                 let resultsHtml = '';
                 
-                limitedMatches.forEach(source => {
+                // Process each result
+                for (const source of limitedMatches) {
                     const sourceName = source.source;
+                    console.log(`Processing source: ${sourceName}`);
                     const biasClass = getBiasClass(source.bias);
                     const factualClass = getFactualClass(source.factual_reporting);
                     
-                    resultsHtml += `
-                        <div class="search-result-item" onclick="selectSearchResult('${sourceName}')">
-                            <div><strong>${sourceName}</strong></div>
-                            <div class="badge-collection mt-1">
-                                <span class="bias-badge ${biasClass}">${source.bias || 'Unknown'}</span>
-                                <span class="factual-badge ${factualClass}">${source.factual_reporting || 'Unknown'}</span>
-                            </div>
-                        </div>
-                    `;
-                });
+                    // Try exact match first from our data
+                    if (source.bias || source.factual_reporting) {
+                        console.log(`Source ${sourceName} already has bias data: ${source.bias}, ${source.factual_reporting}`);
+                        resultsHtml += generateResultItemHtml(source, biasClass, factualClass);
+                    } else {
+                        console.log(`Source ${sourceName} has no bias data, fetching from API`);
+                        // No bias data in our immediate results, try to fetch it
+                        const biasData = await getMediaBiasForSource(sourceName);
+                        
+                        if (biasData.found && biasData.data) {
+                            console.log(`Found bias data for ${sourceName}:`, biasData.data);
+                            // Use fetched bias data
+                            const fetchedBiasClass = getBiasClass(biasData.data.bias);
+                            const fetchedFactualClass = getFactualClass(biasData.data.factual_reporting);
+                            
+                            const enrichedSource = {
+                                ...source,
+                                bias: biasData.data.bias,
+                                factual_reporting: biasData.data.factual_reporting,
+                                mbfc_credibility_rating: biasData.data.mbfc_credibility_rating,
+                                country: biasData.data.country
+                            };
+                            
+                            resultsHtml += generateResultItemHtml(enrichedSource, fetchedBiasClass, fetchedFactualClass);
+                        } else {
+                            console.log(`No bias data found for ${sourceName}`);
+                            // No bias data found
+                            resultsHtml += generateResultItemHtml(source, '', '');
+                        }
+                    }
+                }
                 
+                console.log(`Setting HTML for search results:`, resultsHtml.substring(0, 100) + '...');
                 searchResults.html(resultsHtml);
                 searchResults.addClass('active');
+                console.log(`Search results dropdown activated`);
             } else {
                 searchResults.html('<div class="search-result-item">No matching sources found</div>');
                 searchResults.addClass('active');
+                console.log(`No matches found, showing empty results message`);
             }
         }, 300); // Debounce for 300ms
+    }
+
+    // Generate HTML for a search result item
+    function generateResultItemHtml(source, biasClass, factualClass) {
+        let tooltipContent = '';
+        
+        // Only create the tooltip if we have media bias data
+        if (source.bias || source.factual_reporting || source.mbfc_credibility_rating) {
+            tooltipContent = '<span class="bias-tooltip">' +
+                '<i class="fas fa-info-circle"></i>' +
+                '<div class="tooltip-content">' +
+                '<div style="text-align: center; font-weight: bold; margin-bottom: 5px;">Media Bias Info</div>';
+            
+            // Add bias badge if available
+            if (source.bias) {
+                tooltipContent += `<div><span class="bias-badge ${biasClass}">${source.bias}</span></div>`;
+            }
+            
+            // Add factual reporting badge if available
+            if (source.factual_reporting) {
+                tooltipContent += `<div><span class="factual-badge ${factualClass}">${source.factual_reporting}</span></div>`;
+            }
+            
+            // Add credibility rating if available
+            if (source.mbfc_credibility_rating) {
+                tooltipContent += `<div>${source.mbfc_credibility_rating}</div>`;
+            }
+            
+            // Add country if available
+            if (source.country) {
+                tooltipContent += `<div>Country: ${source.country}</div>`;
+            }
+            
+            tooltipContent += '</div></span>';
+        }
+        
+        return `
+            <div class="search-result-item" onclick="selectSearchResult('${source.source}')">
+                <div><strong>${source.source}</strong>${tooltipContent}</div>
+            </div>
+        `;
     }
 
     // Search for media bias sources with filters
@@ -2155,4 +2371,54 @@ It manages data enrichment sources like media bias datasets.
         $('#search-results').removeClass('active');
         searchMediaBias();
     }
+
+    // Add this at the end of the script section
+    document.addEventListener('DOMContentLoaded', function() {
+        // Add debug button to test media bias API
+        const searchBox = document.querySelector('.search-box');
+        if (searchBox) {
+            const debugButton = document.createElement('button');
+            debugButton.className = 'btn btn-sm btn-info mt-2';
+            debugButton.textContent = 'Test Media Bias API';
+            debugButton.onclick = async function() {
+                console.log("Testing media bias API...");
+                const testDomains = [
+                    'cnn.com',
+                    'bbc.co.uk',
+                    'foxnews.com',
+                    'huffpost.com'
+                ];
+                
+                for (const domain of testDomains) {
+                    console.log(`Testing domain: ${domain}`);
+                    try {
+                        const response = await fetch(`/api/datasets/media_bias/source/${domain}`);
+                        const data = await response.json();
+                        console.log(`API Response for ${domain}:`, data);
+                        
+                        if (data.found) {
+                            console.log(`✓ MATCHED: ${domain} → ${data.data.source || domain}`);
+                            console.log(`  Bias: ${data.data.bias || 'Unknown'}`);
+                            console.log(`  Factual: ${data.data.factual_reporting || 'Unknown'}`);
+                            console.log(`  Credibility: ${data.data.mbfc_credibility_rating || 'Unknown'}`);
+                        } else {
+                            console.log(`✗ NO MATCH for ${domain}`);
+                        }
+                    } catch (error) {
+                        console.error(`Error testing ${domain}:`, error);
+                    }
+                }
+                
+                // Test the UI search
+                const searchInput = document.getElementById('search-source');
+                if (searchInput) {
+                    console.log("Testing search functionality with 'cnn'");
+                    searchInput.value = 'cnn';
+                    // Trigger the search event
+                    searchInput.dispatchEvent(new Event('input'));
+                }
+            };
+            searchBox.appendChild(debugButton);
+        }
+    });
 </script> 
