@@ -839,6 +839,155 @@ async def send_email(
         )
 
 
+@router.get("/api/newsletter/podcasts")
+async def get_podcasts(db: Database = Depends(get_database_instance)):
+    """Get available podcasts for newsletter inclusion."""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            # Get column information to handle table schema dynamically
+            cursor.execute("PRAGMA table_info(podcasts)")
+            table_info = cursor.fetchall()
+            column_names = [col[1] for col in table_info]  # Column name is at index 1
+            
+            # Build a query that works with the available columns
+            # Base columns we need
+            select_columns = ["id", "title", "created_at"]
+            if "audio_url" in column_names:
+                select_columns.append("audio_url")
+            if "topic" in column_names:
+                select_columns.append("topic")
+            
+            # Execute query to get recent podcasts
+            cursor.execute(
+                f"""
+                SELECT {', '.join(select_columns)}
+                FROM podcasts
+                ORDER BY created_at DESC
+                LIMIT 20
+                """
+            )
+            
+            podcasts = cursor.fetchall()
+            
+            # Format results
+            result = []
+            for podcast in podcasts:
+                podcast_dict = {}
+                for i, col in enumerate(select_columns):
+                    podcast_dict[col] = podcast[i]
+                result.append(podcast_dict)
+            
+            return result
+            
+    except Exception as e:
+        logger.error(f"Error getting podcasts: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting podcasts: {str(e)}"
+        )
+
+
+@router.get("/api/newsletter/articles/search")
+async def search_articles(
+    query: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    topic: Optional[str] = None,
+    limit: int = 20,
+    db: Database = Depends(get_database_instance)
+):
+    """
+    Search for articles based on query, date range, and topic.
+    
+    Args:
+        query: Search query string
+        start_date: Optional start date in format YYYY-MM-DD
+        end_date: Optional end date in format YYYY-MM-DD
+        topic: Optional topic filter
+        limit: Maximum number of results to return (default: 20)
+        
+    Returns:
+        List of articles matching the search criteria
+    """
+    try:
+        logger.info(f"Searching for articles with query: '{query}', topic: '{topic}', dates: {start_date} to {end_date}")
+        
+        # Validate date formats if provided
+        if start_date:
+            try:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid start_date format. Use YYYY-MM-DD."
+                )
+                
+        if end_date:
+            try:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid end_date format. Use YYYY-MM-DD."
+                )
+        
+        # Build search query
+        search_conditions = []
+        params = []
+        
+        if query:
+            # Add fuzzy search on title and summary
+            search_conditions.append("(title LIKE ? OR summary LIKE ?)")
+            params.extend([f"%{query}%", f"%{query}%"])
+        
+        if topic:
+            search_conditions.append("topic = ?")
+            params.append(topic)
+            
+        if start_date:
+            search_conditions.append("publication_date >= ?")
+            params.append(start_date)
+            
+        if end_date:
+            search_conditions.append("publication_date <= ?")
+            params.append(end_date)
+            
+        # Construct the WHERE clause
+        where_clause = " AND ".join(search_conditions) if search_conditions else "1=1"
+        
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            query = f"""
+                SELECT * FROM articles 
+                WHERE {where_clause}
+                ORDER BY publication_date DESC
+                LIMIT {limit}
+            """
+            
+            cursor.execute(query, params)
+            articles = cursor.fetchall()
+            
+            # Convert to list of dictionaries with column names
+            column_names = [description[0] for description in cursor.description]
+            result = []
+            
+            for row in articles:
+                article_dict = dict(zip(column_names, row))
+                result.append(article_dict)
+                
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error searching articles: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error searching articles: {str(e)}"
+        )
+
+
 # Page router for rendering HTML templates
 page_router = APIRouter(tags=["newsletter_pages"])
 

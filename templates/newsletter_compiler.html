@@ -336,7 +336,7 @@
 
 {% block content %}
 <div class="container-fluid newsletter-container" id="newsletterCompilerApp">
-    <h1>Newsletter Compiler</h1>
+    <h1>Newsletter Composer</h1>
     
     <!-- Row 1: Newsletter Configuration -->
     <div class="row mb-4">
@@ -479,16 +479,20 @@
                 <div class="card-body">
                     <div class="d-flex flex-wrap">
                         <!-- Primary Actions -->
-                        <div class="btn-group mr-2 mb-2">
-                            <button type="button" id="compileButton" class="btn btn-primary btn-sm"
-                                    data-toggle="tooltip" data-placement="top" 
-                                    title="Generate newsletter content based on your configuration">
-                                    <i class="fa fa-cogs"></i> Generate Newsletter
+                        <div class="btn-group mr-2">
+                            <button id="compileButton" type="button" class="btn btn-primary">
+                                <i class="fa fa-cogs"></i> Generate
                             </button>
-                            <button type="button" id="updatePreviewButton" class="btn btn-secondary btn-sm"
-                                    data-toggle="tooltip" data-placement="top" 
-                                    title="Refresh the preview with latest editor content">
-                                    <i class="fa fa-refresh"></i> Update Preview
+                        </div>
+                        <div class="btn-group mr-2">
+                            <button id="selectChartButton" type="button" class="btn btn-outline-secondary" onclick="openChartSelectionModal()">
+                                <i class="fa fa-chart-bar"></i> Charts
+                            </button>
+                            <button id="selectPodcastButton" type="button" class="btn btn-outline-secondary" onclick="openPodcastSelectionModal()">
+                                <i class="fa fa-podcast"></i> Podcast
+                            </button>
+                            <button id="selectArticlesButton" type="button" class="btn btn-outline-secondary" onclick="openArticleSelectionModal()">
+                                <i class="fa fa-newspaper"></i> Articles
                             </button>
                         </div>
                         
@@ -522,6 +526,11 @@
                                     data-toggle="tooltip" data-placement="top" 
                                     title="Send newsletter to Slack">
                                     <i class="fa fa-slack"></i> Send to Slack
+                            </button>
+                            <button type="button" id="clearSavedStateButton" class="btn btn-outline-danger btn-sm"
+                                    data-toggle="tooltip" data-placement="top"
+                                    title="Clear locally saved state">
+                                    <i class="fa fa-trash"></i> Clear Saved State
                             </button>
                         </div>
                     </div>
@@ -663,31 +672,10 @@
                                 </label>
                             </div>
                             <div class="custom-control custom-checkbox mb-3">
-                                <input type="checkbox" class="custom-control-input" id="chart_topic_distribution" name="selected_charts" value="topic_distribution" checked>
-                                <label class="custom-control-label" for="chart_topic_distribution">
-                                    <strong>Topic Distribution</strong>
-                                    <small class="text-muted d-block">Pie chart showing distribution of subtopics within selected topics</small>
-                                </label>
-                            </div>
-                            <div class="custom-control custom-checkbox mb-3">
-                                <input type="checkbox" class="custom-control-input" id="chart_source_breakdown" name="selected_charts" value="source_breakdown">
-                                <label class="custom-control-label" for="chart_source_breakdown">
-                                    <strong>Source Breakdown</strong>
-                                    <small class="text-muted d-block">Shows distribution of information sources</small>
-                                </label>
-                            </div>
-                            <div class="custom-control custom-checkbox mb-3">
-                                <input type="checkbox" class="custom-control-input" id="chart_volume_analysis" name="selected_charts" value="volume_analysis">
-                                <label class="custom-control-label" for="chart_volume_analysis">
-                                    <strong>Volume Analysis</strong>
-                                    <small class="text-muted d-block">Chart showing volume of content over time period</small>
-                                </label>
-                            </div>
-                            <div class="custom-control custom-checkbox mb-3">
-                                <input type="checkbox" class="custom-control-input" id="chart_radar_comparison" name="selected_charts" value="radar_comparison">
-                                <label class="custom-control-label" for="chart_radar_comparison">
-                                    <strong>Radar Comparison</strong>
-                                    <small class="text-muted d-block">Radar chart comparing different aspects of selected topics</small>
+                                <input type="checkbox" class="custom-control-input" id="chart_future_signals" name="selected_charts" value="future_signals" checked>
+                                <label class="custom-control-label" for="chart_future_signals">
+                                    <strong>Future Signals Analysis</strong>
+                                    <small class="text-muted d-block">Radar chart showing future impact signals for the selected topics</small>
                                 </label>
                             </div>
                         </div>
@@ -727,6 +715,96 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" id="cancelSaveNewsletterModal">Cancel</button>
                     <button type="button" class="btn btn-primary" id="saveNewsletterButton">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Podcast Selection Modal -->
+    <div class="modal" id="podcastSelectionModal" tabindex="-1" role="dialog" aria-labelledby="podcastSelectionModalTitle" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="podcastSelectionModalTitle">Select Podcast</h5>
+                    <button type="button" class="close" id="closePodcastSelectionModal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted mb-3">Choose a podcast to include in your newsletter:</p>
+                    <div id="podcastListContainer" class="list-group mb-3">
+                        <div class="text-center py-3">
+                            <i class="fa fa-spinner fa-spin mr-2"></i> Loading podcasts...
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancelPodcastSelectionModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="savePodcastSelectionButton">Select Podcast</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Article Selection Modal -->
+    <div class="modal" id="articleSelectionModal" tabindex="-1" role="dialog" aria-labelledby="articleSelectionModalTitle" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="articleSelectionModalTitle">Select Articles</h5>
+                    <button type="button" class="close" id="closeArticleSelectionModal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="articleSearchForm" class="mb-3">
+                        <div class="form-row">
+                            <div class="col-md-5">
+                                <div class="form-group">
+                                    <label for="articleSearchQuery">Search</label>
+                                    <input type="text" class="form-control" id="articleSearchQuery" placeholder="Enter search terms">
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="form-group">
+                                    <label for="articleSearchTopic">Topic</label>
+                                    <select class="form-control" id="articleSearchTopic">
+                                        <option value="">All Topics</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="form-group">
+                                    <label for="articleSearchStartDate">From</label>
+                                    <input type="date" class="form-control" id="articleSearchStartDate">
+                                </div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="form-group">
+                                    <label for="articleSearchEndDate">To</label>
+                                    <input type="date" class="form-control" id="articleSearchEndDate">
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" id="articleSearchButton" class="btn btn-primary">Search</button>
+                    </form>
+                    
+                    <div id="articleListContainer" class="list-group mb-3">
+                        <div class="text-center py-3 text-muted">
+                            Enter search terms and click Search
+                        </div>
+                    </div>
+                    
+                    <div class="selected-articles-container mb-3">
+                        <h6>Selected Articles: <span id="selectedArticlesCount">0</span></h6>
+                        <div id="selectedArticlesList" class="list-group">
+                            <!-- Selected articles will appear here -->
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancelArticleSelectionModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="saveArticleSelectionButton">Add Selected Articles</button>
                 </div>
             </div>
         </div>
@@ -802,7 +880,7 @@ window.onload = function() {
             }
         };
         
-        // Set up change handler for preview updates
+        // Set up change handler for preview updates and auto-save
         editor.codemirror.on("change", function() {
             // Get editor content (which may have placeholders)
             const editorContent = editor.codemirror.getValue();
@@ -814,6 +892,10 @@ window.onload = function() {
             }
             
             updatePreview();
+            
+            // Auto-save with delay to avoid too many saves during typing
+            clearTimeout(window.editorSaveTimeout);
+            window.editorSaveTimeout = setTimeout(saveNewsletterState, 1000);
         });
         
         // Initial preview update
@@ -1859,21 +1941,33 @@ async function saveNewsletterToServer() {
 async function loadSavedNewsletters() {
     try {
         const container = document.getElementById('savedNewslettersContainer');
-        if (!container) return;
+        if (!container) {
+            console.error('savedNewslettersContainer element not found');
+            return;
+        }
         
         // Show loading
         container.innerHTML = '<div class="text-center text-muted py-3"><i class="fa fa-spinner fa-spin mr-2"></i> Loading saved newsletters...</div>';
         
+        console.log('Fetching saved newsletters from API...');
         const response = await fetch('/api/newsletter/saved');
+        console.log('API response status:', response.status);
         
         if (!response.ok) {
-            throw new Error(`Failed to load saved newsletters: ${response.status}`);
+            throw new Error(`Failed to load saved newsletters: ${response.status} ${response.statusText}`);
         }
         
         const newsletters = await response.json();
+        console.log('Loaded newsletters:', newsletters);
         
         // Clear container
         container.innerHTML = '';
+        
+        if (!Array.isArray(newsletters)) {
+            console.error('API returned non-array response:', newsletters);
+            container.innerHTML = '<div class="text-center text-danger py-3">Error: Invalid response format</div>';
+            return;
+        }
         
         if (newsletters.length === 0) {
             container.innerHTML = '<div class="text-center text-muted py-3">No saved newsletters found</div>';
@@ -1885,59 +1979,63 @@ async function loadSavedNewsletters() {
         
         // Create list items
         newsletters.forEach(newsletter => {
-            const item = document.createElement('a');
-            item.href = '#';
-            item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
-            item.addEventListener('click', (e) => {
-                e.preventDefault();
-                loadNewsletter(newsletter.id);
-            });
-            
-            const contentDiv = document.createElement('div');
-            contentDiv.className = 'd-flex flex-column';
-            
-            const title = document.createElement('strong');
-            title.textContent = newsletter.filename || 'Unnamed Newsletter';
-            contentDiv.appendChild(title);
-            
-            if (newsletter.date) {
-                const date = document.createElement('small');
-                date.className = 'text-muted';
-                date.textContent = new Date(newsletter.date).toLocaleString();
-                contentDiv.appendChild(date);
-            }
-            
-            item.appendChild(contentDiv);
-            
-            const btnGroup = document.createElement('div');
-            btnGroup.className = 'btn-group btn-group-sm';
-            
-            const editBtn = document.createElement('button');
-            editBtn.type = 'button';
-            editBtn.className = 'btn btn-outline-primary';
-            editBtn.innerHTML = '<i class="fa fa-pencil"></i>';
-            editBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                loadNewsletter(newsletter.id);
-            });
-            btnGroup.appendChild(editBtn);
-            
-            const deleteBtn = document.createElement('button');
-            deleteBtn.type = 'button';
-            deleteBtn.className = 'btn btn-outline-danger';
-            deleteBtn.innerHTML = '<i class="fa fa-trash"></i>';
-            deleteBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (confirm(`Are you sure you want to delete "${newsletter.filename}"?`)) {
-                    deleteNewsletter(newsletter.id);
+            try {
+                const item = document.createElement('a');
+                item.href = '#';
+                item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+                item.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    loadNewsletter(newsletter.id);
+                });
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'd-flex flex-column';
+                
+                const title = document.createElement('strong');
+                title.textContent = newsletter.filename || 'Unnamed Newsletter';
+                contentDiv.appendChild(title);
+                
+                if (newsletter.date) {
+                    const date = document.createElement('small');
+                    date.className = 'text-muted';
+                    date.textContent = new Date(newsletter.date).toLocaleString();
+                    contentDiv.appendChild(date);
                 }
-            });
-            btnGroup.appendChild(deleteBtn);
-            
-            item.appendChild(btnGroup);
-            container.appendChild(item);
+                
+                item.appendChild(contentDiv);
+                
+                const btnGroup = document.createElement('div');
+                btnGroup.className = 'btn-group btn-group-sm';
+                
+                const editBtn = document.createElement('button');
+                editBtn.type = 'button';
+                editBtn.className = 'btn btn-outline-primary';
+                editBtn.innerHTML = '<i class="fa fa-pencil"></i>';
+                editBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    loadNewsletter(newsletter.id);
+                });
+                btnGroup.appendChild(editBtn);
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.type = 'button';
+                deleteBtn.className = 'btn btn-outline-danger';
+                deleteBtn.innerHTML = '<i class="fa fa-trash"></i>';
+                deleteBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (confirm(`Are you sure you want to delete "${newsletter.filename}"?`)) {
+                        deleteNewsletter(newsletter.id);
+                    }
+                });
+                btnGroup.appendChild(deleteBtn);
+                
+                item.appendChild(btnGroup);
+                container.appendChild(item);
+            } catch (itemError) {
+                console.error('Error creating newsletter item:', itemError, newsletter);
+            }
         });
         
     } catch (error) {
@@ -2137,172 +2235,857 @@ async function sendEmailNewsletter() {
     }
 }
 
+// Function to save the current newsletter state to localStorage
+function saveNewsletterState() {
+    try {
+        // Save editor content
+        if (editor) {
+            const content = getMarkdownContent();
+            localStorage.setItem('newsletter_content', content);
+        }
+        
+        // Save configuration
+        const topicsSelect = document.getElementById('topics');
+        const frequencySelect = document.getElementById('frequency');
+        const aiModelSelect = document.getElementById('ai_model');
+        const startDateInput = document.getElementById('startDate');
+        const endDateInput = document.getElementById('endDate');
+        
+        const config = {
+            topics: topicsSelect ? Array.from(topicsSelect.selectedOptions).map(opt => opt.value) : [],
+            frequency: frequencySelect ? frequencySelect.value : 'weekly',
+            aiModel: aiModelSelect ? aiModelSelect.value : 'gpt-4o',
+            startDate: startDateInput ? startDateInput.value : '',
+            endDate: endDateInput ? endDateInput.value : ''
+        };
+        
+        localStorage.setItem('newsletter_config', JSON.stringify(config));
+        console.log('Newsletter state saved to localStorage');
+    } catch (e) {
+        console.error('Error saving newsletter state:', e);
+    }
+}
+
+// Function to check for and load any saved local state
+function checkSavedState() {
+    try {
+        // Look for saved content in localStorage
+        const savedContent = localStorage.getItem('newsletter_content');
+        if (savedContent) {
+            console.log('Found saved content in localStorage');
+            // Set the editor content if we have the editor initialized
+            if (editor) {
+                editor.value(savedContent);
+                updatePreview();
+            }
+        }
+        
+        // Load saved configuration from localStorage if available
+        const savedConfig = localStorage.getItem('newsletter_config');
+        if (savedConfig) {
+            try {
+                const config = JSON.parse(savedConfig);
+                console.log('Found saved configuration', config);
+                
+                // Restore topic selections
+                if (config.topics && Array.isArray(config.topics)) {
+                    const topicSelect = document.getElementById('topics');
+                    if (topicSelect) {
+                        // Wait until topics are loaded
+                        const checkTopicsInterval = setInterval(() => {
+                            if (topicSelect.options.length > 0) {
+                                clearInterval(checkTopicsInterval);
+                                
+                                // Select topics
+                                for (let i = 0; i < topicSelect.options.length; i++) {
+                                    topicSelect.options[i].selected = config.topics.includes(topicSelect.options[i].value);
+                                }
+                            }
+                        }, 100);
+                    }
+                }
+                
+                // Restore frequency
+                if (config.frequency) {
+                    const frequencySelect = document.getElementById('frequency');
+                    if (frequencySelect) {
+                        frequencySelect.value = config.frequency;
+                    }
+                }
+                
+                // Restore AI model
+                if (config.aiModel) {
+                    const aiModelSelect = document.getElementById('ai_model');
+                    if (aiModelSelect) {
+                        aiModelSelect.value = config.aiModel;
+                    }
+                }
+                
+                // Restore date range
+                if (config.startDate) {
+                    document.getElementById('startDate').value = config.startDate;
+                }
+                if (config.endDate) {
+                    document.getElementById('endDate').value = config.endDate;
+                }
+            } catch (e) {
+                console.error('Error parsing saved configuration:', e);
+                localStorage.removeItem('newsletter_config');
+            }
+        }
+    } catch (e) {
+        console.error('Error checking saved state:', e);
+        // If there's an error, clear the saved state to prevent future errors
+        localStorage.removeItem('newsletter_content');
+        localStorage.removeItem('newsletter_config');
+    }
+}
+
 // Initialize everything when the DOM is loaded
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, initializing components');
+    // Load newsletter saved state if available
+    checkSavedState();
+    
+    // Load saved newsletters
+    loadSavedNewsletters();
+    
+    // Load available topics
+    loadTopics();
     
     // Load content types
     loadContentTypes();
     
-    // Load topics
-    loadTopics();
+    // Add event listeners to save state when changes are made
+    const topicsSelect = document.getElementById('topics');
+    const frequencySelect = document.getElementById('frequency');
+    const aiModelSelect = document.getElementById('ai_model');
+    const startDateInput = document.getElementById('startDate');
+    const endDateInput = document.getElementById('endDate');
     
-    // Set up prompt editor buttons
-    const savePromptButton = document.getElementById('savePromptButton');
-    if (savePromptButton) {
-        savePromptButton.addEventListener('click', savePromptTemplate);
+    // Add event listeners for date range buttons
+    const dayRangeBtn = document.getElementById('dayRangeBtn');
+    const weekRangeBtn = document.getElementById('weekRangeBtn');
+    const monthRangeBtn = document.getElementById('monthRangeBtn');
+    
+    if (dayRangeBtn) dayRangeBtn.addEventListener('click', setDayRange);
+    if (weekRangeBtn) weekRangeBtn.addEventListener('click', setWeekRange);
+    if (monthRangeBtn) monthRangeBtn.addEventListener('click', setMonthRange);
+    
+    // Save state when form elements change
+    if (topicsSelect) topicsSelect.addEventListener('change', saveNewsletterState);
+    if (frequencySelect) frequencySelect.addEventListener('change', saveNewsletterState);
+    if (aiModelSelect) aiModelSelect.addEventListener('change', saveNewsletterState);
+    if (startDateInput) {
+        startDateInput.addEventListener('change', function() {
+            saveNewsletterState();
+            resetDateRangeButtonStyles();
+        });
+    }
+    if (endDateInput) {
+        endDateInput.addEventListener('change', function() {
+            saveNewsletterState();
+            resetDateRangeButtonStyles();
+        });
     }
     
-    const restorePromptButton = document.getElementById('restorePromptButton');
-    if (restorePromptButton) {
-        restorePromptButton.addEventListener('click', restoreDefaultPrompt);
+    // Add clear saved state button handler
+    const clearSavedStateBtn = document.getElementById('clearSavedStateButton');
+    if (clearSavedStateBtn) {
+        clearSavedStateBtn.addEventListener('click', clearSavedState);
     }
     
-    // Set up close/cancel buttons for the prompt editor modal
-    const closeModalButton = document.getElementById('closePromptEditorModal');
-    const cancelModalButton = document.getElementById('cancelPromptEditorModal');
-    
-    function closePromptModal() {
-        const modal = document.getElementById('promptEditorModal');
-        if (modal) {
-            modal.classList.remove('show');
-            modal.style.display = 'none';
-            modal.setAttribute('aria-hidden', 'true');
-            document.body.classList.remove('modal-open');
-        }
+    // Add event listener to save editor content when it changes
+    if (editor) {
+        editor.codemirror.on("change", function() {
+            // Delay saving to avoid too many saves during typing
+            clearTimeout(window.editorSaveTimeout);
+            window.editorSaveTimeout = setTimeout(saveNewsletterState, 1000);
+        });
     }
     
-    if (closeModalButton) {
-        closeModalButton.addEventListener('click', closePromptModal);
-    }
+    // Set up action buttons
+    const compileButton = document.getElementById('compileButton');
+    const downloadMarkdownButton = document.getElementById('downloadMarkdownButton');
+    const downloadPdfButton = document.getElementById('downloadPdfButton');
+    const saveToServerButton = document.getElementById('saveToServerButton');
+    const sendEmailButton = document.getElementById('sendEmailButton');
+    const sendSlackButton = document.getElementById('sendSlackButton');
     
-    if (cancelModalButton) {
-        cancelModalButton.addEventListener('click', closePromptModal);
-    }
-    
-    // Set up chart selection modal buttons
-    const closeChartSelectionModalBtn = document.getElementById('closeChartSelectionModal');
-    const cancelChartSelectionModalBtn = document.getElementById('cancelChartSelectionModal');
-    const saveChartSelectionBtn = document.getElementById('saveChartSelectionButton');
-    
-    if (closeChartSelectionModalBtn) {
-        closeChartSelectionModalBtn.addEventListener('click', closeChartSelectionModal);
-    }
-    
-    if (cancelChartSelectionModalBtn) {
-        cancelChartSelectionModalBtn.addEventListener('click', closeChartSelectionModal);
-    }
-    
-    if (saveChartSelectionBtn) {
-        saveChartSelectionBtn.addEventListener('click', saveChartSelection);
-    }
+    if (compileButton) compileButton.addEventListener('click', compileNewsletter);
+    if (downloadMarkdownButton) downloadMarkdownButton.addEventListener('click', downloadMarkdown);
+    if (downloadPdfButton) downloadPdfButton.addEventListener('click', downloadPDF);
+    if (saveToServerButton) saveToServerButton.addEventListener('click', openSaveNewsletterModal);
+    if (sendEmailButton) sendEmailButton.addEventListener('click', sendEmailNewsletter);
+    if (sendSlackButton) sendSlackButton.addEventListener('click', function() {
+        alert('Slack integration not implemented yet.');
+    });
     
     // Set up save newsletter modal buttons
     const closeSaveNewsletterModalBtn = document.getElementById('closeSaveNewsletterModal');
     const cancelSaveNewsletterModalBtn = document.getElementById('cancelSaveNewsletterModal');
     const saveNewsletterBtn = document.getElementById('saveNewsletterButton');
     
-    if (closeSaveNewsletterModalBtn) {
-        closeSaveNewsletterModalBtn.addEventListener('click', closeSaveNewsletterModal);
+    if (closeSaveNewsletterModalBtn) closeSaveNewsletterModalBtn.addEventListener('click', closeSaveNewsletterModal);
+    if (cancelSaveNewsletterModalBtn) cancelSaveNewsletterModalBtn.addEventListener('click', closeSaveNewsletterModal);
+    if (saveNewsletterBtn) saveNewsletterBtn.addEventListener('click', saveNewsletterToServer);
+    
+    // Set up select all content types button
+    const selectAllContentTypesBtn = document.getElementById('selectAllContentTypes');
+    if (selectAllContentTypesBtn) {
+        selectAllContentTypesBtn.addEventListener('click', toggleSelectAllContentTypes);
     }
     
-    if (cancelSaveNewsletterModalBtn) {
-        cancelSaveNewsletterModalBtn.addEventListener('click', closeSaveNewsletterModal);
+    // Set up events for modals
+    const closePodcastSelectionModalBtn = document.getElementById('closePodcastSelectionModal');
+    const cancelPodcastSelectionModalBtn = document.getElementById('cancelPodcastSelectionModal');
+    const savePodcastSelectionBtn = document.getElementById('savePodcastSelectionButton');
+    
+    if (closePodcastSelectionModalBtn) {
+        closePodcastSelectionModalBtn.addEventListener('click', closePodcastSelectionModal);
     }
     
-    if (saveNewsletterBtn) {
-        saveNewsletterBtn.addEventListener('click', saveNewsletterToServer);
+    if (cancelPodcastSelectionModalBtn) {
+        cancelPodcastSelectionModalBtn.addEventListener('click', closePodcastSelectionModal);
     }
     
-    // Set up main action buttons
-    const compileButton = document.getElementById('compileButton');
-    if (compileButton) {
-        compileButton.addEventListener('click', compileNewsletter);
+    if (savePodcastSelectionBtn) {
+        savePodcastSelectionBtn.addEventListener('click', savePodcastSelection);
     }
     
-    const updatePreviewButton = document.getElementById('updatePreviewButton');
-    if (updatePreviewButton) {
-        updatePreviewButton.addEventListener('click', updatePreview);
+    // Setup article search modal
+    const closeArticleSelectionModalBtn = document.getElementById('closeArticleSelectionModal');
+    const cancelArticleSelectionModalBtn = document.getElementById('cancelArticleSelectionModal');
+    const saveArticleSelectionBtn = document.getElementById('saveArticleSelectionButton');
+    const articleSearchBtn = document.getElementById('articleSearchButton');
+    
+    if (closeArticleSelectionModalBtn) {
+        closeArticleSelectionModalBtn.addEventListener('click', closeArticleSelectionModal);
     }
     
-    const downloadMarkdownButton = document.getElementById('downloadMarkdownButton');
-    if (downloadMarkdownButton) {
-        downloadMarkdownButton.addEventListener('click', downloadMarkdown);
+    if (cancelArticleSelectionModalBtn) {
+        cancelArticleSelectionModalBtn.addEventListener('click', closeArticleSelectionModal);
     }
     
-    const saveToServerButton = document.getElementById('saveToServerButton');
-    if (saveToServerButton) {
-        saveToServerButton.addEventListener('click', openSaveNewsletterModal);
+    if (saveArticleSelectionBtn) {
+        saveArticleSelectionBtn.addEventListener('click', saveArticleSelection);
     }
     
-    const sendEmailButton = document.getElementById('sendEmailButton');
-    if (sendEmailButton) {
-        sendEmailButton.addEventListener('click', sendEmailNewsletter);
+    if (articleSearchBtn) {
+        articleSearchBtn.addEventListener('click', searchArticles);
     }
     
-    const refreshSavedNewslettersBtn = document.getElementById('refreshSavedNewslettersBtn');
-    if (refreshSavedNewslettersBtn) {
-        refreshSavedNewslettersBtn.addEventListener('click', loadSavedNewsletters);
+    // Load topics for the article search dropdown
+    loadTopicsForArticleSearch();
+});
+
+// Podcast Selection Modal Functions
+let selectedPodcast = null;
+
+function openPodcastSelectionModal() {
+    // Load podcasts from API
+    loadPodcasts();
+    
+    // Show modal
+    const modal = document.getElementById('podcastSelectionModal');
+    if (modal) {
+        modal.classList.add('show');
+        modal.style.display = 'block';
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+    }
+}
+
+async function loadPodcasts() {
+    try {
+        const container = document.getElementById('podcastListContainer');
+        if (!container) return;
+        
+        // Show loading
+        container.innerHTML = '<div class="text-center py-3"><i class="fa fa-spinner fa-spin mr-2"></i> Loading podcasts...</div>';
+        
+        // Fetch podcasts from API
+        const response = await fetch('/api/newsletter/podcasts');
+        
+        if (!response.ok) {
+            throw new Error(`Failed to load podcasts: ${response.status}`);
+        }
+        
+        const podcasts = await response.json();
+        
+        // Clear container
+        container.innerHTML = '';
+        
+        if (podcasts.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-3">No podcasts found</div>';
+            return;
+        }
+        
+        // Create list items for each podcast
+        podcasts.forEach(podcast => {
+            const item = document.createElement('a');
+            item.href = '#';
+            item.className = 'list-group-item list-group-item-action';
+            item.dataset.podcastId = podcast.id;
+            
+            // Create podcast item content
+            const title = document.createElement('h5');
+            title.className = 'mb-1';
+            title.textContent = podcast.title || 'Untitled Podcast';
+            
+            const details = document.createElement('div');
+            details.className = 'small text-muted';
+            
+            // Format created date if available
+            let dateText = '';
+            if (podcast.created_at) {
+                dateText = new Date(podcast.created_at).toLocaleDateString();
+            }
+            
+            // Add topic if available
+            let topicText = '';
+            if (podcast.topic) {
+                topicText = `Topic: ${podcast.topic}`;
+            }
+            
+            details.textContent = [dateText, topicText].filter(Boolean).join(' | ');
+            
+            item.appendChild(title);
+            item.appendChild(details);
+            
+            // Add click handler to select this podcast
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                
+                // Deselect any previously selected podcast
+                document.querySelectorAll('#podcastListContainer .list-group-item.active').forEach(el => {
+                    el.classList.remove('active');
+                });
+                
+                // Select this podcast
+                item.classList.add('active');
+                selectedPodcast = podcast;
+            });
+            
+            container.appendChild(item);
+        });
+        
+    } catch (error) {
+        console.error('Error loading podcasts:', error);
+        const container = document.getElementById('podcastListContainer');
+        if (container) {
+            container.innerHTML = `<div class="text-center text-danger py-3">Error loading podcasts: ${error.message}</div>`;
+        }
+    }
+}
+
+function savePodcastSelection() {
+    if (!selectedPodcast) {
+        alert('Please select a podcast first');
+        return;
     }
     
-    // Set default date range (last 7 days)
+    // Insert selected podcast into the editor
+    let podcastContent = `## Latest Podcast: ${selectedPodcast.title || 'Podcast'}\n\n`;
+    
+    if (selectedPodcast.created_at) {
+        const date = new Date(selectedPodcast.created_at).toLocaleDateString();
+        podcastContent += `**Published:** ${date}\n\n`;
+    }
+    
+    if (selectedPodcast.audio_url) {
+        podcastContent += `[**🎧 Listen Now**](${selectedPodcast.audio_url})\n\n`;
+    }
+    
+    if (selectedPodcast.topic) {
+        podcastContent += `**Topic:** ${selectedPodcast.topic}\n\n`;
+    }
+    
+    podcastContent += "**Summary:** Listen to our latest podcast episode covering important developments and insights.\n\n";
+    
+    // Add the podcast content to the editor
+    const currentContent = getMarkdownContent();
+    setMarkdownContent(currentContent + "\n\n" + podcastContent);
+    
+    // Close modal
+    closePodcastSelectionModal();
+}
+
+function closePodcastSelectionModal() {
+    const modal = document.getElementById('podcastSelectionModal');
+    if (modal) {
+        modal.classList.remove('show');
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open');
+    }
+}
+
+// Add new modal event handlers in the DOMContentLoaded event
+document.addEventListener('DOMContentLoaded', function() {
+    // Set up podcast selection modal buttons
+    const closePodcastSelectionModalBtn = document.getElementById('closePodcastSelectionModal');
+    const cancelPodcastSelectionModalBtn = document.getElementById('cancelPodcastSelectionModal');
+    const savePodcastSelectionBtn = document.getElementById('savePodcastSelectionButton');
+    
+    if (closePodcastSelectionModalBtn) {
+        closePodcastSelectionModalBtn.addEventListener('click', closePodcastSelectionModal);
+    }
+    
+    if (cancelPodcastSelectionModalBtn) {
+        cancelPodcastSelectionModalBtn.addEventListener('click', closePodcastSelectionModal);
+    }
+    
+    if (savePodcastSelectionBtn) {
+        savePodcastSelectionBtn.addEventListener('click', savePodcastSelection);
+    }
+});
+
+// Article Selection Modal Functions
+function openArticleSelectionModal() {
+    // Show the article selection modal
+    const modal = document.getElementById('articleSelectionModal');
+    if (modal) {
+        modal.classList.add('show');
+        modal.style.display = 'block';
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function closeArticleSelectionModal() {
+    // Hide the article selection modal
+    const modal = document.getElementById('articleSelectionModal');
+    if (modal) {
+        modal.classList.remove('show');
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open');
+    }
+}
+
+function saveArticleSelection() {
+    // Get selected articles
+    const selectedArticles = document.querySelectorAll('#selectedArticlesList .list-group-item');
+    const selectedArticlesData = Array.from(selectedArticles).map(article => {
+        return {
+            title: article.querySelector('strong').textContent,
+            url: article.querySelector('a').href,
+            source: article.querySelector('small').textContent
+        };
+    });
+    
+    // Insert selected articles into the editor
+    let articleContent = '';
+    selectedArticlesData.forEach(article => {
+        articleContent += `## ${article.title}\n\n${article.url}\n\n**Source:** ${article.source}\n\n`;
+    });
+    
+    // Add the article content to the editor
+    const currentContent = getMarkdownContent();
+    setMarkdownContent(currentContent + "\n\n" + articleContent);
+    
+    // Close modal
+    closeArticleSelectionModal();
+}
+
+// Add new event listeners for article selection
+document.addEventListener('DOMContentLoaded', function() {
+    // Set up article selection modal buttons
+    const closeArticleSelectionModalBtn = document.getElementById('closeArticleSelectionModal');
+    const cancelArticleSelectionModalBtn = document.getElementById('cancelArticleSelectionModal');
+    const saveArticleSelectionBtn = document.getElementById('saveArticleSelectionButton');
+    
+    if (closeArticleSelectionModalBtn) {
+        closeArticleSelectionModalBtn.addEventListener('click', closeArticleSelectionModal);
+    }
+    
+    if (cancelArticleSelectionModalBtn) {
+        cancelArticleSelectionModalBtn.addEventListener('click', closeArticleSelectionModal);
+    }
+    
+    if (saveArticleSelectionBtn) {
+        saveArticleSelectionBtn.addEventListener('click', saveArticleSelection);
+    }
+});
+
+// Function to load topics for article search dropdown
+async function loadTopicsForArticleSearch() {
+    try {
+        const topicSelect = document.getElementById('articleSearchTopic');
+        if (!topicSelect) return;
+        
+        // Clear existing options except the first one (All Topics)
+        const firstOption = topicSelect.options[0];
+        topicSelect.innerHTML = '';
+        topicSelect.appendChild(firstOption);
+        
+        // Fetch topics from API
+        const response = await fetch('/api/newsletter/topics');
+        
+        if (!response.ok) {
+            throw new Error(`Failed to load topics: ${response.status}`);
+        }
+        
+        const topics = await response.json();
+        
+        // Add topic options
+        topics.forEach(topic => {
+            const option = document.createElement('option');
+            option.value = topic;
+            option.textContent = topic;
+            topicSelect.appendChild(option);
+        });
+        
+    } catch (error) {
+        console.error('Error loading topics for article search:', error);
+    }
+}
+
+// Function to search for articles
+async function searchArticles() {
+    try {
+        const container = document.getElementById('articleListContainer');
+        if (!container) return;
+        
+        // Get search parameters
+        const query = document.getElementById('articleSearchQuery').value;
+        const topic = document.getElementById('articleSearchTopic').value;
+        const startDate = document.getElementById('articleSearchStartDate').value;
+        const endDate = document.getElementById('articleSearchEndDate').value;
+        
+        // Show loading
+        container.innerHTML = '<div class="text-center py-3"><i class="fa fa-spinner fa-spin mr-2"></i> Searching articles...</div>';
+        
+        // Build query string
+        let queryParams = new URLSearchParams();
+        if (query) queryParams.append('query', query);
+        if (topic) queryParams.append('topic', topic);
+        if (startDate) queryParams.append('start_date', startDate);
+        if (endDate) queryParams.append('end_date', endDate);
+        
+        // Fetch articles from API
+        const response = await fetch(`/api/newsletter/articles/search?${queryParams.toString()}`);
+        
+        if (!response.ok) {
+            throw new Error(`Failed to search articles: ${response.status}`);
+        }
+        
+        const articles = await response.json();
+        
+        // Clear container
+        container.innerHTML = '';
+        
+        if (articles.length === 0) {
+            container.innerHTML = '<div class="text-center text-muted py-3">No articles found matching your criteria</div>';
+            return;
+        }
+        
+        // Create list items for each article
+        articles.forEach(article => {
+            const item = document.createElement('div');
+            item.className = 'list-group-item';
+            item.dataset.articleId = article.id;
+            
+            // Create article item content
+            const title = document.createElement('h5');
+            title.className = 'mb-1';
+            title.textContent = article.title || 'Untitled Article';
+            
+            const details = document.createElement('div');
+            details.className = 'small text-muted mb-2';
+            
+            // Format publication date if available
+            let dateText = '';
+            if (article.publication_date) {
+                dateText = `Published: ${article.publication_date}`;
+            }
+            
+            // Add source if available
+            let sourceText = '';
+            if (article.news_source) {
+                sourceText = `Source: ${article.news_source}`;
+            }
+            
+            details.textContent = [dateText, sourceText].filter(Boolean).join(' | ');
+            
+            // Add summary if available
+            const summary = document.createElement('p');
+            summary.className = 'mb-2';
+            summary.textContent = article.summary || 'No summary available';
+            
+            // Add URI if available
+            const uri = document.createElement('a');
+            uri.href = article.uri || '#';
+            uri.className = 'small';
+            uri.textContent = article.uri || '';
+            uri.target = '_blank';
+            
+            // Add button to select this article
+            const selectBtn = document.createElement('button');
+            selectBtn.type = 'button';
+            selectBtn.className = 'btn btn-sm btn-outline-primary mt-2';
+            selectBtn.textContent = 'Add to Selection';
+            selectBtn.addEventListener('click', () => {
+                addArticleToSelection(article);
+                selectBtn.disabled = true;
+                selectBtn.textContent = 'Added';
+            });
+            
+            item.appendChild(title);
+            item.appendChild(details);
+            item.appendChild(summary);
+            item.appendChild(uri);
+            item.appendChild(selectBtn);
+            
+            container.appendChild(item);
+        });
+        
+    } catch (error) {
+        console.error('Error searching articles:', error);
+        const container = document.getElementById('articleListContainer');
+        if (container) {
+            container.innerHTML = `<div class="text-center text-danger py-3">Error searching articles: ${error.message}</div>`;
+        }
+    }
+}
+
+// Function to add an article to the selection
+function addArticleToSelection(article) {
+    const container = document.getElementById('selectedArticlesList');
+    if (!container) return;
+    
+    // Create a list item for the selected article
+    const item = document.createElement('div');
+    item.className = 'list-group-item d-flex justify-content-between align-items-center';
+    item.dataset.articleId = article.id;
+    
+    // Create article details
+    const details = document.createElement('div');
+    
+    const title = document.createElement('strong');
+    title.textContent = article.title || 'Untitled Article';
+    
+    const source = document.createElement('small');
+    source.className = 'd-block text-muted';
+    source.textContent = article.news_source || 'Unknown Source';
+    
+    const link = document.createElement('a');
+    link.href = article.uri || '#';
+    link.className = 'd-block small';
+    link.textContent = article.uri || '';
+    link.target = '_blank';
+    
+    details.appendChild(title);
+    details.appendChild(source);
+    details.appendChild(link);
+    
+    // Create remove button
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn btn-sm btn-outline-danger';
+    removeBtn.innerHTML = '<i class="fa fa-times"></i>';
+    removeBtn.addEventListener('click', () => {
+        item.remove();
+        updateSelectedArticlesCount();
+    });
+    
+    item.appendChild(details);
+    item.appendChild(removeBtn);
+    
+    container.appendChild(item);
+    
+    // Update the count
+    updateSelectedArticlesCount();
+}
+
+// Function to update the selected articles count
+function updateSelectedArticlesCount() {
+    const container = document.getElementById('selectedArticlesList');
+    const countEl = document.getElementById('selectedArticlesCount');
+    
+    if (container && countEl) {
+        const count = container.querySelectorAll('.list-group-item').length;
+        countEl.textContent = count;
+    }
+}
+
+// Function to add the selected articles to the editor
+function saveArticleSelection() {
+    const selectedArticles = document.querySelectorAll('#selectedArticlesList .list-group-item');
+    if (selectedArticles.length === 0) {
+        alert('Please select at least one article');
+        return;
+    }
+    
+    // Create the markdown content
+    let markdownContent = "## Selected Articles\n\n";
+    
+    selectedArticles.forEach(articleEl => {
+        const title = articleEl.querySelector('strong').textContent;
+        const source = articleEl.querySelector('small').textContent;
+        const link = articleEl.querySelector('a').getAttribute('href');
+        
+        markdownContent += `### ${title}\n`;
+        markdownContent += `${link} | ${source}\n\n`;
+    });
+    
+    // Add to editor
+    const currentContent = getMarkdownContent();
+    setMarkdownContent(currentContent + "\n\n" + markdownContent);
+    
+    // Clear selection and close modal
+    document.getElementById('selectedArticlesList').innerHTML = '';
+    updateSelectedArticlesCount();
+    closeArticleSelectionModal();
+}
+
+// Helper function to format dates for input fields (YYYY-MM-DD)
+function formatDateForInput(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+}
+
+// Function to set date range to the last 24 hours
+function setDayRange() {
     const today = new Date();
-    const weekAgo = new Date();
-    weekAgo.setDate(today.getDate() - 7);
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
     
     const startDateInput = document.getElementById('startDate');
     const endDateInput = document.getElementById('endDate');
     
     if (startDateInput && endDateInput) {
-        startDateInput.valueAsDate = weekAgo;
-        endDateInput.valueAsDate = today;
-    }
-    
-    // Set up date range preset buttons
-    const dayRangeBtn = document.getElementById('dayRangeBtn');
-    const weekRangeBtn = document.getElementById('weekRangeBtn');
-    const monthRangeBtn = document.getElementById('monthRangeBtn');
-    
-    if (dayRangeBtn && weekRangeBtn && monthRangeBtn && startDateInput && endDateInput) {
-        dayRangeBtn.addEventListener('click', function() {
-            const today = new Date();
-            const yesterday = new Date();
-            yesterday.setDate(today.getDate() - 1);
-            startDateInput.valueAsDate = yesterday;
-            endDateInput.valueAsDate = today;
-        });
+        startDateInput.value = formatDateForInput(yesterday);
+        endDateInput.value = formatDateForInput(today);
         
-        weekRangeBtn.addEventListener('click', function() {
-            const today = new Date();
-            const weekAgo = new Date();
-            weekAgo.setDate(today.getDate() - 7);
-            startDateInput.valueAsDate = weekAgo;
-            endDateInput.valueAsDate = today;
-        });
+        // Update button styles
+        setActiveDateRangeButton('dayRangeBtn');
         
-        monthRangeBtn.addEventListener('click', function() {
-            const today = new Date();
-            const monthAgo = new Date();
-            monthAgo.setDate(today.getDate() - 30);
-            startDateInput.valueAsDate = monthAgo;
-            endDateInput.valueAsDate = today;
-        });
+        // Trigger save state
+        saveNewsletterState();
+    }
+}
+
+// Function to set date range to the last 7 days
+function setWeekRange() {
+    const today = new Date();
+    const lastWeek = new Date(today);
+    lastWeek.setDate(lastWeek.getDate() - 7);
+    
+    const startDateInput = document.getElementById('startDate');
+    const endDateInput = document.getElementById('endDate');
+    
+    if (startDateInput && endDateInput) {
+        startDateInput.value = formatDateForInput(lastWeek);
+        endDateInput.value = formatDateForInput(today);
+        
+        // Update button styles
+        setActiveDateRangeButton('weekRangeBtn');
+        
+        // Trigger save state
+        saveNewsletterState();
+    }
+}
+
+// Function to set date range to the last 30 days
+function setMonthRange() {
+    const today = new Date();
+    const lastMonth = new Date(today);
+    lastMonth.setDate(lastMonth.getDate() - 30);
+    
+    const startDateInput = document.getElementById('startDate');
+    const endDateInput = document.getElementById('endDate');
+    
+    if (startDateInput && endDateInput) {
+        startDateInput.value = formatDateForInput(lastMonth);
+        endDateInput.value = formatDateForInput(today);
+        
+        // Update button styles
+        setActiveDateRangeButton('monthRangeBtn');
+        
+        // Trigger save state
+        saveNewsletterState();
+    }
+}
+
+// Helper function to reset all date range button styles to default
+function resetDateRangeButtonStyles() {
+    const rangeButtons = ['dayRangeBtn', 'weekRangeBtn', 'monthRangeBtn'];
+    
+    rangeButtons.forEach(btnId => {
+        const btn = document.getElementById(btnId);
+        if (btn) {
+            btn.classList.remove('active');
+            btn.classList.remove('btn-secondary');
+            btn.classList.add('btn-outline-secondary');
+        }
+    });
+}
+
+// Helper function to set active date range button
+function setActiveDateRangeButton(activeButtonId) {
+    // Get all date range buttons
+    const rangeButtons = ['dayRangeBtn', 'weekRangeBtn', 'monthRangeBtn'];
+    
+    // Remove active class from all buttons
+    rangeButtons.forEach(btnId => {
+        const btn = document.getElementById(btnId);
+        if (btn) {
+            btn.classList.remove('active');
+            btn.classList.remove('btn-secondary');
+            btn.classList.add('btn-outline-secondary');
+        }
+    });
+    
+    // Add active class to selected button
+    const activeBtn = document.getElementById(activeButtonId);
+    if (activeBtn) {
+        activeBtn.classList.remove('btn-outline-secondary');
+        activeBtn.classList.add('btn-secondary');
+        activeBtn.classList.add('active');
+    }
+}
+
+// Function to clear saved newsletter state
+function clearSavedState() {
+    try {
+        // Clear localStorage items
+        localStorage.removeItem('newsletter_content');
+        localStorage.removeItem('newsletter_config');
+        console.log('Newsletter saved state cleared');
+        
+        // Show confirmation message
+        alert('Saved newsletter state has been cleared. Refresh the page to reset all fields.');
+    } catch (e) {
+        console.error('Error clearing saved state:', e);
+        alert('Error clearing saved state: ' + e.message);
+    }
+}
+
+// Function to toggle all content type checkboxes
+function toggleSelectAllContentTypes() {
+    const checkboxes = document.querySelectorAll('.content-type-checkbox');
+    
+    // First determine if all checkboxes are already checked
+    const allChecked = Array.from(checkboxes).every(checkbox => checkbox.checked);
+    
+    // Toggle all checkboxes based on current state
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = !allChecked;
+    });
+    
+    // Update the button text
+    const selectAllBtn = document.getElementById('selectAllContentTypes');
+    if (selectAllBtn) {
+        selectAllBtn.textContent = allChecked ? 'Select All' : 'Deselect All';
     }
     
-    // Set up select all content types button
-    const selectAllContentTypesBtn = document.getElementById('selectAllContentTypes');
-    if (selectAllContentTypesBtn) {
-        selectAllContentTypesBtn.addEventListener('click', function() {
-            const checkboxes = document.querySelectorAll('.content-type-checkbox');
-            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-            
-            checkboxes.forEach(checkbox => {
-                checkbox.checked = !allChecked;
-            });
-            
-            this.textContent = allChecked ? 'Select All' : 'Deselect All';
-        });
-    }
-});
+    // Save the updated state
+    saveNewsletterState();
+}
+
+//
 </script>
 {% endblock %} 
