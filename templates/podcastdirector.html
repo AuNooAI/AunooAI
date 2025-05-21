@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 
 {% block content %}
+<!-- Import the media bias component -->
+{% include "components/media_bias_display.html" %}
 <div class="container mt-4">
     <h1>Podcast Director</h1>
     
@@ -1011,6 +1013,40 @@ function displaySearchResults(articles) {
             selectedArticleData[article.uri] = article;
         }
         
+        // Create media bias HTML if available
+        let mediaBiasHtml = '';
+        if (article.bias || article.factual_reporting) {
+            mediaBiasHtml = `<div class="mt-1">`;
+            
+            if (article.bias) {
+                mediaBiasHtml += `<span class="bias-badge ${getBiasClass(article.bias)} me-2">${article.bias}</span>`;
+            }
+            
+            if (article.factual_reporting) {
+                mediaBiasHtml += `<span class="bias-badge ${getFactualClass(article.factual_reporting)} me-2">${article.factual_reporting}</span>`;
+            }
+            
+            // Add tooltip with additional bias data
+            mediaBiasHtml += `
+                <span class="source-tooltip">
+                    <i class="fas fa-info-circle"></i>
+                    <div class="tooltip-content">
+                        <div style="text-align: center; font-weight: bold; margin-bottom: 5px;">Media Bias Info</div>
+                        <div><strong>Source:</strong> ${article.news_source || 'Unknown'}</div>
+                        ${article.bias ? `<div><strong>Bias:</strong> ${article.bias}</div>` : ''}
+                        ${article.factual_reporting ? `<div><strong>Factual Reporting:</strong> ${article.factual_reporting}</div>` : ''}
+                        ${article.mbfc_credibility_rating ? `<div><strong>MBFC Rating:</strong> ${article.mbfc_credibility_rating}</div>` : ''}
+                        ${article.bias_country ? `<div><strong>Country:</strong> ${article.bias_country}</div>` : ''}
+                        ${article.press_freedom ? `<div><strong>Press Freedom:</strong> ${article.press_freedom}</div>` : ''}
+                        ${article.media_type ? `<div><strong>Media Type:</strong> ${article.media_type}</div>` : ''}
+                        ${article.popularity ? `<div><strong>Popularity:</strong> ${article.popularity}</div>` : ''}
+                    </div>
+                </span>
+            `;
+            
+            mediaBiasHtml += `</div>`;
+        }
+        
         // Create the article display element
         item.innerHTML = `
             <div class="d-flex justify-content-between">
@@ -1026,6 +1062,7 @@ function displaySearchResults(articles) {
                         Source: ${article.news_source || 'Unknown'} | 
                         Published: ${article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'Unknown date'}
                     </small>
+                    ${mediaBiasHtml}
                 </div>
                 <div class="ms-3">
                     <button class="btn btn-sm ${isSelected ? 'btn-danger' : 'btn-primary'}" 
@@ -1705,6 +1742,59 @@ document.getElementById('diaDeleteBtn').addEventListener('click', async () => {
 
 // Load on startup
 loadDiaConfig();
+
+// Add helper functions for bias and factual rating classifications
+function getBiasClass(bias) {
+    if (!bias) return '';
+    
+    bias = bias.toLowerCase();
+    
+    if (bias.includes('left') && !bias.includes('center')) {
+        return 'bias-left';
+    } else if (bias.includes('left-center')) {
+        return 'bias-left-center';
+    } else if (bias.includes('least biased')) {
+        return 'bias-least-biased';
+    } else if (bias.includes('center')) {
+        return 'bias-center';
+    } else if (bias.includes('right-center')) {
+        return 'bias-right-center';
+    } else if (bias.includes('right')) {
+        return 'bias-right';
+    } else if (bias.includes('pro-science')) {
+        return 'bias-pro-science';
+    } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
+        return 'bias-conspiracy-pseudoscience';
+    } else if (bias.includes('questionable')) {
+        return 'bias-questionable';
+    } else if (bias.includes('satire')) {
+        return 'bias-satire';
+    }
+    
+    return '';
+}
+
+function getFactualClass(factual) {
+    if (!factual) return '';
+    
+    factual = factual.toLowerCase();
+    
+    if (factual.includes('very high')) {
+        return 'factual-very-high';
+    } else if (factual.includes('high') && !factual.includes('very')) {
+        return 'factual-high';
+    } else if (factual.includes('mostly')) {
+        return 'factual-mostly-factual';
+    } else if (factual.includes('mixed')) {
+        return 'factual-mixed';
+    } else if (factual.includes('low') && !factual.includes('very')) {
+        return 'factual-low';
+    } else if (factual.includes('very low')) {
+        return 'factual-very-low';
+    }
+    
+    return '';
+}
 </script>
 
 <style>

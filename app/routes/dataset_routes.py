@@ -161,17 +161,54 @@ async def get_bias_for_source(
 ):
     """Get media bias data for a specific source."""
     try:
+        logger.info(f"Fetching media bias data for source: {source}")
+        
+        # Try exact match first
         bias_data = media_bias.get_bias_for_source(source)
         
+        # If no exact match, try domain variations
         if not bias_data:
+            logger.info(f"No exact match found for {source}, trying variations")
+            
+            # Try without www. prefix
+            if source.startswith('www.'):
+                logger.info(f"Trying without www. prefix: {source[4:]}")
+                bias_data = media_bias.get_bias_for_source(source[4:])
+            
+            # Try with just the domain (no subdomain)
+            if not bias_data and '.' in source and source.count('.') > 1:
+                # Extract root domain (e.g., "example.com" from "sub.example.com")
+                domain_parts = source.split('.')
+                if len(domain_parts) > 2:
+                    root_domain = '.'.join(domain_parts[-2:])
+                    logger.info(f"Trying with root domain: {root_domain}")
+                    bias_data = media_bias.get_bias_for_source(root_domain)
+        
+        if not bias_data:
+            logger.info(f"No media bias data found for source: {source}")
             return JSONResponse(content={
                 "found": False,
                 "message": f"No media bias data found for source: {source}"
             })
         
+        # Ensure consistent field names
+        processed_data = {
+            "source": bias_data.get("source", source),
+            "bias": bias_data.get("bias", ""),
+            "factual_reporting": bias_data.get("factual_reporting", ""),
+            "country": bias_data.get("country", ""),
+            "mbfc_credibility_rating": bias_data.get("mbfc_credibility_rating", ""),
+            "press_freedom": bias_data.get("press_freedom", ""),
+            "media_type": bias_data.get("media_type", ""),
+            "popularity": bias_data.get("popularity", ""),
+        }
+        
+        logger.info(f"Found media bias data for source: {source}")
+        logger.debug(f"Returning data: {processed_data}")
+        
         return JSONResponse(content={
             "found": True,
-            "data": bias_data
+            "data": processed_data
         })
     except Exception as e:
         logger.error(f"Error getting bias for source {source}: {str(e)}")

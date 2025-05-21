@@ -4,7 +4,6 @@
 
 {% block styles %}
 
-
 <!-- SimpleMDE Markdown Editor CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/simplemde@1.11.2/dist/simplemde.min.css">
 <!-- Font Awesome for editor toolbar icons - using preload to prioritize loading -->
@@ -135,7 +134,17 @@
     .loading-spinner {
         display: none;
         text-align: center;
-        margin: 20px;
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 1000;
+        background-color: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        padding: 25px;
+        max-width: 90%;
+        width: 500px;
     }
 
     .editor-section {
@@ -327,15 +336,6 @@
 
 {% block content %}
 <div class="container-fluid newsletter-container" id="newsletterCompilerApp">
-    <!-- Add breadcrumb navigation -->
-    <div class="breadcrumb-container">
-        <ol class="breadcrumb">
-            <li class="breadcrumb-item"><a href="/">Home</a></li>
-            <li class="breadcrumb-item"><a href="/analysis">Analysis</a></li>
-            <li class="breadcrumb-item active">Newsletter Composer</li>
-        </ol>
-    </div>
-
     <h1>Newsletter Compiler</h1>
     
     <!-- Row 1: Newsletter Configuration -->
@@ -348,41 +348,76 @@
                 </div>
                 <div class="card-body">
                     <form id="newsletterForm">
-                        <div class="form-group">
-                            <label for="frequency" data-toggle="tooltip" data-placement="right" 
-                                   title="Select how often this newsletter should be generated">Frequency:</label>
-                            <select class="form-control" id="frequency" name="frequency" required
-                                    data-toggle="tooltip" data-placement="right" 
-                                    title="Choose between daily, weekly, or monthly newsletter frequency">
-                                <option value="daily">Daily</option>
-                                <option value="weekly">Weekly</option>
-                                <option value="monthly">Monthly</option>
-                            </select>
+                        <div class="row">
+                            <div class="col-md-8">
+                                <div class="form-group">
+                                    <label for="topics" data-toggle="tooltip" data-placement="right" 
+                                           title="Select one or more topics to include in your newsletter">Topics:</label>
+                                    <select class="form-control" id="topics" name="topics" multiple required
+                                            data-toggle="tooltip" data-placement="right" 
+                                            title="Hold Ctrl/Cmd to select multiple topics. These will be the main subjects covered in your newsletter">
+                                        <!-- Will be populated via API -->
+                                        <option value="" disabled>Loading topics...</option>
+                                    </select>
+                                    <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple topics</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="frequency" data-toggle="tooltip" data-placement="right" 
+                                                   title="Select newsletter frequency">Frequency:</label>
+                                            <select class="form-control" id="frequency" name="frequency" required
+                                                    data-toggle="tooltip" data-placement="right" 
+                                                    title="How frequently this newsletter is distributed">
+                                                <option value="weekly" selected>Weekly</option>
+                                                <option value="daily">Daily</option>
+                                                <option value="monthly">Monthly</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="form-group">
+                                            <label for="ai_model" data-toggle="tooltip" data-placement="right" 
+                                                   title="Select which AI model to use">AI Model:</label>
+                                            <select class="form-control" id="ai_model" name="ai_model" required
+                                                    data-toggle="tooltip" data-placement="right" 
+                                                    title="Different AI models have different capabilities">
+                                                <option value="gpt-4o" selected>GPT-4o</option>
+                                                <option value="gpt-4o-mini">GPT-4o Mini</option>
+                                                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                                                <option value="claude-3-7-sonnet-latest">Claude 3.7 Sonnet</option>
+                                                <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet</option>
+                                                <option value="mixtral-8x7b">Mixtral 8x7B</option>
+                                                <option value="gemini-pro">Gemini Pro</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         
                         <div class="form-group">
-                            <label for="topics" data-toggle="tooltip" data-placement="right" 
-                                   title="Select one or more topics to include in your newsletter">Topics:</label>
-                            <select class="form-control" id="topics" name="topics" multiple required
-                                    data-toggle="tooltip" data-placement="right" 
-                                    title="Hold Ctrl/Cmd to select multiple topics. These will be the main subjects covered in your newsletter">
-                                <!-- Will be populated via API -->
-                                <option value="" disabled>Loading topics...</option>
-                            </select>
-                            <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple topics</small>
-                        </div>
-                        
-                        <div class="form-group">
-                            <label data-toggle="tooltip" data-placement="right" 
-                                   title="Choose which types of content to include in your newsletter">Content Types:</label>
-                            <div class="mb-2">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <label data-toggle="tooltip" data-placement="right" 
+                                       title="Choose which types of content to include in your newsletter">Content Types and Prompts:</label>
                                 <button type="button" id="selectAllContentTypes" class="btn btn-sm btn-primary"
                                         data-toggle="tooltip" data-placement="right" 
                                         title="Toggle selection of all content types">Select All</button>
                             </div>
-                            <table class="table table-borderless" id="contentTypesTable">
-                                <tbody>
-                                    <tr><td colspan="2" class="text-muted">Loading content types...</td></tr>
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Content Type</th>
+                                        <th class="text-center">Include</th>
+                                        <th class="text-right">Prompt</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="contentTypesTable">
+                                    <tr>
+                                        <td colspan="3" class="text-muted">Loading content types...</td>
+                                    </tr>
                                 </tbody>
                             </table>
                         </div>
@@ -422,9 +457,11 @@
                             <small class="form-text text-muted">If not specified, dates will be calculated based on frequency</small>
                         </div>
                         
-                        <button type="button" id="compileButton" class="btn btn-primary"
-                                data-toggle="tooltip" data-placement="right" 
-                                title="Generate newsletter content based on your selections">Fetch & Compile Content</button>
+                        <div class="card-footer d-flex justify-content-between">
+                            <div>
+                                <span class="text-muted">Last updated: <span id="lastUpdated">Never</span></span>
+                            </div>
+                        </div>
                     </form>
                 </div>
             </div>
@@ -440,19 +477,27 @@
                     <h5>Actions</h5>
                 </div>
                 <div class="card-body">
-                    <button type="button" id="updatePreviewButton" class="btn btn-secondary mb-2"
+                    <button type="button" id="compileButton" class="btn btn-primary btn-sm mb-2"
+                            data-toggle="tooltip" data-placement="top" 
+                            title="Generate newsletter content based on your configuration">
+                            <i class="fa fa-cogs"></i> Generate Newsletter
+                    </button>
+                    <button type="button" id="updatePreviewButton" class="btn btn-secondary btn-sm mb-2"
                             data-toggle="tooltip" data-placement="top" 
                             title="Refresh the preview with latest editor content">Update Preview</button>
-                    <button type="button" id="downloadMarkdownButton" class="btn btn-success mb-2"
+                    <button type="button" id="downloadMarkdownButton" class="btn btn-success btn-sm mb-2"
                             data-toggle="tooltip" data-placement="top" 
                             title="Download the newsletter content as a Markdown file">Download Markdown</button>
-                    <button type="button" id="downloadPdfButton" class="btn btn-info mb-2" disabled
+                    <button type="button" id="saveToServerButton" class="btn btn-primary btn-sm mb-2"
+                            data-toggle="tooltip" data-placement="top" 
+                            title="Save the newsletter on the server">Save to Server</button>
+                    <button type="button" id="downloadPdfButton" class="btn btn-info btn-sm mb-2" disabled
                             data-toggle="tooltip" data-placement="top" 
                             title="Coming soon: Download as PDF">Download PDF (Coming Soon)</button>
-                    <button type="button" id="sendEmailButton" class="btn btn-warning mb-2" disabled
+                    <button type="button" id="sendEmailButton" class="btn btn-warning btn-sm mb-2" disabled
                             data-toggle="tooltip" data-placement="top" 
                             title="Coming soon: Send newsletter via email">Send via Email (Coming Soon)</button>
-                    <button type="button" id="sendSlackButton" class="btn btn-dark mb-2" disabled
+                    <button type="button" id="sendSlackButton" class="btn btn-dark btn-sm mb-2" disabled
                             data-toggle="tooltip" data-placement="top" 
                             title="Coming soon: Send newsletter to Slack">Send to Slack (Coming Soon)</button>
                 </div>
@@ -460,43 +505,81 @@
         </div>
     </div>
     
-    <div class="loading-spinner" id="loadingSpinner" style="display: none; text-align: center; margin: 20px;">
-        <div class="spinner-border text-primary" role="status">
-            <span class="sr-only">Loading...</span>
+    <div class="loading-spinner" id="loadingSpinner" style="display: none; margin: 20px;">
+        <div class="card">
+            <div class="card-body">
+                <h5 class="card-title">Newsletter Compilation Progress</h5>
+                <div id="compilationStatus" class="mb-2">Initializing...</div>
+                <div class="progress mb-3">
+                    <div id="compilationProgress" class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">
+                        0%
+                    </div>
+                </div>
+                <div id="compilationStep" class="text-muted small">Starting compilation...</div>
+                <div id="compilationID" class="text-muted small mt-2"></div>
+            </div>
         </div>
-        <p>Compiling newsletter content...</p>
     </div>
     
     <!-- Row 3: Editor and Preview -->
     <div class="row">
-        <div class="col-md-6 editor-section">
-            <!-- Simple editor container with explicit styling -->
-            <div class="card" style="margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                <div class="card-header" style="background-color: #f8f9fa; padding: 10px 15px;">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
                     <h5 class="mb-0">Markdown Editor</h5>
                 </div>
-                <div class="card-body" style="padding: 0;">
-                    <!-- Keep our working textarea -->
-                    <textarea id="basic-editor" style="width: 100%; height: 600px; padding: 15px; border: 1px solid #dee2e6;"></textarea>
+                <div class="card-body p-0">
+                    <textarea id="basic-editor"></textarea>
                 </div>
             </div>
         </div>
         
-        <div class="col-md-6 editor-section">
-            <!-- HTML Preview -->
-            <div class="card" style="margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                <div class="card-header" style="background-color: #f8f9fa; padding: 10px 15px;">
-                    <h5 class="mb-0">HTML Preview</h5>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Preview</h5>
                 </div>
-                <div class="card-body" style="padding: 15px; height: 600px; overflow-y: auto;">
+                <div class="card-body p-0">
                     <div id="preview-content" class="preview-container">
-                        <p>Preview content will appear here...</p>
+                        <p>Preview will appear here...</p>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 </div>
+    <!-- Prompt Editor Modal -->
+    <div class="modal" id="promptEditorModal" tabindex="-1" role="dialog" aria-labelledby="promptEditorModalTitle" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="promptEditorModalTitle">Edit Prompt</h5>
+                    <button type="button" class="close" id="closePromptEditorModal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <form id="promptEditorForm">
+                        <input type="hidden" id="promptEditorContentTypeId" name="contentTypeId">
+                        <div class="form-group">
+                            <label for="promptEditorText">Prompt Template</label>
+                            <textarea class="form-control" id="promptEditorText" name="promptTemplate" rows="10" 
+                                      placeholder="Enter your custom prompt template here..."></textarea>
+                            <small class="form-text text-muted">
+                                Use variable placeholders like {{topic}}, {{start_date}}, etc. These will be replaced with 
+                                actual values when generating content.
+                            </small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="cancelPromptEditorModal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="savePromptButton">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block scripts %}
@@ -510,7 +593,7 @@
 
 <script>
 // Global variables
-let simplemde; // Our SimpleMDE editor instance
+let editor; // Our SimpleMDE editor instance
 const loadingSpinner = document.getElementById('loadingSpinner');
 let originalMarkdownContent = ""; // Store the full content with base64
 
@@ -534,12 +617,12 @@ window.onload = function() {
     
     try {
         // Initialize SimpleMDE
-        simplemde = new SimpleMDE({ 
+        editor = new SimpleMDE({ 
             element: textArea,
             spellChecker: false,
             autofocus: true,
             placeholder: "Type markdown content here...",
-            initialValue: "# Newsletter Content\n\nYour newsletter content will appear here after compilation.",
+            initialValue: "# Newsletter Content\n\nClick the 'Generate Newsletter' button to compile your newsletter based on the settings above.",
             toolbar: ["bold", "italic", "heading", "|", "quote", "unordered-list", "ordered-list", "|", 
                      "link", "image", "table", "|", "preview", "side-by-side", "fullscreen"]
         });
@@ -547,11 +630,11 @@ window.onload = function() {
         console.log("SimpleMDE initialized successfully");
         
         // Save original value method
-        const originalGetValue = simplemde.value.bind(simplemde);
-        const originalSetValue = simplemde.value;
+        const originalGetValue = editor.value.bind(editor);
+        const originalSetValue = editor.value;
         
         // Override the value() method to handle base64 images
-        simplemde.value = function(val) {
+        editor.value = function(val) {
             if (val === undefined) {
                 // Getting the value - return original content with base64
                 return originalMarkdownContent || originalGetValue();
@@ -561,16 +644,16 @@ window.onload = function() {
                 
                 // Replace base64 content with placeholders in the editor
                 const condensedVal = replaceBase64WithPlaceholders(val);
-                originalSetValue.call(simplemde, condensedVal);
+                originalSetValue.call(editor, condensedVal);
                 
-                return simplemde;
+                return editor;
             }
         };
         
         // Set up change handler for preview updates
-        simplemde.codemirror.on("change", function() {
+        editor.codemirror.on("change", function() {
             // Get editor content (which may have placeholders)
-            const editorContent = simplemde.codemirror.getValue();
+            const editorContent = editor.codemirror.getValue();
             
             // If user edited something, update the original content too
             if (editorContent !== replaceBase64WithPlaceholders(originalMarkdownContent)) {
@@ -626,17 +709,17 @@ function restorePlaceholdersIfNeeded(editorContent, originalContent) {
 
 // Function to get markdown content
 function getMarkdownContent() {
-    if (simplemde) {
+    if (editor) {
         // Return original content with full base64 images
-        return originalMarkdownContent || simplemde.value();
+        return originalMarkdownContent || editor.value();
     }
     return "";
 }
 
 // Function to set markdown content
 function setMarkdownContent(markdown) {
-    if (simplemde) {
-        simplemde.value(markdown);
+    if (editor) {
+        editor.value(markdown);
         updatePreview();
     }
 }
@@ -763,77 +846,62 @@ function downloadMarkdown() {
 // Load topics from API
 async function loadTopics() {
     try {
-        console.log('Starting to fetch topics...');
+        console.log('Fetching topics...');
         const topicsSelect = document.getElementById('topics');
-        topicsSelect.innerHTML = '<option value="" disabled>Loading topics...</option>';
-        
-        // Try multiple endpoints in sequence until one works
-        const endpoints = [
-            '/api/topics',
-            '/api/newsletter/topics',
-            '/api/debug/topics'
-        ];
-        
-        let response = null;
-        let endpoint = null;
-        
-        // Try each endpoint in sequence
-        for (const ep of endpoints) {
-            try {
-                console.log(`Trying to fetch from ${ep}...`);
-                const tempResponse = await fetch(ep);
-                
-                if (tempResponse.ok) {
-                    response = tempResponse;
-                    endpoint = ep;
-                    console.log(`Successfully connected to ${ep}`);
-                    break;
-                } else {
-                    console.warn(`Endpoint ${ep} returned status: ${tempResponse.status}`);
-                }
-            } catch (fetchError) {
-                console.warn(`Failed to fetch from ${ep}:`, fetchError);
-            }
+        if (!topicsSelect) {
+            console.error('Topics select element not found');
+            return;
         }
         
-        if (!response) {
-            throw new Error(`Failed to fetch topics from any endpoint`);
+        // Clear existing options and show loading
+        topicsSelect.innerHTML = '<option value="" disabled selected>Loading topics...</option>';
+        
+        const response = await fetch('/api/newsletter/topics');
+        console.log('Topics API response status:', response.status);
+        
+        if (!response.ok) {
+            throw new Error(`API returned status: ${response.status}`);
         }
         
-        const data = await response.json();
+        const topics = await response.json();
+        console.log('Fetched topics:', topics);
         
-        // Clear select element
+        // Clear the select
         topicsSelect.innerHTML = '';
         
-        if (!Array.isArray(data)) {
-            console.error('Topics data is not an array:', data);
-            topicsSelect.innerHTML = '<option value="" disabled>Error: Invalid data format</option>';
+        if (!Array.isArray(topics)) {
+            console.error('Topics data is not an array:', topics);
+            topicsSelect.innerHTML = '<option value="" disabled selected>Error: Invalid data format</option>';
             return;
         }
         
-        if (data.length === 0) {
+        if (topics.length === 0) {
             console.warn('No topics returned from API');
-            topicsSelect.innerHTML = '<option value="" disabled>No topics available</option>';
+            topicsSelect.innerHTML = '<option value="" disabled selected>No topics available</option>';
             return;
         }
         
-        // Handle different data formats
-        data.forEach((topic) => {
-            let topicValue, topicText;
+        // Add topics to select
+        topics.forEach(topic => {
+            const option = document.createElement('option');
             
+            // Handle both object format and simple string format
             if (typeof topic === 'string') {
-                topicValue = topic;
-                topicText = topic;
-            } else if (topic && typeof topic === 'object') {
-                topicValue = topic.name || topic.id || "Unknown Topic";
-                topicText = topic.displayName || topic.name || topic.id || "Unknown Topic";
+                option.value = topic;
+                option.textContent = topic;
             } else {
-                return; // Skip invalid format
+                // Object format with properties
+                option.value = topic.id || topic.name || topic;
+                option.textContent = topic.name || topic;
+                
+                if (topic.description) {
+                    option.title = topic.description;
+                }
+                if (topic.default_selected) {
+                    option.selected = true;
+                }
             }
             
-            const option = document.createElement('option');
-            option.value = topicValue;
-            option.textContent = topicText;
             topicsSelect.appendChild(option);
         });
         
@@ -842,7 +910,9 @@ async function loadTopics() {
     } catch (error) {
         console.error('Error loading topics:', error);
         const topicsSelect = document.getElementById('topics');
-        topicsSelect.innerHTML = '<option value="" disabled>Failed to load topics</option>';
+        if (topicsSelect) {
+            topicsSelect.innerHTML = `<option value="" disabled selected>Error loading topics: ${error.message}</option>`;
+        }
     }
 }
 
@@ -857,80 +927,159 @@ async function loadContentTypes() {
         }
         
         // Get the tbody element
-        const tbody = contentTypesTable.querySelector('tbody');
-        tbody.innerHTML = '<tr><td colspan="2" class="text-muted">Loading content types...</td></tr>';
+        const tbody = contentTypesTable;
+        tbody.innerHTML = '<tr><td colspan="3" class="text-muted">Loading content types...</td></tr>';
         
         const response = await fetch('/api/newsletter/content_types');
+        console.log('Content types API response status:', response.status);
         
         if (!response.ok) {
             throw new Error(`API returned status: ${response.status}`);
         }
         
         const contentTypes = await response.json();
+        console.log('Fetched content types:', contentTypes);
         
         // Clear container
         tbody.innerHTML = '';
         
         if (!Array.isArray(contentTypes)) {
-            tbody.innerHTML = '<tr><td colspan="2" class="text-danger">Error: Invalid data format</td></tr>';
+            console.error('Content types data is not an array:', contentTypes);
+            tbody.innerHTML = '<tr><td colspan="3" class="text-danger">Error: Invalid data format</td></tr>';
             return;
         }
         
         if (contentTypes.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="2" class="text-muted">No content types available</td></tr>';
+            console.warn('No content types returned from API');
+            tbody.innerHTML = '<tr><td colspan="3" class="text-muted">No content types available</td></tr>';
             return;
         }
         
-        // Add checkboxes for each content type with table layout
-        contentTypes.forEach(type => {
+        // Render content types
+        contentTypes.forEach(contentType => {
             const row = document.createElement('tr');
             
-            // Create checkbox cell
-            const checkboxCell = document.createElement('td');
-            checkboxCell.width = '30'; // Fixed width for checkbox cell
-            checkboxCell.style.verticalAlign = 'top';
-            checkboxCell.style.paddingRight = '0';
+            // Content type name cell
+            const nameCell = document.createElement('td');
+            nameCell.textContent = contentType.name || 'Unnamed';
+            if (contentType.description) {
+                const description = document.createElement('small');
+                description.className = 'text-muted d-block';
+                description.textContent = contentType.description;
+                nameCell.appendChild(description);
+            }
+            
+            // Include checkbox cell
+            const includeCell = document.createElement('td');
+            includeCell.className = 'text-center';
+            
+            const checkboxWrapper = document.createElement('div');
+            checkboxWrapper.className = 'form-check';
             
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
-            checkbox.id = `content-type-${type.id}`;
-            checkbox.name = 'contentTypes';
-            checkbox.value = type.id;
-            checkbox.checked = true;
-            checkboxCell.appendChild(checkbox);
+            checkbox.className = 'form-check-input content-type-checkbox';
+            checkbox.id = `content-type-${contentType.id}`;
+            checkbox.name = `content-type-${contentType.id}`;
+            checkbox.value = contentType.id;
+            checkbox.checked = contentType.default_enabled || false;
             
-            // Create label cell
-            const labelCell = document.createElement('td');
+            checkboxWrapper.appendChild(checkbox);
+            includeCell.appendChild(checkboxWrapper);
             
-            const label = document.createElement('label');
-            label.htmlFor = `content-type-${type.id}`;
-            label.textContent = type.name || 'Unnamed Type';
-            label.style.fontWeight = '500';
-            label.style.marginBottom = '0';
-            label.style.display = 'block';
-            labelCell.appendChild(label);
+            // Prompt input cell
+            const promptCell = document.createElement('td');
             
-            if (type.description) {
-                const description = document.createElement('small');
-                description.className = 'text-muted';
-                description.textContent = type.description;
-                description.style.display = 'block';
-                labelCell.appendChild(description);
-            }
+            // Create a container for the edit button (no input field)
+            const promptContainer = document.createElement('div');
+            promptContainer.className = 'd-flex justify-content-end';
+            
+            // Create hidden input for storing the prompt value
+            const promptInput = document.createElement('input');
+            promptInput.type = 'hidden';
+            promptInput.id = `prompt-${contentType.id}`;
+            promptInput.name = `prompt-${contentType.id}`;
+            promptInput.value = contentType.default_prompt || '';
+            
+            // No prompt summary text needed
+            
+            // Create edit button (icon only)
+            const editButton = document.createElement('button');
+            editButton.className = 'btn btn-sm btn-outline-secondary';
+            editButton.type = 'button';
+            editButton.innerHTML = '<i class="fa fa-pencil"></i>';
+            editButton.title = 'Edit custom prompt template';
+            editButton.setAttribute('data-toggle', 'tooltip');
+            editButton.setAttribute('data-placement', 'top');
+            
+            // Add click handler for the edit button
+            editButton.addEventListener('click', function() {
+                // Get the content type ID from the prompt input ID
+                const contentTypeId = contentType.id;
+                
+                // Load the prompt from the database first
+                fetch(`/api/newsletter/prompts/${contentTypeId}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            if (response.status === 404) {
+                                // If not found, just use the current value
+                                return { 
+                                    prompt_template: promptInput.value,
+                                    description: contentType.description || ''
+                                };
+                            }
+                            throw new Error(`API returned status: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        // Populate and show the prompt editor modal
+                        const modal = document.getElementById('promptEditorModal');
+                        const modalTitle = document.getElementById('promptEditorModalTitle');
+                        const modalPromptTextarea = document.getElementById('promptEditorText');
+                        const contentTypeIdInput = document.getElementById('promptEditorContentTypeId');
+                        
+                        if (modal && modalTitle && modalPromptTextarea && contentTypeIdInput) {
+                            // Set modal title
+                            modalTitle.textContent = `Edit Prompt: ${contentType.name || contentTypeId}`;
+                            
+                            // Set prompt text
+                            modalPromptTextarea.value = data.prompt_template || promptInput.value;
+                            
+                            // Set content type ID (hidden field)
+                            contentTypeIdInput.value = contentTypeId;
+                            
+                            // Show modal using native JavaScript (not jQuery)
+                            modal.classList.add('show');
+                            modal.style.display = 'block';
+                            modal.setAttribute('aria-hidden', 'false');
+                            document.body.classList.add('modal-open');
+                        } else {
+                            console.error('Prompt editor modal elements not found');
+                            alert('Error: Could not open prompt editor. Please try again.');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error loading prompt:', error);
+                        alert(`Error loading prompt: ${error.message}`);
+                    });
+            });
+            
+            // Add elements to container
+            promptContainer.appendChild(promptInput);
+            promptContainer.appendChild(editButton);
+            
+            // Add the container to the cell
+            promptCell.appendChild(promptContainer);
             
             // Add cells to row
-            row.appendChild(checkboxCell);
-            row.appendChild(labelCell);
+            row.appendChild(nameCell);
+            row.appendChild(includeCell);
+            row.appendChild(promptCell);
             
             // Add row to table
             tbody.appendChild(row);
         });
-        
-        // Set initial text for Select All button to "Deselect All" since all are checked by default
-        const selectAllBtn = document.getElementById('selectAllContentTypes');
-        if (selectAllBtn) {
-            selectAllBtn.textContent = 'Deselect All';
-        }
         
         console.log('Content types loaded successfully');
         
@@ -938,51 +1087,85 @@ async function loadContentTypes() {
         console.error('Error loading content types:', error);
         const contentTypesTable = document.getElementById('contentTypesTable');
         if (contentTypesTable) {
-            const tbody = contentTypesTable.querySelector('tbody');
-            if (tbody) {
-                tbody.innerHTML = '<tr><td colspan="2" class="text-danger">Failed to load content types</td></tr>';
-            }
+            contentTypesTable.innerHTML = `<tr><td colspan="3" class="text-danger">Error loading content types: ${error.message}</td></tr>`;
         }
     }
 }
 
 // Compile newsletter content
 async function compileNewsletter() {
-    // Get form values
-    const frequency = document.getElementById('frequency').value;
-    const topicsSelect = document.getElementById('topics');
-    const topics = Array.from(topicsSelect.selectedOptions).map(option => option.value);
-    const contentTypes = Array.from(document.querySelectorAll('input[name="contentTypes"]:checked')).map(checkbox => checkbox.value);
-    const startDate = document.getElementById('startDate').value;
-    const endDate = document.getElementById('endDate').value;
-    
-    // Validate form
-    if (topics.length === 0) {
-        alert('Please select at least one topic');
-        return;
-    }
-    
-    if (contentTypes.length === 0) {
-        alert('Please select at least one content type');
-        return;
-    }
-    
-    // Prepare request payload
-    const payload = {
-        frequency,
-        topics,
-        content_types: contentTypes
-    };
-    
-    // Add optional dates if provided
-    if (startDate) payload.start_date = startDate;
-    if (endDate) payload.end_date = endDate;
-    
-    // Show loading spinner
-    loadingSpinner.style.display = 'block';
-    
     try {
-        console.log('Sending request to /api/newsletter/compile with payload:', JSON.stringify(payload));
+        console.log('Compiling newsletter...');
+        
+        // Show loading spinner
+        const loadingSpinner = document.getElementById('loadingSpinner');
+        if (loadingSpinner) {
+            loadingSpinner.style.display = 'block';
+        }
+        
+        // Get selected topics
+        const topicsSelect = document.getElementById('topics');
+        if (!topicsSelect) {
+            throw new Error('Topics select element not found');
+        }
+        
+        const selectedTopics = Array.from(topicsSelect.selectedOptions).map(option => option.value);
+        if (selectedTopics.length === 0) {
+            throw new Error('Please select at least one topic');
+        }
+        
+        console.log('Selected topics:', selectedTopics);
+        
+        // Get selected content types and their prompts
+        const contentTypeCheckboxes = document.querySelectorAll('.content-type-checkbox:checked');
+        if (contentTypeCheckboxes.length === 0) {
+            throw new Error('Please select at least one content type');
+        }
+        
+        // The API expects a list of content type IDs (strings), not objects
+        const selectedContentTypes = Array.from(contentTypeCheckboxes).map(checkbox => {
+            return checkbox.value;
+        });
+        
+        console.log('Selected content types:', selectedContentTypes);
+        
+        // Get date range
+        const startDate = document.getElementById('startDate').value;
+        const endDate = document.getElementById('endDate').value;
+        
+        // Get frequency (required by API)
+        const frequency = document.getElementById('frequency');
+        let frequencyValue = 'weekly'; // Default to weekly if frequency element doesn't exist
+        
+        if (frequency) {
+            frequencyValue = frequency.value || 'weekly';
+        } else {
+            console.warn('Frequency input not found, using default value "weekly"');
+        }
+        
+        // Get AI model selection
+        const aiModelSelect = document.getElementById('ai_model');
+        let aiModel = 'gpt-4-turbo'; // Default model
+        
+        if (aiModelSelect) {
+            aiModel = aiModelSelect.value;
+        } else {
+            console.warn('AI model select not found, using default model "gpt-4-turbo"');
+        }
+        
+        // Prepare request payload
+        const payload = {
+            frequency: frequencyValue,
+            topics: selectedTopics,
+            content_types: selectedContentTypes,
+            start_date: startDate || null,
+            end_date: endDate || null,
+            ai_model: aiModel
+        };
+        
+        console.log('Sending compilation request with payload:', payload);
+        
+        // Send compilation request
         const response = await fetch('/api/newsletter/compile', {
             method: 'POST',
             headers: {
@@ -993,109 +1176,469 @@ async function compileNewsletter() {
         
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('Server error response:', errorText);
-            throw new Error(`Error ${response.status}: ${response.statusText}`);
+            throw new Error(`API returned status ${response.status}: ${errorText}`);
         }
         
         const data = await response.json();
-        console.log('Received response:', data);
+        console.log('Compilation result:', data);
         
-        // Update markdown editor with compiled content
-        setMarkdownContent(data.compiled_markdown || '');
+        // Log the entire response for debugging
+        console.log('Full API response:', data);
+        
+        // Check if compilation has started and we have an ID for progress tracking
+        if (data.message && data.message.includes('Newsletter compilation started with ID:')) {
+            // Extract compilation ID
+            const compilationId = data.message.split('ID: ')[1].trim();
+            console.log('Compilation ID:', compilationId);
+            
+            // Update the compilation ID in the UI
+            const compilationIdElement = document.getElementById('compilationID');
+            if (compilationIdElement) {
+                compilationIdElement.textContent = `Compilation ID: ${compilationId}`;
+            }
+            
+            // Make sure loading spinner is visible with proper initial state
+            showLoadingSpinner(compilationId);
+            
+            // Connect to WebSocket for progress updates
+            connectToProgressWebsocket(compilationId);
+            
+            // Start polling for updates
+            pollCompilationProgress(compilationId);
+            
+            // Don't modify editor content, use the progress display
+            // Just return, the editor content will be updated when compilation is complete
+            return;
+        }
+        
+        // Update editor with compiled content when available
+        if (data.compiled_markdown) {
+            setMarkdownContent(data.compiled_markdown);
+            
+            // Update last updated time
+            const lastUpdatedElement = document.getElementById('lastUpdated');
+            if (lastUpdatedElement) {
+                const now = new Date();
+                lastUpdatedElement.textContent = now.toLocaleString();
+            }
+            
+            // Hide the spinner
+            hideLoadingSpinner();
+        } else if (data.result) {
+            // Some API endpoints might return 'result' instead
+            setMarkdownContent(data.result);
+            
+            // Update last updated time
+            const lastUpdatedElement = document.getElementById('lastUpdated');
+            if (lastUpdatedElement) {
+                const now = new Date();
+                lastUpdatedElement.textContent = now.toLocaleString();
+            }
+            
+            // Hide the spinner
+            hideLoadingSpinner();
+        } else {
+            // Show the API message in the editor if no content
+            if (data.message) {
+                setMarkdownContent(`# Newsletter Compilation Status\n\n${data.message}\n\nPlease check the server logs for more details.`);
+                console.warn('API returned a message but no content:', data.message);
+            } else {
+                throw new Error('No content returned from API');
+            }
+        }
         
     } catch (error) {
         console.error('Error compiling newsletter:', error);
-        setMarkdownContent(`# Error Compiling Newsletter\n\n${error.message}\n\nPlease try again or check the browser console for more details.`);
-    } finally {
-        // Hide loading spinner
+        // Hide loading spinner on error
+        hideLoadingSpinner();
+        alert(`Error compiling newsletter: ${error.message}`);
+    }
+}
+
+    // Function to connect to the WebSocket for real-time progress updates
+function connectToProgressWebsocket(compilationId) {
+    try {
+        // Get the current protocol (http or https)
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        // Construct WebSocket URL using the current host
+        const wsUrl = `${protocol}//${window.location.host}/ws/newsletter/progress/${compilationId}`;
+        console.log(`Connecting to WebSocket: ${wsUrl}`);
+        
+        const socket = new WebSocket(wsUrl);
+        
+        socket.onopen = () => {
+            console.log('WebSocket connection established');
+        };
+        
+        socket.onmessage = (event) => {
+            console.log('WebSocket message received:', event.data);
+            try {
+                const data = JSON.parse(event.data);
+                updateProgressUI(data);
+                
+                // If compilation is complete, get the final result
+                if (data.status === 'completed' && data.progress >= 100) {
+                    fetchCompilationResult(compilationId);
+                }
+            } catch (error) {
+                console.error('Error parsing WebSocket message:', error);
+            }
+        };
+        
+        socket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+        
+        socket.onclose = () => {
+            console.log('WebSocket connection closed');
+        };
+        
+        // Store socket reference for cleanup
+        window.newsletterWebSocket = socket;
+    } catch (error) {
+        console.error('Error connecting to WebSocket:', error);
+    }
+}
+
+// Function to poll for compilation progress
+function pollCompilationProgress(compilationId) {
+    let pollingInterval = null;
+    
+    // Start polling
+    pollingInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`/api/newsletter/progress/${compilationId}`);
+            
+            if (!response.ok) {
+                console.error(`Progress polling error: ${response.status}`);
+                return;
+            }
+            
+            const data = await response.json();
+            console.log('Progress polling result:', data);
+            
+            // Update the UI
+            updateProgressUI(data);
+            
+            // If we have the final result, update the editor and stop polling
+            if ((data.status === 'completed' || data.progress >= 100) && data.result) {
+                clearInterval(pollingInterval);
+                hideLoadingSpinner();
+                setMarkdownContent(data.result);
+                
+                // Update last updated time
+                const lastUpdatedElement = document.getElementById('lastUpdated');
+                if (lastUpdatedElement) {
+                    const now = new Date();
+                    lastUpdatedElement.textContent = now.toLocaleString();
+                }
+            }
+        } catch (error) {
+            console.error('Error polling for compilation progress:', error);
+        }
+    }, 2000); // Poll every 2 seconds
+    
+    // Store interval ID for cleanup
+    window.newsletterPollingInterval = pollingInterval;
+    
+    // Auto-cleanup after 5 minutes (300000 ms) to prevent infinite polling
+    setTimeout(() => {
+        if (window.newsletterPollingInterval) {
+            clearInterval(window.newsletterPollingInterval);
+            window.newsletterPollingInterval = null;
+        }
+    }, 300000);
+}
+
+// Function to fetch the final compilation result
+async function fetchCompilationResult(compilationId) {
+    try {
+        const response = await fetch(`/api/newsletter/progress/${compilationId}`);
+        
+        if (!response.ok) {
+            throw new Error(`Failed to fetch compilation result: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        console.log('Fetched final compilation result:', data);
+        
+        if (data.result) {
+            hideLoadingSpinner();
+            setMarkdownContent(data.result);
+            
+            // Update last updated time
+            const lastUpdatedElement = document.getElementById('lastUpdated');
+            if (lastUpdatedElement) {
+                const now = new Date();
+                lastUpdatedElement.textContent = now.toLocaleString();
+            }
+            
+            // Clean up WebSocket and polling
+            cleanupProgressMonitoring();
+        }
+    } catch (error) {
+        console.error('Error fetching compilation result:', error);
+    }
+}
+
+// Function to update the progress UI
+function updateProgressUI(data) {
+    // Update progress bar
+    const progressBar = document.getElementById('compilationProgress');
+    if (progressBar) {
+        const progress = Math.min(Math.max(data.progress || 0, 0), 100);
+        progressBar.style.width = `${progress}%`;
+        progressBar.setAttribute('aria-valuenow', progress);
+        progressBar.textContent = `${Math.round(progress)}%`;
+    }
+    
+    // Update status text
+    const statusElement = document.getElementById('compilationStatus');
+    if (statusElement) {
+        statusElement.textContent = data.status === 'in_progress' ? 
+            'Compilation in progress...' : 
+            (data.status === 'completed' ? 'Compilation completed!' : data.status);
+    }
+    
+    // Update step description
+    const stepElement = document.getElementById('compilationStep');
+    if (stepElement && data.current_step) {
+        stepElement.textContent = data.current_step;
+        if (data.message) {
+            stepElement.textContent += `: ${data.message}`;
+        }
+    }
+}
+
+// Function to clean up progress monitoring
+function cleanupProgressMonitoring() {
+    // Close WebSocket if open
+    if (window.newsletterWebSocket) {
+        window.newsletterWebSocket.close();
+        window.newsletterWebSocket = null;
+    }
+    
+    // Clear polling interval if active
+    if (window.newsletterPollingInterval) {
+        clearInterval(window.newsletterPollingInterval);
+        window.newsletterPollingInterval = null;
+    }
+}
+
+// Helper function to hide the loading spinner
+function hideLoadingSpinner() {
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    if (loadingSpinner) {
         loadingSpinner.style.display = 'none';
     }
 }
 
-// Initialize everything when the DOM is loaded
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, setting up event listeners');
+// Helper function to show and initialize the loading spinner
+function showLoadingSpinner(compilationId) {
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    if (!loadingSpinner) return;
     
-    // Load data from APIs
-    loadTopics();
+    // Show the spinner
+    loadingSpinner.style.display = 'block';
+    
+    // Initialize progress UI elements
+    const progressBar = document.getElementById('compilationProgress');
+    const statusElement = document.getElementById('compilationStatus');
+    const stepElement = document.getElementById('compilationStep');
+    
+    if (progressBar) {
+        progressBar.style.width = '0%';
+        progressBar.setAttribute('aria-valuenow', 0);
+        progressBar.textContent = '0%';
+    }
+    
+    if (statusElement) {
+        statusElement.textContent = 'Compilation in progress...';
+    }
+    
+    if (stepElement) {
+        stepElement.textContent = 'Starting compilation... This may take a few minutes.';
+    }
+    
+    // Set compilation ID if available
+    const compilationIdElement = document.getElementById('compilationID');
+    if (compilationIdElement && compilationId) {
+        compilationIdElement.textContent = `Compilation ID: ${compilationId}`;
+    }
+}
+
+    // Function to save the prompt template
+async function savePromptTemplate() {
+    try {
+        const contentTypeId = document.getElementById('promptEditorContentTypeId').value;
+        const promptTemplate = document.getElementById('promptEditorText').value;
+        
+        if (!contentTypeId) {
+            throw new Error('Content type ID is missing');
+        }
+        
+        if (!promptTemplate || !promptTemplate.trim()) {
+            throw new Error('Prompt template cannot be empty');
+        }
+        
+        console.log(`Saving prompt for content type ${contentTypeId}`);
+        
+        // Prepare the request
+        const payload = {
+            prompt_template: promptTemplate
+        };
+        
+        // Send update request
+        const response = await fetch(`/api/newsletter/prompts/${contentTypeId}`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`API returned status ${response.status}: ${errorText}`);
+        }
+        
+        // Update the input field with the new value
+        const promptInput = document.getElementById(`prompt-${contentTypeId}`);
+        if (promptInput) {
+            promptInput.value = promptTemplate;
+        }
+        
+                 // Hide the modal using native JavaScript
+         const modal = document.getElementById('promptEditorModal');
+         if (modal) {
+             modal.classList.remove('show');
+             modal.style.display = 'none';
+             modal.setAttribute('aria-hidden', 'true');
+             document.body.classList.remove('modal-open');
+         }
+        
+        // Show success message
+        console.log('Prompt saved successfully');
+        alert('Prompt saved successfully!');
+        
+    } catch (error) {
+        console.error('Error saving prompt:', error);
+        alert(`Error saving prompt: ${error.message}`);
+    }
+}
+
+    // Initialize everything when the DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing components');
+    
+    // Load content types
     loadContentTypes();
     
-    // Set up event listeners for buttons
+    // Load topics
+    loadTopics();
     
-    // Compile button
+    // Set up prompt editor buttons
+    const savePromptButton = document.getElementById('savePromptButton');
+    if (savePromptButton) {
+        savePromptButton.addEventListener('click', savePromptTemplate);
+    }
+    
+    // Set up close/cancel buttons for the modal
+    const closeModalButton = document.getElementById('closePromptEditorModal');
+    const cancelModalButton = document.getElementById('cancelPromptEditorModal');
+    
+    function closePromptModal() {
+        const modal = document.getElementById('promptEditorModal');
+        if (modal) {
+            modal.classList.remove('show');
+            modal.style.display = 'none';
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+        }
+    }
+    
+    if (closeModalButton) {
+        closeModalButton.addEventListener('click', closePromptModal);
+    }
+    
+    if (cancelModalButton) {
+        cancelModalButton.addEventListener('click', closePromptModal);
+    }
+    
+    // Set up event listeners
     const compileButton = document.getElementById('compileButton');
     if (compileButton) {
         compileButton.addEventListener('click', compileNewsletter);
     }
     
-    // Update preview button
     const updatePreviewButton = document.getElementById('updatePreviewButton');
     if (updatePreviewButton) {
         updatePreviewButton.addEventListener('click', updatePreview);
     }
     
-    // Download markdown button
     const downloadMarkdownButton = document.getElementById('downloadMarkdownButton');
     if (downloadMarkdownButton) {
         downloadMarkdownButton.addEventListener('click', downloadMarkdown);
     }
     
-    // Select all content types button - set initial text and handling
-    const selectAllContentTypes = document.getElementById('selectAllContentTypes');
-    if (selectAllContentTypes) {
-        // Initial text will be set after content types are loaded
+    // Set default date range (last 7 days)
+    const today = new Date();
+    const weekAgo = new Date();
+    weekAgo.setDate(today.getDate() - 7);
+    
+    const startDateInput = document.getElementById('startDate');
+    const endDateInput = document.getElementById('endDate');
+    
+    if (startDateInput && endDateInput) {
+        startDateInput.valueAsDate = weekAgo;
+        endDateInput.valueAsDate = today;
+    }
+    
+    // Set up date range preset buttons
+    const dayRangeBtn = document.getElementById('dayRangeBtn');
+    const weekRangeBtn = document.getElementById('weekRangeBtn');
+    const monthRangeBtn = document.getElementById('monthRangeBtn');
+    
+    if (dayRangeBtn && weekRangeBtn && monthRangeBtn && startDateInput && endDateInput) {
+        dayRangeBtn.addEventListener('click', function() {
+            const today = new Date();
+            const yesterday = new Date();
+            yesterday.setDate(today.getDate() - 1);
+            startDateInput.valueAsDate = yesterday;
+            endDateInput.valueAsDate = today;
+        });
         
-        selectAllContentTypes.addEventListener('click', function() {
-            const checkboxes = document.querySelectorAll('input[name="contentTypes"]');
-            
-            // Check if all are already checked
-            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-            
-            // Toggle the checked state based on current state
-            checkboxes.forEach(cb => {
-                cb.checked = !allChecked;
-            });
-            
-            // Update button text
-            this.textContent = allChecked ? 'Select All' : 'Deselect All';
+        weekRangeBtn.addEventListener('click', function() {
+            const today = new Date();
+            const weekAgo = new Date();
+            weekAgo.setDate(today.getDate() - 7);
+            startDateInput.valueAsDate = weekAgo;
+            endDateInput.valueAsDate = today;
+        });
+        
+        monthRangeBtn.addEventListener('click', function() {
+            const today = new Date();
+            const monthAgo = new Date();
+            monthAgo.setDate(today.getDate() - 30);
+            startDateInput.valueAsDate = monthAgo;
+            endDateInput.valueAsDate = today;
         });
     }
     
-    // Date range buttons
-    function setDateRange(days) {
-        const today = new Date();
-        const endDate = today.toISOString().split('T')[0];
-        const start = new Date(today);
-        start.setDate(today.getDate() - days);
-        const startDate = start.toISOString().split('T')[0];
-        
-        const startDateInput = document.getElementById('startDate');
-        const endDateInput = document.getElementById('endDate');
-        
-        if (startDateInput) startDateInput.value = startDate;
-        if (endDateInput) endDateInput.value = endDate;
+    // Set up select all content types button
+    const selectAllContentTypesBtn = document.getElementById('selectAllContentTypes');
+    if (selectAllContentTypesBtn) {
+        selectAllContentTypesBtn.addEventListener('click', function() {
+            const checkboxes = document.querySelectorAll('.content-type-checkbox');
+            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+            
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = !allChecked;
+            });
+            
+            this.textContent = allChecked ? 'Select All' : 'Deselect All';
+        });
     }
-    
-    const dayRangeBtn = document.getElementById('dayRangeBtn');
-    if (dayRangeBtn) {
-        dayRangeBtn.addEventListener('click', function() { setDateRange(1); });
-    }
-    
-    const weekRangeBtn = document.getElementById('weekRangeBtn');
-    if (weekRangeBtn) {
-        weekRangeBtn.addEventListener('click', function() { setDateRange(7); });
-    }
-    
-    const monthRangeBtn = document.getElementById('monthRangeBtn');
-    if (monthRangeBtn) {
-        monthRangeBtn.addEventListener('click', function() { setDateRange(30); });
-    }
-
-    // Initialize tooltips when the DOM is loaded
-    $('[data-toggle="tooltip"]').tooltip({
-        trigger: 'hover',
-        html: true
-    });
 });
 </script>
 {% endblock %} 

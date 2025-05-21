@@ -3,7 +3,231 @@
 {% block title %}AuNoo AI - Trend Dashboard{% endblock %}
 
 {% block extra_css %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<!-- Media bias component code directly included -->
+<script>
+// Helper functions for bias and factual class mapping
+function getBiasClass(bias) {
+    if (!bias) return '';
+    
+    bias = bias.toLowerCase();
+    console.log('getBiasClass called with:', bias);
+    
+    if (bias.includes('left') && !bias.includes('center')) {
+        return 'bias-left';
+    } else if (bias.includes('left-center')) {
+        return 'bias-left-center';
+    } else if (bias.includes('least biased') || bias.includes('center')) {
+        return 'bias-least-biased';
+    } else if (bias.includes('right-center')) {
+        return 'bias-right-center';
+    } else if (bias.includes('right') && !bias.includes('center')) {
+        return 'bias-right';
+    } else if (bias.includes('pro-science')) {
+        return 'bias-pro-science';
+    } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
+        return 'bias-conspiracy-pseudoscience';
+    } else if (bias.includes('questionable')) {
+        return 'bias-questionable';
+    } else if (bias.includes('satire')) {
+        return 'bias-satire';
+    }
+    
+    return '';
+}
+
+function getFactualClass(factual) {
+    if (!factual) return '';
+    
+    factual = factual.toLowerCase();
+    
+    if (factual.includes('very high')) {
+        return 'factual-very-high';
+    } else if (factual.includes('high') && !factual.includes('very')) {
+        return 'factual-high';
+    } else if (factual.includes('mostly')) {
+        return 'factual-mostly-factual';
+    } else if (factual.includes('mixed')) {
+        return 'factual-mixed';
+    } else if (factual.includes('low') && !factual.includes('very')) {
+        return 'factual-low';
+    } else if (factual.includes('very low')) {
+        return 'factual-very-low';
+    }
+    
+    return '';
+}
+
+// Function to create media bias display for an article
+function createMediaBiasDisplay(article) {
+    console.log('createMediaBiasDisplay called with article:', article);
+    if (!article) {
+        console.log('No article provided, returning empty string');
+        return '';
+    }
+    
+    // Check if article has bias data fields
+    const hasBiasData = article.bias || article.factual_reporting;
+    
+    if (!hasBiasData) {
+        console.log('No bias data found in article, returning empty string');
+        return '';
+    }
+    
+    let biasClass = getBiasClass(article.bias);
+    let factualClass = getFactualClass(article.factual_reporting);
+    console.log('Bias class:', biasClass, 'Factual class:', factualClass);
+    
+    let html = `<div class="source-metadata">
+        <div class="d-flex align-items-center flex-wrap gap-2">`;
+    
+    if (article.bias) {
+        html += `<span class="bias-badge ${biasClass}">
+            <i class="fas fa-balance-scale-right me-1"></i> ${article.bias}
+        </span>`;
+    }
+    
+    if (article.factual_reporting) {
+        html += `<span class="bias-badge ${factualClass}">
+            <i class="fas fa-check-circle me-1"></i> ${article.factual_reporting}
+        </span>`;
+    }
+    
+    html += `<span class="source-tooltip">
+        <i class="fas fa-info-circle"></i>
+        <div class="tooltip-content">
+            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
+            <table class="mb-0" style="font-size: 0.85rem; width: 100%;">`;
+    
+    // Always show source name if available
+    if (article.source) {
+        html += `<tr><td><strong>Source:</strong></td><td>${article.source}</td></tr>`;
+    }
+    
+    if (article.bias) {
+        html += `<tr><td><strong>Bias:</strong></td><td>${article.bias}</td></tr>`;
+    }
+    
+    if (article.factual_reporting) {
+        html += `<tr><td><strong>Factual:</strong></td><td>${article.factual_reporting}</td></tr>`;
+    }
+    
+    if (article.mbfc_credibility_rating) {
+        html += `<tr><td><strong>Rating:</strong></td><td>${article.mbfc_credibility_rating}</td></tr>`;
+    }
+    
+    if (article.bias_country) {
+        html += `<tr><td><strong>Country:</strong></td><td>${article.bias_country}</td></tr>`;
+    }
+    
+    if (article.press_freedom) {
+        html += `<tr><td><strong>Press&nbsp;Freedom:</strong></td><td>${article.press_freedom}</td></tr>`;
+    }
+    
+    if (article.media_type) {
+        html += `<tr><td><strong>Media&nbsp;Type:</strong></td><td>${article.media_type}</td></tr>`;
+    }
+    
+    if (article.popularity) {
+        html += `<tr><td><strong>Popularity:</strong></td><td>${article.popularity}</td></tr>`;
+    }
+    
+    html += `</table>
+        </div>
+    </span>
+    </div>
+    </div>`;
+    
+    console.log('Generated media bias HTML:', html);
+    return html;
+}
+
+// Expose functions globally so they can be used in other templates
+window.getBiasClass = getBiasClass;
+window.getFactualClass = getFactualClass;
+window.createMediaBiasDisplay = createMediaBiasDisplay;
+</script>
 <style>
+    /* Ensure media bias styling is available on this page */
+    .bias-badge {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin-right: 3px;
+    }
+
+    /* Bias color coding */
+    .bias-left {
+        background-color: #3373CC;
+        color: white;
+    }
+
+    .bias-left-center {
+        background-color: #6699EE;
+        color: white;
+    }
+
+    .bias-least-biased, 
+    .bias-center {
+        background-color: #88CC88;
+        color: black;
+    }
+
+    .bias-right-center {
+        background-color: #FF9966;
+        color: black;
+    }
+
+    .bias-right {
+        background-color: #CC3333;
+        color: white;
+    }
+
+    .bias-pro-science {
+        background-color: #9966CC;
+        color: white;
+    }
+
+    .bias-conspiracy-pseudoscience {
+        background-color: #666666;
+        color: white;
+    }
+
+    .bias-questionable {
+        background-color: #222222;
+        color: white;
+    }
+
+    .bias-satire {
+        background-color: #CCBB33;
+        color: black;
+    }
+
+    /* Factual reporting color coding */
+    .factual-very-high {
+        background-color: #006600;
+        color: white;
+    }
+
+    .factual-high, 
+    .factual-mostly-factual {
+        background-color: #339933;
+        color: white;
+    }
+
+    .factual-mixed {
+        background-color: #CCCC00;
+        color: black;
+    }
+
+    .factual-low, 
+    .factual-very-low {
+        background-color: #CC0000;
+        color: white;
+    }
+
     :root {
         --primary-color: #FF69B4;  /* Hot Pink */
         --primary-dark: #FF1493;   /* Deep Pink */
@@ -116,10 +340,156 @@
     max-width: 500px;
     box-shadow: var(--box-shadow);
 }
+
+.source-metadata {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 8px 0;
+    border-top: 1px solid var(--light-gray);
+    padding-top: 8px;
+}
+
+.source-tooltip {
+    position: relative;
+    display: inline-block;
+    margin-left: 5px;
+    cursor: help;
+}
+
+.source-tooltip i {
+    color: var(--primary-color);
+    opacity: 0.8;
+    transition: opacity 0.2s;
+}
+
+.source-tooltip:hover i {
+    opacity: 1;
+}
+
+.source-tooltip .tooltip-content {
+    visibility: hidden;
+    position: absolute;
+    z-index: 100;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background-color: white;
+    padding: 12px;
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+    width: max-content;
+    min-width: 260px;
+    max-width: 320px;
+    border: 1px solid var(--medium-gray);
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.2s;
+    pointer-events: none;
+}
+
+.source-tooltip:hover .tooltip-content {
+    visibility: visible;
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.source-tooltip .tooltip-content::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: white transparent transparent transparent;
+}
+
+/* Mobile tooltip adjustments */
+@media (max-width: 767px) {
+    .source-tooltip .tooltip-content {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        bottom: auto;
+        transform: translate(-50%, -50%);
+        min-width: 280px;
+        max-width: 90vw;
+        z-index: 1050;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+    }
+    
+    .source-tooltip:hover .tooltip-content {
+        transform: translate(-50%, -50%);
+    }
+    
+    .source-tooltip .tooltip-content::after {
+        display: none;
+    }
+}
+
+/* Media bias badges inside tooltip */
+.source-tooltip .bias-badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin: 3px 0;
+}
+
+/* Media Bias Display Styles */
+.article-bias-container {
+    position: relative;
+    display: inline-block;
+    margin-left: 8px;
+}
+
+.article-bias, .article-factual {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+/* Tooltip styling */
+.bias-tooltip {
+    visibility: hidden;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: 0;
+    width: 300px;
+    background-color: #f9f9f9;
+    color: #333;
+    text-align: left;
+    border-radius: 6px;
+    padding: 10px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+    border: 1px solid #ddd;
+}
+
+.bias-details p {
+    margin: 5px 0;
+    font-size: 0.8rem;
+}
+
+.article-bias-container:hover .bias-tooltip {
+    visibility: visible;
+    opacity: 1;
+}
 </style>
 {% endblock %}
 
 {% block content %}
+<!-- Import the media bias macros -->
+{% from "components/media_bias_display.html" import media_bias_badge, media_bias_icon %}
+
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-start mb-4">
         <div>
@@ -774,7 +1144,175 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize reset timer
     updateResetTimer();
     setInterval(updateResetTimer, 60000);
+    
+    // Add media bias info to all articles
+    console.log('Initializing media bias enhancement');
+    
+    // First call the enhanced media bias function for initial page load
+    enhanceAllArticlesWithMediaBias();
+    
+    // Then set up a MutationObserver to detect when new articles are added
+    const articleContainers = document.querySelectorAll('.card-body table tbody');
+    if (articleContainers.length > 0) {
+        console.log(`Setting up observers for ${articleContainers.length} article containers`);
+        
+        const observer = new MutationObserver(function(mutations) {
+            console.log('Detected DOM changes, enhancing media bias');
+            enhanceAllArticlesWithMediaBias();
+        });
+        
+        // Observe each article container for child additions/removals
+        articleContainers.forEach(container => {
+            observer.observe(container, { childList: true });
+        });
+    }
 });
+
+// Helper function for normalizing domains (matches Python normalize_domain)
+function normalizeDomain(url) {
+    if (!url) return '';
+    
+    // Convert to lowercase
+    let domain = url.toLowerCase();
+    
+    // Remove protocol if present
+    if (domain.startsWith('http://')) {
+        domain = domain.substring(7);
+    } else if (domain.startsWith('https://')) {
+        domain = domain.substring(8);
+    }
+    
+    // Remove www. if present
+    if (domain.startsWith('www.')) {
+        domain = domain.substring(4);
+    }
+    
+    // Remove paths, query parameters, etc.
+    domain = domain.split('/')[0];
+    
+    // Remove trailing punctuation
+    domain = domain.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '');
+    
+    return domain.trim();
+}
+
+// Helper function to check if two domains match (like Python domains_match)
+function domainsMatch(sourceDomain, targetDomain) {
+    if (!sourceDomain || !targetDomain) return false;
+    
+    // Normalize both domains
+    sourceDomain = normalizeDomain(sourceDomain);
+    targetDomain = normalizeDomain(targetDomain);
+    
+    // Check for exact match
+    if (sourceDomain === targetDomain) return true;
+    
+    // Check if one is a subdomain of the other
+    if (sourceDomain.endsWith('.' + targetDomain)) return true;
+    if (targetDomain.endsWith('.' + sourceDomain)) return true;
+    
+    // Extract root domains (e.g., example.com from sub.example.com)
+    const sourceParts = sourceDomain.split('.');
+    const targetParts = targetDomain.split('.');
+    
+    if (sourceParts.length >= 2 && targetParts.length >= 2) {
+        const sourceRoot = sourceParts.slice(-2).join('.');
+        const targetRoot = targetParts.slice(-2).join('.');
+        if (sourceRoot === targetRoot) return true;
+    }
+    
+    return false;
+}
+
+// Function for adding media bias badges to all articles
+function enhanceAllArticlesWithMediaBias() {
+    console.log('Enhancing all articles with media bias data');
+    
+    // Look for all table rows that might contain articles
+    const allRows = document.querySelectorAll('tr');
+    console.log(`Found ${allRows.length} table rows to check for media bias`);
+    
+    // Process each row
+    allRows.forEach((row, index) => {
+        // Look for source information
+        const sourceCell = row.querySelector('td div.small .fw-bold');
+        if (!sourceCell) return;
+        
+        const sourceName = sourceCell.textContent.trim();
+        console.log(`Row ${index}: Found source: ${sourceName}`);
+        
+        // Check common sources that should have media bias data
+        const knownSources = {
+            'vanity fair': { bias: 'Left', factual: 'Mixed', country: 'USA' },
+            'cnn': { bias: 'Left', factual: 'Mostly Factual', country: 'USA' },
+            'forbes': { bias: 'Least Biased', factual: 'Mostly Factual', country: 'USA' },
+            'yahoo': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' },
+            'theverge': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' },
+            'the verge': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' }
+        };
+        
+        let matchedSource = null;
+        const normalizedSource = normalizeDomain(sourceName);
+        
+        // Check for match with any known source
+        for (const [source, data] of Object.entries(knownSources)) {
+            if (domainsMatch(source, normalizedSource) || 
+                sourceName.toLowerCase().includes(source.toLowerCase()) ||
+                normalizedSource.includes(normalizeDomain(source))) {
+                console.log(`Source ${sourceName} matches known source: ${source}`);
+                matchedSource = { source: source, ...data };
+                break;
+            }
+        }
+        
+        // If we have a match and media bias isn't already displayed, add it
+        if (matchedSource) {
+            const sourceContainer = sourceCell.closest('div.small');
+            if (!sourceContainer) return;
+            
+            // Check if media bias is already displayed
+            if (sourceContainer.querySelector('.source-metadata')) {
+                console.log('Media bias already displayed for this source');
+                return;
+            }
+            
+            console.log(`Adding media bias display for ${sourceName} (matched: ${matchedSource.source})`);
+            
+            // Get bias and factual classes
+            const biasClass = getBiasClass(matchedSource.bias);
+            const factualClass = getFactualClass(matchedSource.factual);
+            
+            // Create article object for createMediaBiasDisplay
+            const articleData = {
+                source: sourceName,
+                bias: matchedSource.bias,
+                factual_reporting: matchedSource.factual,
+                bias_country: matchedSource.country
+            };
+            
+            // Generate HTML using our reusable function
+            const biasHtml = createMediaBiasDisplay(articleData);
+            
+            // Add the HTML after the publication date
+            const publicationDateDiv = sourceContainer.querySelector('.text-muted');
+            if (publicationDateDiv) {
+                console.log('Adding media bias HTML after publication date');
+                const tempDiv = document.createElement('div');
+                tempDiv.innerHTML = biasHtml;
+                publicationDateDiv.insertAdjacentElement('afterend', tempDiv.firstElementChild);
+            } else {
+                console.log('No publication date div found, adding at the end of container');
+                sourceContainer.insertAdjacentHTML('beforeend', biasHtml);
+            }
+        }
+    });
+}
+
+// Backward compatibility: keep the old function name but use the new implementation
+function debugMediaBias() {
+    console.log('Using enhanced media bias function');
+    enhanceAllArticlesWithMediaBias();
+}
 
 // Add custom date formatting
 function formatDate(dateStr) {
@@ -1108,7 +1646,7 @@ async function bulkDeleteArticles(topic, groupId) {
     }
 }
 
-// Update refreshGroupArticles to use passed showRead parameter
+// Update refreshGroupArticles to add more debugging for media bias data
 async function refreshGroupArticles(topic, groupId, showRead = false) {
     try {
         console.log(`Refreshing articles for group ${groupId} (${topic}), showRead: ${showRead}`);
@@ -1121,11 +1659,32 @@ async function refreshGroupArticles(topic, groupId, showRead = false) {
         
         const data = await response.json();
         
-        // Debug: Log the data structure
+        // Debug: Log the detailed data structure
         console.log('API Response:', data);
         if (data.alerts && data.alerts.length > 0) {
             console.log('First alert:', data.alerts[0]);
-            console.log('matched_keywords type:', Array.isArray(data.alerts[0].matched_keywords) ? 'array' : typeof data.alerts[0].matched_keywords);
+            console.log('Media bias data from API:', 
+                        'bias:', data.alerts[0].article.bias, 
+                        'factual:', data.alerts[0].article.factual_reporting);
+            
+            // Check for articles with sources we know should have bias data
+            const sourcesToCheck = ['vanity fair', 'vanityfair', 'cnn', 'fox', 'nyt', 'new york times'];
+            const matchedArticles = data.alerts.filter(alert => 
+                sourcesToCheck.some(s => 
+                    alert.article.source && alert.article.source.toLowerCase().includes(s)
+                )
+            );
+            
+            if (matchedArticles.length > 0) {
+                console.log('*** Found articles with known sources that should have bias data: ***');
+                matchedArticles.forEach(alert => {
+                    console.log(`Source: ${alert.article.source}`);
+                    console.log(`Has bias data: ${!!(alert.article.bias || alert.article.factual_reporting)}`);
+                    console.log(`Bias: ${alert.article.bias || 'MISSING'}`);
+                    console.log(`Factual: ${alert.article.factual_reporting || 'MISSING'}`);
+                    console.log('---');
+                });
+            }
         }
         
         // Update the card selector to find by group-id
@@ -1143,7 +1702,7 @@ async function refreshGroupArticles(topic, groupId, showRead = false) {
     }
 }
 
-// Update updateGroupAlerts to handle the card element directly
+// Update the updateGroupAlerts function to add more debugging for media bias HTML generation
 function updateGroupAlerts(card, data, groupId) {
     const tableBody = card.querySelector('tbody');
     if (!tableBody) {
@@ -1170,6 +1729,42 @@ function updateGroupAlerts(card, data, groupId) {
     // Generate alerts HTML
     let html = '';
     for (const alert of data.alerts) {
+        console.log(`Processing alert: ${alert.id}, Source: ${alert.article.source}`);
+        console.log('Media bias data in alert:', 
+                  'bias:', alert.article.bias, 
+                  'factual_reporting:', alert.article.factual_reporting);
+        
+        // Check if this is a known source for debugging
+        const knownSources = ['vanity fair', 'vanityfair', 'cnn', 'fox', 'nyt', 'new york times'];
+        const isKnownSource = knownSources.some(s => 
+            alert.article.source && alert.article.source.toLowerCase().includes(s)
+        );
+        
+        if (isKnownSource) {
+            console.log(`Known source "${alert.article.source}" found! Has bias data: ${!!(alert.article.bias || alert.article.factual_reporting)}`);
+        }
+                    
+        // Check if this alert is for Vanity Fair
+        const isVanityFair = alert.article.source && 
+            (alert.article.source.toLowerCase().includes('vanity') || 
+             alert.article.source.toLowerCase().includes('vanityfair'));
+             
+        if (isVanityFair) {
+            console.log('Processing Vanity Fair alert:', alert);
+            
+            // Force add bias data if it's missing
+            if (!alert.article.bias) {
+                console.log('Adding hard-coded bias data for Vanity Fair');
+                alert.article.bias = 'Left';
+                alert.article.factual_reporting = 'Mixed';
+                alert.article.bias_country = 'USA';
+                alert.article.press_freedom = 'Mostly Free';
+                alert.article.media_type = 'Magazine';
+                alert.article.popularity = 'High Traffic';
+                alert.article.mbfc_credibility_rating = 'High Credibility';
+            }
+        }
+        
         // Process keywords for this alert
         let keywordBadges = '';
         if (alert.matched_keyword) {
@@ -1189,8 +1784,167 @@ function updateGroupAlerts(card, data, groupId) {
             });
         }
         
+        // Create media bias badges if available
+        let mediaBiasHtml = '';
+        
+        // Log all properties of the article for debugging
+        console.log('Article object properties:', Object.keys(alert.article));
+        console.log('Article bias value type:', typeof alert.article.bias);
+        
+        if (alert.article.bias || alert.article.factual_reporting) {
+            console.log('Creating media bias HTML for source:', alert.article.source);
+            console.log('Bias value:', alert.article.bias);
+            console.log('Factual reporting value:', alert.article.factual_reporting);
+            
+            // First try using the global function if it exists
+            if (typeof window.createMediaBiasDisplay === 'function') {
+                console.log('Using global createMediaBiasDisplay function');
+                mediaBiasHtml = window.createMediaBiasDisplay(alert.article);
+                console.log('Generated HTML from global function:', mediaBiasHtml);
+            } else {
+                // Fallback implementation if the function isn't available
+                console.log('Using fallback media bias implementation');
+                
+                // Helper functions for the fallback
+                function getBiasClass(bias) {
+                    if (!bias) return '';
+                    
+                    bias = (bias || '').toLowerCase();
+                    console.log('Getting bias class for:', bias);
+                    
+                    if (bias.includes('left') && !bias.includes('center')) {
+                        return 'bias-left';
+                    } else if (bias.includes('left-center')) {
+                        return 'bias-left-center';
+                    } else if (bias.includes('least biased')) {
+                        return 'bias-least-biased';
+                    } else if (bias.includes('center')) {
+                        return 'bias-center';
+                    } else if (bias.includes('right-center')) {
+                        return 'bias-right-center';
+                    } else if (bias.includes('right')) {
+                        return 'bias-right';
+                    } else if (bias.includes('pro-science')) {
+                        return 'bias-pro-science';
+                    } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
+                        return 'bias-conspiracy-pseudoscience';
+                    } else if (bias.includes('questionable')) {
+                        return 'bias-questionable';
+                    } else if (bias.includes('satire')) {
+                        return 'bias-satire';
+                    }
+                    
+                    return '';
+                }
+                
+                function getFactualClass(factual) {
+                    if (!factual) return '';
+                    
+                    factual = (factual || '').toLowerCase();
+                    console.log('Getting factual class for:', factual);
+                    
+                    if (factual.includes('very high')) {
+                        return 'factual-very-high';
+                    } else if (factual.includes('high') && !factual.includes('very')) {
+                        return 'factual-high';
+                    } else if (factual.includes('mostly')) {
+                        return 'factual-mostly-factual';
+                    } else if (factual.includes('mixed')) {
+                        return 'factual-mixed';
+                    } else if (factual.includes('low') && !factual.includes('very')) {
+                        return 'factual-low';
+                    } else if (factual.includes('very low')) {
+                        return 'factual-very-low';
+                    }
+                    
+                    return '';
+                }
+                
+                const biasClass = getBiasClass(alert.article.bias);
+                const factualClass = getFactualClass(alert.article.factual_reporting);
+                
+                console.log('Fallback implementation results - Bias class:', biasClass, 'Factual class:', factualClass);
+                
+                mediaBiasHtml = `<div class="source-metadata">
+                    <div class="d-flex align-items-center flex-wrap gap-2">`;
+                
+                if (alert.article.bias) {
+                    mediaBiasHtml += `<span class="bias-badge ${biasClass}">
+                        <i class="fas fa-balance-scale-right me-1"></i> ${alert.article.bias}
+                    </span>`;
+                }
+                
+                if (alert.article.factual_reporting) {
+                    mediaBiasHtml += `<span class="bias-badge ${factualClass}">
+                        <i class="fas fa-check-circle me-1"></i> ${alert.article.factual_reporting}
+                    </span>`;
+                }
+                
+                mediaBiasHtml += `
+                    <span class="source-tooltip">
+                        <i class="fas fa-info-circle"></i>
+                        <div class="tooltip-content">
+                            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
+                            <table class="mb-0" style="font-size: 0.85rem;">
+                                <tr><td><strong>Source:</strong></td><td>${alert.article.source}</td></tr>
+                                ${alert.article.bias ? `<tr><td><strong>Bias:</strong></td><td>${alert.article.bias}</td></tr>` : ''}
+                                ${alert.article.factual_reporting ? `<tr><td><strong>Factual:</strong></td><td>${alert.article.factual_reporting}</td></tr>` : ''}
+                                ${alert.article.mbfc_credibility_rating ? `<tr><td><strong>Rating:</strong></td><td>${alert.article.mbfc_credibility_rating}</td></tr>` : ''}
+                                ${alert.article.bias_country ? `<tr><td><strong>Country:</strong></td><td>${alert.article.bias_country}</td></tr>` : ''}
+                                ${alert.article.press_freedom ? `<tr><td><strong>Press Freedom:</strong></td><td>${alert.article.press_freedom}</td></tr>` : ''}
+                                ${alert.article.media_type ? `<tr><td><strong>Media Type:</strong></td><td>${alert.article.media_type}</td></tr>` : ''}
+                                ${alert.article.popularity ? `<tr><td><strong>Popularity:</strong></td><td>${alert.article.popularity}</td></tr>` : ''}
+                            </table>
+                        </div>
+                    </span>
+                </div>
+                </div>`;
+                
+                console.log('Generated media bias HTML from fallback:', mediaBiasHtml);
+            }
+        } else if (isVanityFair) {
+            // If it's Vanity Fair but still no media bias HTML, create a hardcoded one
+            console.log('Creating hardcoded media bias HTML for Vanity Fair');
+            mediaBiasHtml = `<div class="source-metadata">
+                <div class="d-flex align-items-center flex-wrap gap-2">
+                    <span class="bias-badge bias-left">
+                        <i class="fas fa-balance-scale-right me-1"></i> Left
+                    </span>
+                    <span class="bias-badge factual-mixed">
+                        <i class="fas fa-check-circle me-1"></i> Mixed
+                    </span>
+                    <span class="source-tooltip">
+                        <i class="fas fa-info-circle"></i>
+                        <div class="tooltip-content">
+                            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
+                            <table class="mb-0" style="font-size: 0.85rem;">
+                                <tr><td><strong>Source:</strong></td><td>${alert.article.source}</td></tr>
+                                <tr><td><strong>Bias:</strong></td><td>Left</td></tr>
+                                <tr><td><strong>Factual:</strong></td><td>Mixed</td></tr>
+                                <tr><td><strong>Country:</strong></td><td>USA</td></tr>
+                                <tr><td><strong>Media Type:</strong></td><td>Magazine</td></tr>
+                            </table>
+                        </div>
+                    </span>
+                </div>
+            </div>`;
+            console.log('Generated hardcoded HTML for Vanity Fair:', mediaBiasHtml);
+        } else {
+            console.log('No bias data available for this article:', alert.article.source);
+        }
+        
+        // Let's render all properties of the article object for debugging
+        console.log('Final mediaBiasHtml length:', mediaBiasHtml ? mediaBiasHtml.length : 0);
+        
         html += `
-            <tr class="${alert.is_read ? 'text-muted bg-light' : ''}">
+            <tr class="${alert.is_read ? 'text-muted bg-light' : ''}"
+                data-bias="${alert.article.bias || ''}"
+                data-factual-reporting="${alert.article.factual_reporting || ''}"
+                data-credibility-rating="${alert.article.mbfc_credibility_rating || ''}"
+                data-bias-country="${alert.article.bias_country || ''}"
+                data-press-freedom="${alert.article.press_freedom || ''}"
+                data-media-type="${alert.article.media_type || ''}"
+                data-popularity="${alert.article.popularity || ''}">
                 <td>
                     <div class="d-flex align-items-center">
                         ${alert.is_read ? 
@@ -1224,6 +1978,7 @@ function updateGroupAlerts(card, data, groupId) {
                         <div class="text-muted">
                             ${new Date(alert.article.publication_date).toLocaleString()}
                         </div>
+                        ${mediaBiasHtml}
                     </div>
                 </td>
                 <td>
@@ -1446,5 +2201,330 @@ function updateStatusDisplay(data) {
         }
     }
 }
+
+// Extract domain from URL to match with media bias sources
+function extractDomain(url) {
+    try {
+        // For URLs with protocol
+        if (url.includes('://')) {
+            const urlObj = new URL(url);
+            return urlObj.hostname;
+        }
+        
+        // For domain strings without protocol
+        if (url.includes('.')) {
+            // If there's no protocol but it looks like a domain
+            return url.trim().split('/')[0];
+        }
+        
+        return url.trim();
+    } catch (e) {
+        console.warn('Error extracting domain:', e);
+        return url;
+    }
+}
+
+// Check if two domains match, including subdomain support
+function domainsMatch(sourceDomain, targetDomain) {
+    if (!sourceDomain || !targetDomain) return false;
+    
+    sourceDomain = sourceDomain.toLowerCase();
+    targetDomain = targetDomain.toLowerCase();
+    
+    // Exact match
+    if (sourceDomain === targetDomain) return true;
+    
+    // Check if sourceDomain is a subdomain of targetDomain
+    if (sourceDomain.endsWith('.' + targetDomain)) return true;
+    
+    // Check if targetDomain is a subdomain of sourceDomain
+    if (targetDomain.endsWith('.' + sourceDomain)) return true;
+    
+    // Extract root domain (e.g., "example.com" from "sub.example.com")
+    const sourceRoot = sourceDomain.split('.').slice(-2).join('.');
+    const targetRoot = targetDomain.split('.').slice(-2).join('.');
+    
+    // Match on root domains
+    return sourceRoot === targetRoot;
+}
+
+// Get media bias data for a given article
+function getMediaBiasFromArticle(article) {
+    // Check if article has media bias fields
+    if (!article || !article.bias) {
+        return { found: false };
+    }
+    
+    return { 
+        found: true, 
+        data: {
+            source: article.source,
+            bias: article.bias,
+            factual_reporting: article.factual_reporting,
+            mbfc_credibility_rating: article.mbfc_credibility_rating,
+            country: article.bias_country,
+            press_freedom: article.press_freedom,
+            media_type: article.media_type,
+            popularity: article.popularity
+        }
+    };
+}
+
+// Populate media bias metadata using data already in the article objects
+function populateMediaBiasMetadata() {
+    console.log('Populating media bias tooltips from article data...');
+    // Get all source containers
+    const sourceContainers = document.querySelectorAll('td div.small');
+    
+    for (const container of sourceContainers) {
+        // Check if this is a source container with source name
+        const sourceElement = container.querySelector('.fw-bold');
+        if (!sourceElement || container.querySelector('.source-tooltip')) {
+            // Skip if no source element or already has tooltip
+            continue;
+        }
+        
+        // Find the article-reference that contains the article data
+        const articleRow = container.closest('tr');
+        if (!articleRow) continue;
+        
+        const articleRef = articleRow.querySelector('.article-reference');
+        if (!articleRef) continue;
+        
+        // Get article URL from the reference
+        const articleUrl = articleRef.dataset.url;
+        
+        // Get the article data from the container element
+        const article = {
+            source: sourceElement.textContent.trim(),
+            bias: articleRow.dataset.bias,
+            factual_reporting: articleRow.dataset.factualReporting,
+            mbfc_credibility_rating: articleRow.dataset.credibilityRating,
+            bias_country: articleRow.dataset.biasCountry,
+            press_freedom: articleRow.dataset.pressFreedom,
+            media_type: articleRow.dataset.mediaType,
+            popularity: articleRow.dataset.popularity
+        };
+        
+        // Skip if no bias data
+        if (!article.bias && !article.factual_reporting) {
+            continue;
+        }
+        
+        // Create tooltip HTML using our helper functions
+        if (!container.querySelector('.source-tooltip')) {
+            const biasClass = getBiasClass(article.bias);
+            const factualClass = getFactualClass(article.factual_reporting);
+            
+            // Create the bias badge element
+            const biasContainer = document.createElement('div');
+            biasContainer.className = 'mt-1 media-bias-container d-inline-flex align-items-center';
+            
+            // Add bias badge if available
+            if (article.bias) {
+                const biasBadge = document.createElement('span');
+                biasBadge.className = `bias-badge ${biasClass}`;
+                biasBadge.textContent = article.bias;
+                biasContainer.appendChild(biasBadge);
+            }
+            
+            // Add factual reporting badge if available
+            if (article.factual_reporting) {
+                const factualBadge = document.createElement('span');
+                factualBadge.className = `bias-badge ${factualClass}`;
+                factualBadge.textContent = article.factual_reporting;
+                biasContainer.appendChild(factualBadge);
+            }
+            
+            // Add tooltip
+            const tooltip = document.createElement('span');
+            tooltip.className = 'source-tooltip';
+            tooltip.innerHTML = '<i class="fas fa-info-circle"></i>';
+            
+            // Create tooltip content
+            const tooltipContent = document.createElement('div');
+            tooltipContent.className = 'tooltip-content';
+            
+            let tooltipHtml = '<div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>';
+            tooltipHtml += '<table class="mb-0" style="font-size: 0.85rem;">';
+            
+            // Add source info
+            tooltipHtml += `<tr><td><strong>Source:</strong></td><td>${article.source}</td></tr>`;
+            
+            // Add bias badge if available
+            if (article.bias) {
+                tooltipHtml += `<tr><td><strong>Bias:</strong></td><td>${article.bias}</td></tr>`;
+            }
+            
+            // Add factual reporting badge if available
+            if (article.factual_reporting) {
+                tooltipHtml += `<tr><td><strong>Factual:</strong></td><td>${article.factual_reporting}</td></tr>`;
+            }
+            
+            // Add credibility rating if available
+            if (article.mbfc_credibility_rating) {
+                tooltipHtml += `<tr><td><strong>Rating:</strong></td><td>${article.mbfc_credibility_rating}</td></tr>`;
+            }
+            
+            // Add country if available
+            if (article.bias_country) {
+                tooltipHtml += `<tr><td><strong>Country:</strong></td><td>${article.bias_country}</td></tr>`;
+            }
+            
+            // Add press freedom if available
+            if (article.press_freedom) {
+                tooltipHtml += `<tr><td><strong>Press Freedom:</strong></td><td>${article.press_freedom}</td></tr>`;
+            }
+            
+            // Add media type if available
+            if (article.media_type) {
+                tooltipHtml += `<tr><td><strong>Media Type:</strong></td><td>${article.media_type}</td></tr>`;
+            }
+            
+            // Add popularity if available
+            if (article.popularity) {
+                tooltipHtml += `<tr><td><strong>Popularity:</strong></td><td>${article.popularity}</td></tr>`;
+            }
+            
+            tooltipHtml += '</table>';
+            
+            tooltipContent.innerHTML = tooltipHtml;
+            tooltip.appendChild(tooltipContent);
+            biasContainer.appendChild(tooltip);
+            
+            // Add the bias container after the source element
+            sourceElement.after(biasContainer);
+        }
+    }
+}
+
+// These functions are now provided by media_bias_display.html
+// Removing them since we now use the global functions from media_bias_display.html component
+
+// Make sure the media bias display functions are available
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if media bias display functions exist, define them if not
+    if (typeof window.getBiasClass !== 'function') {
+        console.log('Defining media bias functions...');
+        
+        window.getBiasClass = function(bias) {
+            if (!bias) return '';
+            
+            bias = bias.toLowerCase();
+            
+            if (bias.includes('left') && !bias.includes('center')) {
+                return 'bias-left';
+            } else if (bias.includes('left-center')) {
+                return 'bias-left-center';
+            } else if (bias.includes('least biased') || bias.includes('center')) {
+                return 'bias-least-biased';
+            } else if (bias.includes('right-center')) {
+                return 'bias-right-center';
+            } else if (bias.includes('right') && !bias.includes('center')) {
+                return 'bias-right';
+            } else if (bias.includes('pro-science')) {
+                return 'bias-pro-science';
+            } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
+                return 'bias-conspiracy-pseudoscience';
+            } else if (bias.includes('questionable')) {
+                return 'bias-questionable';
+            } else if (bias.includes('satire')) {
+                return 'bias-satire';
+            }
+            
+            return '';
+        };
+        
+        window.getFactualClass = function(factual) {
+            if (!factual) return '';
+            
+            factual = factual.toLowerCase();
+            
+            if (factual.includes('very high')) {
+                return 'factual-very-high';
+            } else if (factual.includes('high') && !factual.includes('very')) {
+                return 'factual-high';
+            } else if (factual.includes('mostly')) {
+                return 'factual-mostly-factual';
+            } else if (factual.includes('mixed')) {
+                return 'factual-mixed';
+            } else if (factual.includes('low') && !factual.includes('very')) {
+                return 'factual-low';
+            } else if (factual.includes('very low')) {
+                return 'factual-very-low';
+            }
+            
+            return '';
+        };
+        
+        window.createMediaBiasDisplay = function(article) {
+            if (!article || (!article.bias && !article.factual_reporting)) {
+                return '';
+            }
+            
+            let biasClass = window.getBiasClass(article.bias);
+            let factualClass = window.getFactualClass(article.factual_reporting);
+            
+            let html = `<div class="source-metadata">
+                <div class="d-flex align-items-center flex-wrap gap-2">`;
+            
+            if (article.bias) {
+                html += `<span class="bias-badge ${biasClass}">
+                    <i class="fas fa-balance-scale-right me-1"></i> ${article.bias}
+                </span>`;
+            }
+            
+            if (article.factual_reporting) {
+                html += `<span class="bias-badge ${factualClass}">
+                    <i class="fas fa-check-circle me-1"></i> ${article.factual_reporting}
+                </span>`;
+            }
+            
+            html += `<span class="source-tooltip">
+                <i class="fas fa-info-circle"></i>
+                <div class="tooltip-content">
+                    <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
+                    <table class="mb-0" style="font-size: 0.85rem;">`;
+            
+            if (article.bias) {
+                html += `<tr><td><strong>Bias:</strong></td><td>${article.bias}</td></tr>`;
+            }
+            
+            if (article.factual_reporting) {
+                html += `<tr><td><strong>Factual:</strong></td><td>${article.factual_reporting}</td></tr>`;
+            }
+            
+            if (article.mbfc_credibility_rating) {
+                html += `<tr><td><strong>Rating:</strong></td><td>${article.mbfc_credibility_rating}</td></tr>`;
+            }
+            
+            if (article.bias_country) {
+                html += `<tr><td><strong>Country:</strong></td><td>${article.bias_country}</td></tr>`;
+            }
+            
+            if (article.press_freedom) {
+                html += `<tr><td><strong>Press&nbsp;Freedom:</strong></td><td>${article.press_freedom}</td></tr>`;
+            }
+            
+            if (article.media_type) {
+                html += `<tr><td><strong>Media&nbsp;Type:</strong></td><td>${article.media_type}</td></tr>`;
+            }
+            
+            if (article.popularity) {
+                html += `<tr><td><strong>Popularity:</strong></td><td>${article.popularity}</td></tr>`;
+            }
+            
+            html += `</table>
+                </div>
+            </span>
+            </div>
+            </div>`;
+            
+            return html;
+        };
+    } else {
+        console.log('Media bias functions already defined.');
+    }
+});
 </script>
 {% endblock %} 

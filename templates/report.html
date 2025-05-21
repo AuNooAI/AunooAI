@@ -3,6 +3,8 @@
 {% block title %}AuNoo AI - Report{% endblock %}
 
 {% block extra_css %}
+<!-- Import the media bias component -->
+{% include "components/media_bias_display.html" %}
 <style>
     :root {
         --primary-color: #FF69B4;  /* Hot Pink */
@@ -864,6 +866,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     `AI will ${article.future_signal.toLowerCase()}`;
                 appendTag(tagsContainer, impact, 'secondary');
             }
+            
+            // Add media bias tags if available
+            if (article.bias) {
+                const biasClass = getBiasClass(article.bias);
+                appendTag(tagsContainer, article.bias, biasClass.replace('bias-', ''));
+            }
+            
+            if (article.factual_reporting) {
+                const factualClass = getFactualClass(article.factual_reporting);
+                appendTag(tagsContainer, article.factual_reporting, factualClass.replace('factual-', ''));
+            }
 
             articleDetails.appendChild(tagsContainer);
 
@@ -908,6 +921,59 @@ document.addEventListener('DOMContentLoaded', function() {
         tag.className = `badge bg-${type} me-2`;
         tag.textContent = text;
         container.appendChild(tag);
+    }
+    
+    // Helper functions for media bias and factual rating classifications
+    function getBiasClass(bias) {
+        if (!bias) return '';
+        
+        bias = bias.toLowerCase();
+        
+        if (bias.includes('left') && !bias.includes('center')) {
+            return 'bias-left';
+        } else if (bias.includes('left-center')) {
+            return 'bias-left-center';
+        } else if (bias.includes('least biased')) {
+            return 'bias-least-biased';
+        } else if (bias.includes('center')) {
+            return 'bias-center';
+        } else if (bias.includes('right-center')) {
+            return 'bias-right-center';
+        } else if (bias.includes('right')) {
+            return 'bias-right';
+        } else if (bias.includes('pro-science')) {
+            return 'bias-pro-science';
+        } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
+            return 'bias-conspiracy-pseudoscience';
+        } else if (bias.includes('questionable')) {
+            return 'bias-questionable';
+        } else if (bias.includes('satire')) {
+            return 'bias-satire';
+        }
+        
+        return '';
+    }
+
+    function getFactualClass(factual) {
+        if (!factual) return '';
+        
+        factual = factual.toLowerCase();
+        
+        if (factual.includes('very high')) {
+            return 'factual-very-high';
+        } else if (factual.includes('high') && !factual.includes('very')) {
+            return 'factual-high';
+        } else if (factual.includes('mostly')) {
+            return 'factual-mostly-factual';
+        } else if (factual.includes('mixed')) {
+            return 'factual-mixed';
+        } else if (factual.includes('low') && !factual.includes('very')) {
+            return 'factual-low';
+        } else if (factual.includes('very low')) {
+            return 'factual-very-low';
+        }
+        
+        return '';
     }
 
     function updateTotalCount(count) {
