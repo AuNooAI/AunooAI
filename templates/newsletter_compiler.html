@@ -624,16 +624,16 @@
                             <small class="form-text text-muted">
                                 <h6 class="mt-3 mb-2">Available Variables for Prompt Templates:</h6>
                                 <ul class="list-unstyled">
-                                    <li><code>{{topic}}</code> - The current topic being processed</li>
-                                    <li><code>{{article_data}}</code> - Formatted article data with titles, URLs, sources</li>
-                                    <li><code>{{articles}}</code> - Alternative way to access article data</li>
-                                    <li><code>{{start_date}}</code> - Start date for content (YYYY-MM-DD format)</li>
-                                    <li><code>{{end_date}}</code> - End date for content (YYYY-MM-DD format)</li>
-                                    <li><code>{{formatted_date}}</code> - Current date in human-readable format</li>
-                                    <li><code>{{frequency}}</code> - Newsletter frequency (daily, weekly, monthly)</li>
-                                    <li><code>{{topics}}</code> - Comma-separated list of all newsletter topics</li>
-                                    <li><code>{{content_instructions}}</code> - Special instructions for this content type</li>
-                                    <li><code>{{article_count}}</code> - Number of articles available</li>
+                                    <li><code>{{'{{topic}}'}}</code> - The current topic being processed</li>
+                                    <li><code>{{'{{article_data}}'}}</code> - Formatted article data with titles, URLs, sources</li>
+                                    <li><code>{{'{{articles}}'}}</code> - Alternative way to access article data</li>
+                                    <li><code>{{'{{start_date}}'}}</code> - Start date for content (YYYY-MM-DD format)</li>
+                                    <li><code>{{'{{end_date}}'}}</code> - End date for content (YYYY-MM-DD format)</li>
+                                    <li><code>{{'{{formatted_date}}'}}</code> - Current date in human-readable format</li>
+                                    <li><code>{{'{{frequency}}'}}</code> - Newsletter frequency (daily, weekly, monthly)</li>
+                                    <li><code>{{'{{topics}}'}}</code> - Comma-separated list of all newsletter topics</li>
+                                    <li><code>{{'{{content_instructions}}'}}</code> - Special instructions for this content type</li>
+                                    <li><code>{{'{{article_count}}'}}</code> - Number of articles available</li>
                                 </ul>
                             </small>
                         </div>
@@ -2050,16 +2050,31 @@ async function loadSavedNewsletters() {
 // Function to load a saved newsletter
 async function loadNewsletter(id) {
     try {
+        console.log(`Loading newsletter with ID: ${id}`);
+        
         const response = await fetch(`/api/newsletter/saved/${id}`);
+        console.log(`Newsletter API response status: ${response.status}`);
         
         if (!response.ok) {
-            throw new Error(`Failed to load newsletter: ${response.status}`);
+            const errorText = await response.text();
+            console.error(`Server returned error: ${errorText}`);
+            throw new Error(`Failed to load newsletter: ${response.status} - ${errorText}`);
         }
         
         const newsletter = await response.json();
+        console.log('Loaded newsletter data:', newsletter);
         
         // Update editor with newsletter content
         if (newsletter.content) {
+            console.log(`Setting editor content (length: ${newsletter.content.length})`);
+            
+            // Wait for editor to be fully initialized
+            if (!editor) {
+                console.error('Editor not initialized!');
+                alert('Editor not ready. Please try again in a moment.');
+                return;
+            }
+            
             setMarkdownContent(newsletter.content);
             
             // Update last updated time
@@ -2069,8 +2084,10 @@ async function loadNewsletter(id) {
                     new Date(newsletter.date).toLocaleString() : 
                     'Just loaded';
                 lastUpdatedElement.textContent = dateStr;
+                console.log(`Updated last updated time: ${dateStr}`);
             }
         } else {
+            console.error('Newsletter has no content:', newsletter);
             throw new Error('No content found in the newsletter');
         }
         
@@ -2428,6 +2445,35 @@ document.addEventListener('DOMContentLoaded', function() {
     if (closeSaveNewsletterModalBtn) closeSaveNewsletterModalBtn.addEventListener('click', closeSaveNewsletterModal);
     if (cancelSaveNewsletterModalBtn) cancelSaveNewsletterModalBtn.addEventListener('click', closeSaveNewsletterModal);
     if (saveNewsletterBtn) saveNewsletterBtn.addEventListener('click', saveNewsletterToServer);
+    
+    // Set up prompt editor modal buttons
+    const closePromptEditorModalBtn = document.getElementById('closePromptEditorModal');
+    const cancelPromptEditorModalBtn = document.getElementById('cancelPromptEditorModal');
+    const savePromptBtn = document.getElementById('savePromptButton');
+    const restorePromptBtn = document.getElementById('restorePromptButton');
+    
+    if (closePromptEditorModalBtn) closePromptEditorModalBtn.addEventListener('click', function() {
+        const modal = document.getElementById('promptEditorModal');
+        if (modal) {
+            modal.classList.remove('show');
+            modal.style.display = 'none';
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+        }
+    });
+    
+    if (cancelPromptEditorModalBtn) cancelPromptEditorModalBtn.addEventListener('click', function() {
+        const modal = document.getElementById('promptEditorModal');
+        if (modal) {
+            modal.classList.remove('show');
+            modal.style.display = 'none';
+            modal.setAttribute('aria-hidden', 'true');
+            document.body.classList.remove('modal-open');
+        }
+    });
+    
+    if (savePromptBtn) savePromptBtn.addEventListener('click', savePromptTemplate);
+    if (restorePromptBtn) restorePromptBtn.addEventListener('click', restoreDefaultPrompt);
     
     // Set up select all content types button
     const selectAllContentTypesBtn = document.getElementById('selectAllContentTypes');
