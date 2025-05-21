@@ -1065,54 +1065,54 @@ function updatePreview() {
                     // Apply image processing to ensure color charts display properly
                     const images = previewElement.querySelectorAll('img');
                     images.forEach(img => {
-                        // Fix data URLs - ensure no space after base64,
-                        if (img.src && img.src.startsWith('data:image') && img.src.includes('base64, ')) {
-                            img.src = img.src.replace('base64, ', 'base64,');
-                        }
-                        
-                        // Skip cache busting for data URLs
-                        if (img.src && !img.src.startsWith('data:') && !img.src.includes('cache=')) {
-                            img.src = img.src + (img.src.includes('?') ? '&' : '?') + 'cache=' + new Date().getTime();
-                        }
-                        
-                        // Add specific classes for charts
-                        if (img.src && (img.src.includes('chart') || img.src.includes('sentiment') || 
-                            img.src.includes('radar') || img.alt && (img.alt.includes('Chart') || 
-                            img.alt.includes('chart')))) {
-                            img.classList.add('newsletter-chart');
-                            // Explicitly set dimensions to override any inline styles
-                            img.style.maxWidth = '550px';
-                            img.style.maxHeight = '400px';
-                            img.style.width = 'auto';
-                            img.style.height = 'auto';
-                        }
-                        
-                        // Add error handler to log any issues with images
-                        img.onerror = function() {
-                            console.error('Error loading image:', this.src);
-                            // Replace with error message directly in the image
-                            this.style.display = 'inline-block';
-                            this.style.padding = '5px';
-                            this.style.border = '1px solid #f55';
-                            this.style.backgroundColor = '#fee';
-                            this.style.color = '#333';
-                            this.style.fontStyle = 'italic';
-                            this.style.fontSize = '14px';
-                            this.style.height = 'auto';
-                            this.style.width = 'auto';
-                            this.style.minHeight = '50px';
-                            this.style.textAlign = 'center';
-                            this.style.lineHeight = '50px';
-                            this.alt = 'Image failed to load';
+                        // Fix various base64 image formatting issues
+                        if (img.src) {
+                            let src = img.src;
                             
-                            // Set a data attribute to mark this as an error
-                            this.setAttribute('data-load-error', 'true');
-                            
-                            // Replace the src with a transparent pixel so it stops trying to load
-                            // but only if it's not a data URL to avoid recursive errors
-                            if (!this.src.startsWith('data:')) {
-                                this.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+                            // Case 1: Fix space after "base64,"
+                            if (src.includes('base64, ')) {
+                                src = src.replace('base64, ', 'base64,');
                             }
+                            
+                            // Case 2: Remove any trailing spaces in the URL
+                            src = src.trim();
+                            
+                            // Case 3: Fix URLs that have been broken by newlines or other whitespace
+                            if (src.includes('base64') && !src.includes('base64,')) {
+                                src = src.replace('base64', 'base64,');
+                            }
+                            
+                            // Case 4: Handle cases where the URL might have been split
+                            if (src.match(/data:image\/[^;]+;$/)) {
+                                src = src + 'base64,';
+                            }
+                            
+                            // Apply changes if needed
+                            if (src !== img.src) {
+                                img.src = src;
+                            }
+                            
+                            // Apply specific styling for chart images
+                            if ((src.includes('chart') || src.includes('sentiment') || 
+                                src.includes('radar')) || 
+                                (img.alt && (img.alt.includes('Chart') || img.alt.includes('chart')))) {
+                                img.classList.add('newsletter-chart');
+                                img.style.maxWidth = '550px';
+                                img.style.maxHeight = '400px';
+                                img.style.width = 'auto';
+                                img.style.height = 'auto';
+                            }
+                        }
+                        
+                        // Add error handler for debugging
+                        img.onerror = function() {
+                            console.error('Image failed to load:', this.src.substring(0, 100) + '...');
+                            // Set a data attribute to mark this as an error and add a visual indication
+                            this.setAttribute('data-load-error', 'true');
+                            this.style.border = '2px dashed red';
+                            this.style.padding = '8px';
+                            this.style.backgroundColor = '#ffeeee';
+                            this.alt = 'Error loading image';
                         };
                     });
                 }, 50);

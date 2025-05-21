@@ -357,10 +357,12 @@ class NewsletterService:
         # Here we're just creating placeholder content
         content += "### Sentiment Analysis Over Time\n\n"
         content += "*This chart shows sentiment trends for the selected topics over the reporting period.*\n\n"
+        # Ensure proper image URL syntax - no spaces around data URL
         content += "![Sentiment Analysis Over Time](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==)\n\n"
         
         content += "### Topic Distribution\n\n"
         content += "*This chart shows the distribution of content across different subtopics.*\n\n"
+        # Ensure proper image URL syntax - no spaces around data URL
         content += "![Topic Distribution](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==)\n\n"
         
         return content
@@ -744,13 +746,22 @@ The content would be based on the provided articles and would follow the specifi
         # Combine charts into markdown - with updated headings
         result = ""
         result += "#### Sentiment Over Time\n"
-        result += (
-            f"![Sentiment Over Time Chart]({sentiment_over_time_chart})\n\n"
-        )
+        
+        # Ensure proper image formatting for sentiment chart
+        if sentiment_over_time_chart:
+            # Don't add any spaces in the markdown image syntax
+            result += f"![Sentiment Over Time Chart]({sentiment_over_time_chart.strip()})\n\n"
+        else:
+            result += "Image generation failed for sentiment over time chart.\n\n"
+            
         result += "#### Future Signals Analysis\n"
-        result += (
-            f"![Radar Chart]({radar_chart})\n\n"
-        )
+        
+        # Ensure proper image formatting for radar chart
+        if radar_chart:
+            # Don't add any spaces in the markdown image syntax
+            result += f"![Radar Chart]({radar_chart.strip()})\n\n"
+        else:
+            result += "Image generation failed for radar chart.\n\n"
         
         return result
 
@@ -1073,8 +1084,31 @@ The content would be based on the provided articles and would follow the specifi
                 pub_date = pub_date.strftime("%Y-%m-%d") if hasattr(pub_date, "strftime") else str(pub_date)
             
             summary = article.get("summary", "No summary available.")
+            
+            # Properly handle tags based on their data type
             tags = article.get("tags", [])
-            tag_str = ", ".join(tags) if tags else ""
+            tag_str = ""
+            
+            if isinstance(tags, list):
+                # If tags is already a list, just join the elements
+                tag_str = ", ".join(tags)
+            elif isinstance(tags, str):
+                # If tags is a string, check if it's JSON format or comma-separated
+                if tags.startswith('[') and tags.endswith(']'):
+                    try:
+                        # Try to parse as JSON array
+                        import json
+                        tag_list = json.loads(tags)
+                        if isinstance(tag_list, list):
+                            tag_str = ", ".join(tag_list)
+                        else:
+                            tag_str = tags
+                    except:
+                        # If parsing fails, treat as comma-separated
+                        tag_str = tags
+                else:
+                    # Assume it's comma-separated
+                    tag_str = tags
             
             # Generate why this article merits attention
             why_merits_attention = "Analysis of importance pending."
