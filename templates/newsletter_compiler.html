@@ -955,98 +955,192 @@ function getMarkdownContent() {
 
 // Function to set markdown content
 function setMarkdownContent(markdown) {
-    if (editor) {
-        editor.value(markdown);
-        updatePreview();
+    if (!editor) {
+        console.error('Editor not initialized, cannot set content');
+        return;
+    }
+    
+    try {
+        console.log(`Setting markdown content (${markdown ? markdown.length : 0} bytes)`);
+        
+        // For very large content, use a more efficient approach
+        if (markdown && markdown.length > 100000) {
+            console.log('Large content detected, using optimized handling');
+            
+            // Set chunks with timeouts to prevent UI blocking
+            const setContentInChunks = () => {
+                // Store the content
+                originalMarkdownContent = markdown;
+                
+                // Replace base64 content with placeholders
+                const condensedContent = replaceBase64WithPlaceholders(markdown);
+                
+                // Use the editor's raw CodeMirror setValue method which is more efficient
+                // than the SimpleMDE value() method for large content
+                editor.codemirror.setValue(condensedContent);
+                
+                // Ensure the cursor is at the beginning
+                editor.codemirror.setCursor({line: 0, ch: 0});
+                
+                // Schedule preview update
+                setTimeout(updatePreview, 100);
+            };
+            
+            // Schedule the chunked update
+            setTimeout(setContentInChunks, 10);
+        } else {
+            // For smaller content, use the normal method
+            editor.value(markdown);
+            updatePreview();
+        }
+    } catch (error) {
+        console.error('Error setting markdown content:', error);
+        alert(`Error setting content: ${error.message}\nPlease try reloading the page.`);
     }
 }
 
 // Update the preview from markdown content
 function updatePreview() {
-    // Use original content with full base64 data for preview
-    const markdownContent = getMarkdownContent();
-    const previewElement = document.getElementById('preview-content');
-    
-    if (!markdownContent || !markdownContent.trim()) {
-        previewElement.innerHTML = '<p>Preview will appear here...</p>';
-        return;
-    }
-    
     try {
-        // Use marked for markdown rendering
-        if (typeof marked !== 'undefined') {
-            const html = marked.parse(markdownContent);
-            previewElement.innerHTML = html;
-            
-            // Apply image processing to ensure color charts display properly
-            const images = previewElement.querySelectorAll('img');
-            images.forEach(img => {
-                // Fix data URLs - ensure no space after base64,
-                if (img.src && img.src.startsWith('data:image') && img.src.includes('base64, ')) {
-                    img.src = img.src.replace('base64, ', 'base64,');
-                }
-                
-                // Skip cache busting for data URLs
-                if (img.src && !img.src.startsWith('data:') && !img.src.includes('cache=')) {
-                    img.src = img.src + (img.src.includes('?') ? '&' : '?') + 'cache=' + new Date().getTime();
-                }
-                
-                // Add specific classes for charts
-                if (img.src && (img.src.includes('chart') || img.src.includes('sentiment') || 
-                    img.src.includes('radar') || img.alt && (img.alt.includes('Chart') || 
-                    img.alt.includes('chart')))) {
-                    img.classList.add('newsletter-chart');
-                    // Explicitly set dimensions to override any inline styles
-                    img.style.maxWidth = '550px';
-                    img.style.maxHeight = '400px';
-                    img.style.width = 'auto';
-                    img.style.height = 'auto';
-                }
-                
-                // Add error handler to log any issues with images
-                img.onerror = function() {
-                    console.error('Error loading image:', this.src);
-                    // Replace with error message directly in the image
-                    this.style.display = 'inline-block';
-                    this.style.padding = '5px';
-                    this.style.border = '1px solid #f55';
-                    this.style.backgroundColor = '#fee';
-                    this.style.color = '#333';
-                    this.style.fontStyle = 'italic';
-                    this.style.fontSize = '14px';
-                    this.style.height = 'auto';
-                    this.style.width = 'auto';
-                    this.style.minHeight = '50px';
-                    this.style.textAlign = 'center';
-                    this.style.lineHeight = '50px';
-                    this.alt = 'Image failed to load';
-                    
-                    // Set a data attribute to mark this as an error
-                    this.setAttribute('data-load-error', 'true');
-                    
-                    // Replace the src with a transparent pixel so it stops trying to load
-                    // but only if it's not a data URL to avoid recursive errors
-                    if (!this.src.startsWith('data:')) {
-                        this.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
-                    }
-                };
-            });
-        } else {
-            // Fallback to basic rendering
-            let html = markdownContent
-                .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-                .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-                .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-                .replace(/\*\*(.*)\*\*/gm, '<strong>$1</strong>')
-                .replace(/\*(.*)\*/gm, '<em>$1</em>')
-                .replace(/\[([^\]]+)\]\(([^)]+)\)/gm, '<a href="$2">$1</a>')
-                .replace(/\n/gm, '<br>');
-            
-            previewElement.innerHTML = html;
+        // Use original content with full base64 data for preview
+        const markdownContent = getMarkdownContent();
+        const previewElement = document.getElementById('preview-content');
+        
+        if (!previewElement) {
+            console.error('Preview element not found');
+            return;
         }
-    } catch (error) {
-        console.error("Error updating preview:", error);
-        previewElement.innerHTML = "<p>Error rendering preview: " + error.message + "</p>";
+        
+        if (!markdownContent || !markdownContent.trim()) {
+            previewElement.innerHTML = '<p>Preview will appear here...</p>';
+            return;
+        }
+        
+        console.log(`Updating preview with content length: ${markdownContent.length}`);
+        
+        // For very large content, show a simplified preview to avoid browser freezing
+        if (markdownContent.length > 200000) {
+            console.log('Content is very large, using simplified preview');
+            
+            // Get the first ~10,000 characters plus last ~5,000 for preview
+            const firstPart = markdownContent.substring(0, 10000);
+            const lastPart = markdownContent.substring(markdownContent.length - 5000);
+            
+            const simplifiedContent = `${firstPart}\n\n...\n\n[Content truncated for preview - ${Math.round(markdownContent.length/1024)}KB total]\n\n...\n\n${lastPart}`;
+            
+            // Use a timeout to allow UI to remain responsive
+            setTimeout(() => {
+                try {
+                    // Use marked for markdown rendering
+                    if (typeof marked !== 'undefined') {
+                        const html = marked.parse(simplifiedContent);
+                        previewElement.innerHTML = html;
+                        
+                        // Add a notice at the top
+                        const notice = document.createElement('div');
+                        notice.className = 'alert alert-info';
+                        notice.innerHTML = `<strong>Note:</strong> Preview is truncated for large content (${Math.round(markdownContent.length/1024)}KB)`;
+                        previewElement.insertBefore(notice, previewElement.firstChild);
+                        
+                        console.log('Simplified preview updated');
+                    }
+                } catch (e) {
+                    console.error('Error rendering simplified preview:', e);
+                    previewElement.innerHTML = `<p>Error rendering large preview: ${e.message}</p>`;
+                }
+            }, 10);
+            
+            return;
+        }
+        
+        // Normal preview rendering for reasonable sized content
+        try {
+            // Use marked for markdown rendering
+            if (typeof marked !== 'undefined') {
+                const html = marked.parse(markdownContent);
+                previewElement.innerHTML = html;
+                
+                // Process images after a short delay to allow DOM to update
+                setTimeout(() => {
+                    // Apply image processing to ensure color charts display properly
+                    const images = previewElement.querySelectorAll('img');
+                    images.forEach(img => {
+                        // Fix data URLs - ensure no space after base64,
+                        if (img.src && img.src.startsWith('data:image') && img.src.includes('base64, ')) {
+                            img.src = img.src.replace('base64, ', 'base64,');
+                        }
+                        
+                        // Skip cache busting for data URLs
+                        if (img.src && !img.src.startsWith('data:') && !img.src.includes('cache=')) {
+                            img.src = img.src + (img.src.includes('?') ? '&' : '?') + 'cache=' + new Date().getTime();
+                        }
+                        
+                        // Add specific classes for charts
+                        if (img.src && (img.src.includes('chart') || img.src.includes('sentiment') || 
+                            img.src.includes('radar') || img.alt && (img.alt.includes('Chart') || 
+                            img.alt.includes('chart')))) {
+                            img.classList.add('newsletter-chart');
+                            // Explicitly set dimensions to override any inline styles
+                            img.style.maxWidth = '550px';
+                            img.style.maxHeight = '400px';
+                            img.style.width = 'auto';
+                            img.style.height = 'auto';
+                        }
+                        
+                        // Add error handler to log any issues with images
+                        img.onerror = function() {
+                            console.error('Error loading image:', this.src);
+                            // Replace with error message directly in the image
+                            this.style.display = 'inline-block';
+                            this.style.padding = '5px';
+                            this.style.border = '1px solid #f55';
+                            this.style.backgroundColor = '#fee';
+                            this.style.color = '#333';
+                            this.style.fontStyle = 'italic';
+                            this.style.fontSize = '14px';
+                            this.style.height = 'auto';
+                            this.style.width = 'auto';
+                            this.style.minHeight = '50px';
+                            this.style.textAlign = 'center';
+                            this.style.lineHeight = '50px';
+                            this.alt = 'Image failed to load';
+                            
+                            // Set a data attribute to mark this as an error
+                            this.setAttribute('data-load-error', 'true');
+                            
+                            // Replace the src with a transparent pixel so it stops trying to load
+                            // but only if it's not a data URL to avoid recursive errors
+                            if (!this.src.startsWith('data:')) {
+                                this.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+                            }
+                        };
+                    });
+                }, 50);
+            } else {
+                // Fallback to basic rendering
+                let html = markdownContent
+                    .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+                    .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+                    .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+                    .replace(/\*\*(.*)\*\*/gm, '<strong>$1</strong>')
+                    .replace(/\*(.*)\*/gm, '<em>$1</em>')
+                    .replace(/\[([^\]]+)\]\(([^)]+)\)/gm, '<a href="$2">$1</a>')
+                    .replace(/\n/gm, '<br>');
+                
+                previewElement.innerHTML = html;
+            }
+            
+            console.log('Preview updated successfully');
+        } catch (error) {
+            console.error("Error updating preview:", error);
+            previewElement.innerHTML = "<p>Error rendering preview: " + error.message + "</p>";
+        }
+    } catch (outerError) {
+        console.error("Outer error in updatePreview:", outerError);
+        const previewElement = document.getElementById('preview-content');
+        if (previewElement) {
+            previewElement.innerHTML = "<p>Error preparing preview: " + outerError.message + "</p>";
+        }
     }
 }
 
@@ -1954,11 +2048,19 @@ async function loadSavedNewsletters() {
         console.log('API response status:', response.status);
         
         if (!response.ok) {
-            throw new Error(`Failed to load saved newsletters: ${response.status} ${response.statusText}`);
+            const errorText = await response.text();
+            console.error(`Server returned error: ${errorText}`);
+            throw new Error(`Failed to load saved newsletters: ${response.status} - ${errorText}`);
         }
         
-        const newsletters = await response.json();
-        console.log('Loaded newsletters:', newsletters);
+        let newsletters;
+        try {
+            newsletters = await response.json();
+            console.log(`Loaded ${newsletters.length} newsletters:`, newsletters);
+        } catch (parseError) {
+            console.error('Error parsing API response:', parseError);
+            throw new Error(`Failed to parse API response: ${parseError.message}`);
+        }
         
         // Clear container
         container.innerHTML = '';
@@ -1977,12 +2079,17 @@ async function loadSavedNewsletters() {
         // Sort newsletters by date (most recent first)
         newsletters.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
         
+        console.log(`Creating UI elements for ${newsletters.length} newsletters`);
+        
         // Create list items
-        newsletters.forEach(newsletter => {
+        newsletters.forEach((newsletter, index) => {
             try {
+                console.log(`Processing newsletter ${index + 1}/${newsletters.length}, ID: ${newsletter.id}`);
+                
                 const item = document.createElement('a');
                 item.href = '#';
                 item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+                item.dataset.newsletterId = newsletter.id;
                 item.addEventListener('click', (e) => {
                     e.preventDefault();
                     loadNewsletter(newsletter.id);
@@ -2011,6 +2118,7 @@ async function loadSavedNewsletters() {
                 editBtn.type = 'button';
                 editBtn.className = 'btn btn-outline-primary';
                 editBtn.innerHTML = '<i class="fa fa-pencil"></i>';
+                editBtn.title = 'Edit this newsletter';
                 editBtn.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -2022,21 +2130,23 @@ async function loadSavedNewsletters() {
                 deleteBtn.type = 'button';
                 deleteBtn.className = 'btn btn-outline-danger';
                 deleteBtn.innerHTML = '<i class="fa fa-trash"></i>';
+                deleteBtn.title = 'Delete this newsletter';
                 deleteBtn.addEventListener('click', (e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    if (confirm(`Are you sure you want to delete "${newsletter.filename}"?`)) {
-                        deleteNewsletter(newsletter.id);
-                    }
+                    // The confirmation is now handled in the deleteNewsletter function
+                    deleteNewsletter(newsletter.id);
                 });
                 btnGroup.appendChild(deleteBtn);
                 
                 item.appendChild(btnGroup);
                 container.appendChild(item);
             } catch (itemError) {
-                console.error('Error creating newsletter item:', itemError, newsletter);
+                console.error(`Error creating newsletter item ${index}:`, itemError, newsletter);
             }
         });
+        
+        console.log('Newsletters loaded successfully');
         
     } catch (error) {
         console.error('Error loading saved newsletters:', error);
@@ -2075,7 +2185,66 @@ async function loadNewsletter(id) {
                 return;
             }
             
-            setMarkdownContent(newsletter.content);
+            let contentToSet = newsletter.content;
+            
+            // Check if content appears to be HTML and not Markdown
+            if (contentToSet.startsWith('<') && (contentToSet.includes('<html') || contentToSet.includes('<body') || contentToSet.includes('<div') || contentToSet.includes('<img'))) {
+                console.log('Content appears to be HTML, converting to Markdown...');
+                
+                // For simple HTML content, use regex replacements
+                contentToSet = contentToSet
+                    // Fix image tags to markdown format
+                    .replace(/<img\s+src="([^"]*)"(?:\s+alt="([^"]*)")?\s*\/?>/gi, function(match, src, alt) {
+                        return `![${alt || 'Image'}](${src})`;
+                    })
+                    // Fix heading tags
+                    .replace(/<h1(?:\s+[^>]*)?>(.*?)<\/h1>/gi, '# $1\n\n')
+                    .replace(/<h2(?:\s+[^>]*)?>(.*?)<\/h2>/gi, '## $1\n\n')
+                    .replace(/<h3(?:\s+[^>]*)?>(.*?)<\/h3>/gi, '### $1\n\n')
+                    .replace(/<h4(?:\s+[^>]*)?>(.*?)<\/h4>/gi, '#### $1\n\n')
+                    // Fix paragraph tags
+                    .replace(/<p(?:\s+[^>]*)?>(.*?)<\/p>/gi, '$1\n\n')
+                    // Fix links
+                    .replace(/<a\s+href="([^"]*)"(?:\s+[^>]*)?>(.*?)<\/a>/gi, '[$2]($1)')
+                    // Fix bold and italic
+                    .replace(/<strong(?:\s+[^>]*)?>(.*?)<\/strong>/gi, '**$1**')
+                    .replace(/<b(?:\s+[^>]*)?>(.*?)<\/b>/gi, '**$1**')
+                    .replace(/<em(?:\s+[^>]*)?>(.*?)<\/em>/gi, '*$1*')
+                    .replace(/<i(?:\s+[^>]*)?>(.*?)<\/i>/gi, '*$1*')
+                    // Fix lists
+                    .replace(/<ul(?:\s+[^>]*)?>(.*?)<\/ul>/gis, function(match, content) {
+                        return content.replace(/<li(?:\s+[^>]*)?>(.*?)<\/li>/gi, '* $1\n');
+                    })
+                    .replace(/<ol(?:\s+[^>]*)?>(.*?)<\/ol>/gis, function(match, content) {
+                        let counter = 1;
+                        return content.replace(/<li(?:\s+[^>]*)?>(.*?)<\/li>/gi, function(match, item) {
+                            return `${counter++}. ${item}\n`;
+                        });
+                    })
+                    // Remove common HTML tags
+                    .replace(/<\/?(?:div|span|table|tr|td|th|thead|tbody|br)[^>]*>/gi, '\n')
+                    .replace(/<\/?[a-z][^>]*>/gi, '') // Remove any remaining HTML tags
+                    .replace(/&nbsp;/gi, ' ')
+                    .replace(/&lt;/gi, '<')
+                    .replace(/&gt;/gi, '>')
+                    .replace(/&amp;/gi, '&')
+                    .replace(/&quot;/gi, '"')
+                    .replace(/&#39;/gi, "'")
+                    // Clean up extra whitespace and newlines
+                    .replace(/\n\s*\n\s*\n/g, '\n\n')
+                    .trim();
+                
+                console.log('Converted to Markdown format');
+            }
+            
+            // Set content in editor
+            setMarkdownContent(contentToSet);
+            
+            // Force an update of the preview
+            setTimeout(() => {
+                updatePreview();
+                console.log('Preview updated');
+            }, 100);
             
             // Update last updated time
             const lastUpdatedElement = document.getElementById('lastUpdated');
@@ -2100,13 +2269,43 @@ async function loadNewsletter(id) {
 // Function to delete a saved newsletter
 async function deleteNewsletter(id) {
     try {
+        console.log(`Attempting to delete newsletter with ID: ${id}`);
+        
+        // First check if the newsletter exists
+        const checkResponse = await fetch(`/api/newsletter/saved/${id}`);
+        if (checkResponse.status === 404) {
+            console.error(`Newsletter with ID ${id} not found`);
+            alert(`Newsletter not found. It may have been deleted already.`);
+            // Refresh the list anyway to ensure UI is in sync
+            loadSavedNewsletters();
+            return;
+        }
+        
+        // Confirm with the user again to prevent accidental deletions
+        const confirmDelete = confirm(`Are you sure you want to delete this newsletter? This action cannot be undone.`);
+        if (!confirmDelete) {
+            console.log('Deletion cancelled by user');
+            return;
+        }
+        
+        // Proceed with deletion
         const response = await fetch(`/api/newsletter/saved/${id}`, {
             method: 'DELETE'
         });
         
+        console.log(`Delete API response status: ${response.status}`);
+        
         if (!response.ok) {
-            throw new Error(`Failed to delete newsletter: ${response.status}`);
+            const errorText = await response.text();
+            console.error(`Server returned error: ${errorText}`);
+            throw new Error(`Failed to delete newsletter: ${response.status} - ${errorText}`);
         }
+        
+        const result = await response.json();
+        console.log('Delete operation result:', result);
+        
+        // Show success message
+        alert(`Newsletter deleted successfully.`);
         
         // Refresh saved newsletters list
         loadSavedNewsletters();

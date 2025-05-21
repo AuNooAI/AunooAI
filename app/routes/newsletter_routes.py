@@ -533,34 +533,52 @@ async def get_saved_newsletters():
         List of saved newsletter metadata
     """
     try:
+        logger.info("Fetching all saved newsletters")
+        
         # Ensure directory exists
         NEWSLETTERS_DIR.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Newsletters directory: {NEWSLETTERS_DIR}")
         
         # Find all .meta.json files
         metadata_files = list(NEWSLETTERS_DIR.glob("*.meta.json"))
+        logger.info(f"Found {len(metadata_files)} metadata files")
         
         if not metadata_files:
+            logger.info("No newsletter metadata files found")
             return []
+        
+        # Log the files found for debugging
+        for meta_file in metadata_files:
+            logger.debug(f"Found metadata file: {meta_file}")
         
         # Load metadata for each newsletter
         newsletters = []
         for meta_file in metadata_files:
             try:
+                logger.debug(f"Processing metadata file: {meta_file}")
+                
                 with open(meta_file, 'r', encoding='utf-8') as f:
                     metadata = json.load(f)
+                    
+                newsletter_id = metadata.get("id", "unknown")
+                logger.debug(f"Loaded metadata for newsletter ID: {newsletter_id}")
                     
                 # Check if the newsletter markdown file exists
                 file_path = Path(metadata.get("file_path", ""))
                 if file_path.exists():
+                    logger.debug(f"Newsletter file exists: {file_path}")
                     newsletters.append(metadata)
                 else:
+                    logger.warning(f"Newsletter file not found: {file_path}")
                     # If file doesn't exist, remove the metadata
+                    logger.info(f"Removing orphaned metadata file: {meta_file}")
                     meta_file.unlink(missing_ok=True)
                     
             except Exception as e:
                 logger.error(f"Error reading newsletter metadata {meta_file}: {str(e)}")
                 continue
         
+        logger.info(f"Returning {len(newsletters)} newsletters")
         return newsletters
         
     except Exception as e:
@@ -635,28 +653,61 @@ async def delete_saved_newsletter(newsletter_id: str):
         Success message
     """
     try:
+        logger.info(f"Request to delete newsletter with ID: {newsletter_id}")
+        
         # Look for metadata file
         metadata_path = NEWSLETTERS_DIR / f"{newsletter_id}.meta.json"
         
         if not metadata_path.exists():
+            logger.warning(f"Newsletter metadata file not found: {metadata_path}")
             raise HTTPException(
                 status_code=404,
                 detail=f"Newsletter with ID {newsletter_id} not found"
             )
+        
+        logger.info(f"Found metadata file at {metadata_path}")
             
         # Load metadata to get file path
-        with open(metadata_path, 'r', encoding='utf-8') as f:
-            metadata = json.load(f)
+        try:
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+                
+            logger.info(f"Loaded metadata: {metadata}")
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in metadata file {metadata_path}: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Invalid newsletter metadata: {str(e)}"
+            )
             
         # Delete content file
         file_path = Path(metadata.get("file_path", ""))
         if file_path.exists():
-            file_path.unlink()
+            try:
+                file_path.unlink()
+                logger.info(f"Deleted newsletter file: {file_path}")
+            except Exception as e:
+                logger.error(f"Error deleting newsletter file {file_path}: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Error deleting newsletter file: {str(e)}"
+                )
+        else:
+            logger.warning(f"Newsletter file not found: {file_path}")
             
         # Delete metadata file
-        metadata_path.unlink()
+        try:
+            metadata_path.unlink()
+            logger.info(f"Deleted metadata file: {metadata_path}")
+        except Exception as e:
+            logger.error(f"Error deleting metadata file {metadata_path}: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error deleting newsletter metadata: {str(e)}"
+            )
             
         # Return success
+        logger.info(f"Newsletter with ID {newsletter_id} deleted successfully")
         return {"success": True, "message": f"Newsletter with ID {newsletter_id} deleted successfully"}
         
     except HTTPException:
