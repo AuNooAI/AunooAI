@@ -19,7 +19,7 @@
     }
 
     .container-fluid {
-        max-width: 1200px;
+        max-width: 1400px;
         margin: 0 auto;
         padding: 20px;
     }
@@ -115,234 +115,336 @@
     .summary-card small {
         font-size: 0.75rem;
     }
+    
+    /* Tab styling */
+    .nav-tabs .nav-link {
+        color: var(--dark-gray);
+        border: 1px solid transparent;
+        border-top-left-radius: 0.25rem;
+        border-top-right-radius: 0.25rem;
+        padding: 0.5rem 1rem;
+        margin-right: 0.25rem;
+    }
+    
+    .nav-tabs .nav-link.active {
+        color: var(--primary-color);
+        background-color: #fff;
+        border-color: #dee2e6 #dee2e6 #fff;
+        font-weight: bold;
+    }
+    
+    .tab-content {
+        padding-top: 1rem;
+    }
+    
+    /* Flow chart specific styles */
+    .controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+    }
+    
+    .filter-box {
+        min-width: 160px;
+    }
+    
+    .filter-panel {
+        background-color: var(--light-gray);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .filter-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        gap: 15px;
+        margin-bottom: 0;
+    }
 </style>
 
 <div class="container-fluid mt-4">
     <h2 class="mb-3">Analytics Dashboard</h2>
     
-    <!-- Primary Controls -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <label for="topicSelect">Select Topic</label>
-            <select class="form-select" id="topicSelect">
-                <option value="">Select a topic</option>
-            </select>
-        </div>
-        <div class="col-md-3">
-            <label for="categorySelect">Select Category</label>
-            <select class="form-select" id="categorySelect" disabled>
-                <option value="">Select a category</option>
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label for="timeframeSelect">Timeframe</label>
-            <select class="form-select" id="timeframeSelect">
-                <option value="7">Last 7 days</option>
-                <option value="30">Last 30 days</option>
-                <option value="90">Last 90 days</option>
-                <option value="180">Last 180 days</option>
-                <option value="365">Last year</option>
-                <option value="all" selected>All time</option>
-            </select>
-        </div>
-        <div class="col-md-2">
-            <label for="sentimentSelect">Sentiment</label>
-            <div class="multiselect-dropdown">
-                <button class="btn btn-outline-secondary dropdown-toggle form-select text-start" type="button" id="sentimentDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
-                    Select Sentiments
-                </button>
-                <ul class="dropdown-menu w-100" id="sentimentSelect" aria-labelledby="sentimentDropdown">
-                    <li><a class="dropdown-item" href="#" data-value="all">All Sentiments</a></li>
-                </ul>
-                <div class="selected-items" id="selectedSentiments"></div>
+    <!-- Tab Navigation -->
+    <ul class="nav nav-tabs mb-4" id="analyticsTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="charts-tab" data-bs-toggle="tab" data-bs-target="#charts" type="button" role="tab" aria-controls="charts" aria-selected="true">Charts</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="flow-tab" data-bs-toggle="tab" data-bs-target="#flow" type="button" role="tab" aria-controls="flow" aria-selected="false">Follow the Flow</button>
+        </li>
+    </ul>
+    
+    <div class="tab-content" id="analyticsTabsContent">
+        <!-- Charts Tab -->
+        <div class="tab-pane fade show active" id="charts" role="tabpanel" aria-labelledby="charts-tab">
+            <!-- Primary Controls -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <label for="topicSelect">Select Topic</label>
+                    <select class="form-select" id="topicSelect">
+                        <option value="">Select a topic</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="categorySelect">Select Category</label>
+                    <select class="form-select" id="categorySelect" disabled>
+                        <option value="">Select a category</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label for="timeframeSelect">Timeframe</label>
+                    <select class="form-select" id="timeframeSelect">
+                        <option value="7">Last 7 days</option>
+                        <option value="30">Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                        <option value="180">Last 180 days</option>
+                        <option value="365">Last year</option>
+                        <option value="all" selected>All time</option>
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="curatedCheckbox" checked />
+                        <label class="form-check-label" for="curatedCheckbox">
+                            Only Curated
+                        </label>
+                    </div>
+                </div>
             </div>
-        </div>
-        <div class="col-md-2 d-flex align-items-end">
-            <div class="form-check">
-                <input class="form-check-input" type="checkbox" id="curatedCheckbox" checked />
-                <label class="form-check-label" for="curatedCheckbox">
-                    Only Curated
-                </label>
-            </div>
-        </div>
-    </div>
 
-    <!-- Secondary Filters -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <label for="impactSelect">Time to Impact</label>
-            <div class="multiselect-dropdown">
-                <button class="btn btn-outline-secondary dropdown-toggle form-select text-start" type="button" id="impactDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
-                    Select Time to Impact
-                </button>
-                <ul class="dropdown-menu w-100" id="impactSelect" aria-labelledby="impactDropdown">
-                    <li><a class="dropdown-item" href="#" data-value="all">All Time to Impact</a></li>
-                </ul>
-                <div class="selected-items" id="selectedImpacts"></div>
+            <!-- Secondary Filters - now including Sentiment -->
+            <div class="row mb-4">
+                <div class="col-md-4">
+                    <label for="sentimentSelect">Sentiment</label>
+                    <div class="multiselect-dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle form-select text-start" type="button" id="sentimentDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
+                            Select Sentiments
+                        </button>
+                        <ul class="dropdown-menu w-100" id="sentimentSelect" aria-labelledby="sentimentDropdown">
+                            <li><a class="dropdown-item" href="#" data-value="all">All Sentiments</a></li>
+                        </ul>
+                        <div class="selected-items" id="selectedSentiments"></div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <label for="impactSelect">Time to Impact</label>
+                    <div class="multiselect-dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle form-select text-start" type="button" id="impactDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
+                            Select Time to Impact
+                        </button>
+                        <ul class="dropdown-menu w-100" id="impactSelect" aria-labelledby="impactDropdown">
+                            <li><a class="dropdown-item" href="#" data-value="all">All Time to Impact</a></li>
+                        </ul>
+                        <div class="selected-items" id="selectedImpacts"></div>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <label for="driverTypeSelect">Driver Type</label>
+                    <div class="multiselect-dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle form-select text-start" type="button" id="driverTypeDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
+                            Select Driver Types
+                        </button>
+                        <ul class="dropdown-menu w-100" id="driverTypeSelect" aria-labelledby="driverTypeDropdown">
+                            <li><a class="dropdown-item" href="#" data-value="all">All Driver Types</a></li>
+                        </ul>
+                        <div class="selected-items" id="selectedDriverTypes"></div>
+                    </div>
+                </div>
             </div>
-        </div>
-        <div class="col-md-3">
-            <label for="driverTypeSelect">Driver Type</label>
-            <div class="multiselect-dropdown">
-                <button class="btn btn-outline-secondary dropdown-toggle form-select text-start" type="button" id="driverTypeDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
-                    Select Driver Types
-                </button>
-                <ul class="dropdown-menu w-100" id="driverTypeSelect" aria-labelledby="driverTypeDropdown">
-                    <li><a class="dropdown-item" href="#" data-value="all">All Driver Types</a></li>
-                </ul>
-                <div class="selected-items" id="selectedDriverTypes"></div>
-            </div>
-        </div>
-    </div>
 
-    <div class="row mb-3">
-        <div class="col-md-3 col-sm-6">
-            <div class="card summary-card">
-                <div class="card-body">
-                    <h5 class="card-title">Total Articles</h5>
-                    <p id="articleCount" class="card-text display-4">0</p>
+            <div class="row mb-3">
+                <div class="col-md-3 col-sm-6">
+                    <div class="card summary-card">
+                        <div class="card-body">
+                            <h5 class="card-title">Total Articles</h5>
+                            <p id="articleCount" class="card-text display-4">0</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="card summary-card">
+                        <div class="card-body">
+                            <h5 class="card-title">Top Sentiment</h5>
+                            <p id="topSentiment" class="card-text display-4">-</p>
+                            <small id="topSentimentCount" class="text-muted">0 articles</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="card summary-card">
+                        <div class="card-body">
+                            <h5 class="card-title">Top Future Signal</h5>
+                            <p id="topFutureSignal" class="card-text display-4">-</p>
+                            <small id="topFutureSignalCount" class="text-muted">0 articles</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3 col-sm-6">
+                    <div class="card summary-card">
+                        <div class="card-body">
+                            <h5 class="card-title">Top Time to Impact</h5>
+                            <p id="topTimeToImpact" class="card-text display-4">-</p>
+                            <small id="topTimeToImpactCount" class="text-muted">0 articles</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <h5>Sentiment Distribution (Pie Chart)</h5>
+                        <div id="sentimentDistributionPie"></div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <h5>Sentiment Distribution (Bar Chart)</h5>
+                        <div id="sentimentDistributionBar"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <h5>Time to Impact Distribution (Pie Chart)</h5>
+                        <div id="timeToImpactPie"></div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <h5>Time to Impact Distribution (Bar Chart)</h5>
+                        <div id="timeToImpactBar"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <h5>Future Signal Distribution (Pie Chart)</h5>
+                        <div id="futureSignalPie"></div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <h5>Future Signal Distribution (Bar Chart)</h5>
+                        <div id="futureSignalBar"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <h5>Sentiment Distribution Across Categories</h5>
+                        <div id="sentimentByCategory"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <h5>Future Signal Distribution Across Categories</h5>
+                        <div id="futureSignalByCategory"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <h5>Articles Mapped by Future Signal and Sentiment</h5>
+                        <div id="articlesBubbleChart"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <h5>Articles Mapped by Future Signal and Time to Impact</h5>
+                        <div id="articlesFutureTimeBubbleChart"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <h5>Radar Chart of Articles by Future Signal, Sentiment, and Time to Impact</h5>
+                        <div id="radarChart"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Time-series Charts -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <h5>Sentiment Over Time</h5>
+                        <div id="sentimentTimeSeries"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card">
+                        <h5>Category Counts Over Time</h5>
+                        <div id="categoryStackedBar" style="width:100%; min-height:500px;"></div>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="card summary-card">
-                <div class="card-body">
-                    <h5 class="card-title">Top Sentiment</h5>
-                    <p id="topSentiment" class="card-text display-4">-</p>
-                    <small id="topSentimentCount" class="text-muted">0 articles</small>
+        
+        <!-- Flow Tab -->
+        <div class="tab-pane fade" id="flow" role="tabpanel" aria-labelledby="flow-tab">
+            <div class="controls">
+                <select id="flowTopicSelect" class="form-select" style="max-width:220px;"></select>
+                <select id="flowTimeframeSelect" class="form-select" style="max-width:160px;">
+                    <option value="all" selected>All time</option>
+                    <option value="7">Last 7 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="90">Last 90 days</option>
+                </select>
+                <input id="topSourcesInput" type="number" value="12" min="3" max="50" class="form-control" title="Top sources count" style="width:120px;"/>
+                <select id="colorMode" class="form-select" style="width:180px;">
+                    <option value="stage" selected>Colour by stage</option>
+                    <option value="source">Colour by source</option>
+                    <option value="category">Colour by category</option>
+                </select>
+                <button id="refreshBtn" class="btn btn-primary">Refresh</button>
+            </div>
+            <div id="filtersContainer" class="filter-panel">
+                <div class="filter-row">
+                    <select id="sourceFilter" class="form-select filter-box select2-multiple" multiple title="Filter by source"></select>
+                    <select id="categoryFilter" class="form-select filter-box select2-multiple" multiple title="Filter by category"></select>
+                    <select id="sentimentFilter" class="form-select filter-box select2-multiple" multiple title="Filter by sentiment"></select>
+                    <div class="form-check align-self-center">
+                        <input class="form-check-input me-1" type="checkbox" id="includeOtherCheckbox" checked>
+                        <label class="form-check-label" for="includeOtherCheckbox">Include "Other sources"</label>
+                    </div>
+                    <div class="form-check align-self-center">
+                        <input class="form-check-input me-1" type="checkbox" id="showCategoryCheckbox" checked>
+                        <label class="form-check-label" for="showCategoryCheckbox">Show category stage</label>
+                    </div>
                 </div>
             </div>
-        </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="card summary-card">
-                <div class="card-body">
-                    <h5 class="card-title">Top Future Signal</h5>
-                    <p id="topFutureSignal" class="card-text display-4">-</p>
-                    <small id="topFutureSignalCount" class="text-muted">0 articles</small>
-                </div>
-            </div>
-        </div>
-        <div class="col-md-3 col-sm-6">
-            <div class="card summary-card">
-                <div class="card-body">
-                    <h5 class="card-title">Top Time to Impact</h5>
-                    <p id="topTimeToImpact" class="card-text display-4">-</p>
-                    <small id="topTimeToImpactCount" class="text-muted">0 articles</small>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <div class="card">
-                <h5>Sentiment Distribution (Pie Chart)</h5>
-                <div id="sentimentDistributionPie"></div>
-            </div>
-        </div>
-        <div class="col-md-6">
-            <div class="card">
-                <h5>Sentiment Distribution (Bar Chart)</h5>
-                <div id="sentimentDistributionBar"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <div class="card">
-                <h5>Time to Impact Distribution (Pie Chart)</h5>
-                <div id="timeToImpactPie"></div>
-            </div>
-        </div>
-        <div class="col-md-6">
-            <div class="card">
-                <h5>Time to Impact Distribution (Bar Chart)</h5>
-                <div id="timeToImpactBar"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-md-6">
-            <div class="card">
-                <h5>Future Signal Distribution (Pie Chart)</h5>
-                <div id="futureSignalPie"></div>
-            </div>
-        </div>
-        <div class="col-md-6">
-            <div class="card">
-                <h5>Future Signal Distribution (Bar Chart)</h5>
-                <div id="futureSignalBar"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <h5>Sentiment Distribution Across Categories</h5>
-                <div id="sentimentByCategory"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <h5>Future Signal Distribution Across Categories</h5>
-                <div id="futureSignalByCategory"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <h5>Articles Mapped by Future Signal and Sentiment</h5>
-                <div id="articlesBubbleChart"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <h5>Articles Mapped by Future Signal and Time to Impact</h5>
-                <div id="articlesFutureTimeBubbleChart"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <h5>Radar Chart of Articles by Future Signal, Sentiment, and Time to Impact</h5>
-                <div id="radarChart"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Time-series Charts -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <h5>Sentiment Over Time</h5>
-                <div id="sentimentTimeSeries"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <h5>Category Counts Over Time</h5>
-                <div id="categoryStackedBar" style="width:100%; min-height:500px;"></div>
-            </div>
+            <div id="sankeyChart" style="width:100%; height:700px;"></div>
         </div>
     </div>
 </div>
 
+<!-- Add jQuery and Select2 for Flow Tab -->
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
@@ -383,6 +485,9 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('driverTypeDropdown').addEventListener('change', function() {
         updateCharts();
     });
+    
+    // Initialize Flow Chart
+    initFlowChart();
 });
 
 let topicOptions = {
@@ -1239,12 +1344,15 @@ function filterTimeSeriesData(data, periodFilter) {
             for (let i = 0; i < counts.length; i++) {
                 let sum = 0;
                 let validPoints = 0;
+                
+                // Look at window/2 days before and after
                 for (let j = Math.max(0, i - 2); j <= i; j++) {
                     if (counts[j] !== undefined) {
                         sum += counts[j];
                         validPoints++;
                     }
                 }
+                
                 maValues.push(validPoints > 0 ? sum / validPoints : null);
             }
 
@@ -1659,6 +1767,204 @@ function clearCharts() {
     document.getElementById('articleCount').textContent = '0';
 }
 
-updateCharts();
+// Flow Chart Code
+function initFlowChart() {
+    loadFlowTopics().then(() => {
+        // Initialize Select2 multi-selects
+        $('.select2-multiple').select2({
+            placeholder: 'Select options',
+            allowClear: true,
+            width: 'resolve'
+        }).on('change', fetchAndRender);
+        
+        fetchAndRender();
+    });
+    
+    // Add event listeners for Flow tab
+    document.getElementById('refreshBtn').addEventListener('click', fetchAndRender);
+    
+    ['sourceFilter', 'categoryFilter', 'sentimentFilter', 'colorMode', 'topSourcesInput', 
+     'includeOtherCheckbox', 'showCategoryCheckbox'].forEach(id => {
+        document.getElementById(id).addEventListener('change', fetchAndRender);
+    });
+}
+
+async function loadFlowTopics() {
+    try {
+        const res = await fetch('/api/topics');
+        const topics = await res.json();
+        const select = document.getElementById('flowTopicSelect');
+        select.innerHTML = '<option value="">All topics</option>';
+        topics.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.name;
+            opt.textContent = t.name;
+            select.appendChild(opt);
+        });
+    } catch(e) { console.error(e); }
+}
+
+// Utility for fallback pastel hues when stage color not used
+function pastelColor(idx, total) {
+    const hue = (idx * 360 / total) % 360;
+    return `hsl(${hue},60%,70%)`;
+}
+
+const STAGE_COLORS = ['#4e79a7', '#f28e2c', '#59a14f']; // source, category, sentiment
+
+function buildSankeyData(articles, maxSources, includeOther=true, includeCategory=true) {
+    const MAX_SOURCES = maxSources;
+
+    // Count occurrences per source
+    const sourceCounts = articles.reduce((acc, art) => {
+        const src = art.source || 'Unknown source';
+        acc[src] = (acc[src] || 0) + 1;
+        return acc;
+    }, {});
+
+    // Determine top sources
+    const topSources = Object.entries(sourceCounts)
+        .sort((a,b)=>b[1]-a[1])
+        .slice(0, MAX_SOURCES)
+        .map(([name])=>name);
+
+    const nodeIndices = new Map();
+    const nodes = [];
+    function getIndex(label) {
+        if(!nodeIndices.has(label)) {
+            nodeIndices.set(label, nodes.length);
+            nodes.push(label);
+        }
+        return nodeIndices.get(label);
+    }
+
+    const pairCounts = new Map();
+    const stageMap = new Map(); // label -> stage index 0-2
+
+    articles.forEach(art => {
+        let src = art.source || 'Unknown source';
+        if(!topSources.includes(src)) {
+            if(!includeOther) return; // skip this article altogether
+            src = 'Other sources';
+        }
+
+        let cat = art.category || 'Unknown';
+        if(cat.toLowerCase().includes('unknown')) return; // Skip unknowns
+
+        const sent = art.sentiment || 'Unknown sentiment';
+
+        // only three stages
+        const pairs = includeCategory ? [[src, cat],[cat, sent]] : [[src, sent]];
+        pairs.forEach(([a,b]) => {
+            const key = `${a}>>${b}`;
+            pairCounts.set(key, (pairCounts.get(key) || 0) + 1);
+            const aIdx = getIndex(a);
+            const bIdx = getIndex(b);
+            // Track stage for coloring
+            if(!stageMap.has(a)) stageMap.set(a, includeCategory? (pairs.length===2 && b===cat?0: pairs.indexOf([a,b])) : 0);
+            if(!stageMap.has(b)) {
+                const stageGuess = stageMap.get(a)+1;
+                stageMap.set(b, stageGuess);
+            }
+        });
+    });
+
+    const sources = [];
+    const targets = [];
+    const values = [];
+    pairCounts.forEach((val, key) => {
+        const [a, b] = key.split('>>');
+        sources.push(getIndex(a));
+        targets.push(getIndex(b));
+        values.push(val);
+    });
+
+    // Generate colors: use stage palette fallback pastel
+    const palette = includeCategory ? STAGE_COLORS : ['#4e79a7','#59a14f'];
+    const nodeColors = nodes.map(label => {
+        const stage = stageMap.get(label);
+        if(stage !== undefined) return palette[stage] || pastelColor(0,1);
+        return pastelColor(0,1);
+    });
+
+    // Unique color for each link
+    const linkColors = values.map((_, idx) => pastelColor(idx, values.length));
+
+    return { nodes, sources, targets, values, nodeColors, linkColors };
+}
+
+function renderSankey(data) {
+    const trace = {
+        type: 'sankey',
+        orientation: 'h',
+        node: {
+            pad: 30,
+            thickness: 30,
+            label: data.nodes,
+            color: data.nodeColors,
+            font: {size: 10, color: '#000'}
+        },
+        link: {
+            source: data.sources,
+            target: data.targets,
+            value: data.values,
+            color: data.linkColors
+        }
+    };
+    const layout = {
+        title: 'Article Flow Across Stages',
+        font: {size: 12},
+        height: 650,
+        width: 1300,
+        margin: {l: 30, r: 30, t: 40, b: 10},
+        autosize: true
+    };
+    Plotly.react('sankeyChart', [trace], layout, {responsive: true});
+}
+
+function applyFilters(records) {
+    const sel = id => Array.from(document.getElementById(id).selectedOptions).map(o=>o.value);
+    const srcSel = sel('sourceFilter');
+    const catSel = sel('categoryFilter');
+    const sentSel = sel('sentimentFilter');
+    return records.filter(r=>{
+        const srcOk = srcSel.length? srcSel.includes(r.source): true;
+        const catOk = catSel.length? catSel.includes(r.category): true;
+        const sentOk = sentSel.length? sentSel.includes(r.sentiment): true;
+        return srcOk && catOk && sentOk;
+    });
+}
+
+function populateFilters(records){
+    function unique(field){return [...new Set(records.map(r=>r[field]).filter(Boolean))].sort();}
+    const setOptions=(id,list)=>{
+        const select=document.getElementById(id);
+        if(select.options.length) return; // only first time
+        list.forEach(v=>{
+            const opt=document.createElement('option');
+            opt.value=opt.textContent=v; select.appendChild(opt);
+        });
+    };
+    setOptions('sourceFilter',unique('source'));
+    setOptions('categoryFilter',unique('category').filter(v=>v!=='Unknown category'));
+    setOptions('sentimentFilter',unique('sentiment'));
+}
+
+async function fetchAndRender() {
+    const topic = document.getElementById('flowTopicSelect').value;
+    const timeframe = document.getElementById('flowTimeframeSelect').value;
+    const topSources = parseInt(document.getElementById('topSourcesInput').value || '12',10);
+    const mode = document.getElementById('colorMode').value;
+    const includeOther = document.getElementById('includeOtherCheckbox').checked;
+    const includeCategory = document.getElementById('showCategoryCheckbox').checked;
+    const params = new URLSearchParams({timeframe, topSources});
+    if(topic) params.append('topic', topic);
+    const res = await fetch(`/api/flow_data?${params.toString()}`);
+    const records = await res.json();
+    populateFilters(records);
+    const filtered = applyFilters(records);
+    const sankey = buildSankeyData(filtered, topSources, includeOther, includeCategory);
+    renderSankey(sankey);
+}
 </script>
 {% endblock %}
