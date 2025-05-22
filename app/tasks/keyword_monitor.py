@@ -32,6 +32,7 @@ class KeywordMonitor:
             conn.commit()
         self._load_settings()
         self._init_tables()
+        self.check_and_reset_counter()  # Check for reset during initialization
     
     def _load_settings(self):
         """Load settings from database"""
@@ -207,11 +208,49 @@ class KeywordMonitor:
                 return False  # Return False if initialization fails
         return True  # Return True if collector already exists
     
+    def check_and_reset_counter(self):
+        """Check if the API usage counter needs to be reset for a new day"""
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT requests_today, last_reset_date 
+                    FROM keyword_monitor_status 
+                    WHERE id = 1
+                """)
+                row = cursor.fetchone()
+                if row:
+                    current_count, last_reset = row[0], row[1]
+                    today = datetime.now().date().isoformat()
+                    
+                    if not last_reset or last_reset < today:
+                        # Reset counter for new day
+                        logger.info(f"Resetting API counter from {current_count} to 0 (last reset: {last_reset}, today: {today})")
+                        cursor.execute("""
+                            UPDATE keyword_monitor_status 
+                            SET requests_today = 0,
+                                last_reset_date = ?
+                            WHERE id = 1
+                        """, (today,))
+                        conn.commit()
+                        
+                        # Also reset the collector's counter if it exists
+                        if self.collector:
+                            self.collector.requests_today = 0
+                            logger.info("Reset collector's requests_today counter to 0")
+                    else:
+                        logger.debug(f"No reset needed. Last reset: {last_reset}, today: {today}, current count: {current_count}")
+        except Exception as e:
+            logger.error(f"Error checking/resetting API counter: {str(e)}")
+    
     async def check_keywords(self):
         """Check all keywords for new matches"""
         logger.info("Starting keyword check...")
         new_articles_count = 0
         processed_keywords = 0
+        
+        # Check if counter needs reset before starting
+        self.check_and_reset_counter()
         
         if not self._init_collector():
             logger.error("Failed to initialize collector, skipping check")
@@ -379,6 +418,9 @@ class KeywordMonitor:
                             (datetime.now().isoformat(), keyword_id)
                         )
                         conn.commit()
+                        
+                        # After processing keywords, check and reset counter if needed before updating
+                        self.check_and_reset_counter()
                         
                         # Update request count in status
                         cursor.execute("""

@@ -69,6 +69,7 @@ from app.routes.topic_map_routes import (
 from app.routes.auspex_routes import router as auspex_router
 from app.routes.newsletter_routes import router as newsletter_router, page_router as newsletter_page_router
 from app.routes.dataset_routes import router as dataset_router
+from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -246,6 +247,11 @@ app.include_router(media_bias_routes.router)  # Add the new media bias routes
 
 # Include API routes
 app.include_router(api_router, prefix="/api")  # Add this line to include the API router
+
+# Add routes
+app.include_router(keyword_monitor_router)
+app.include_router(keyword_monitor_api_router, prefix="/api")
+app.include_router(onboarding_router)
 
 class ArticleData(BaseModel):
     title: str

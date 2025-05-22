@@ -519,7 +519,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                             {% if next_check <= current_time %}
                                 Checking soon...
                             {% else %}
-                                {{ next_check_time|timeago }}
+                                Next check: Coming up soon
                             {% endif %}
                         {% else %}
                             Checking soon...
@@ -1325,22 +1325,45 @@ function timeAgo(dateStr) {
     const now = new Date();
     const seconds = Math.floor((now - date) / 1000);
     
+    // Handle future dates
+    if (seconds < 0) {
+        const futureSeconds = Math.abs(seconds);
+        
+        let interval = Math.floor(futureSeconds / 31536000);
+        if (interval > 1) return `in ${interval} years`;
+        
+        interval = Math.floor(futureSeconds / 2592000);
+        if (interval > 1) return `in ${interval} months`;
+        
+        interval = Math.floor(futureSeconds / 86400);
+        if (interval > 1) return `in ${interval} days`;
+        
+        interval = Math.floor(futureSeconds / 3600);
+        if (interval > 1) return `in ${interval} hours`;
+        
+        interval = Math.floor(futureSeconds / 60);
+        if (interval > 1) return `in ${interval} minutes`;
+        
+        return `in ${Math.floor(futureSeconds)} seconds`;
+    }
+    
+    // Handle past dates (original logic)
     let interval = Math.floor(seconds / 31536000);
-    if (interval > 1) return interval + ' years ago';
+    if (interval > 1) return `${interval} years ago`;
     
     interval = Math.floor(seconds / 2592000);
-    if (interval > 1) return interval + ' months ago';
+    if (interval > 1) return `${interval} months ago`;
     
     interval = Math.floor(seconds / 86400);
-    if (interval > 1) return interval + ' days ago';
+    if (interval > 1) return `${interval} days ago`;
     
     interval = Math.floor(seconds / 3600);
-    if (interval > 1) return interval + ' hours ago';
+    if (interval > 1) return `${interval} hours ago`;
     
     interval = Math.floor(seconds / 60);
-    if (interval > 1) return interval + ' minutes ago';
+    if (interval > 1) return `${interval} minutes ago`;
     
-    return Math.floor(seconds) + ' seconds ago';
+    return `${Math.floor(seconds)} seconds ago`;
 }
 
 // Add Jinja filters
@@ -1400,58 +1423,7 @@ async function togglePolling(enabled) {
     }
 }
 
-function updateResetTimer() {
-    const now = new Date();
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
-    
-    const timeUntilReset = tomorrow - now;
-    const hours = Math.floor(timeUntilReset / (1000 * 60 * 60));
-    const minutes = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
-    
-    const resetTimer = document.getElementById('resetTimer');
-    if (resetTimer) {
-        resetTimer.innerHTML = `<i class="fas fa-refresh"></i> API resets in ${hours}h ${minutes}m`;
-        
-        // Update color based on API usage status
-        if (resetTimer.dataset.status === 'danger') {
-            resetTimer.classList.add('text-danger');
-        } else if (resetTimer.dataset.status === 'warning') {
-            resetTimer.classList.add('text-warning');
-        } else {
-            resetTimer.classList.remove('text-danger', 'text-warning');
-        }
-    }
-}
-
-// Update the existing DOMContentLoaded event listener
-document.addEventListener('DOMContentLoaded', function() {
-    // Existing code...
-    
-    // Add reset timer update
-    updateResetTimer();
-    setInterval(updateResetTimer, 60000);
-    
-    // Check API status and update reset timer color
-    fetch('/api/keyword-monitor/settings')
-        .then(response => response.json())
-        .then(settings => {
-            const resetTimer = document.getElementById('resetTimer');
-            if (resetTimer) {
-                const percentage = (settings.requests_today / settings.daily_request_limit) * 100;
-                if (percentage >= 100) {
-                    resetTimer.dataset.status = 'danger';
-                } else if (percentage >= 80) {
-                    resetTimer.dataset.status = 'warning';
-                } else {
-                    resetTimer.dataset.status = 'normal';
-                }
-                updateResetTimer();
-            }
-        })
-        .catch(error => console.error('Error checking API status:', error));
-});
+// Old updateResetTimer and DOMContentLoaded event listener removed to avoid duplication
 
 async function exportAlerts() {
     try {
@@ -2134,11 +2106,24 @@ function updateStatusDisplay(data) {
     if (bgTask.last_check_time) {
         const lastCheckElem = document.querySelector('.fas.fa-clock').parentElement;
         if (lastCheckElem) {
-            lastCheckElem.innerHTML = `<i class="fas fa-clock"></i> Last check: ${timeAgo(bgTask.last_check_time)}`;
+            // Format consistently with next check time
+            const lastCheck = new Date(bgTask.last_check_time);
+            const now = new Date();
+            const diffMs = now - lastCheck;
+            
+            if (diffMs < 60000) { // Less than a minute
+                lastCheckElem.innerHTML = `<i class="fas fa-clock"></i> Last check: Less than a minute ago`;
+            } else if (diffMs < 3600000) { // Less than an hour
+                const minutes = Math.floor(diffMs / 60000);
+                lastCheckElem.innerHTML = `<i class="fas fa-clock"></i> Last check: ${minutes} minute${minutes > 1 ? 's' : ''} ago`;
+            } else {
+                const hours = Math.floor(diffMs / 3600000);
+                lastCheckElem.innerHTML = `<i class="fas fa-clock"></i> Last check: ${hours} hour${hours > 1 ? 's' : ''} ago`;
+            }
         }
     }
     
-    // Update next check time
+    // Update next check time (keep the minutes format since it's more precise for upcoming events)
     if (bgTask.next_check_time) {
         const nextCheckElem = document.querySelector('.fas.fa-hourglass-half').parentElement;
         if (nextCheckElem) {
@@ -2147,9 +2132,18 @@ function updateStatusDisplay(data) {
             
             if (settings.is_enabled) {
                 if (nextCheck <= now) {
-                    nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Checking now...`;
+                    nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Checking soon...`;
                 } else {
-                    nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Next check: ${timeAgo(bgTask.next_check_time)}`;
+                    const timeDiff = nextCheck - now;
+                    if (timeDiff <= 60000) { // Less than a minute
+                        nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Next check: In less than a minute`;
+                    } else if (timeDiff < 3600000) { // Less than an hour
+                        const minutes = Math.floor(timeDiff / 60000);
+                        nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Next check: In ${minutes} minute${minutes > 1 ? 's' : ''}`;
+                    } else {
+                        const hours = Math.floor(timeDiff / 3600000);
+                        nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Next check: In ${hours} hour${hours > 1 ? 's' : ''}`;
+                    }
                 }
             } else {
                 nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Polling disabled`;
@@ -2201,6 +2195,108 @@ function updateStatusDisplay(data) {
         }
     }
 }
+
+// Update the reset timer function to properly display when API usage will reset
+function updateResetTimer() {
+    // Get current time in UTC/GMT
+    const now = new Date();
+    
+    // Create tomorrow's date at midnight UTC (when API counter resets)
+    const tomorrow = new Date(now);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setUTCHours(0, 0, 0, 0);
+    
+    const timeUntilReset = tomorrow - now;
+    const hours = Math.floor(timeUntilReset / (1000 * 60 * 60));
+    const minutes = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const resetTimer = document.getElementById('resetTimer');
+    if (resetTimer) {
+        // Get current API usage if available
+        const usageText = resetTimer.dataset.usage || '';
+        resetTimer.innerHTML = `<i class="fas fa-refresh"></i> ${usageText} (Resets in ${hours}h ${minutes}m)`;
+        
+        // Update color based on API usage status
+        if (resetTimer.dataset.status === 'danger') {
+            resetTimer.classList.add('text-danger');
+        } else if (resetTimer.dataset.status === 'warning') {
+            resetTimer.classList.add('text-warning');
+        } else {
+            resetTimer.classList.remove('text-danger', 'text-warning');
+        }
+    }
+}
+
+// Fetch current API usage periodically
+function fetchApiUsage() {
+    fetch('/api/keyword-monitor/status')
+        .then(response => response.json())
+        .then(data => {
+            if (data.api_usage) {
+                const resetTimer = document.getElementById('resetTimer');
+                if (resetTimer) {
+                    const usage = data.api_usage.requests_today;
+                    const limit = data.api_usage.limit;
+                    const percentage = (usage / limit) * 100;
+                    
+                    // Store the usage text for the reset timer
+                    resetTimer.dataset.usage = `API usage: ${usage}/${limit}`;
+                    
+                    // Update status for coloring
+                    if (percentage >= 100) {
+                        resetTimer.dataset.status = 'danger';
+                    } else if (percentage >= 80) {
+                        resetTimer.dataset.status = 'warning';
+                    } else {
+                        resetTimer.dataset.status = 'normal';
+                    }
+                    
+                    // Update the timer display
+                    updateResetTimer();
+                }
+            }
+        })
+        .catch(error => console.error('Error fetching API usage:', error));
+}
+
+// Update the DOMContentLoaded event listener to include API usage checks
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize toggles
+    document.querySelectorAll('.show-read-toggle').forEach(toggle => {
+        const topic = toggle.dataset.topic;
+        const groupId = toggle.dataset.groupId;
+        
+        if (!topic || !groupId) {
+            console.error('Toggle missing required data attributes');
+            return;
+        }
+        
+        const savedState = localStorage.getItem(`showReadArticles_${groupId}`);
+        toggle.checked = savedState === 'true' || false;
+        
+        toggle.addEventListener('change', async function() {
+            console.log(`Toggle changed for group ${groupId} (${topic}): ${this.checked}`);
+            localStorage.setItem(`showReadArticles_${groupId}`, this.checked);
+            await refreshGroupArticles(topic, groupId, this.checked);
+        });
+    });
+
+    // Fetch API usage immediately
+    fetchApiUsage();
+    
+    // Initialize reset timer and set periodic updates
+    updateResetTimer();
+    setInterval(updateResetTimer, 60000);  // Update the countdown every minute
+    setInterval(fetchApiUsage, 300000);    // Fetch fresh API usage every 5 minutes
+    
+    // Add media bias info to all articles
+    console.log('Initializing media bias enhancement');
+    
+    // First call the enhanced media bias function for initial page load
+    enhanceAllArticlesWithMediaBias();
+    
+    // Rest of existing init code...
+});
 
 // Extract domain from URL to match with media bias sources
 function extractDomain(url) {
@@ -2526,5 +2622,31 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('Media bias functions already defined.');
     }
 });
+
+// ... Add the resetApiCounter function to the script section ...
+async function resetApiCounter() {
+    if (!confirm("Are you sure you want to manually reset the API counter? This should only be needed if the automatic daily reset isn't working.")) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/keyword-monitor/reset-api-counter', {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to reset API counter');
+        }
+        
+        const result = await response.json();
+        showAlert(`API counter reset successfully: ${result.message}`, 'success');
+        
+        // Refresh the API usage display
+        fetchApiUsage();
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to reset API counter: ' + error.message, 'danger');
+    }
+}
 </script>
 {% endblock %} 
