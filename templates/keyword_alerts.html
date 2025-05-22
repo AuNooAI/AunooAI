@@ -807,7 +807,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                                         title="Mark as read">
                                                     <i class="fas fa-check"></i>
                                                 </button>
-                                                <a href="/research?url={{ alert.article.url|urlencode }}&topic={{ group.topic|urlencode }}" 
+                                                <a href="/submit-article?url={{ alert.article.url|urlencode }}&topic={{ group.topic|urlencode }}" 
                                                    class="btn btn-sm btn-outline-primary"
                                                    title="Analyze article">
                                                     <i class="fas fa-microscope"></i>
@@ -1557,11 +1557,11 @@ function analyzeBulkArticles(topic, groupId) {
     
     const urls = articles.map(article => article.url).join('\n');
     const params = new URLSearchParams({
-        urlList: urls,
+        url: urls,
         topic: topic
     });
     
-    window.location.href = `/bulk-research?${params.toString()}`;
+    window.location.href = `/submit-article?${params.toString()}`;
 }
 
 async function bulkDeleteArticles(topic, groupId) {
@@ -2010,7 +2010,7 @@ function updateGroupAlerts(card, data, groupId) {
                                          title="Mark as unread">
                                     <i class="fas fa-undo"></i>
                                 </button>`}
-                            <a href="/research?url=${encodeURIComponent(alert.article.url)}&topic=${encodeURIComponent(data.topic)}" 
+                            <a href="/submit-article?url=${encodeURIComponent(alert.article.url)}&topic=${encodeURIComponent(data.topic)}" 
                                class="btn btn-sm btn-outline-primary"
                                title="Analyze article">
                                 <i class="fas fa-microscope"></i>
