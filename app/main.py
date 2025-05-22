@@ -629,7 +629,7 @@ async def analytics_route(request: Request, session=Depends(verify_session)):
 @app.get("/api/analytics")
 def get_analytics_data(
     timeframe: str = Query(...),
-    category: str = Query(None),
+    category: Optional[List[str]] = Query(None),
     topic: str = Query(...),
     sentiment: Optional[List[str]] = Query(None),
     timeToImpact: Optional[List[str]] = Query(None),
@@ -639,9 +639,10 @@ def get_analytics_data(
 ):
     logger.info(f"Received analytics request: timeframe={timeframe}, category={category}, topic={topic}, filters={sentiment},{timeToImpact},{driverType}, curated={curated}")
     try:
+        cat_param = category[0] if category and len(category) == 1 else category
         data = analytics.get_analytics_data(
             timeframe=timeframe, 
-            category=category, 
+            category=cat_param, 
             topic=topic,
             sentiment=sentiment[0] if sentiment and len(sentiment) == 1 else sentiment,
             time_to_impact=timeToImpact[0] if timeToImpact and len(timeToImpact) == 1 else timeToImpact,

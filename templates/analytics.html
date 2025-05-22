@@ -189,10 +189,16 @@
                     </select>
                 </div>
                 <div class="col-md-3">
-                    <label for="categorySelect">Select Category</label>
-                    <select class="form-select" id="categorySelect" disabled>
-                        <option value="">Select a category</option>
-                    </select>
+                    <label for="categorySelect">Category</label>
+                    <div class="multiselect-dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle form-select text-start" type="button" id="categoryDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
+                            Select Categories
+                        </button>
+                        <ul class="dropdown-menu w-100" id="categorySelect" aria-labelledby="categoryDropdown">
+                            <li><a class="dropdown-item" href="#" data-value="all">All Categories</a></li>
+                        </ul>
+                        <div class="selected-items" id="selectedCategories"></div>
+                    </div>
                 </div>
                 <div class="col-md-3">
                     <label for="timeframeSelect">Timeframe</label>
@@ -465,8 +471,8 @@ document.addEventListener('DOMContentLoaded', function() {
         localStorage.setItem('analyticsTopic', event.target.value);
         handleTopicChange(event);
     });
-    document.getElementById('categorySelect').addEventListener('change', function(event) {
-        localStorage.setItem('analyticsCategory', event.target.value);
+    document.getElementById('categoryDropdown').addEventListener('change', function(event) {
+        localStorage.setItem('analyticsCategory', JSON.stringify(Array.from(event.target.selectedOptions, option => option.value)));
         handleCategoryChange(event);
     });
     document.getElementById('timeframeSelect').addEventListener('change', function(event) {
@@ -515,11 +521,11 @@ function loadTopics() {
 
 function handleTopicChange(event) {
     const topicName = event.target.value;
-    const categorySelect = document.getElementById('categorySelect');
+    const categoryDropdown = document.getElementById('categoryDropdown');
     
     if (topicName) {
         // Enable category select and load categories for selected topic
-        categorySelect.disabled = false;
+        categoryDropdown.disabled = false;
         loadTopicOptions(topicName).then(() => {
             loadCategoriesForTopic(topicName);
             // Update charts with the new topic (without category)
@@ -527,8 +533,9 @@ function handleTopicChange(event) {
         });
     } else {
         // Disable and clear category select
-        categorySelect.disabled = true;
-        categorySelect.innerHTML = '<option value="">Select a category</option>';
+        categoryDropdown.disabled = true;
+        document.getElementById('categorySelect').innerHTML = '<li><a class="dropdown-item" href="#" data-value="all">All Categories</a></li>';
+        document.getElementById('selectedCategories').innerHTML = '';
         // Clear all charts
         clearCharts();
     }
@@ -646,28 +653,66 @@ function populateAdditionalFilters() {
     setupDropdown(driverTypeSelect, topicOptions.driverTypes, 'selectedDriverTypes');
 }
 
+function setupCategoryDropdown(values) {
+    const dropdownElem = document.getElementById('categorySelect');
+    dropdownElem.innerHTML = '<li><a class="dropdown-item" href="#" data-value="all">All Categories</a></li>';
+    const selectedContainer = document.getElementById('selectedCategories');
+    selectedContainer.innerHTML = '';
+
+    // Helper to handle click toggle
+    const addItem = (val) => {
+        const badge = document.createElement('span');
+        badge.className = 'badge';
+        badge.dataset.value = val;
+        badge.textContent = val;
+        const removeBtn = document.createElement('span');
+        removeBtn.innerHTML = '&times;';
+        removeBtn.className = 'ms-1';
+        removeBtn.style.cursor = 'pointer';
+        removeBtn.addEventListener('click', () => {
+            badge.remove();
+            updateCharts();
+        });
+        badge.appendChild(removeBtn);
+        selectedContainer.appendChild(badge);
+    };
+
+    values.forEach(val => {
+        const li = document.createElement('li');
+        const link = document.createElement('a');
+        link.className = 'dropdown-item';
+        link.href = '#';
+        link.dataset.value = val;
+        link.textContent = val;
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (val === 'all') {
+                selectedContainer.innerHTML = '';
+                updateCharts();
+                return;
+            }
+            const existing = document.querySelector(`#selectedCategories .badge[data-value="${val}"]`);
+            if (existing) {
+                existing.remove();
+            } else {
+                addItem(val);
+            }
+            updateCharts();
+        });
+        li.appendChild(link);
+        dropdownElem.appendChild(li);
+    });
+
+    // Handle saved selections
+    const saved = JSON.parse(localStorage.getItem('analyticsCategory') || '[]');
+    saved.forEach(v => addItem(v));
+}
+
 function loadCategoriesForTopic(topicName) {
     fetch(`/api/categories/${encodeURIComponent(topicName)}`)
-        .then(response => response.json())
-        .then(categories => {
-            const categorySelect = document.getElementById('categorySelect');
-            categorySelect.innerHTML = '<option value="">Select a category</option>';
-            categories.forEach(category => {
-                const option = document.createElement('option');
-                option.value = category;
-                option.textContent = category;
-                categorySelect.appendChild(option);
-            });
-
-            // Restore saved category if it exists
-            const savedCategory = localStorage.getItem('analyticsCategory');
-            if (savedCategory) {
-                categorySelect.value = savedCategory;
-                // Update charts with the restored category
-                updateCharts();
-            }
-        })
-        .catch(error => console.error('Error loading categories:', error));
+        .then(r => r.json())
+        .then(cats => setupCategoryDropdown(cats))
+        .catch(err => console.error('Error loading categories:', err));
 }
 
 function handleCategoryChange() {
@@ -680,7 +725,8 @@ function handleTimeframeChange() {
 
 function updateCharts() {
     const topic = document.getElementById('topicSelect').value;
-    const category = document.getElementById('categorySelect').value;
+    const categoryDropdown = document.getElementById('categoryDropdown');
+    const categoryFilters = Array.from(document.querySelectorAll('#selectedCategories .badge')).map(b => b.dataset.value);
     const timeframe = document.getElementById('timeframeSelect').value;
 
     // Get selections from custom dropdowns
@@ -692,11 +738,13 @@ function updateCharts() {
         .map(badge => badge.dataset.value);
     const curatedOnly = document.getElementById('curatedCheckbox').checked;
 
+    // Persist selections
+    localStorage.setItem('analyticsCategory', JSON.stringify(categoryFilters));
     // Only fetch and update charts if a topic is selected
     if (topic) {
         fetchDataAndUpdateCharts({
             timeframe,
-            category: category || '',
+            categories: categoryFilters,
             topic,
             sentiments: sentimentFilters,
             timeToImpacts: impactFilters,
@@ -713,9 +761,11 @@ async function fetchDataAndUpdateCharts(params) {
         
         // Add basic parameters
         query.append('timeframe', params.timeframe);
-        query.append('category', params.category);
         query.append('topic', params.topic);
         query.append('curated', params.curated);
+        
+        // Add category filters
+        (params.categories || []).forEach(value => query.append('category', value));
         
         // Add multiple selections for filters
         params.sentiments.forEach(value => query.append('sentiment', value));
@@ -1339,37 +1389,33 @@ function filterTimeSeriesData(data, periodFilter) {
         });
 
         // Calculate 3-month moving average
-        if (dates.length > 3) {
-            const maValues = [];
-            for (let i = 0; i < counts.length; i++) {
-                let sum = 0;
-                let validPoints = 0;
-                
-                // Look at window/2 days before and after
-                for (let j = Math.max(0, i - 2); j <= i; j++) {
-                    if (counts[j] !== undefined) {
-                        sum += counts[j];
-                        validPoints++;
-                    }
+        const maValues = [];
+        let validPoints = 0;
+        for (let i = 0; i < counts.length; i++) {
+            let sum = 0;
+            for (let j = Math.max(0, i - 2); j <= i; j++) {
+                if (counts[j] !== undefined) {
+                    sum += counts[j];
+                    validPoints++;
                 }
-                
-                maValues.push(validPoints > 0 ? sum / validPoints : null);
             }
-
-            // Add moving average trace
-            traces.push({
-                x: dates,
-                y: maValues,
-                mode: 'lines',
-                name: `${sentiment} (3-month MA)`,
-                line: {
-                    width: 2,
-                    color: colors[sentiment] || '#888',
-                    dash: 'dot'
-                },
-                showlegend: true
-            });
+            
+            maValues.push(validPoints > 0 ? sum / validPoints : null);
         }
+
+        // Add moving average trace
+        traces.push({
+            x: dates,
+            y: maValues,
+            mode: 'lines',
+            name: `${sentiment} (3-month MA)`,
+            line: {
+                width: 2,
+                color: colors[sentiment] || '#888',
+                dash: 'dot'
+            },
+            showlegend: true
+        });
     });
 
     // Create a mini-chart for the brush selector
@@ -1607,16 +1653,16 @@ function filterCategoryTimeSeriesData(data, periodFilter) {
         const result = [];
         for (let i = 0; i < values.length; i++) {
             let sum = 0;
-            let count = 0;
+            let validPoints = 0;
             
             // Look at window/2 days before and after
             for (let j = Math.max(0, i - Math.floor(window/2)); 
                  j <= Math.min(values.length - 1, i + Math.floor(window/2)); j++) {
                 sum += values[j];
-                count++;
+                validPoints++;
             }
             
-            result.push(count > 0 ? sum / count : 0);
+            result.push(validPoints > 0 ? sum / validPoints : 0);
         }
         return result;
     };
