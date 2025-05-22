@@ -176,13 +176,8 @@
             <input type="text" class="form-control" id="customVoice" name="customVoice" placeholder="Enter custom voice">
         </div>
     </div>
-    <div class="mb-3">
-        <label for="summaryType" class="form-label">Summary Type</label>
-        <select class="form-select" id="summaryType" name="summaryType" required>
-            <option value="curious_ai">Curious AI Long</option>
-            <option value="axios">Axios</option>
-        </select>
-    </div>
+    <!-- Hidden input for summary type, always using Curious AI Long -->
+    <input type="hidden" id="summaryType" name="summaryType" value="curious_ai_long">
     <div class="mb-3">
         <label for="modelName" class="form-label">AI Model</label>
         <select class="form-select" id="modelName" name="modelName" required>
@@ -355,7 +350,10 @@ async function analyzeBulkUrls(requestData) {
             'Content-Type': 'application/json',
             Accept: 'application/x-ndjson'
         },
-        body: JSON.stringify(requestData)
+        body: JSON.stringify({
+            ...requestData,
+            summaryType: "curious_ai_long"
+        })
     });
 
     if (!response.ok || !response.body) {
@@ -485,7 +483,7 @@ async function handleBulkResearchSubmit(event) {
 
         const requestData = {
             urls,
-            summaryType: document.getElementById('summaryType').value,
+            summaryType: "curious_ai_long",
             modelName: document.getElementById('modelName').value,
             summaryLength: getSummaryLength(),
             summaryVoice: getSummaryVoice(),

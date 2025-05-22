@@ -39,6 +39,7 @@ from app.security.auth import User, get_current_active_user, verify_password, ge
 from app.routes import prompt_routes
 from app.routes.web_routes import router as web_router
 from app.routes.topic_routes import router as topic_router
+from app.routes.api_routes import router as api_router  # Add this line for api_routes
 from starlette.middleware.sessions import SessionMiddleware
 from app.security.session import verify_session
 from app.routes.keyword_monitor import router as keyword_monitor_router, get_alerts
@@ -242,6 +243,9 @@ app.include_router(dataset_router)
 
 # Register media bias routes
 app.include_router(media_bias_routes.router)  # Add the new media bias routes
+
+# Include API routes
+app.include_router(api_router, prefix="/api")  # Add this line to include the API router
 
 class ArticleData(BaseModel):
     title: str
@@ -945,7 +949,7 @@ async def markdown_to_html(request: Request):
 async def save_article(article: ArticleData):
     try:
         logger.info(f"Received article data: {article.dict()}")
-        result = await db.save_article(article.dict())  # Use the async save_article method
+        result = db.save_article(article.dict())
         return JSONResponse(content=result)
     except HTTPException as he:
         logger.error(f"HTTP error saving article: {str(he)}")
@@ -3779,3 +3783,10 @@ async def debug_topics():
     logger.info("Debug topics endpoint called")
     topics = ["AI and Machine Learning", "Trend Monitoring", "Competitor Analysis"]
     return topics
+
+@app.get("/submit-article", response_class=HTMLResponse)
+async def submit_article_page(request: Request, session=Depends(verify_session)):
+    return templates.TemplateResponse(
+        "submit_article.html", 
+        get_template_context(request)
+    )
