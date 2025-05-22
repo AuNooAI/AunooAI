@@ -786,6 +786,45 @@
     .btn-group .btn:hover {
         transform: translateY(-1px);
     }
+
+    /* Highlight selected clock */
+    .clock-item.selected {
+        border: 2px solid var(--primary-color);
+    }
+
+    /* Tag style for timezone list */
+    .tz-tag {
+        display:inline-flex;
+        align-items:center;
+        background: var(--light-gray);
+        border:1px solid var(--medium-gray);
+        border-radius:12px;
+        padding:2px 8px;
+        margin:2px;
+        font-size:0.75rem;
+    }
+    .tz-tag .remove-tz{
+        margin-left:6px;
+        cursor:pointer;
+        opacity:0.6;
+    }
+    .tz-tag .remove-tz:hover{opacity:1}
+
+    /* small icon button */
+    .btn-icon-sm{
+        padding:2px 6px;
+        line-height:1;
+        border:none;
+        background:transparent;
+        color:var(--dark-gray);
+    }
+    .btn-icon-sm:hover{
+        color:var(--primary-color);
+        background:transparent;
+    }
+    /* ensure tooltips visible outside cards */
+    .card{overflow:visible;}
+    [data-tooltip]:hover::before{z-index:2000;}
 </style>
 {% endblock %}
 
@@ -805,7 +844,10 @@
                 <h5 class="mb-0">
                     <i class="fas fa-globe"></i> World Clock
                 </h5>
-                <span class="text-muted" id="localTime"></span>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="text-muted" id="localTime"></span>
+                    <button id="configureClocksBtn" class="btn btn-icon-sm" data-tooltip="Configure clocks"><i class="fas fa-cog"></i></button>
+                </div>
             </div>
         </div>
         <div class="card-body">
@@ -857,7 +899,7 @@
     <!-- Update the quick stats section -->
     <div class="row mb-4">
         <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Total number of articles in the database">
+            <div class="stat-card" data-tooltip="Total number of articles in the database" onclick="window.location.href='/database-editor'" style="cursor:pointer;">
                 <div class="stat-icon">
                     <i class="fas fa-newspaper"></i>
                 </div>
@@ -868,7 +910,7 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Articles collected in the last 24 hours">
+            <div class="stat-card" data-tooltip="Articles collected in the last 24 hours" onclick="window.location.href='/keyword-alerts'" style="cursor:pointer;">
                 <div class="stat-icon">
                     <i class="fas fa-clock"></i>
                 </div>
@@ -879,7 +921,7 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Number of active keyword groups">
+            <div class="stat-card" data-tooltip="Number of active keyword groups" onclick="window.location.href='/keyword-monitor'" style="cursor:pointer;">
                 <div class="stat-icon">
                     <i class="fas fa-tags"></i>
                 </div>
@@ -890,7 +932,7 @@
             </div>
         </div>
         <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Total topics being monitored">
+            <div class="stat-card" data-tooltip="Total topics being monitored" onclick="window.location.href='/create_topic'" style="cursor:pointer;">
                 <div class="stat-icon">
                     <i class="fas fa-folder"></i>
                 </div>
@@ -1078,6 +1120,35 @@
         </div>
     </div>
 </div>
+
+<!-- Clock Config Modal -->
+<div class="modal" id="clockConfigModal" tabindex="-1" role="dialog" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Configure World Clocks</h5>
+                <button type="button" class="btn-close" id="closeClockConfig"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="timezoneInput" class="form-label">Add Timezone (IANA format e.g., Europe/London)</label>
+                    <div class="input-group">
+                        <input type="text" id="timezoneInput" class="form-control" placeholder="Continent/City" list="timezoneOptions">
+                        <button class="btn btn-primary" id="addTimezoneBtn">Add</button>
+                    </div>
+                    <datalist id="timezoneOptions"></datalist>
+                </div>
+                <h6>Selected Timezones</h6>
+                <div id="selectedTimezones" class="mb-2"></div>
+                <small class="text-muted">Click × on tag to remove.</small>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancelClockConfig">Cancel</button>
+                <button type="button" class="btn btn-primary" id="saveClockConfig">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -1198,7 +1269,7 @@
     document.addEventListener('DOMContentLoaded', function() {
         // Initial updates
         updateAllStatuses();
-        updateClocks();
+        initWorldClocks();
         
         // Set up intervals
         setInterval(updateAllStatuses, 60000);  // Update all statuses every minute
@@ -1208,6 +1279,12 @@
         document.querySelectorAll('.badge').forEach(element => {
             element.addEventListener('mouseenter', () => element.style.transform = 'scale(1.05)');
             element.addEventListener('mouseleave', () => element.style.transform = 'scale(1)');
+        });
+
+        // Enable selecting clocks (highlight)
+        document.addEventListener('click',function(e){
+            const item=e.target.closest('.clock-item');
+            if(item) item.classList.toggle('selected');
         });
     });
 
@@ -1230,6 +1307,110 @@
             }
         }
     }
+
+    // WORLD CLOCK CONFIGURATION
+    const DEFAULT_TIMEZONES=[
+        'America/Los_Angeles','America/New_York','Europe/London','Europe/Berlin',
+        'Europe/Moscow','Asia/Dubai','Asia/Shanghai','Asia/Tokyo'
+    ];
+
+    function getSavedTimezones(){
+        try{const tz=localStorage.getItem('selected_timezones');
+            return tz?JSON.parse(tz):DEFAULT_TIMEZONES;
+        }catch(e){return DEFAULT_TIMEZONES;}
+    }
+    function saveTimezones(list){
+        localStorage.setItem('selected_timezones',JSON.stringify(list));
+    }
+
+    function renderClockItems(){
+        const container=document.querySelector('.world-clock');
+        if(!container) return;
+        container.innerHTML='';
+        const tzList=getSavedTimezones();
+        tzList.forEach(tz=>{
+            const div=document.createElement('div');
+            div.className='clock-item';
+            div.dataset.timezone=tz;
+            div.innerHTML=`<div class="clock-city">${tz.split('/').pop().replace('_',' ')}</div>
+                           <div class="clock-time"></div>
+                           <div class="clock-date"></div>`;
+            container.appendChild(div);
+        });
+        updateClocks();
+    }
+
+    function initWorldClocks(){
+        renderClockItems();
+        setInterval(updateClocks,UPDATE_INTERVALS.CLOCKS);
+    }
+
+    // Config modal logic
+    document.getElementById('configureClocksBtn').addEventListener('click',()=>{
+        populateTimezoneTags();
+        toggleClockModal(true);
+    });
+    document.getElementById('closeClockConfig').addEventListener('click',()=>toggleClockModal(false));
+    document.getElementById('cancelClockConfig').addEventListener('click',()=>toggleClockModal(false));
+
+    function toggleClockModal(show){
+        const modal=document.getElementById('clockConfigModal');
+        if(show){modal.style.display='block';modal.classList.add('show');document.body.classList.add('modal-open');}
+        else {modal.classList.remove('show');modal.style.display='none';document.body.classList.remove('modal-open');}
+    }
+
+    function populateTimezoneTags(){
+        const listEl=document.getElementById('selectedTimezones');
+        listEl.innerHTML='';
+        getSavedTimezones().forEach(tz=>addTimezoneTag(tz));
+    }
+
+    function addTimezoneTag(tz){
+        const listEl=document.getElementById('selectedTimezones');
+        const tag=document.createElement('span');
+        tag.className='tz-tag';
+        tag.textContent=tz;
+        const rm=document.createElement('span');
+        rm.className='remove-tz';
+        rm.textContent='×';
+        rm.addEventListener('click',()=>{tag.remove();});
+        tag.appendChild(rm);
+        listEl.appendChild(tag);
+    }
+
+    document.getElementById('addTimezoneBtn').addEventListener('click',()=>{
+        const input=document.getElementById('timezoneInput');
+        const tz=input.value.trim();
+        if(tz){addTimezoneTag(tz);input.value='';}
+    });
+
+    document.getElementById('saveClockConfig').addEventListener('click',()=>{
+        const tzList=Array.from(document.querySelectorAll('#selectedTimezones .tz-tag'))
+                         .map(tag=>tag.firstChild.textContent.trim())
+                         .filter((v,i,arr)=>v && arr.indexOf(v)===i);
+        if(tzList.length===0){alert('Select at least one timezone');return;}
+        saveTimezones(tzList);
+        toggleClockModal(false);
+        renderClockItems();
+    });
+
+    // Populate timezone datalist for autocomplete
+    (function populateTimezoneDatalist(){
+        const dl=document.getElementById('timezoneOptions');
+        if(!dl) return;
+        let zones=[];
+        if(Intl.supportedValuesOf){
+            try{zones=Intl.supportedValuesOf('timeZone');}catch(e){zones=[];}
+        }
+        if(!zones.length){
+            zones=DEFAULT_TIMEZONES;
+        }
+        zones.forEach(z=>{
+            const opt=document.createElement('option');
+            opt.value=z;
+            dl.appendChild(opt);
+        });
+    })();
 </script>
 
 <!-- Add Font Awesome for the clock icon -->
