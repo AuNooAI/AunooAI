@@ -126,6 +126,46 @@
         "Delayer",
         "Inhibitor"
       ]
+    },
+    {
+      "name": "Cloud repatriation",
+      "description": "Is cloud repatriation happening?",
+      "categories": [
+        "Economic Feasibility of Cloud Services",
+        "Technological Advancements in Cloud Computing",
+        "Security and Compliance in Cloud Services",
+        "On-premises Solution Improvement",
+        "Developments in Hybrid Structures",
+        "Impact on IT operations and strategy",
+        "Cloud Provider dynamics",
+        "Regulation and Government Policies"
+      ],
+      "future_signals": [
+        "Massive shift to hybrid structures",
+        "Continued momentum for public cloud",
+        "Emergence of new, secure on-premises ...",
+        "Increased government regulation leads...",
+        "Localized data centers become dominant"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": []
     }
   ],
   "ai_models": [
