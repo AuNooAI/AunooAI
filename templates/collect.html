@@ -1575,11 +1575,11 @@ async function analyzeBulkArticles() {
 
     const urls = selectedArticles.map(article => article.url).join('\n');
     const params = new URLSearchParams({
-        urlList: urls,
+        url: urls,
         topic: topic
     });
     
-    window.location.href = `/bulk-research?${params.toString()}`;
+    window.location.href = `/submit-article?${params.toString()}`;
 }
 
 // Add function to load stored articles when page loads
@@ -1872,7 +1872,7 @@ function analyzeArticle(url) {
         topic: topic
     });
     
-    window.location.href = `/research?${params.toString()}`;
+    window.location.href = `/submit-article?${params.toString()}`;
 }
 
 function setDefaultDates() {
