@@ -857,7 +857,7 @@ function updateNewsContainer(topicId, articles) {
                            title="View original post">
                             <i class="fas fa-external-link-alt"></i> View on Bluesky
                         </a>
-                        <a href="/research?url=${encodeURIComponent(url)}&topic=${encodeURIComponent(topicId)}" 
+                        <a href="/submit-article?url=${encodeURIComponent(url)}&topic=${encodeURIComponent(topicId)}" 
                            class="btn btn-sm btn-outline-success me-2"
                            data-bs-toggle="tooltip" 
                            data-bs-placement="top" 
@@ -913,7 +913,7 @@ function updatePapersContainer(topicId, articles) {
                    title="Access paper through archive">
                     <i class="fas fa-unlock"></i> Bypass Paywall
                 </a>
-                <a href="/research?url=${encodeURIComponent(article.url)}&topic=${encodeURIComponent(topicId)}" 
+                <a href="/submit-article?url=${encodeURIComponent(article.url)}&topic=${encodeURIComponent(topicId)}" 
                    class="btn btn-sm btn-outline-success me-2"
                    data-bs-toggle="tooltip" 
                    data-bs-placement="top" 

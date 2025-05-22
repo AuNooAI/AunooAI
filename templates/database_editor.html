@@ -959,7 +959,7 @@ document.getElementById('articleTableBody').addEventListener('click', async func
     
     if (e.target.classList.contains('edit-article')) {
         const uri = e.target.dataset.uri;
-        window.location.href = `/research?uri=${encodeURIComponent(uri)}`;
+        window.location.href = `/submit-article?url=${encodeURIComponent(uri)}`;
     } else if (e.target.classList.contains('delete-article')) {
         if (!confirm('Are you sure you want to delete this article?')) return;
         

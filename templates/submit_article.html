@@ -747,7 +747,7 @@ async function saveAnalyzedArticle() {
         successMessage.innerHTML = `
             <strong>Success!</strong> Article saved successfully.
             <div class="mt-2">
-                <a href="/research?uri=${encodeURIComponent(articleData.uri)}" class="btn btn-sm btn-primary">Edit Article</a>
+                <a href="/submit-article?url=${encodeURIComponent(articleData.uri)}&topic=${encodeURIComponent(topic)}" class="btn btn-sm btn-primary">Edit Article</a>
                 <a href="/topic-dashboard?topic=${encodeURIComponent(topic)}" class="btn btn-sm btn-secondary ms-2">Explore Dashboard</a>
             </div>
         `;
@@ -1481,7 +1481,7 @@ async function loadRecentEnrichedArticles(limit = 10) {
 
             card.innerHTML=`
                 <div class="article-content">
-                    <h5 class="card-title mb-1"><a href="/research?uri=${encodeURIComponent(article.uri)}" target="_blank" rel="noopener">${escapeHTML(article.title||'Untitled')}</a></h5>
+                    <h5 class="card-title mb-1"><a href="/submit-article?url=${encodeURIComponent(article.uri)}&topic=${encodeURIComponent(article.topic || '')}" target="_blank" rel="noopener">${escapeHTML(article.title||'Untitled')}</a></h5>
                     <div class="d-flex flex-wrap align-items-center gap-1 mb-1">${biasHtml}</div>
                     <div class="d-flex flex-wrap align-items-center gap-1 mb-1">${metadataBadges}</div>
                     <p class="small text-muted mb-1">Source: ${escapeHTML(article.news_source||'Unknown')}</p>
