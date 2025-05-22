@@ -625,11 +625,23 @@ def get_analytics_data(
     timeframe: str = Query(...),
     category: str = Query(None),
     topic: str = Query(...),
+    sentiment: Optional[List[str]] = Query(None),
+    timeToImpact: Optional[List[str]] = Query(None),
+    driverType: Optional[List[str]] = Query(None),
+    curated: bool = Query(True),
     analytics: Analytics = Depends(get_analytics)
 ):
-    logger.info(f"Received analytics request: timeframe={timeframe}, category={category}, topic={topic}")
+    logger.info(f"Received analytics request: timeframe={timeframe}, category={category}, topic={topic}, filters={sentiment},{timeToImpact},{driverType}, curated={curated}")
     try:
-        data = analytics.get_analytics_data(timeframe=timeframe, category=category, topic=topic)
+        data = analytics.get_analytics_data(
+            timeframe=timeframe, 
+            category=category, 
+            topic=topic,
+            sentiment=sentiment[0] if sentiment and len(sentiment) == 1 else sentiment,
+            time_to_impact=timeToImpact[0] if timeToImpact and len(timeToImpact) == 1 else timeToImpact,
+            driver_type=driverType[0] if driverType and len(driverType) == 1 else driverType,
+            curated=curated
+        )
         logger.info("Analytics data retrieved successfully")
         return JSONResponse(content=data)
     except Exception as e:

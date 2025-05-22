@@ -46,6 +46,23 @@
         border-radius: 4px;
     }
 
+    /* Multiple select styling */
+    select[multiple] {
+        height: auto;
+        min-height: 100px;
+    }
+    
+    select[multiple] option {
+        padding: 8px;
+        margin: 2px 0;
+        border-radius: 3px;
+    }
+    
+    select[multiple] option:checked {
+        background-color: var(--primary-color) !important;
+        color: white;
+    }
+
     .form-select:focus {
         border-color: var(--primary-dark);
         box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
@@ -54,26 +71,70 @@
     #articleCount {
         color: var(--primary-color);
     }
+
+    /* Dropdown styling */
+    .dropdown-menu {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .dropdown-item.active, 
+    .dropdown-item:active {
+        background-color: var(--primary-color);
+    }
+
+    .multiselect-dropdown {
+        position: relative;
+    }
+
+    .multiselect-dropdown .selected-items {
+        margin-top: 5px;
+    }
+
+    .multiselect-dropdown .selected-items .badge {
+        margin-right: 3px;
+        margin-bottom: 3px;
+        background-color: var(--primary-color);
+    }
+
+    /* Smaller summary cards */
+    .summary-card {
+        padding: 10px;
+    }
+
+    .summary-card .card-title {
+        font-size: 0.9rem;
+        margin-bottom: 5px;
+    }
+
+    .summary-card .display-4 {
+        font-size: 1.8rem;
+        font-weight: bold;
+    }
+
+    .summary-card small {
+        font-size: 0.75rem;
+    }
 </style>
 
 <div class="container-fluid mt-4">
     <h2 class="mb-3">Analytics Dashboard</h2>
     
-    <!-- Add topic and category selection -->
+    <!-- Primary Controls -->
     <div class="row mb-4">
-        <div class="col-md-4">
+        <div class="col-md-3">
             <label for="topicSelect">Select Topic</label>
             <select class="form-select" id="topicSelect">
                 <option value="">Select a topic</option>
             </select>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-3">
             <label for="categorySelect">Select Category</label>
             <select class="form-select" id="categorySelect" disabled>
                 <option value="">Select a category</option>
             </select>
         </div>
-        <div class="col-md-4">
+        <div class="col-md-2">
             <label for="timeframeSelect">Timeframe</label>
             <select class="form-select" id="timeframeSelect">
                 <option value="7">Last 7 days</option>
@@ -84,14 +145,89 @@
                 <option value="all" selected>All time</option>
             </select>
         </div>
+        <div class="col-md-2">
+            <label for="sentimentSelect">Sentiment</label>
+            <div class="multiselect-dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle form-select text-start" type="button" id="sentimentDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
+                    Select Sentiments
+                </button>
+                <ul class="dropdown-menu w-100" id="sentimentSelect" aria-labelledby="sentimentDropdown">
+                    <li><a class="dropdown-item" href="#" data-value="all">All Sentiments</a></li>
+                </ul>
+                <div class="selected-items" id="selectedSentiments"></div>
+            </div>
+        </div>
+        <div class="col-md-2 d-flex align-items-end">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="curatedCheckbox" checked />
+                <label class="form-check-label" for="curatedCheckbox">
+                    Only Curated
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Secondary Filters -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <label for="impactSelect">Time to Impact</label>
+            <div class="multiselect-dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle form-select text-start" type="button" id="impactDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
+                    Select Time to Impact
+                </button>
+                <ul class="dropdown-menu w-100" id="impactSelect" aria-labelledby="impactDropdown">
+                    <li><a class="dropdown-item" href="#" data-value="all">All Time to Impact</a></li>
+                </ul>
+                <div class="selected-items" id="selectedImpacts"></div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <label for="driverTypeSelect">Driver Type</label>
+            <div class="multiselect-dropdown">
+                <button class="btn btn-outline-secondary dropdown-toggle form-select text-start" type="button" id="driverTypeDropdown" data-bs-toggle="dropdown" aria-expanded="false" disabled>
+                    Select Driver Types
+                </button>
+                <ul class="dropdown-menu w-100" id="driverTypeSelect" aria-labelledby="driverTypeDropdown">
+                    <li><a class="dropdown-item" href="#" data-value="all">All Driver Types</a></li>
+                </ul>
+                <div class="selected-items" id="selectedDriverTypes"></div>
+            </div>
+        </div>
     </div>
 
     <div class="row mb-3">
-        <div class="col-md-4">
-            <div class="card">
+        <div class="col-md-3 col-sm-6">
+            <div class="card summary-card">
                 <div class="card-body">
                     <h5 class="card-title">Total Articles</h5>
                     <p id="articleCount" class="card-text display-4">0</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="card summary-card">
+                <div class="card-body">
+                    <h5 class="card-title">Top Sentiment</h5>
+                    <p id="topSentiment" class="card-text display-4">-</p>
+                    <small id="topSentimentCount" class="text-muted">0 articles</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="card summary-card">
+                <div class="card-body">
+                    <h5 class="card-title">Top Future Signal</h5>
+                    <p id="topFutureSignal" class="card-text display-4">-</p>
+                    <small id="topFutureSignalCount" class="text-muted">0 articles</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3 col-sm-6">
+            <div class="card summary-card">
+                <div class="card-body">
+                    <h5 class="card-title">Top Time to Impact</h5>
+                    <p id="topTimeToImpact" class="card-text display-4">-</p>
+                    <small id="topTimeToImpactCount" class="text-muted">0 articles</small>
                 </div>
             </div>
         </div>
@@ -187,11 +323,21 @@
         </div>
     </div>
 
+    <!-- Time-series Charts -->
     <div class="row mb-4">
         <div class="col-12">
             <div class="card">
-                <h5>Integrated Analysis: Driver Type, Time Impact, Sentiment, and Future Signal</h5>
-                <div id="integratedAnalysisChart"></div>
+                <h5>Sentiment Over Time</h5>
+                <div id="sentimentTimeSeries"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <h5>Category Counts Over Time</h5>
+                <div id="categoryStackedBar" style="width:100%; min-height:500px;"></div>
             </div>
         </div>
     </div>
@@ -225,12 +371,25 @@ document.addEventListener('DOMContentLoaded', function() {
         localStorage.setItem('analyticsTimeframe', event.target.value);
         handleTimeframeChange(event);
     });
+    document.getElementById('curatedCheckbox').addEventListener('change', function() {
+        updateCharts();
+    });
+    document.getElementById('sentimentDropdown').addEventListener('change', function() {
+        updateCharts();
+    });
+    document.getElementById('impactDropdown').addEventListener('change', function() {
+        updateCharts();
+    });
+    document.getElementById('driverTypeDropdown').addEventListener('change', function() {
+        updateCharts();
+    });
 });
 
 let topicOptions = {
     sentiments: [],
     futureSignals: [],
-    timeToImpacts: []
+    timeToImpacts: [],
+    driverTypes: []
 };
 
 function loadTopics() {
@@ -280,12 +439,106 @@ async function loadTopicOptions(topicName) {
         topicOptions = {
             sentiments: options.sentiments,
             futureSignals: options.futureSignals,
-            timeToImpacts: options.timeToImpacts
+            timeToImpacts: options.timeToImpacts,
+            driverTypes: options.driverTypes
         };
+        populateAdditionalFilters();
         console.log('Loaded topic options:', topicOptions);
     } catch (error) {
         console.error('Error loading topic options:', error);
     }
+}
+
+function populateAdditionalFilters() {
+    // Enable dropdowns and populate options
+    const sentimentDropdown = document.getElementById('sentimentDropdown');
+    const impactDropdown = document.getElementById('impactDropdown');
+    const driverTypeDropdown = document.getElementById('driverTypeDropdown');
+    const sentimentSelect = document.getElementById('sentimentSelect');
+    const impactSelect = document.getElementById('impactSelect');
+    const driverTypeSelect = document.getElementById('driverTypeSelect');
+    
+    sentimentDropdown.disabled = false;
+    impactDropdown.disabled = false;
+    driverTypeDropdown.disabled = false;
+    
+    // Clear existing dropdown items
+    sentimentSelect.innerHTML = '<li><a class="dropdown-item" href="#" data-value="all">All Sentiments</a></li>';
+    impactSelect.innerHTML = '<li><a class="dropdown-item" href="#" data-value="all">All Time to Impact</a></li>';
+    driverTypeSelect.innerHTML = '<li><a class="dropdown-item" href="#" data-value="all">All Driver Types</a></li>';
+    
+    // Add new items and setup event listeners
+    function setupDropdown(dropdownElem, values, selectedContainerId) {
+        const selectedContainer = document.getElementById(selectedContainerId);
+        selectedContainer.innerHTML = '';
+        
+        // Add items to dropdown
+        values.forEach(value => {
+            const item = document.createElement('li');
+            const link = document.createElement('a');
+            link.className = 'dropdown-item';
+            link.href = '#';
+            link.dataset.value = value;
+            link.textContent = value;
+            
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                // Handle "All" selection
+                if (value === 'all') {
+                    selectedContainer.innerHTML = '';
+                    updateCharts();
+                    return;
+                }
+                
+                // Toggle selection
+                const existingBadge = document.querySelector(`#${selectedContainerId} .badge[data-value="${value}"]`);
+                
+                if (existingBadge) {
+                    // Remove if already selected
+                    existingBadge.remove();
+                } else {
+                    // Add if not selected
+                    const badge = document.createElement('span');
+                    badge.className = 'badge';
+                    badge.dataset.value = value;
+                    badge.textContent = value;
+                    
+                    // Add remove button
+                    const removeBtn = document.createElement('span');
+                    removeBtn.innerHTML = '&times;';
+                    removeBtn.className = 'ms-1';
+                    removeBtn.style.cursor = 'pointer';
+                    removeBtn.addEventListener('click', function() {
+                        badge.remove();
+                        updateCharts();
+                    });
+                    
+                    badge.appendChild(removeBtn);
+                    selectedContainer.appendChild(badge);
+                }
+                
+                updateCharts();
+            });
+            
+            item.appendChild(link);
+            dropdownElem.appendChild(item);
+        });
+        
+        // Set up "All" selection handler
+        const allOption = dropdownElem.querySelector('a[data-value="all"]');
+        if (allOption) {
+            allOption.addEventListener('click', function(e) {
+                e.preventDefault();
+                selectedContainer.innerHTML = '';
+                updateCharts();
+            });
+        }
+    }
+    
+    setupDropdown(sentimentSelect, topicOptions.sentiments, 'selectedSentiments');
+    setupDropdown(impactSelect, topicOptions.timeToImpacts, 'selectedImpacts');
+    setupDropdown(driverTypeSelect, topicOptions.driverTypes, 'selectedDriverTypes');
 }
 
 function loadCategoriesForTopic(topicName) {
@@ -325,15 +578,46 @@ function updateCharts() {
     const category = document.getElementById('categorySelect').value;
     const timeframe = document.getElementById('timeframeSelect').value;
 
+    // Get selections from custom dropdowns
+    const sentimentFilters = Array.from(document.querySelectorAll('#selectedSentiments .badge'))
+        .map(badge => badge.dataset.value);
+    const impactFilters = Array.from(document.querySelectorAll('#selectedImpacts .badge'))
+        .map(badge => badge.dataset.value);
+    const driverFilters = Array.from(document.querySelectorAll('#selectedDriverTypes .badge'))
+        .map(badge => badge.dataset.value);
+    const curatedOnly = document.getElementById('curatedCheckbox').checked;
+
     // Only fetch and update charts if a topic is selected
     if (topic) {
-        fetchDataAndUpdateCharts(timeframe, category || '', topic);  // Use empty string if category is not selected
+        fetchDataAndUpdateCharts({
+            timeframe,
+            category: category || '',
+            topic,
+            sentiments: sentimentFilters,
+            timeToImpacts: impactFilters,
+            driverTypes: driverFilters,
+            curated: curatedOnly
+        });
     }
 }
 
-async function fetchDataAndUpdateCharts(timeframe, category, topic) {
+async function fetchDataAndUpdateCharts(params) {
     try {
-        const response = await fetch(`/api/analytics?timeframe=${timeframe}&category=${category}&topic=${topic}`);
+        // Create URLSearchParams for the API call
+        const query = new URLSearchParams();
+        
+        // Add basic parameters
+        query.append('timeframe', params.timeframe);
+        query.append('category', params.category);
+        query.append('topic', params.topic);
+        query.append('curated', params.curated);
+        
+        // Add multiple selections for filters
+        params.sentiments.forEach(value => query.append('sentiment', value));
+        params.timeToImpacts.forEach(value => query.append('timeToImpact', value));
+        params.driverTypes.forEach(value => query.append('driverType', value));
+
+        const response = await fetch(`/api/analytics?${query.toString()}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -349,7 +633,9 @@ async function fetchDataAndUpdateCharts(timeframe, category, topic) {
         updateArticlesBubbleChart(data.articlesBubbleChart);
         updateArticlesFutureTimeBubbleChart(data.articlesFutureTimeBubbleChart);
         updateArticleCount(data.totalArticles);
-        createIntegratedAnalysisChart(data.integratedAnalysis);
+        updateSentimentTimeSeries(data.sentimentTimeSeries);
+        updateCategoryStackedBar(data.categoryTimeSeries);
+        updateSummaryStats(data);
     } catch (error) {
         console.error('Error fetching analytics data:', error);
     }
@@ -651,72 +937,81 @@ function updateRadarChart(data) {
         'Neutral': '#9782ad',   // Lilac
         'Negative': '#f05b06',  // Red Orange
         'Critical': '#ff0080',  // Fuchsia
-        'Mixed': '#432f70'      // Indigo
-    };
-    const symbols = {
-        'Positive': 'circle',
-        'Neutral': 'square',
-        'Negative': 'diamond',
-        'Critical': 'x'
+        'Mixed': '#432f70',     // Indigo
+        'Hyperbolic': '#777777' // Gray
     };
 
+    // Process data to group by future signal, sentiment, and time to impact
+    const processedData = {};
+    data.forEach(item => {
+        if (!processedData[item.future_signal]) {
+            processedData[item.future_signal] = {};
+        }
+        if (!processedData[item.future_signal][item.sentiment]) {
+            processedData[item.future_signal][item.sentiment] = 0;
+        }
+        processedData[item.future_signal][item.sentiment] += item.count;
+    });
+
+    // Create traces for each sentiment
     const traces = [];
-
-    // Create data traces
-    topicOptions.futureSignals.forEach(signal => {
-        topicOptions.sentiments.forEach(sentiment => {
-            const signalSentimentData = data.filter(item => 
-                item.future_signal === signal && 
-                item.sentiment === sentiment
-            );
-
-            signalSentimentData.forEach(item => {
-                const baseR = topicOptions.timeToImpacts.indexOf(item.time_to_impact) + 1;
-                const scatter = (Math.random() - 0.5) * 0.8; // Random value between -0.4 and 0.4
-                traces.push({
-                    type: 'scatterpolar',
-                    r: [baseR + scatter],
-                    theta: [signal],
-                    marker: {
-                        color: colors[sentiment] || 'gray',
-                        symbol: symbols[sentiment] || 'circle',
-                        size: 10
-                    },
-                    showlegend: false
-                });
-            });
-        });
-    });
-
-    // Add concentric circles for time-to-impact stages
-    topicOptions.timeToImpacts.forEach((_, index) => {
-        const r = index + 1;
-        traces.push({
-            type: 'scatterpolar',
-            r: Array(topicOptions.futureSignals.length + 1).fill(r),
-            theta: [...topicOptions.futureSignals, topicOptions.futureSignals[0]],
-            mode: 'lines',
-            line: {
-                color: 'lightgray',
-                dash: 'dot'
-            },
-            showlegend: false,
-            hoverinfo: 'none'
-        });
-    });
-
-    // Create legend traces
+    
+    // Create sentiment traces with bubbles
     topicOptions.sentiments.forEach(sentiment => {
+        const r = [];
+        const theta = [];
+        const sizes = [];
+        const hoverTexts = [];
+
+        topicOptions.futureSignals.forEach(signal => {
+            const count = processedData[signal]?.[sentiment] || 0;
+            if (count > 0) {
+                r.push(count);
+                theta.push(signal);
+                sizes.push(Math.sqrt(count) * 2);
+                hoverTexts.push(`${signal}, ${sentiment}: ${count} articles`);
+            }
+        });
+
         traces.push({
             type: 'scatterpolar',
-            r: [0],
-            theta: [topicOptions.futureSignals[0]],
+            r: r,
+            theta: theta,
+            mode: 'markers',
             name: sentiment,
             marker: {
                 color: colors[sentiment] || 'gray',
-                symbol: symbols[sentiment] || 'circle',
+                size: sizes,
+                opacity: 0.7,
+                line: {
+                    width: 1,
+                    color: 'white'
+                }
             },
-            showlegend: true
+            text: hoverTexts,
+            hoverinfo: 'text'
+        });
+    });
+
+    // Add concentric circles for scales
+    const maxCount = Math.max(...data.map(item => item.count));
+    const scales = [50, 100, 150, 200, 250, 300];
+    const visibleScales = scales.filter(scale => scale <= maxCount * 1.2);
+    
+    // Add gridlines as separate traces
+    visibleScales.forEach(scale => {
+        const fullCircleTheta = [...topicOptions.futureSignals, topicOptions.futureSignals[0]];
+        traces.push({
+            type: 'scatterpolar',
+            r: Array(fullCircleTheta.length).fill(scale),
+            theta: fullCircleTheta,
+            mode: 'lines',
+            line: {
+                color: 'lightgray',
+                width: 1
+            },
+            hoverinfo: 'none',
+            showlegend: false
         });
     });
 
@@ -725,27 +1020,38 @@ function updateRadarChart(data) {
         polar: {
             radialaxis: {
                 visible: true,
-                range: [0, topicOptions.timeToImpacts.length + 0.5],
-                tickvals: Array.from({length: topicOptions.timeToImpacts.length}, (_, i) => i + 1),
-                ticktext: topicOptions.timeToImpacts,
-                tickfont: { size: 8 },
-                angle: 90
+                range: [0, Math.max(...visibleScales) * 1.1],
+                tickvals: visibleScales,
+                tickfont: { size: 10 },
+                gridcolor: 'lightgray',
+                gridwidth: 1
             },
             angularaxis: {
-                tickfont: { size: 10 },
+                tickfont: { size: 12 },
                 rotation: 90,
-                direction: 'clockwise'
-            }
+                direction: 'clockwise',
+                gridcolor: 'lightgray'
+            },
+            bgcolor: 'white'
         },
         showlegend: true,
         legend: { 
-            orientation: 'h', 
-            y: -0.2,
+            orientation: 'v',
+            x: 1.1,
+            y: 0.5,
             title: {
                 text: 'Sentiment',
                 side: 'top'
             }
-        }
+        },
+        margin: {
+            l: 50,
+            r: 50,
+            t: 50,
+            b: 50
+        },
+        paper_bgcolor: 'white',
+        plot_bgcolor: 'white'
     };
 
     Plotly.newPlot('radarChart', traces, layout);
@@ -755,87 +1061,581 @@ function updateArticleCount(count) {
     document.getElementById('articleCount').textContent = count;
 }
 
-function createIntegratedAnalysisChart(data) {
-    console.log('Creating integrated analysis chart with data:', data);
-    if (!data || !Array.isArray(data) || data.length === 0) {
-        console.error('Invalid or empty data received for integrated analysis chart');
-        document.getElementById('integratedAnalysisChart').innerHTML = 'No data available for the integrated analysis chart.';
-        return;
+// Function to update the summary stats
+function updateSummaryStats(data) {
+    // Update top sentiment
+    if (data.sentimentDistribution && data.sentimentDistribution.labels && data.sentimentDistribution.labels.length > 0) {
+        const sentimentValues = data.sentimentDistribution.values || [];
+        const sentimentLabels = data.sentimentDistribution.labels || [];
+        
+        // Find the max value and its index
+        let maxIndex = 0;
+        let maxValue = 0;
+        
+        sentimentValues.forEach((value, index) => {
+            if (value > maxValue) {
+                maxValue = value;
+                maxIndex = index;
+            }
+        });
+        
+        if (maxValue > 0 && sentimentLabels[maxIndex]) {
+            document.getElementById('topSentiment').textContent = sentimentLabels[maxIndex];
+            document.getElementById('topSentimentCount').textContent = `${maxValue} articles`;
+        } else {
+            document.getElementById('topSentiment').textContent = '-';
+            document.getElementById('topSentimentCount').textContent = '0 articles';
+        }
     }
-
-    // Check if all required properties are present
-    const requiredProps = ['driver_type', 'time_to_impact', 'sentiment', 'future_signal', 'count'];
-    const hasAllProps = data.every(item => requiredProps.every(prop => prop in item));
-    if (!hasAllProps) {
-        console.error('Data is missing one or more required properties');
-        document.getElementById('integratedAnalysisChart').innerHTML = 'Data is incomplete for the integrated analysis chart.';
-        return;
+    
+    // Update top future signal
+    if (data.futureSignalDistribution && data.futureSignalDistribution.labels && data.futureSignalDistribution.labels.length > 0) {
+        const fsValues = data.futureSignalDistribution.values || [];
+        const fsLabels = data.futureSignalDistribution.labels || [];
+        
+        // Find the max value and its index
+        let maxIndex = 0;
+        let maxValue = 0;
+        
+        fsValues.forEach((value, index) => {
+            if (value > maxValue) {
+                maxValue = value;
+                maxIndex = index;
+            }
+        });
+        
+        if (maxValue > 0 && fsLabels[maxIndex]) {
+            document.getElementById('topFutureSignal').textContent = fsLabels[maxIndex];
+            document.getElementById('topFutureSignalCount').textContent = `${maxValue} articles`;
+        } else {
+            document.getElementById('topFutureSignal').textContent = '-';
+            document.getElementById('topFutureSignalCount').textContent = '0 articles';
+        }
     }
-
-    const driverTypes = [...new Set(data.map(item => item.driver_type || 'Unknown'))];
-    const timeToImpacts = [...new Set(data.map(item => item.time_to_impact).filter(Boolean))];
-    const sentiments = [...new Set(data.map(item => item.sentiment).filter(Boolean))];
-    const futureSignals = [...new Set(data.map(item => item.future_signal).filter(Boolean))];
-
-    if (driverTypes.length === 0 || timeToImpacts.length === 0 || sentiments.length === 0 || futureSignals.length === 0) {
-        console.error('One or more dimensions have no valid data');
-        document.getElementById('integratedAnalysisChart').innerHTML = 'Insufficient data for the integrated analysis chart.';
-        return;
+    
+    // Update top time to impact
+    if (data.timeToImpactDistribution && data.timeToImpactDistribution.labels && data.timeToImpactDistribution.labels.length > 0) {
+        const ttiValues = data.timeToImpactDistribution.values || [];
+        const ttiLabels = data.timeToImpactDistribution.labels || [];
+        
+        // Find the max value and its index
+        let maxIndex = 0;
+        let maxValue = 0;
+        
+        ttiValues.forEach((value, index) => {
+            if (value > maxValue) {
+                maxValue = value;
+                maxIndex = index;
+            }
+        });
+        
+        if (maxValue > 0 && ttiLabels[maxIndex]) {
+            document.getElementById('topTimeToImpact').textContent = ttiLabels[maxIndex];
+            document.getElementById('topTimeToImpactCount').textContent = `${maxValue} articles`;
+        } else {
+            document.getElementById('topTimeToImpact').textContent = '-';
+            document.getElementById('topTimeToImpactCount').textContent = '0 articles';
+        }
     }
+}
 
-    const traces = [];
+function updateSentimentTimeSeries(data) {
+    if (!data || data.length === 0) return;
 
-    driverTypes.forEach(driver => {
-        timeToImpacts.forEach(time => {
-            const trace = {
-                x: sentiments,
-                y: futureSignals,
-                mode: 'markers',
-                name: `${driver} - ${time}`,
-                marker: {
-                    size: [],
-                    sizemode: 'area',
-                    sizeref: 2 * Math.max(...data.map(item => item.count || 0)) / (40 ** 2),
-                    sizemin: 4
-                },
-                text: [],
-                hoverinfo: 'text'
+    // Add time period buttons to the chart div
+    const chartDiv = document.getElementById('sentimentTimeSeries');
+    if (!document.getElementById('timeSeriesPeriods')) {
+        const periodsDiv = document.createElement('div');
+        periodsDiv.id = 'timeSeriesPeriods';
+        periodsDiv.className = 'btn-group btn-group-sm mb-3';
+        periodsDiv.style.cssText = 'position: absolute; top: 10px; right: 10px; z-index: 100;';
+        
+        const periods = ['1m', '6m', 'YTD', '1y', 'all'];
+        periods.forEach(period => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-outline-secondary';
+            btn.textContent = period;
+            btn.dataset.period = period;
+            btn.onclick = function() {
+                document.querySelectorAll('#timeSeriesPeriods button').forEach(b => 
+                    b.classList.remove('active'));
+                this.classList.add('active');
+                filterTimeSeriesData(data, period);
             };
+            periodsDiv.appendChild(btn);
+        });
+        
+        chartDiv.parentNode.style.position = 'relative';
+        chartDiv.parentNode.appendChild(periodsDiv);
+        
+        // Activate 'all' by default
+        periodsDiv.querySelector('[data-period="all"]').classList.add('active');
+    }
 
-            sentiments.forEach(sentiment => {
-                futureSignals.forEach(signal => {
-                    const item = data.find(d => 
-                        d.driver_type === driver && 
-                        d.time_to_impact === time && 
-                        d.sentiment === sentiment && 
-                        d.future_signal === signal
-                    );
+    // Process and display the full dataset initially
+    filterTimeSeriesData(data, 'all');
+}
 
-                    if (item) {
-                        trace.marker.size.push(item.count || 0);
-                        trace.text.push(`Driver: ${driver}<br>Time: ${time}<br>Sentiment: ${sentiment}<br>Signal: ${signal}<br>Count: ${item.count || 0}`);
-                    } else {
-                        trace.marker.size.push(0);
-                        trace.text.push('');
+function filterTimeSeriesData(data, periodFilter) {
+    // Group data by date and sentiment
+    const sentiments = [...new Set(data.map(d => d.sentiment))];
+    let dates = [...new Set(data.map(d => d.date))].sort();
+
+    // Filter data based on selected period
+    const now = new Date();
+    if (periodFilter !== 'all') {
+        let cutoffDate = new Date();
+        if (periodFilter === '1m') {
+            cutoffDate.setMonth(now.getMonth() - 1);
+        } else if (periodFilter === '6m') {
+            cutoffDate.setMonth(now.getMonth() - 6);
+        } else if (periodFilter === 'YTD') {
+            cutoffDate = new Date(now.getFullYear(), 0, 1); // Jan 1 of current year
+        } else if (periodFilter === '1y') {
+            cutoffDate.setFullYear(now.getFullYear() - 1);
+        }
+        
+        const cutoffStr = cutoffDate.toISOString().split('T')[0];
+        dates = dates.filter(date => date >= cutoffStr);
+    }
+
+    // Prepare data for each sentiment
+    const traces = [];
+    const colors = {
+        'Positive': '#32CD32',  // Lime Green
+        'Neutral': '#FFD700',   // Gold
+        'Negative': '#FF4500',  // Orange Red
+        'Critical': '#FF0000',  // Red
+        'Mixed': '#9370DB',     // Medium Purple
+        'Hyperbolic': '#A9A9A9' // Dark Gray
+    };
+
+    // Main sentiment lines
+    sentiments.forEach(sentiment => {
+        const counts = dates.map(date => {
+            const match = data.find(d => d.date === date && d.sentiment === sentiment);
+            return match ? match.count : 0;
+        });
+        
+        // Create the main line trace
+        traces.push({
+            x: dates,
+            y: counts,
+            mode: 'lines+markers',
+            name: sentiment,
+            line: {
+                width: 3,
+                color: colors[sentiment] || '#888'
+            },
+            marker: {
+                size: 8,
+                color: colors[sentiment] || '#888'
+            }
+        });
+
+        // Calculate 3-month moving average
+        if (dates.length > 3) {
+            const maValues = [];
+            for (let i = 0; i < counts.length; i++) {
+                let sum = 0;
+                let validPoints = 0;
+                for (let j = Math.max(0, i - 2); j <= i; j++) {
+                    if (counts[j] !== undefined) {
+                        sum += counts[j];
+                        validPoints++;
                     }
-                });
-            });
+                }
+                maValues.push(validPoints > 0 ? sum / validPoints : null);
+            }
 
-            traces.push(trace);
+            // Add moving average trace
+            traces.push({
+                x: dates,
+                y: maValues,
+                mode: 'lines',
+                name: `${sentiment} (3-month MA)`,
+                line: {
+                    width: 2,
+                    color: colors[sentiment] || '#888',
+                    dash: 'dot'
+                },
+                showlegend: true
+            });
+        }
+    });
+
+    // Create a mini-chart for the brush selector
+    const miniChartData = sentiments.map(sentiment => {
+        const counts = dates.map(date => {
+            const match = data.find(d => d.date === date && d.sentiment === sentiment);
+            return match ? match.count : 0;
+        });
+        return {
+            x: dates,
+            y: counts,
+            type: 'scatter',
+            mode: 'lines',
+            name: sentiment,
+            line: {
+                width: 1,
+                color: colors[sentiment]
+            },
+            showlegend: false
+        };
+    });
+
+    // Layout for main chart
+    const layout = {
+        title: 'Sentiment Trends Over Time',
+        xaxis: { 
+            title: 'Month',
+            tickangle: 0,
+            tickformat: '%b %Y',
+            type: 'date'
+        },
+        yaxis: { 
+            title: 'Number of Articles',
+            rangemode: 'tozero'
+        },
+        legend: {
+            orientation: 'h',
+            x: 0.5,
+            xanchor: 'center',
+            y: -0.2
+        },
+        margin: {
+            l: 50,
+            r: 20,
+            t: 50,
+            b: 100
+        },
+        grid: {
+            rows: 2,
+            columns: 1,
+            pattern: 'independent',
+            roworder: 'bottom to top',
+            subplots: [['xy'], ['xy2']]
+        },
+        xaxis2: {
+            domain: [0, 1],
+            showticklabels: false
+        },
+        yaxis2: {
+            domain: [0, 0.15],
+            showticklabels: false
+        }
+    };
+
+    // Create plot with main chart and mini-chart
+    Plotly.newPlot('sentimentTimeSeries', [...traces, ...miniChartData], layout);
+}
+
+function updateCategoryStackedBar(data) {
+    if (!data || data.length === 0) return;
+
+    // Add time period buttons to the chart div
+    const chartDiv = document.getElementById('categoryStackedBar');
+    if (!document.getElementById('categoryTimeSeriesPeriods')) {
+        const periodsDiv = document.createElement('div');
+        periodsDiv.id = 'categoryTimeSeriesPeriods';
+        periodsDiv.className = 'btn-group btn-group-sm mb-3';
+        periodsDiv.style.cssText = 'position: absolute; top: 10px; right: 10px; z-index: 100;';
+        
+        const periods = ['1m', '6m', 'YTD', '1y', 'all'];
+        periods.forEach(period => {
+            const btn = document.createElement('button');
+            btn.className = 'btn btn-outline-secondary';
+            btn.textContent = period;
+            btn.dataset.period = period;
+            btn.onclick = function() {
+                document.querySelectorAll('#categoryTimeSeriesPeriods button').forEach(b => 
+                    b.classList.remove('active'));
+                this.classList.add('active');
+                filterCategoryTimeSeriesData(data, period);
+            };
+            periodsDiv.appendChild(btn);
+        });
+        
+        chartDiv.parentNode.style.position = 'relative';
+        chartDiv.parentNode.appendChild(periodsDiv);
+        
+        // Activate 'all' by default
+        periodsDiv.querySelector('[data-period="all"]').classList.add('active');
+    }
+
+    // Process and display the full dataset initially
+    filterCategoryTimeSeriesData(data, 'all');
+}
+
+function filterCategoryTimeSeriesData(data, periodFilter) {
+    // Group data by date and category
+    const categories = [...new Set(data.map(d => d.category))];
+    let dates = [...new Set(data.map(d => d.date))].sort();
+
+    // Filter data based on selected period
+    const now = new Date();
+    if (periodFilter !== 'all') {
+        let cutoffDate = new Date();
+        if (periodFilter === '1m') {
+            cutoffDate.setMonth(now.getMonth() - 1);
+        } else if (periodFilter === '6m') {
+            cutoffDate.setMonth(now.getMonth() - 6);
+        } else if (periodFilter === 'YTD') {
+            cutoffDate = new Date(now.getFullYear(), 0, 1); // Jan 1 of current year
+        } else if (periodFilter === '1y') {
+            cutoffDate.setFullYear(now.getFullYear() - 1);
+        }
+        
+        const cutoffStr = cutoffDate.toISOString().split('T')[0];
+        dates = dates.filter(date => date >= cutoffStr);
+    }
+
+    // Better color palette with more distinguishable colors
+    const categoryColors = {};
+    
+    // Create a consistent but more varied color palette
+    const colorPalette = [
+        '#4e79a7', // Blue
+        '#f28e2b', // Orange
+        '#e15759', // Red
+        '#76b7b2', // Teal
+        '#59a14f', // Green
+        '#edc949', // Yellow
+        '#af7aa1', // Purple
+        '#ff9da7', // Pink
+        '#9c755f', // Brown
+        '#bab0ab', // Gray
+        '#6b9ac4', // Light Blue
+        '#d67e53', // Light Orange
+        '#e49285', // Light Red
+        '#9dd3cf', // Light Teal
+        '#8bbc77', // Light Green
+        '#f4d57a', // Light Yellow
+        '#c9a3c1', // Light Purple
+        '#ffbec5', // Light Pink
+        '#c2a186', // Light Brown
+        '#d6d1ce'  // Light Gray
+    ];
+    
+    // Assign colors to categories, limiting to top 10 if there are too many
+    const topCategories = categories
+        .map(cat => {
+            const total = data
+                .filter(d => d.category === cat)
+                .reduce((sum, d) => sum + d.count, 0);
+            return { category: cat, total };
+        })
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 8) // Limit to top 8 categories for better visibility
+        .map(item => item.category);
+    
+    // Other category for combining less significant ones
+    const otherCategory = "Other";
+    
+    // Assign colors to top categories
+    topCategories.forEach((cat, idx) => {
+        categoryColors[cat] = colorPalette[idx % colorPalette.length];
+    });
+    
+    // Assign color for "Other" category if needed
+    if (categories.length > topCategories.length) {
+        categoryColors[otherCategory] = '#cccccc'; // Gray for "Other"
+    }
+
+    // Fill in missing dates to ensure smooth visualization
+    const sortedDates = [...dates].sort((a, b) => new Date(a) - new Date(b));
+    const filledDates = [];
+    
+    if (sortedDates.length > 1) {
+        const firstDate = new Date(sortedDates[0]);
+        const lastDate = new Date(sortedDates[sortedDates.length - 1]);
+        
+        // Create a series of dates between the first and last date
+        const currentDate = new Date(firstDate);
+        while (currentDate <= lastDate) {
+            filledDates.push(currentDate.toISOString().split('T')[0]);
+            currentDate.setDate(currentDate.getDate() + 1);
+        }
+    } else if (sortedDates.length === 1) {
+        filledDates.push(sortedDates[0]);
+    }
+    
+    // Create a data structure for daily counts by category
+    const categoryData = {};
+    
+    // Initialize with zero counts for all dates
+    topCategories.forEach(cat => {
+        categoryData[cat] = {};
+        filledDates.forEach(date => {
+            categoryData[cat][date] = 0;
+        });
+    });
+    
+    // Add "Other" category if needed
+    if (categories.length > topCategories.length) {
+        categoryData[otherCategory] = {};
+        filledDates.forEach(date => {
+            categoryData[otherCategory][date] = 0;
+        });
+    }
+    
+    // Fill in actual counts
+    data.forEach(item => {
+        const { date, category, count } = item;
+        if (filledDates.includes(date)) {
+            if (topCategories.includes(category)) {
+                categoryData[category][date] = (categoryData[category][date] || 0) + count;
+            } else {
+                categoryData[otherCategory][date] = (categoryData[otherCategory][date] || 0) + count;
+            }
+        }
+    });
+    
+    // Compute a moving average for smoother visualization
+    const smoothData = {};
+    const window = 3; // 3-day moving average
+    
+    const applyMovingAverage = (values) => {
+        const result = [];
+        for (let i = 0; i < values.length; i++) {
+            let sum = 0;
+            let count = 0;
+            
+            // Look at window/2 days before and after
+            for (let j = Math.max(0, i - Math.floor(window/2)); 
+                 j <= Math.min(values.length - 1, i + Math.floor(window/2)); j++) {
+                sum += values[j];
+                count++;
+            }
+            
+            result.push(count > 0 ? sum / count : 0);
+        }
+        return result;
+    };
+    
+    // Create traces for area chart
+    let traces = [];
+    
+    // Process categories in reverse order (for proper stacking)
+    const displayCategories = [...topCategories];
+    if (categories.length > topCategories.length) {
+        displayCategories.push(otherCategory);
+    }
+    
+    // Add traces for each category (for area chart)
+    displayCategories.reverse().forEach(cat => {
+        const catData = categoryData[cat];
+        const values = filledDates.map(date => catData[date] || 0);
+        
+        // Apply smoothing for better visualization
+        const smoothedValues = applyMovingAverage(values);
+        
+        traces.push({
+            x: filledDates,
+            y: smoothedValues,
+            name: cat,
+            type: 'scatter',
+            mode: 'none',
+            stackgroup: 'one',
+            groupnorm: '',
+            hovertemplate: '<b>%{fullData.name}</b>: %{y:.1f}<extra></extra>',
+            fillcolor: categoryColors[cat],
+            line: {
+                color: categoryColors[cat],
+                shape: 'spline',
+                width: 0
+            }
         });
     });
 
+    // Add a total line
+    const totalByDate = filledDates.map(date => {
+        return Object.keys(categoryData).reduce((sum, cat) => {
+            return sum + (categoryData[cat][date] || 0);
+        }, 0);
+    });
+
+    // Apply smoothing to the total line
+    const smoothedTotal = applyMovingAverage(totalByDate);
+    
+    traces.push({
+        x: filledDates,
+        y: smoothedTotal,
+        name: 'Total',
+        type: 'scatter',
+        mode: 'lines',
+        line: {
+            color: 'rgba(0,0,0,0.7)',
+            width: 2,
+            shape: 'spline'
+        },
+        hovertemplate: '<b>Total</b>: %{y:.0f}<extra></extra>'
+    });
+
     const layout = {
-        title: 'Integrated Analysis',
-        xaxis: { title: 'Sentiment' },
-        yaxis: { title: 'Future Signal' },
+        barmode: 'stack',
+        title: 'Category Counts Over Time',
+        autosize: true,
+        height: 500, // Increase chart height
+        xaxis: { 
+            title: 'Date',
+            tickangle: 0,
+            tickformat: '%b %Y',
+            type: 'date',
+            tickmode: 'auto',
+            nticks: 12 // Limit the number of ticks for clarity
+        },
+        yaxis: { 
+            title: 'Count',
+            rangemode: 'tozero',
+            gridcolor: '#f0f0f0'
+        },
+        yaxis2: {
+            title: 'Total Count',
+            overlaying: 'y',
+            side: 'right',
+            rangemode: 'tozero',
+            gridcolor: 'rgba(0,0,0,0)'
+        },
+        legend: {
+            orientation: 'h',
+            x: 0.5,
+            xanchor: 'center',
+            y: -0.3,
+            traceorder: 'normal'
+        },
+        margin: {
+            l: 50,
+            r: 50,
+            t: 50,
+            b: 120
+        },
+        plot_bgcolor: '#ffffff',
+        paper_bgcolor: '#ffffff',
+        hoverlabel: {
+            bgcolor: '#fff',
+            bordercolor: '#ccc',
+            font: {size: 12}
+        },
+        bargap: 0.01, // Minimize the gap between bars for wider appearance
+        bargroupgap: 0.01, // Minimize the gap between bar groups
         hovermode: 'closest',
-        showlegend: true,
-        height: 600,
-        width: 1000
+        uniformtext: {
+            mode: 'hide',
+            minsize: 8
+        },
+        modebar: {
+            remove: ['lasso', 'select']
+        }
     };
 
-    Plotly.newPlot('integratedAnalysisChart', traces, layout);
+    // Create responsive chart that fills container
+    const config = {
+        responsive: true,
+        displayModeBar: false // Hide the modebar for cleaner look
+    };
+    
+    Plotly.newPlot('categoryStackedBar', traces, layout, config);
 }
 
 // Add this new function to clear all charts
@@ -852,7 +1652,8 @@ function clearCharts() {
     Plotly.newPlot('articlesBubbleChart', [{ x: [], y: [], mode: 'markers' }]);
     Plotly.newPlot('articlesFutureTimeBubbleChart', [{ x: [], y: [], mode: 'markers' }]);
     Plotly.newPlot('radarChart', [{ r: [], theta: [], type: 'scatterpolar' }]);
-    Plotly.newPlot('integratedAnalysisChart', [{ x: [], y: [], mode: 'markers' }]);
+    Plotly.newPlot('sentimentTimeSeries', [{ x: [], y: [] }]);
+    Plotly.newPlot('categoryStackedBar', [{ x: [], y: [], type: 'bar' }]);
     
     // Clear article count
     document.getElementById('articleCount').textContent = '0';
