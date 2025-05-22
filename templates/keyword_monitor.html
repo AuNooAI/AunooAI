@@ -4,14 +4,14 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
+    <div class="d-flex justify-content-between align-items-start mb-2">
         <div>
             <h1 class="mb-2">Keyword Monitor</h1>
             <p class="text-muted">Monitor news articles by configuring keyword groups and search terms</p>
         </div>
-        <div class="d-flex align-items-center gap-3">
+        <div class="d-flex align-items-center gap-2">
             <div class="d-flex align-items-center">
-                <div class="me-3">
+                <div class="me-2">
                     <div class="text-muted small">API Usage Today</div>
                     <div class="progress" style="width: 150px; height: 5px;" 
                          data-tooltip="Shows current API usage against daily limit">
@@ -23,16 +23,22 @@
                              data-tooltip="Time until API quota resets"></div>
                     </div>
                 </div>
+                <button class="btn btn-sm btn-secondary btn-xs" onclick="resetApiCounter()" id="resetCounterBtn" title="Reset the API counter if it's not resetting properly" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+                    <i class="fas fa-redo"></i> Reset
+                </button>
             </div>
-            <button class="btn btn-success me-2" onclick="showNewGroupModal()"
-                    data-tooltip="Create a new group of keywords to monitor">
-                <i class="fas fa-plus"></i> New Group
-            </button>
             <button class="btn btn-primary" onclick="showSettingsModal()"
                     data-tooltip="Configure monitoring settings and intervals">
                 <i class="fas fa-cog"></i> Settings
             </button>
         </div>
+    </div>
+
+    <div class="mb-4">
+        <button class="btn btn-success" onclick="showNewGroupModal()"
+                data-tooltip="Create a new group of keywords to monitor">
+            <i class="fas fa-plus"></i> New Group
+        </button>
     </div>
 
     {% if not keyword_groups %}
@@ -314,13 +320,27 @@
     }
 
     .btn-outline-primary {
-        color: var(--primary-color);
+        color: white;
+        background-color: var(--primary-color);
         border-color: var(--primary-color);
     }
 
     .btn-outline-primary:hover {
-        background-color: var(--primary-color);
-        border-color: var(--primary-color);
+        background-color: var(--primary-dark);
+        border-color: var(--primary-dark);
+        color: white;
+    }
+
+    .btn-secondary {
+        color: white;
+        background-color: #6c757d;
+        border-color: #6c757d;
+    }
+    
+    .btn-secondary:hover {
+        background-color: #5a6268;
+        border-color: #545b62;
+        color: white;
     }
 
     .btn-success {
@@ -424,6 +444,12 @@
 
     .modal-footer {
         border-top: 1px solid rgba(255, 105, 180, 0.1);
+    }
+
+    .btn-xs {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.75rem;
+        line-height: 1.2;
     }
 </style>
 
@@ -607,11 +633,14 @@ async function showSettingsModal() {
             // Update both the main counter and settings form
             updateRequestCounters(settings.requests_today, settings.daily_request_limit);
             
+            // Apply the saved settings to the form
             document.getElementById('checkInterval').value = settings.check_interval;
             document.getElementById('intervalUnit').value = settings.interval_unit;
             document.getElementById('dailyRequestLimit').value = settings.daily_request_limit;
+            document.getElementById('searchDateRange').value = settings.search_date_range || 7;
             
             if (settings.total_keywords > 0) {
+                // Calculate recommended interval without applying it
                 const minutesPerDay = 24 * 60;
                 const requestsPerDay = settings.daily_request_limit;
                 const recommendedMinutes = Math.max(15, Math.ceil(minutesPerDay / (requestsPerDay / settings.total_keywords)));
@@ -628,9 +657,7 @@ async function showSettingsModal() {
                     recommendedUnit = 60;
                 }
                 
-                document.getElementById('checkInterval').value = recommendedValue;
-                document.getElementById('intervalUnit').value = recommendedUnit;
-                
+                // Instead of setting the values, just show the recommendation
                 const unitText = recommendedUnit === 86400 ? 'days' : 
                                recommendedUnit === 3600 ? 'hours' : 'minutes';
                 document.getElementById('recommendedValue').textContent = 
@@ -694,9 +721,7 @@ function updateRecommendedInterval(settings) {
             recommendedUnit = 60;
         }
         
-        document.getElementById('checkInterval').value = recommendedValue;
-        document.getElementById('intervalUnit').value = recommendedUnit;
-        
+        // Don't set the values automatically, just show the recommendation
         const unitText = recommendedUnit === 86400 ? 'days' : 
                         recommendedUnit === 3600 ? 'hours' : 'minutes';
                         
@@ -704,6 +729,7 @@ function updateRecommendedInterval(settings) {
         const message = `${recommendedValue} ${unitText} based on ${settings.total_keywords} keywords (verified count) and ${requestsPerDay} daily requests`;
         console.log('Displaying message:', message);
         document.getElementById('recommendedValue').textContent = message;
+        document.getElementById('recommendedInterval').style.display = 'block';
     }
 }
 
@@ -847,6 +873,32 @@ function showAlert(message, type = 'danger') {
         alert.classList.remove('show');
         setTimeout(() => alert.style.display = 'none', 150);
     }, 5000);
+}
+
+// Function to manually reset the API counter
+async function resetApiCounter() {
+    if (!confirm("Are you sure you want to manually reset the API counter? This should only be needed if the automatic daily reset isn't working.")) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/keyword-monitor/reset-api-counter', {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to reset API counter');
+        }
+        
+        const result = await response.json();
+        showAlert(`API counter reset successfully: ${result.message}`, 'success');
+        
+        // Refresh the API usage display
+        refreshRequestCount();
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to reset API counter: ' + error.message, 'danger');
+    }
 }
 </script>
 {% endblock %} 
