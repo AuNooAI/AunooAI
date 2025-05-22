@@ -28,7 +28,7 @@ ENV/
 .env
 reports/
 app/config/config.json
-app/data/*.db
+#app/data/*.db
 
 # IDE and Editor files
 .idea/
@@ -43,7 +43,7 @@ cursor.rules
 Thumbs.db
 LA_notes
 cache/*
-*.db
+#*.db
 .cursor/
 
 # FFmpeg executables

@@ -218,9 +218,13 @@ class AnalyzeDB:
 
     def _add_timeframe_and_category_filters(self, query, params, timeframe, category, date_field='submission_date'):
         query, params = self._add_timeframe_filter(query, params, timeframe, date_field)
-        if category and category != 'all':
+        if category and isinstance(category, str):
             query += " AND category = ?"
             params.append(category)
+        elif category and isinstance(category, list) and category:
+            placeholders = ', '.join(['?' for _ in category])
+            query += f" AND category IN ({placeholders})"
+            params.extend(category)
         return query, params
 
     def get_articles_by_future_signal_and_sentiment(self, timeframe, category, topic=None,
@@ -289,10 +293,14 @@ class AnalyzeDB:
             conditions.append("submission_date >= date('now', ?)")
             params.append(f'-{days} days')
 
-        # Category filter
-        if category:
+        # Category filter (support list or single value)
+        if category and isinstance(category, str):
             conditions.append("category = ?")
             params.append(category)
+        elif category and isinstance(category, list) and category:
+            placeholders = ', '.join(['?' for _ in category])
+            conditions.append(f"category IN ({placeholders})")
+            params.extend(category)
 
         # Topic filter
         if topic:
