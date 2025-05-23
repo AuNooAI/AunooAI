@@ -28,6 +28,9 @@ cryptography
 # For JWT tokens
 PyJWT
 itsdangerous>=2.0.0
+# OAuth integration
+authlib>=1.2.0
+httpx>=0.24.0
 elevenlabs>=0.2.24
 aiofiles>=0.7.0
 pydub>=0.25.1
