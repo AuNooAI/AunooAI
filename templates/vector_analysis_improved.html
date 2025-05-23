@@ -1181,7 +1181,7 @@ async function runSearch() {
         }
         
         currentIndex=0;
-        lastResults=data.results;
+        window.lastResults=data.results;
         selectedUris.clear();
         updateActionButtons();
         renderNextPage();
@@ -1486,7 +1486,7 @@ function renderMetadata(meta) {
         a.addEventListener('click', e => {
             e.preventDefault();
             const id = a.dataset.id;
-            const target = (lastResults || []).find(r => r.id === id);
+            const target = (window.lastResults || []).find(r => r.id === id);
             if (target) renderMetadata(target.metadata);
         });
     });
@@ -1563,14 +1563,14 @@ document.getElementById('results').after(loadMoreBtn);
 
 function renderNextPage(){
   const per = window._pageSize || DEFAULT_PAGE_SIZE;
-  const slice=lastResults.slice(currentIndex, currentIndex + per);
+  const slice=window.lastResults.slice(currentIndex, currentIndex + per);
   if(!slice.length){
     loadMoreBtn.style.display='none';
     return;
   }
   renderResults(slice, currentIndex===0);
   currentIndex+=slice.length;
-  if(currentIndex>=lastResults.length){
+  if(currentIndex>=window.lastResults.length){
       loadMoreBtn.style.display='none';
   }else{
       loadMoreBtn.style.display='block';
@@ -2863,7 +2863,7 @@ async function loadPatterns(forceRefresh = false){
             return;
           }
         }
-        if (target) { renderMetadata(target.metadata); }
+        if (target) renderMetadata(target.metadata);
       });
     });
   } catch (error) {
@@ -3005,25 +3005,21 @@ async function askAuspex(idsToSummarize = null, clusterId = null, modelName = nu
             window._clusterSummaries[clusterId] = txt;
             // Find and store articles for this cluster
             const memberIds = (window._clusterMemberIds || {})[clusterId] || [];
+            
             window._clusterArticles[clusterId] = (window.lastResults || []).filter(r => memberIds.includes(r.id))
                 .map(r => ({ title: r.metadata.title || 'Untitled', uri: r.metadata.uri }));
 
             console.log(`[askAuspex] Summary received for clusterId: ${clusterId}`);
-            console.log(`[askAuspex] Stored summary: ${window._clusterSummaries[clusterId] ? 'Yes' : 'No'}`);
+            console.log(`[askAuspex] Stored ${window._clusterArticles[clusterId].length} articles for cluster ${clusterId}`);
 
             // Find the specific cluster list item and add the badge directly
             const patternList = document.getElementById('patternList');
-            console.log(`[askAuspex] patternList element found: ${patternList ? 'Yes' : 'No'}`);
             if (patternList) {
                 const summaryButton = patternList.querySelector(`.summarize-cluster-btn[data-cluster-id="${clusterId}"]`);
-                console.log(`[askAuspex] Summary button found for cluster ${clusterId}: ${summaryButton ? 'Yes' : 'No'}`);
                 const clusterItem = summaryButton?.closest('.list-group-item');
-                console.log(`[askAuspex] clusterItem element found: ${clusterItem ? 'Yes' : 'No'}`);
                 if (clusterItem) {
                     const titleDiv = clusterItem.querySelector('.fw-bold');
-                    console.log(`[askAuspex] titleDiv element found: ${titleDiv ? 'Yes' : 'No'}`);
                     if (titleDiv && !titleDiv.querySelector('.badge.bg-success-subtle')) { // Avoid adding duplicate badges
-                        console.log(`[askAuspex] Adding 'Summarized' badge to cluster ${clusterId}`);
                         titleDiv.insertAdjacentHTML('beforeend', ' <span class="badge bg-success-subtle text-success-emphasis rounded-pill">Summarized</span>');
                     }
                 }
@@ -3098,7 +3094,6 @@ document.getElementById('patternsPane').addEventListener('click', async (e) => {
 
         // Check if summary already exists
         if (window._clusterSummaries && window._clusterSummaries[clusterId]) {
-            console.log(`[Cluster ${clusterId}] Found existing summary. Rendering directly.`);
             const existingSummary = window._clusterSummaries[clusterId];
             const existingArticles = window._clusterArticles[clusterId] || [];
             renderAuspexModalContent(existingSummary, existingArticles, clusterId);
