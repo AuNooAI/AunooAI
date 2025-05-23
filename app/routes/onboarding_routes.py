@@ -518,12 +518,90 @@ async def onboarding_page(
         }
     )
 
+def ensure_structured_keywords(raw_keywords, topic_name):
+    # If already structured, ensure all keys exist
+    if isinstance(raw_keywords, dict):
+        for k in ["companies", "technologies", "general", "people", "exclusions"]:
+            if k not in raw_keywords or not isinstance(raw_keywords[k], list):
+                raw_keywords[k] = []
+        return raw_keywords
+    # If flat list, map to general
+    elif isinstance(raw_keywords, list):
+        return {
+            "companies": [],
+            "technologies": [],
+            "general": raw_keywords,
+            "people": [],
+            "exclusions": []
+        }
+    # Otherwise, return all empty
+    return {
+        "companies": [],
+        "technologies": [],
+        "general": [],
+        "people": [],
+        "exclusions": []
+    }
+
+def extract_json_from_text(text):
+    """Extract valid JSON from text, even if embedded in markdown or explanations."""
+    import re
+    
+    # Log the input for debugging
+    logger.info(f"Attempting to extract JSON from text: {text[:200]}...")
+    
+    # First try direct loading (maybe it's already valid JSON)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    
+    # Clean up the text - remove markdown code blocks
+    text = re.sub(r'```json\s*|\s*```', '', text)
+    
+    # Try to find a JSON object with curly braces
+    json_pattern = r'({[\s\S]*?})'
+    matches = re.findall(json_pattern, text)
+    
+    for potential_json in matches:
+        try:
+            parsed = json.loads(potential_json)
+            logger.info(f"Successfully extracted JSON: {json.dumps(parsed)[:200]}...")
+            return parsed
+        except json.JSONDecodeError:
+            continue
+    
+    # If no valid JSON found, try more aggressive extraction
+    # Look for the deepest level of nested braces
+    text = text.replace('\n', ' ')
+    start_idx = text.find('{')
+    if start_idx != -1:
+        # Find matching closing brace
+        brace_count = 1
+        for i in range(start_idx + 1, len(text)):
+            if text[i] == '{':
+                brace_count += 1
+            elif text[i] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    try:
+                        potential_json = text[start_idx:i+1]
+                        parsed = json.loads(potential_json)
+                        logger.info(f"Last-resort JSON extraction worked: {json.dumps(parsed)[:200]}...")
+                        return parsed
+                    except json.JSONDecodeError:
+                        break
+    
+    logger.error("Could not extract any valid JSON")
+    return None
+
 @router.post("/api/onboarding/suggest-topic-attributes")
 async def suggest_topic_attributes(
     topic_data: Dict = Body(...),
     db: Database = Depends(get_database_instance)
 ):
     """Use LLM to suggest topic attributes based on examples."""
+
     try:
         topic_name = topic_data.get("topic_name")
         if not topic_name:
@@ -531,19 +609,40 @@ async def suggest_topic_attributes(
                 status_code=400,
                 detail="topic_name is required"
             )
-            
+        
         # Get optional description
         description = topic_data.get("topic_description", "")
+        keyword_prompt = topic_data.get("keyword_prompt", None)
 
         # Load example topics
         with open('app/config/config.json', 'r') as f:
             config = json.load(f)
-            
+        
         # Format examples for the LLM
         examples = json.dumps(config["topics"], indent=2)
         
+        # Set system prompt to force JSON response
+        system_prompt = "You are a JSON-only assistant. You must respond with a valid JSON object only, no explanations, no markdown formatting, no additional text. Every response must be properly formatted JSON that can be directly parsed."
+        
         # Prepare prompt with detailed topic characteristics
-        prompt = f"""Given these example topics and their attributes:
+        if keyword_prompt:
+            prompt = f"""Respond with VALID JSON ONLY. NO explanations, NO markdown.
+
+{keyword_prompt}
+
+Format your JSON response with these keys exactly:
+{{
+    "explanation": "Brief explanation",
+    "keywords": {{
+        "companies": ["real company1", "real company2", ...],
+        "technologies": ["real technology1", "real technology2", ...],
+        "general": ["keyword1", "keyword2", ...],
+        "people": ["real person1", "real person2", ...],
+        "exclusions": ["exclusion1", "exclusion2", ...]
+    }}
+}}"""
+        else:
+            prompt = f"""Given these example topics and their attributes:
 
 {examples}
 
@@ -552,9 +651,9 @@ A topic in our system can represent various types of information collections:
 1. Markets (e.g., Cloud Service Providers, EV Battery Suppliers)
 2. Scientific/Knowledge Fields (e.g., Neurology, AI, Archeology)
 3. Groups/Organizations (e.g., AI researchers, competitors, sports teams)
-4. Scenarios/Questions (e.g., "Is AI hype?", "How strong is Cloud Repatriation?")
+4. Scenarios/Questions (e.g., \"Is AI hype?\", \"How strong is Cloud Repatriation?\")
 
-I want to create a topic called "{topic_name}".
+I want to create a topic called \"{topic_name}\".
 {f"Additional description: {description}" if description else ""}
 
 Each topic has specific characteristics:
@@ -562,28 +661,28 @@ Each topic has specific characteristics:
 1. Topic Name: A clear description that could be a question, market, field, or group
 
 2. Categories: Components that help analyze and understand the topic deeply
-   Example: For "AI Hype" - AI in Finance, AI in Science, AI Research Breakthroughs
+   Example: For \"AI Hype\" - AI in Finance, AI in Science, AI Research Breakthroughs
 
 3. Future Signals: CRITICAL - These are alternative possible futures or outcomes, NOT just developments
    IMPORTANT: Signals should be short, clear statements about what MIGHT happen
    
-   Examples of GOOD future signals for "AI Hype":
-   - "AI is just hype"
-   - "AI is a bubble"
-   - "AI is accelerating"
-   - "AI has plateaued"
-   - "AI will evolve gradually"
+   Examples of GOOD future signals for \"AI Hype\":
+   - \"AI is just hype\"
+   - \"AI is a bubble\"
+   - \"AI is accelerating\"
+   - \"AI has plateaued\"
+   - \"AI will evolve gradually\"
    
-   Examples of GOOD future signals for "Cloud Repatriation":
-   - "Widespread cloud exit"
-   - "Selective workload repatriation"
-   - "Hybrid equilibrium emerges"
-   - "Cloud dominance continues"
+   Examples of GOOD future signals for \"Cloud Repatriation\":
+   - \"Widespread cloud exit\"
+   - \"Selective workload repatriation\"
+   - \"Hybrid equilibrium emerges\"
+   - \"Cloud dominance continues\"
    
    Examples of BAD future signals (too vague, not alternative futures):
-   - "Advancement in AI technology"
-   - "Significant growth in adoption"
-   - "Breakthrough in methods"
+   - \"Advancement in AI technology\"
+   - \"Significant growth in adoption\"
+   - \"Breakthrough in methods\"
 
 4. Sentiments: Attitude towards the topic
    - Basic: Positive, Neutral, Negative
@@ -604,56 +703,77 @@ Each topic has specific characteristics:
    - Terminator: Ends developments
    - Validator: Confirms developments
 
-Please suggest appropriate attributes for this topic.
-First provide a brief (2-3 sentences), technical explanation of why your suggestions are appropriate, and then provide:
-1. 5-8 relevant categories - specific components of the topic
-2. 4-5 future signals - these MUST be short, alternative possible futures (5-8 words each)
-3. 3-4 relevant keywords for monitoring - specific searchable terms
+For the keywords section, return a JSON object with these keys: companies, technologies, general, people, exclusions. For companies, technologies, and people, ONLY include real, verifiable entities that are relevant to the topic. If you cannot verify a real company, technology, or person, leave the list empty. Do NOT invent names. For exclusions, include only common spam, scam, or misinformation terms relevant to the topic, or leave blank if none are known.
 
-Format your response as JSON with the following structure:
+IMPORTANT: You must respond with VALID JSON only. No explanations, no markdown formatting, no additional text.
+
+Format your response EXACTLY as follows:
 {{
     "explanation": "Your explanation here",
     "categories": ["category1", "category2", ...],
     "future_signals": ["signal1", "signal2", ...],
-    "keywords": ["keyword1", "keyword2", "keyword3"]
+    "keywords": {{
+        "companies": ["company1", ...],
+        "technologies": ["tech1", ...],
+        "general": ["general1", ...],
+        "people": ["person1", ...],
+        "exclusions": ["exclusion1", ...]
+    }}
 }}"""
 
         # Get response from LLM
         try:
-            messages = [{"role": "user", "content": prompt}]
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt}
+            ]
+            
+            logger.info(f"Sending prompt to LLM: {prompt[:200]}...")
+            
             response = completion(
-                model="gpt-4",
+                model="gpt-4-1106-preview",
                 messages=messages,
-                max_tokens=1000
+                max_tokens=1500,
+                temperature=0.2  # Lower temperature for more consistent JSON formatting
             )
             
-            # Parse the response
-            suggestions = json.loads(response.choices[0].message.content)
+            # Parse the response - try to extract JSON even from non-JSON responses
+            raw_content = response.choices[0].message.content
+            logger.info(f"Raw LLM response: {raw_content}")  # Log the full response for debugging
             
-            # Validate and clean up the suggestions
+            # Try to parse as JSON directly first
+            try:
+                suggestions = json.loads(raw_content)
+                logger.info("Direct JSON parsing successful")
+            except json.JSONDecodeError as e:
+                # If direct parsing fails, try to extract JSON from text
+                logger.warning(f"JSON parsing failed: {str(e)}, attempting to extract JSON from text")
+                suggestions = extract_json_from_text(raw_content)
+                
+                # If extraction also fails, use fallback
+                if not suggestions:
+                    logger.error("Could not extract valid JSON from LLM response")
+                    raise ValueError("Failed to parse LLM response as JSON")
+            
+            # Verify keywords structure is present to avoid fallback
+            if not suggestions.get("keywords"):
+                logger.error("LLM response didn't include keywords structure")
+                suggestions["keywords"] = {}
+            
+            # Continue with the rest of the processing
             if not suggestions.get("explanation") or len(suggestions.get("explanation", "")) < 20:
-                # Add a default explanation if missing or too short
                 suggestions["explanation"] = f"These attributes were selected to comprehensively track '{topic_name}' with focused categories and plausible alternative futures."
-            
             # Ensure future signals are properly formatted (concise, alternative futures)
             future_signals = suggestions.get("future_signals", [])
             cleaned_signals = []
-            
             for i, signal in enumerate(future_signals):
-                # Remove quotes if present
                 if signal.startswith('"') and signal.endswith('"'):
                     signal = signal[1:-1]
-                
-                # Truncate overly long signals
                 if len(signal) > 40:
                     signal = signal[:37] + "..."
-                
-                # Skip signals that aren't alternative futures (contain certain problematic words)
                 problematic_terms = ["advancement", "breakthrough", "progress in", "development of", "adoption of"]
                 if not any(term in signal.lower() for term in problematic_terms):
                     cleaned_signals.append(signal)
-            
-            # Ensure we have enough signals even after filtering
             if len(cleaned_signals) < 3:
                 default_outcomes = [
                     f"{topic_name} becomes mainstream",
@@ -662,32 +782,45 @@ Format your response as JSON with the following structure:
                     f"{topic_name} evolves gradually"
                 ]
                 cleaned_signals.extend(default_outcomes[:5-len(cleaned_signals)])
-            
-            # Limit to 5 signals maximum
             suggestions["future_signals"] = cleaned_signals[:5]
+            # --- KEYWORD STRUCTURE FIX ---
+            suggestions["keywords"] = ensure_structured_keywords(suggestions.get("keywords", {}), topic_name)
             
-            # Ensure we have enough keywords
-            if len(suggestions.get("keywords", [])) < 3:
-                # Extract potential keywords from categories if needed
-                categories = suggestions.get("categories", [])
-                additional_keywords = [c.split()[-1] for c in categories[:3] if len(c.split()) > 1]
-                suggestions["keywords"] = list(set(suggestions.get("keywords", []) + additional_keywords))[:4]
+            # Only use fallback if we have empty keyword lists
+            has_any_keywords = any(
+                len(suggestions["keywords"].get(cat, [])) > 0 
+                for cat in ["companies", "technologies", "general", "people", "exclusions"]
+            )
+            
+            if not has_any_keywords:
+                logger.warning("No keywords found in LLM response, using fallback")
+                # Use fallback only for keywords
+                suggestions["keywords"] = {
+                    "companies": [f"{topic_name} Corp", f"{topic_name} Inc"],
+                    "technologies": [f"{topic_name} Tech", f"{topic_name} Platform"],
+                    "general": [topic_name, topic_name.lower().split()[-1] if " " in topic_name else topic_name],
+                    "people": [f"{topic_name} Expert"],
+                    "exclusions": ["-scam", "-unrelated"]
+                }
             
             logger.info(f"Generated suggestions for topic '{topic_name}'")
             return JSONResponse(content=suggestions)
-            
         except Exception as e:
             logger.error(f"Error in LLM processing: {str(e)}")
-            # Fallback response with reasonable defaults
+            # Fallback response with plausible values for each category
+            fallback_keywords = {
+                "companies": [f"{topic_name} Corp", f"{topic_name} Inc"],
+                "technologies": [f"{topic_name} Tech", f"{topic_name} Platform"],
+                "general": [topic_name, topic_name.lower().split()[-1] if " " in topic_name else topic_name],
+                "people": [f"{topic_name} Expert"],
+                "exclusions": ["-scam", "-unrelated"]
+            }
             return JSONResponse(content={
                 "explanation": f"These are baseline attributes for tracking the future trajectory of {topic_name}.",
-                "categories": [f"{topic_name} Analysis", f"{topic_name} Development", f"{topic_name} Impacts", 
-                               f"{topic_name} Applications", f"{topic_name} Challenges"],
-                "future_signals": [f"{topic_name} becomes mainstream", f"{topic_name} remains niche", 
-                                  f"{topic_name} disrupts industry", f"{topic_name} evolves gradually"],
-                "keywords": [topic_name, topic_name.lower().split()[-1] if " " in topic_name else topic_name]
+                "categories": [f"{topic_name} Analysis", f"{topic_name} Development", f"{topic_name} Impacts", f"{topic_name} Applications", f"{topic_name} Challenges"],
+                "future_signals": [f"{topic_name} becomes mainstream", f"{topic_name} remains niche", f"{topic_name} disrupts industry", f"{topic_name} evolves gradually"],
+                "keywords": fallback_keywords
             })
-            
     except HTTPException:
         raise
     except Exception as e:
