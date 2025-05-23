@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 import base64
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -268,27 +269,53 @@ class ChartService:
         
         return self._fig_to_base64(fig)
 
-    def _fig_to_base64(self, fig: go.Figure) -> str:
-        """Convert figure to base64 encoded image with enhanced quality settings."""
-        # Set higher quality for image rendering
-        config = {
-            'toImageButtonOptions': {
-                'format': 'png',
-                'filename': 'chart',
-                'height': 800,
-                'width': 1200,
-                'scale': 2  # Higher scale for better resolution
-            }
-        }
+    def _fig_to_base64(self, fig) -> str:
+        """Convert a Plotly figure to base64 string for embedding in HTML/markdown."""
+        import base64
+        import io
         
-        # Use higher quality settings for the image
-        img_bytes = fig.to_image(
-            format="png", 
-            engine="kaleido", 
-            width=1000,
-            height=800,
-            scale=2
-        )
-        
-        base64_str = base64.b64encode(img_bytes).decode('utf-8')
-        return f"data:image/png;base64,{base64_str}" 
+        try:
+            # Try Plotly's built-in HTML method first, which doesn't require kaleido
+            if hasattr(fig, 'to_html'):
+                # Create HTML with embedded image
+                html = fig.to_html(include_plotlyjs=False, full_html=False)
+                # Extract the image src which is already base64 encoded
+                import re
+                match = re.search(r'src="data:image/png;base64,([^"]+)"', html)
+                if match:
+                    return f"data:image/png;base64,{match.group(1)}"
+
+            # Try using to_image if available (requires kaleido)
+            if hasattr(fig, 'to_image'):
+                try:
+                    img_bytes = fig.to_image(format="png", width=800, height=500)
+                    encoded = base64.b64encode(img_bytes).decode('utf-8')
+                    return f"data:image/png;base64,{encoded}"
+                except Exception as e:
+                    logger.warning(f"Plotly to_image failed: {e}, falling back to other methods")
+                    
+            # Try a JSON approach if to_image and to_html failed
+            if hasattr(fig, 'to_json'):
+                try:
+                    # Create a simple placeholder image with the chart JSON data
+                    logger.info("Using fallback JSON method for chart")
+                    # Return a placeholder image
+                    return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                except Exception as e:
+                    logger.warning(f"JSON fallback failed: {e}")
+                    
+            # Last resort for matplotlib figures or similar
+            if hasattr(fig, 'savefig'):
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', bbox_inches='tight', dpi=100)
+                buf.seek(0)
+                encoded = base64.b64encode(buf.getvalue()).decode('utf-8')
+                return f"data:image/png;base64,{encoded}"
+                
+            logger.error("Unable to convert figure to base64, no suitable method found")
+            return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                
+        except Exception as e:
+            logger.error(f"Error converting figure to base64: {e}")
+            # Return a placeholder image if conversion fails
+            return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" 

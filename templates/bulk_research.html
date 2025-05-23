@@ -1,6 +1,23 @@
 {% extends "base.html" %}
 {% block title %}AuNoo AI - Bulk Research{% endblock %}
 {% block content %}
+<!-- Import the media bias component -->
+{% include "components/media_bias_display.html" %}
+{% from "components/media_bias_display.html" import media_bias_badge, media_bias_icon %}
+
+<style>
+    /* Improved styling for media bias section */
+    .bias-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        text-align: center;
+        min-width: 80px;
+    }
+</style>
+
 <style>
     :root {
         --primary-color: #FF69B4;  /* Hot Pink */
@@ -159,13 +176,8 @@
             <input type="text" class="form-control" id="customVoice" name="customVoice" placeholder="Enter custom voice">
         </div>
     </div>
-    <div class="mb-3">
-        <label for="summaryType" class="form-label">Summary Type</label>
-        <select class="form-select" id="summaryType" name="summaryType" required>
-            <option value="curious_ai">Curious AI Long</option>
-            <option value="axios">Axios</option>
-        </select>
-    </div>
+    <!-- Hidden input for summary type, always using Curious AI Long -->
+    <input type="hidden" id="summaryType" name="summaryType" value="curious_ai_long">
     <div class="mb-3">
         <label for="modelName" class="form-label">AI Model</label>
         <select class="form-select" id="modelName" name="modelName" required>
@@ -192,7 +204,8 @@
 <script>
 
 
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', async function() {
+    // Initialize data from prefilled URLs (if any)
     const dataDiv = document.getElementById('bulkResearchData');
     const PREFILLED_URLS = dataDiv?.dataset.prefilledUrls && dataDiv.dataset.prefilledUrls !== 'null'
         ? JSON.parse(dataDiv.dataset.prefilledUrls)
@@ -200,6 +213,59 @@ document.addEventListener('DOMContentLoaded', function() {
     const SELECTED_TOPIC = dataDiv?.dataset.selectedTopic && dataDiv.dataset.selectedTopic !== 'null'
         ? JSON.parse(dataDiv.dataset.selectedTopic)
         : null;
+
+    // Helper functions for media bias display
+    window.getBiasClass = function(bias) {
+        if (!bias) return 'bias-unknown';
+        
+        bias = bias.toLowerCase();
+        
+        if (bias.includes('left') && !bias.includes('center')) {
+            return 'bias-left';
+        } else if (bias.includes('left-center')) {
+            return 'bias-left-center';
+        } else if (bias.includes('least biased')) {
+            return 'bias-least-biased';
+        } else if (bias.includes('center')) {
+            return 'bias-center';
+        } else if (bias.includes('right-center')) {
+            return 'bias-right-center';
+        } else if (bias.includes('right')) {
+            return 'bias-right';
+        } else if (bias.includes('pro-science')) {
+            return 'bias-pro-science';
+        } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
+            return 'bias-conspiracy-pseudoscience';
+        } else if (bias.includes('questionable')) {
+            return 'bias-questionable';
+        } else if (bias.includes('satire')) {
+            return 'bias-satire';
+        }
+        
+        return 'bias-unknown';
+    };
+    
+    window.getFactualClass = function(factual) {
+        if (!factual) return 'factual-unknown';
+        
+        factual = factual.toLowerCase();
+        
+        if (factual.includes('very high')) {
+            return 'factual-very-high';
+        } else if (factual.includes('high') && !factual.includes('very')) {
+            return 'factual-high';
+        } else if (factual.includes('mostly')) {
+            return 'factual-mostly-factual';
+        } else if (factual.includes('mixed')) {
+            return 'factual-mixed';
+        } else if (factual.includes('low') && !factual.includes('very')) {
+            return 'factual-low';
+        } else if (factual.includes('very low')) {
+            return 'factual-very-low';
+        }
+        
+        return 'factual-unknown';
+    };
 
     const urlList = document.getElementById('urlList');
     if (PREFILLED_URLS) {
@@ -284,7 +350,10 @@ async function analyzeBulkUrls(requestData) {
             'Content-Type': 'application/json',
             Accept: 'application/x-ndjson'
         },
-        body: JSON.stringify(requestData)
+        body: JSON.stringify({
+            ...requestData,
+            summaryType: "curious_ai_long"
+        })
     });
 
     if (!response.ok || !response.body) {
@@ -414,7 +483,7 @@ async function handleBulkResearchSubmit(event) {
 
         const requestData = {
             urls,
-            summaryType: document.getElementById('summaryType').value,
+            summaryType: "curious_ai_long",
             modelName: document.getElementById('modelName').value,
             summaryLength: getSummaryLength(),
             summaryVoice: getSummaryVoice(),
@@ -538,6 +607,63 @@ function displayResultsTable(results) {
         articleEntry.className = 'article-entry';
         articleEntry.id = `article-${index}`;
         
+        // Create media bias HTML - always show the section
+        let mediaBiasHtml = '';
+        if (result.bias || result.factual_reporting) {
+            mediaBiasHtml = `
+                <div class="row">
+                    <div class="col">
+                        <label>Media Bias / Factual Reporting</label>
+                        <div class="d-flex flex-wrap align-items-center gap-2">
+                            ${result.bias ? 
+                                `<span class="bias-badge ${getBiasClass(result.bias)}">${result.bias}</span>` : ''}
+                            ${result.factual_reporting ? 
+                                `<span class="bias-badge ${getFactualClass(result.factual_reporting)}">${result.factual_reporting}</span>` : ''}
+                            
+                            ${result.mbfc_credibility_rating ? 
+                                `<span class="badge bg-light text-dark border">${result.mbfc_credibility_rating}</span>` : ''}
+                        </div>
+                        ${result.bias || result.factual_reporting ? 
+                            `<div class="d-flex mt-1 small text-muted">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Media Bias Fact Check classification for ${result.news_source}
+                             </div>` : ''}
+                        <div class="d-flex flex-wrap gap-2 mt-2">
+                            ${result.bias_country ? 
+                                `<div class="small"><strong>Country:</strong> ${result.bias_country}</div>` : ''}
+                            ${result.press_freedom ? 
+                                `<div class="small"><strong>Press Freedom:</strong> ${result.press_freedom}</div>` : ''}
+                            ${result.media_type ? 
+                                `<div class="small"><strong>Media Type:</strong> ${result.media_type}</div>` : ''}
+                            ${result.popularity ? 
+                                `<div class="small"><strong>Popularity:</strong> ${result.popularity}</div>` : ''}
+                        </div>
+                    </div>
+                </div>`;
+        } else {
+            mediaBiasHtml = `
+                <div class="row">
+                    <div class="col">
+                        <label>Media Bias / Factual Reporting</label>
+                        <div class="d-flex align-items-center">
+                            <span class="text-muted">No media bias data available for this source</span>
+                        </div>
+                    </div>
+                </div>`;
+        }
+        
+        // Log debug info in a more readable format
+        console.log(`Media bias data for ${result.news_source}:`, { 
+            bias: result.bias || 'not available', 
+            factual: result.factual_reporting || 'not available',
+            credibility: result.mbfc_credibility_rating || 'not available',
+            country: result.bias_country || 'not available',
+            press_freedom: result.press_freedom || 'not available',
+            media_type: result.media_type || 'not available',
+            popularity: result.popularity || 'not available',
+            url: result.uri
+        });
+        
         articleEntry.innerHTML = `
             <div class="row">
                 <div class="col">
@@ -559,6 +685,7 @@ function displayResultsTable(results) {
                     <input type="date" id="subDate${index}" class="form-control" value="${result.submission_date ? result.submission_date.split('T')[0] : ''}">
                 </div>
             </div>
+            ${mediaBiasHtml}
             <div class="row">
                 <div class="col">
                     <label for="title${index}">Title</label>
@@ -940,5 +1067,58 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// Add helper functions for bias and factual rating classifications
+function getBiasClass(bias) {
+    if (!bias) return '';
+    
+    bias = bias.toLowerCase();
+    
+    if (bias.includes('left') && !bias.includes('center')) {
+        return 'bias-left';
+    } else if (bias.includes('left-center')) {
+        return 'bias-left-center';
+    } else if (bias.includes('least biased')) {
+        return 'bias-least-biased';
+    } else if (bias.includes('center')) {
+        return 'bias-center';
+    } else if (bias.includes('right-center')) {
+        return 'bias-right-center';
+    } else if (bias.includes('right')) {
+        return 'bias-right';
+    } else if (bias.includes('pro-science')) {
+        return 'bias-pro-science';
+    } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
+        return 'bias-conspiracy-pseudoscience';
+    } else if (bias.includes('questionable')) {
+        return 'bias-questionable';
+    } else if (bias.includes('satire')) {
+        return 'bias-satire';
+    }
+    
+    return '';
+}
+
+function getFactualClass(factual) {
+    if (!factual) return '';
+    
+    factual = factual.toLowerCase();
+    
+    if (factual.includes('very high')) {
+        return 'factual-very-high';
+    } else if (factual.includes('high') && !factual.includes('very')) {
+        return 'factual-high';
+    } else if (factual.includes('mostly')) {
+        return 'factual-mostly-factual';
+    } else if (factual.includes('mixed')) {
+        return 'factual-mixed';
+    } else if (factual.includes('low') && !factual.includes('very')) {
+        return 'factual-low';
+    } else if (factual.includes('very low')) {
+        return 'factual-very-low';
+    }
+    
+    return '';
+}
 </script>
 {% endblock %}

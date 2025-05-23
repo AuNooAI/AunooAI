@@ -39,6 +39,7 @@ from app.security.auth import User, get_current_active_user, verify_password, ge
 from app.routes import prompt_routes
 from app.routes.web_routes import router as web_router
 from app.routes.topic_routes import router as topic_router
+from app.routes.api_routes import router as api_router  # Add this line for api_routes
 from starlette.middleware.sessions import SessionMiddleware
 from app.security.session import verify_session
 from app.routes.keyword_monitor import router as keyword_monitor_router, get_alerts
@@ -67,6 +68,8 @@ from app.routes.topic_map_routes import (
 )
 from app.routes.auspex_routes import router as auspex_router
 from app.routes.newsletter_routes import router as newsletter_router, page_router as newsletter_page_router
+from app.routes.dataset_routes import router as dataset_router
+from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -232,6 +235,23 @@ app.include_router(auspex_router)
 # Add newsletter routers
 app.include_router(newsletter_router)
 app.include_router(newsletter_page_router)
+
+# Import media bias routes
+from app.routes import media_bias_routes
+
+# Add dataset router
+app.include_router(dataset_router)
+
+# Register media bias routes
+app.include_router(media_bias_routes.router)  # Add the new media bias routes
+
+# Include API routes
+app.include_router(api_router, prefix="/api")  # Add this line to include the API router
+
+# Add routes
+app.include_router(keyword_monitor_router)
+app.include_router(keyword_monitor_api_router, prefix="/api")
+app.include_router(onboarding_router)
 
 class ArticleData(BaseModel):
     title: str
@@ -609,13 +629,26 @@ async def analytics_route(request: Request, session=Depends(verify_session)):
 @app.get("/api/analytics")
 def get_analytics_data(
     timeframe: str = Query(...),
-    category: str = Query(None),
+    category: Optional[List[str]] = Query(None),
     topic: str = Query(...),
+    sentiment: Optional[List[str]] = Query(None),
+    timeToImpact: Optional[List[str]] = Query(None),
+    driverType: Optional[List[str]] = Query(None),
+    curated: bool = Query(True),
     analytics: Analytics = Depends(get_analytics)
 ):
-    logger.info(f"Received analytics request: timeframe={timeframe}, category={category}, topic={topic}")
+    logger.info(f"Received analytics request: timeframe={timeframe}, category={category}, topic={topic}, filters={sentiment},{timeToImpact},{driverType}, curated={curated}")
     try:
-        data = analytics.get_analytics_data(timeframe=timeframe, category=category, topic=topic)
+        cat_param = category[0] if category and len(category) == 1 else category
+        data = analytics.get_analytics_data(
+            timeframe=timeframe, 
+            category=cat_param, 
+            topic=topic,
+            sentiment=sentiment[0] if sentiment and len(sentiment) == 1 else sentiment,
+            time_to_impact=timeToImpact[0] if timeToImpact and len(timeToImpact) == 1 else timeToImpact,
+            driver_type=driverType[0] if driverType and len(driverType) == 1 else driverType,
+            curated=curated
+        )
         logger.info("Analytics data retrieved successfully")
         return JSONResponse(content=data)
     except Exception as e:
@@ -935,7 +968,7 @@ async def markdown_to_html(request: Request):
 async def save_article(article: ArticleData):
     try:
         logger.info(f"Received article data: {article.dict()}")
-        result = await db.save_article(article.dict())  # Use the async save_article method
+        result = db.save_article(article.dict())
         return JSONResponse(content=result)
     except HTTPException as he:
         logger.error(f"HTTP error saving article: {str(he)}")
@@ -1425,6 +1458,35 @@ async def collect_articles(
             search_fields=search_fields_list,
             page=page
         )
+        
+        # Get media bias data for articles
+        try:
+            # Import here to avoid circular imports
+            from app.models.media_bias import MediaBias
+            media_bias = MediaBias(db)
+            
+            # Add media bias data to each article
+            for article in articles:
+                source_url = article.get('url', '')
+                source_name = article.get('source', '')
+                
+                # Try to get media bias data first from URL, then from source name
+                bias_data = media_bias.get_bias_for_source(source_url)
+                if not bias_data:
+                    bias_data = media_bias.get_bias_for_source(source_name)
+                    
+                # Add bias data to article if found
+                if bias_data:
+                    article['bias'] = bias_data.get('bias', '')
+                    article['factual_reporting'] = bias_data.get('factual_reporting', '')
+                    article['mbfc_credibility_rating'] = bias_data.get('mbfc_credibility_rating', '')
+                    article['bias_country'] = bias_data.get('country', '')
+                    article['press_freedom'] = bias_data.get('press_freedom', '')
+                    article['media_type'] = bias_data.get('media_type', '')
+                    article['popularity'] = bias_data.get('popularity', '')
+        except Exception as bias_error:
+            logger.warning(f"Error enriching articles with media bias data: {str(bias_error)}")
+            # Continue without media bias data
         
         return JSONResponse(content={
             "source": source,
@@ -3740,3 +3802,10 @@ async def debug_topics():
     logger.info("Debug topics endpoint called")
     topics = ["AI and Machine Learning", "Trend Monitoring", "Competitor Analysis"]
     return topics
+
+@app.get("/submit-article", response_class=HTMLResponse)
+async def submit_article_page(request: Request, session=Depends(verify_session)):
+    return templates.TemplateResponse(
+        "submit_article.html", 
+        get_template_context(request)
+    )

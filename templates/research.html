@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block title %}AuNoo AI - Research{% endblock %}
 {% block extra_css %}
+<!-- Import the media bias component -->
+{% include "components/media_bias_display.html" %}
 <style>
     :root {
         --primary-color: #FF69B4;  /* Hot Pink */
@@ -239,6 +241,9 @@
 <link href="https://cdn.jsdelivr.net/npm/marked/lib/marked.min.css" rel="stylesheet">
 {% endblock %}
 {% block content %}
+<!-- Import the media bias macros -->
+{% from "components/media_bias_display.html" import media_bias_badge, media_bias_icon %}
+
 <div class="container mt-4">
     <h2 class="mb-3">Research</h2>
     
@@ -316,6 +321,23 @@
                 <div class="analysis-result" id="analysisResult">
                     <p><strong>Title:</strong> <input type="text" id="analysisTitle" class="form-control"></p>
                     <p><strong>Source:</strong> <input type="text" id="analysisSource" class="form-control"></p>
+                    <div id="mediaBiasContainer" class="mb-3" style="display: none;">
+                        <strong>Media Bias:</strong>
+                        <div class="d-flex flex-wrap gap-2 mt-2">
+                            <div id="biasBadgeContainer"></div>
+                            <div id="factualBadgeContainer"></div>
+                            <div class="media-tooltip">
+                                <i class="fas fa-info-circle"></i>
+                                <div class="tooltip-content">
+                                    <div style="text-align: center; font-weight: bold; margin-bottom: 5px;">Media Bias Info</div>
+                                    <div id="tooltipSource"></div>
+                                    <div id="tooltipBias"></div>
+                                    <div id="tooltipFactual"></div>
+                                    <div id="tooltipRating"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                     <p><strong>URL:</strong> <input type="url" id="analysisUrl" class="form-control"></p>
                     <div class="mb-3">
                         <label for="analysisSummary" class="form-label">Summary <span id="summaryWordCount">(0 words)</span></label>
@@ -1002,6 +1024,51 @@ async function displayAnalysisResult(result) {
     
     document.getElementById('analysisTags').value = result.tags ? result.tags.join(', ') : '';
     
+    // Display media bias information if available
+    const mediaBiasContainer = document.getElementById('mediaBiasContainer');
+    const biasBadgeContainer = document.getElementById('biasBadgeContainer');
+    const factualBadgeContainer = document.getElementById('factualBadgeContainer');
+    
+    // Always show the container
+    mediaBiasContainer.style.display = 'block';
+    
+    // Clear previous content
+    biasBadgeContainer.innerHTML = '';
+    factualBadgeContainer.innerHTML = '';
+    
+    if (result.bias || result.factual_reporting) {
+        // Set tooltip content
+        document.getElementById('tooltipSource').innerHTML = `<strong>Source:</strong> ${result.news_source || 'Unknown'}`;
+        document.getElementById('tooltipBias').innerHTML = result.bias ? `<strong>Bias:</strong> ${result.bias}` : '';
+        document.getElementById('tooltipFactual').innerHTML = result.factual_reporting ? `<strong>Factual Reporting:</strong> ${result.factual_reporting}` : '';
+        document.getElementById('tooltipRating').innerHTML = result.mbfc_credibility_rating ? `<strong>MBFC Rating:</strong> ${result.mbfc_credibility_rating}` : '';
+        
+        // Create bias badge if available
+        if (result.bias) {
+            const biasBadge = document.createElement('span');
+            biasBadge.className = `bias-badge ${getBiasClass(result.bias)}`;
+            biasBadge.textContent = result.bias;
+            biasBadgeContainer.appendChild(biasBadge);
+        }
+        
+        // Create factual reporting badge if available
+        if (result.factual_reporting) {
+            const factualBadge = document.createElement('span');
+            factualBadge.className = `bias-badge ${getFactualClass(result.factual_reporting)}`;
+            factualBadge.textContent = result.factual_reporting;
+            factualBadgeContainer.appendChild(factualBadge);
+        }
+    } else {
+        // Display a message when no media bias data is available
+        const noDataMessage = document.createElement('span');
+        noDataMessage.className = 'text-muted';
+        noDataMessage.textContent = 'No media bias data available for this source';
+        biasBadgeContainer.appendChild(noDataMessage);
+        
+        // Hide the tooltip since there's no data
+        document.querySelector('.media-tooltip').style.display = 'none';
+    }
+    
     // Disable annotations if this is a new article (no uri in database)
     toggleAnnotationControls(false);
     if (result.uri) {
@@ -1104,10 +1171,40 @@ function displayLatestArticles(articles) {
     validArticles.forEach(article => {
         const articleElement = document.createElement('div');
         articleElement.className = 'article-card';
+        
+        // Create media bias HTML
+        let mediaBiasHtml = '';
+        if (article.bias || article.factual_reporting) {
+            mediaBiasHtml = `
+                <div class="mt-2">
+                    <span class="media-bias-container d-inline-flex align-items-center">
+                        ${article.bias ? `<span class="bias-badge ${getBiasClass(article.bias)}">${article.bias}</span>` : ''}
+                        ${article.factual_reporting ? `<span class="bias-badge ${getFactualClass(article.factual_reporting)}">${article.factual_reporting}</span>` : ''}
+                        <span class="source-tooltip">
+                            <i class="fas fa-info-circle"></i>
+                            <div class="tooltip-content">
+                                <div style="text-align: center; font-weight: bold; margin-bottom: 5px;">Media Bias Info</div>
+                                <div><strong>Source:</strong> ${escapeHTML(article.news_source || 'Unknown')}</div>
+                                ${article.bias ? `<div><strong>Bias:</strong> ${article.bias}</div>` : ''}
+                                ${article.factual_reporting ? `<div><strong>Factual Reporting:</strong> ${article.factual_reporting}</div>` : ''}
+                                ${article.mbfc_credibility_rating ? `<div><strong>MBFC Rating:</strong> ${article.mbfc_credibility_rating}</div>` : ''}
+                                ${article.bias_country ? `<div><strong>Country:</strong> ${article.bias_country}</div>` : ''}
+                                ${article.press_freedom ? `<div><strong>Press Freedom:</strong> ${article.press_freedom}</div>` : ''}
+                                ${article.media_type ? `<div><strong>Media Type:</strong> ${article.media_type}</div>` : ''}
+                                ${article.popularity ? `<div><strong>Popularity:</strong> ${article.popularity}</div>` : ''}
+                            </div>
+                        </span>
+                    </span>
+                </div>`;
+        }
+        
         articleElement.innerHTML = `
             <div class="article-content">
                 <h5 class="card-title">${escapeHTML(article.title || 'No Title')}</h5>
-                <h6 class="card-subtitle mb-2 text-muted">Source: ${escapeHTML(article.news_source || 'Unknown')}</h6>
+                <h6 class="card-subtitle mb-2 text-muted">
+                    Source: ${escapeHTML(article.news_source || 'Unknown')}
+                    ${mediaBiasHtml}
+                </h6>
                 <div class="row">
                     <div class="col-md-6">
                         <p class="card-text"><strong>Publication Date:</strong> ${formatDate(article.publication_date)}</p>
@@ -1498,6 +1595,59 @@ function toggleAnnotationControls(enabled) {
     } else if (messageDiv && enabled) {
         messageDiv.remove();
     }
+}
+
+// Helper functions for bias display
+function getBiasClass(bias) {
+    if (!bias) return '';
+    
+    bias = bias.toLowerCase();
+    
+    if (bias.includes('left') && !bias.includes('center')) {
+        return 'bias-left';
+    } else if (bias.includes('left-center')) {
+        return 'bias-left-center';
+    } else if (bias.includes('least biased')) {
+        return 'bias-least-biased';
+    } else if (bias.includes('center')) {
+        return 'bias-center';
+    } else if (bias.includes('right-center')) {
+        return 'bias-right-center';
+    } else if (bias.includes('right')) {
+        return 'bias-right';
+    } else if (bias.includes('pro-science')) {
+        return 'bias-pro-science';
+    } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
+        return 'bias-conspiracy-pseudoscience';
+    } else if (bias.includes('questionable')) {
+        return 'bias-questionable';
+    } else if (bias.includes('satire')) {
+        return 'bias-satire';
+    }
+    
+    return '';
+}
+
+function getFactualClass(factual) {
+    if (!factual) return '';
+    
+    factual = factual.toLowerCase();
+    
+    if (factual.includes('very high')) {
+        return 'factual-very-high';
+    } else if (factual.includes('high') && !factual.includes('very')) {
+        return 'factual-high';
+    } else if (factual.includes('mostly')) {
+        return 'factual-mostly-factual';
+    } else if (factual.includes('mixed')) {
+        return 'factual-mixed';
+    } else if (factual.includes('low') && !factual.includes('very')) {
+        return 'factual-low';
+    } else if (factual.includes('very low')) {
+        return 'factual-very-low';
+    }
+    
+    return '';
 }
 </script>
 {% endblock %}

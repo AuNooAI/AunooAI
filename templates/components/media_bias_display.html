@@ -1,0 +1,480 @@
+<!-- Media Bias Display Component -->
+<style>
+    /* Media Bias Badge Styling */
+    .bias-badge {
+        display: inline-block;
+        padding: 0.2rem 0.5rem;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        margin-right: 3px;
+    }
+
+    /* Bias color coding */
+    .bias-left {
+        background-color: #3373CC;
+        color: white;
+    }
+
+    .bias-left-center {
+        background-color: #6699EE;
+        color: white;
+    }
+
+    .bias-least-biased {
+        background-color: #88CC88;
+        color: black;
+    }
+
+    .bias-center {
+        background-color: rgba(108, 117, 125, 0.1);
+        color: #5a6268;
+        border: 1px solid rgba(108, 117, 125, 0.2);
+    }
+
+    .bias-right-center {
+        background-color: #FF9966;
+        color: black;
+    }
+
+    .bias-right {
+        background-color: #CC3333;
+        color: white;
+    }
+
+    .bias-pro-science {
+        background-color: #9966CC;
+        color: white;
+    }
+
+    .bias-conspiracy-pseudoscience {
+        background-color: #666666;
+        color: white;
+    }
+
+    .bias-questionable {
+        background-color: #222222;
+        color: white;
+    }
+
+    .bias-satire {
+        background-color: #CCBB33;
+        color: black;
+    }
+
+    /* Factual reporting color coding */
+    .factual-very-high {
+        background-color: #006600;
+        color: white;
+    }
+
+    .factual-high {
+        background-color: #339933;
+        color: white;
+    }
+
+    .factual-mostly-factual {
+        background-color: #66CC66;
+        color: black;
+    }
+
+    .factual-mixed {
+        background-color: #CCCC00;
+        color: black;
+    }
+
+    .factual-low {
+        background-color: #CC6600;
+        color: white;
+    }
+
+    .factual-very-low {
+        background-color: #CC0000;
+        color: white;
+    }
+
+    /* Source tooltip styling */
+    .source-tooltip {
+        position: relative;
+        display: inline-block;
+        margin-left: 5px;
+        cursor: help;
+    }
+
+    .source-tooltip i {
+        color: var(--primary-color, #FF69B4);
+        font-size: 0.8rem;
+    }
+
+    .source-tooltip .tooltip-content {
+        visibility: hidden;
+        position: absolute;
+        z-index: 100;
+        bottom: 125%;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: white;
+        padding: 12px;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        width: max-content;
+        min-width: 240px;
+        max-width: 320px;
+        border: 1px solid #dee2e6;
+        opacity: 0;
+        transition: opacity 0.3s, transform 0.2s;
+        pointer-events: none;
+        transform: translateX(-50%) translateY(10px);
+    }
+
+    .source-tooltip:hover .tooltip-content {
+        visibility: visible;
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+
+    .source-tooltip .tooltip-content::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        margin-left: -5px;
+        border-width: 5px;
+        border-style: solid;
+        border-color: white transparent transparent transparent;
+    }
+    
+    /* Tooltip table styling */
+    .source-tooltip table {
+        width: 100%;
+        font-size: 0.85rem;
+    }
+    
+    .source-tooltip table td {
+        padding: 2px 4px;
+        vertical-align: top;
+    }
+    
+    .source-tooltip table td:first-child {
+        font-weight: 500;
+        white-space: nowrap;
+        padding-right: 10px;
+    }
+    
+    /* Mobile adjustments for tooltips */
+    @media (max-width: 767px) {
+        .source-tooltip .tooltip-content {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            bottom: auto;
+            transform: translate(-50%, -50%);
+            min-width: 280px;
+            max-width: 90vw;
+            z-index: 1050;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+        
+        .source-tooltip:hover .tooltip-content {
+            transform: translate(-50%, -50%);
+        }
+        
+        .source-tooltip .tooltip-content::after {
+            display: none;
+        }
+        
+        /* Add close button for mobile */
+        .source-tooltip .tooltip-content::before {
+            content: '×';
+            position: absolute;
+            top: 5px;
+            right: 10px;
+            font-size: 20px;
+            color: #999;
+            cursor: pointer;
+        }
+    }
+</style>
+
+<!-- Media Bias Badge Macro -->
+{% macro media_bias_badge(article) %}
+{% if article.bias or article.factual_reporting %}
+<div class="source-metadata">
+    <div class="d-flex align-items-center flex-wrap gap-2">
+        {% if article.bias %}
+        <span class="bias-badge {{ getBiasClass(article.bias) }}">
+            <i class="fas fa-balance-scale-right me-1"></i> {{ article.bias }}
+        </span>
+        {% endif %}
+        
+        {% if article.factual_reporting %}
+        <span class="bias-badge {{ getFactualClass(article.factual_reporting) }}">
+            <i class="fas fa-check-circle me-1"></i> {{ article.factual_reporting }}
+        </span>
+        {% endif %}
+        
+        <span class="source-tooltip">
+            <i class="fas fa-info-circle"></i>
+            <div class="tooltip-content">
+                <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
+                <table class="mb-0" style="font-size: 0.85rem; width: 100%;">
+                    {% if article.source %}
+                    <tr><td><strong>Source:</strong></td><td>{{ article.source }}</td></tr>
+                    {% endif %}
+                    
+                    {% if article.bias %}
+                    <tr><td><strong>Bias:</strong></td><td>{{ article.bias }}</td></tr>
+                    {% endif %}
+                    
+                    {% if article.factual_reporting %}
+                    <tr><td><strong>Factual:</strong></td><td>{{ article.factual_reporting }}</td></tr>
+                    {% endif %}
+                    
+                    {% if article.mbfc_credibility_rating %}
+                    <tr><td><strong>Rating:</strong></td><td>{{ article.mbfc_credibility_rating }}</td></tr>
+                    {% endif %}
+                    
+                    {% if article.bias_country %}
+                    <tr><td><strong>Country:</strong></td><td>{{ article.bias_country }}</td></tr>
+                    {% endif %}
+                    
+                    {% if article.press_freedom %}
+                    <tr><td><strong>Press&nbsp;Freedom:</strong></td><td>{{ article.press_freedom }}</td></tr>
+                    {% endif %}
+                    
+                    {% if article.media_type %}
+                    <tr><td><strong>Media&nbsp;Type:</strong></td><td>{{ article.media_type }}</td></tr>
+                    {% endif %}
+                    
+                    {% if article.popularity %}
+                    <tr><td><strong>Popularity:</strong></td><td>{{ article.popularity }}</td></tr>
+                    {% endif %}
+                </table>
+            </div>
+        </span>
+    </div>
+</div>
+{% endif %}
+{% endmacro %}
+
+<!-- Simplified version for compact display -->
+{% macro media_bias_icon(article) %}
+{% if article.bias or article.factual_reporting %}
+<span class="article-bias-container ms-2" 
+      title="{{ article.bias or '' }} / {{ article.factual_reporting or '' }}">
+    <i class="fas fa-balance-scale-right text-info"></i>
+    
+    <div class="bias-tooltip">
+        <div class="bias-details">
+            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
+            <table class="mb-0" style="font-size: 0.85rem; width: 100%;">
+                {% if article.source %}
+                <tr><td><strong>Source:</strong></td><td>{{ article.source }}</td></tr>
+                {% endif %}
+                
+                {% if article.bias %}
+                <tr><td><strong>Bias:</strong></td><td>{{ article.bias }}</td></tr>
+                {% endif %}
+                
+                {% if article.factual_reporting %}
+                <tr><td><strong>Factual:</strong></td><td>{{ article.factual_reporting }}</td></tr>
+                {% endif %}
+                
+                {% if article.mbfc_credibility_rating %}
+                <tr><td><strong>Rating:</strong></td><td>{{ article.mbfc_credibility_rating }}</td></tr>
+                {% endif %}
+                
+                {% if article.bias_country %}
+                <tr><td><strong>Country:</strong></td><td>{{ article.bias_country }}</td></tr>
+                {% endif %}
+                
+                {% if article.press_freedom %}
+                <tr><td><strong>Press&nbsp;Freedom:</strong></td><td>{{ article.press_freedom }}</td></tr>
+                {% endif %}
+                
+                {% if article.media_type %}
+                <tr><td><strong>Media&nbsp;Type:</strong></td><td>{{ article.media_type }}</td></tr>
+                {% endif %}
+                
+                {% if article.popularity %}
+                <tr><td><strong>Popularity:</strong></td><td>{{ article.popularity }}</td></tr>
+                {% endif %}
+            </table>
+        </div>
+    </div>
+</span>
+{% endif %}
+{% endmacro %}
+
+<script>
+// Helper functions for bias and factual class mapping
+function getBiasClass(bias) {
+    if (!bias) return '';
+    
+    bias = bias.toLowerCase();
+    
+    if (bias.includes('left') && !bias.includes('center')) {
+        return 'bias-left';
+    } else if (bias.includes('left-center')) {
+        return 'bias-left-center';
+    } else if (bias.includes('least biased') || bias.includes('center')) {
+        return 'bias-least-biased';
+    } else if (bias.includes('right-center')) {
+        return 'bias-right-center';
+    } else if (bias.includes('right') && !bias.includes('center')) {
+        return 'bias-right';
+    } else if (bias.includes('pro-science')) {
+        return 'bias-pro-science';
+    } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
+        return 'bias-conspiracy-pseudoscience';
+    } else if (bias.includes('questionable')) {
+        return 'bias-questionable';
+    } else if (bias.includes('satire')) {
+        return 'bias-satire';
+    }
+    
+    return '';
+}
+
+function getFactualClass(factual) {
+    if (!factual) return '';
+    
+    factual = factual.toLowerCase();
+    
+    if (factual.includes('very high')) {
+        return 'factual-very-high';
+    } else if (factual.includes('high') && !factual.includes('very')) {
+        return 'factual-high';
+    } else if (factual.includes('mostly')) {
+        return 'factual-mostly-factual';
+    } else if (factual.includes('mixed')) {
+        return 'factual-mixed';
+    } else if (factual.includes('low') && !factual.includes('very')) {
+        return 'factual-low';
+    } else if (factual.includes('very low')) {
+        return 'factual-very-low';
+    }
+    
+    return '';
+}
+
+// Function to create media bias display for an article
+function createMediaBiasDisplay(article) {
+    if (!article || (!article.bias && !article.factual_reporting)) {
+        return '';
+    }
+    
+    let biasClass = getBiasClass(article.bias);
+    let factualClass = getFactualClass(article.factual_reporting);
+    
+    let html = `<div class="source-metadata">
+        <div class="d-flex align-items-center flex-wrap gap-2">`;
+    
+    if (article.bias) {
+        html += `<span class="bias-badge ${biasClass}">
+            <i class="fas fa-balance-scale-right me-1"></i> ${article.bias}
+        </span>`;
+    }
+    
+    if (article.factual_reporting) {
+        html += `<span class="bias-badge ${factualClass}">
+            <i class="fas fa-check-circle me-1"></i> ${article.factual_reporting}
+        </span>`;
+    }
+    
+    html += `<span class="source-tooltip">
+        <i class="fas fa-info-circle"></i>
+        <div class="tooltip-content">
+            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
+            <table class="mb-0" style="font-size: 0.85rem; width: 100%;">`;
+    
+    if (article.bias) {
+        html += `<tr><td><strong>Bias:</strong></td><td>${article.bias}</td></tr>`;
+    }
+    
+    if (article.factual_reporting) {
+        html += `<tr><td><strong>Factual:</strong></td><td>${article.factual_reporting}</td></tr>`;
+    }
+    
+    if (article.mbfc_credibility_rating) {
+        html += `<tr><td><strong>Rating:</strong></td><td>${article.mbfc_credibility_rating}</td></tr>`;
+    }
+    
+    if (article.bias_country) {
+        html += `<tr><td><strong>Country:</strong></td><td>${article.bias_country}</td></tr>`;
+    }
+    
+    if (article.press_freedom) {
+        html += `<tr><td><strong>Press&nbsp;Freedom:</strong></td><td>${article.press_freedom}</td></tr>`;
+    }
+    
+    if (article.media_type) {
+        html += `<tr><td><strong>Media&nbsp;Type:</strong></td><td>${article.media_type}</td></tr>`;
+    }
+    
+    if (article.popularity) {
+        html += `<tr><td><strong>Popularity:</strong></td><td>${article.popularity}</td></tr>`;
+    }
+    
+    html += `</table>
+        </div>
+    </span>
+    </div>
+    </div>`;
+    
+    return html;
+}
+
+// Expose functions globally so they can be used in other templates
+window.getBiasClass = getBiasClass;
+window.getFactualClass = getFactualClass;
+window.createMediaBiasDisplay = createMediaBiasDisplay;
+</script>
+
+{% macro get_bias_class(bias) %}
+{% if bias %}
+    {% set bias_lower = bias|lower %}
+    {% if 'left' in bias_lower and 'center' not in bias_lower %}
+        bias-left
+    {% elif 'left-center' in bias_lower %}
+        bias-left-center
+    {% elif 'least biased' in bias_lower or 'center' in bias_lower %}
+        bias-least-biased
+    {% elif 'right-center' in bias_lower %}
+        bias-right-center
+    {% elif 'right' in bias_lower and 'center' not in bias_lower %}
+        bias-right
+    {% elif 'pro-science' in bias_lower %}
+        bias-pro-science
+    {% elif 'conspiracy' in bias_lower or 'pseudo' in bias_lower %}
+        bias-conspiracy-pseudoscience
+    {% elif 'questionable' in bias_lower %}
+        bias-questionable
+    {% elif 'satire' in bias_lower %}
+        bias-satire
+    {% else %}
+        bias-unknown
+    {% endif %}
+{% endif %}
+{% endmacro %}
+
+{% macro get_factual_class(factual) %}
+{% if factual %}
+    {% set factual_lower = factual|lower %}
+    {% if 'very high' in factual_lower %}
+        factual-very-high
+    {% elif 'high' in factual_lower and 'very' not in factual_lower %}
+        factual-high
+    {% elif 'mostly' in factual_lower %}
+        factual-mostly-factual
+    {% elif 'mixed' in factual_lower %}
+        factual-mixed
+    {% elif 'low' in factual_lower and 'very' not in factual_lower %}
+        factual-low
+    {% elif 'very low' in factual_lower %}
+        factual-very-low
+    {% else %}
+        factual-unknown
+    {% endif %}
+{% endif %}
+{% endmacro %} 

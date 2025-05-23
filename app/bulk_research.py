@@ -84,6 +84,11 @@ class BulkResearch:
                 use_cache=True,
             )
             
+            # Initialize media bias module
+            from app.models.media_bias import MediaBias
+            media_bias = MediaBias(self.db)
+            logger.info(f"Media bias module initialized, enabled: {media_bias.get_status().get('enabled', False)}")
+            
             # Initialize BlueskyCollector for handling Bluesky URLs
             self.bluesky_collector = None
             try:
@@ -203,6 +208,30 @@ class BulkResearch:
                 result["submission_date"] = datetime.datetime.now().date().isoformat()
                 result["uri"] = url  # Ensure URL is included
                 result["analyzed"] = True  # Add this line to include the analyzed field
+                
+                # Add media bias data if not already present
+                try:
+                    # Try to get media bias data using the URL (more reliable)
+                    bias_data = media_bias.get_bias_for_source(url)
+                    if not bias_data:
+                        # If URL lookup failed, try using the source name
+                        bias_data = media_bias.get_bias_for_source(result["news_source"])
+                        
+                    if bias_data:
+                        logger.info(f"Found media bias data for {url}: {bias_data.get('bias')}, {bias_data.get('factual_reporting')}")
+                        result["bias"] = bias_data.get("bias", "")
+                        result["factual_reporting"] = bias_data.get("factual_reporting", "")
+                        result["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating", "")
+                        result["bias_country"] = bias_data.get("country", "")
+                        result["press_freedom"] = bias_data.get("press_freedom", "")
+                        result["media_type"] = bias_data.get("media_type", "")
+                        result["popularity"] = bias_data.get("popularity", "")
+                    else:
+                        logger.debug(f"No media bias data found for {url}")
+                except Exception as bias_error:
+                    logger.error(f"Error getting media bias data for {url}: {str(bias_error)}")
+                    # Don't fail the entire process on bias lookup error
+                
                 results.append(result)
                 logger.info(f"Successfully analyzed URL: {url}")
                 
@@ -239,6 +268,10 @@ class BulkResearch:
             "errors": []
         }
         
+        # Create MediaBias instance once for efficiency
+        from app.models.media_bias import MediaBias
+        media_bias = MediaBias(self.db)
+        
         for article in articles:
             try:
                 logger.debug(f'Attempting to save article: {article}')
@@ -251,40 +284,86 @@ class BulkResearch:
                     'driver_type_explanation', 'submission_date', 'topic', 'analyzed'
                 ]
                 
-                # Validate required fields
-                missing_fields = [field for field in required_fields if not article.get(field)]
+                missing_fields = [field for field in required_fields if field not in article]
                 if missing_fields:
-                    raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+                    error_msg = f"Missing required fields: {', '.join(missing_fields)}"
+                    logger.warning(error_msg)
+                    results["errors"].append({
+                        "uri": article.get('uri', 'Unknown'),
+                        "error": error_msg
+                    })
+                    continue
                 
-                # Format tags if they're a string
-                if isinstance(article['tags'], str):
-                    article['tags'] = [tag.strip() for tag in article['tags'].split(',') if tag.strip()]
+                # Check for empty URI
+                if not article['uri']:
+                    error_msg = "Empty URI provided"
+                    logger.warning(error_msg)
+                    results["errors"].append({
+                        "uri": "Empty",
+                        "error": error_msg
+                    })
+                    continue
                 
-                # Ensure dates are in ISO format
-                for date_field in ['publication_date', 'submission_date']:
-                    if article.get(date_field):
-                        try:
-                            # Try to parse and reformat the date
-                            date_obj = datetime.fromisoformat(article[date_field].replace('Z', '+00:00'))
-                            article[date_field] = date_obj.date().isoformat()
-                        except (ValueError, AttributeError):
-                            logger.warning(f"Invalid date format for {date_field}: {article[date_field]}")
-                            article[date_field] = datetime.datetime.now().date().isoformat()
-
-                # Before saving, ensure analyzed is set
-                if 'analyzed' not in article:
-                    article['analyzed'] = True  # If it has all required fields, it's analyzed
-
-                # Use the research instance to save the article
-                saved_article = await self.research.save_article(article)
-                logger.info(f"Successfully saved article: {article['uri']}")
-                results["success"].append(saved_article)
+                # Convert tags list to string if necessary
+                if isinstance(article.get('tags'), list):
+                    article['tags'] = ', '.join(article['tags'])
+                    
+                # Add media bias data if not already present
+                if article.get('news_source') and not article.get('bias'):
+                    try:
+                        # Check if media bias enrichment is enabled
+                        status = media_bias.get_status()
+                        if status.get('enabled', False):
+                            logger.debug(
+                                f"Media bias enrichment is enabled, "
+                                f"looking up data for {article['news_source']}"
+                            )
+                            
+                            # Get bias data for this source
+                            bias_data = media_bias.get_bias_for_source(article['news_source'])
+                            
+                            if bias_data:
+                                logger.debug(
+                                    f"Found media bias data for {article['news_source']}: "
+                                    f"{bias_data}"
+                                )
+                                
+                                # Add bias data to article
+                                article['bias'] = bias_data.get('bias', '')
+                                article['factual_reporting'] = bias_data.get('factual_reporting', '')
+                                article['mbfc_credibility_rating'] = bias_data.get('mbfc_credibility_rating', '')
+                                article['bias_source'] = bias_data.get('source', '')
+                                article['bias_country'] = bias_data.get('country', '')
+                                article['press_freedom'] = bias_data.get('press_freedom', '')
+                                article['media_type'] = bias_data.get('media_type', '')
+                                article['popularity'] = bias_data.get('popularity', '')
+                            else:
+                                logger.debug(f"No media bias data found for {article['news_source']}")
+                    except Exception as e:
+                        logger.error(f"Error enriching article with media bias data: {str(e)}")
+                        # Don't fail the entire process if bias enrichment fails
+                
+                # Save the article to the database
+                self.db.save_article(article)
+                
+                # Save raw markdown if available
+                if article.get('raw_markdown'):
+                    self.db.save_raw_article(
+                        article['uri'],
+                        article['raw_markdown'],
+                        article.get('topic', '')
+                    )
+                
+                logger.info(f"Successfully saved article: {article['title']}")
+                results["success"].append({
+                    "uri": article['uri'], 
+                    "title": article['title']
+                })
                 
             except Exception as e:
-                logger.error(f"Error saving article {article.get('uri', 'Unknown URL')}: {str(e)}")
-                logger.error(f"Article data: {json.dumps(article, indent=2)}")
+                logger.error(f"Error saving article: {str(e)}")
                 results["errors"].append({
-                    "uri": article.get('uri', 'Unknown URL'),
+                    "uri": article.get('uri', 'Unknown'),
                     "error": str(e)
                 })
         
@@ -383,6 +462,12 @@ class BulkResearch:
                 self.research.ai_model,
                 use_cache=True,
             )
+            
+            # Initialize media bias module
+            from app.models.media_bias import MediaBias
+            media_bias = MediaBias(self.db)
+            logger.info(f"[stream] Media bias module initialized, enabled: {media_bias.get_status().get('enabled', False)}")
+            
             self.bluesky_collector = None
             try:
                 self.bluesky_collector = CollectorFactory.get_collector('bluesky')
@@ -474,6 +559,30 @@ class BulkResearch:
                     "uri": url,
                     "analyzed": True,
                 })
+                
+                # Add media bias data if not already present
+                try:
+                    # Try to get media bias data using the URL (more reliable)
+                    bias_data = media_bias.get_bias_for_source(url)
+                    if not bias_data:
+                        # If URL lookup failed, try using the source name
+                        bias_data = media_bias.get_bias_for_source(result["news_source"])
+                        
+                    if bias_data:
+                        logger.info(f"[stream] Found media bias data for {url}: {bias_data.get('bias')}, {bias_data.get('factual_reporting')}")
+                        result["bias"] = bias_data.get("bias", "")
+                        result["factual_reporting"] = bias_data.get("factual_reporting", "")
+                        result["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating", "")
+                        result["bias_country"] = bias_data.get("country", "")
+                        result["press_freedom"] = bias_data.get("press_freedom", "")
+                        result["media_type"] = bias_data.get("media_type", "")
+                        result["popularity"] = bias_data.get("popularity", "")
+                    else:
+                        logger.debug(f"[stream] No media bias data found for {url}")
+                except Exception as bias_error:
+                    logger.error(f"[stream] Error getting media bias data for {url}: {str(bias_error)}")
+                    # Don't fail the entire process on bias lookup error
+                
                 logger.info(f"[stream] Finished URL: {url}")
                 yield result
                 # Give control back to event loop to flush stream quickly
@@ -512,7 +621,7 @@ class BulkResearch:
         """
         try:
             article_content = await self.research.fetch_article_content(url)
-            return self.article_analyzer.analyze_content(
+            result = self.article_analyzer.analyze_content(
                 article_text=article_content.get("content", ""),
                 title=article_content.get("title", ""),
                 source=article_content.get("source", self.extract_source(url)),
@@ -526,6 +635,38 @@ class BulkResearch:
                 time_to_impact_options=self.research.TIME_TO_IMPACT,
                 driver_types=self.research.DRIVER_TYPES,
             )
+            
+            # Add news_source if not present
+            if "news_source" not in result:
+                result["news_source"] = article_content.get("source", self.extract_source(url))
+            
+            # Add media bias data
+            try:
+                from app.models.media_bias import MediaBias
+                media_bias = MediaBias(self.db)
+                
+                # Try to get media bias data using the URL (more reliable)
+                bias_data = media_bias.get_bias_for_source(url)
+                if not bias_data:
+                    # If URL lookup failed, try using the source name
+                    bias_data = media_bias.get_bias_for_source(result["news_source"])
+                    
+                if bias_data:
+                    logger.info(f"Found media bias data for {url}: {bias_data.get('bias')}, {bias_data.get('factual_reporting')}")
+                    result["bias"] = bias_data.get("bias", "")
+                    result["factual_reporting"] = bias_data.get("factual_reporting", "")
+                    result["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating", "")
+                    result["bias_country"] = bias_data.get("country", "")
+                    result["press_freedom"] = bias_data.get("press_freedom", "")
+                    result["media_type"] = bias_data.get("media_type", "")
+                    result["popularity"] = bias_data.get("popularity", "")
+                else:
+                    logger.debug(f"No media bias data found for {url}")
+            except Exception as bias_error:
+                logger.error(f"Error getting media bias data for {url}: {str(bias_error)}")
+                # Don't fail the entire process on bias lookup error
+            
+            return result
         except Exception as exc:
             logger.error("Failed to analyse single article %s: %s", url, exc)
             return None

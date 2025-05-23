@@ -146,6 +146,18 @@
       "provider": "openai"
     },
     {
+      "name": "gpt-4.1",
+      "provider": "openai"
+    },
+    {
+      "name": "gpt-4.1-mini",
+      "provider": "openai"
+    },
+    {
+      "name": "gpt-4.1-nano",
+      "provider": "openai"
+    },
+    {
       "name": "claude-3-7-sonnet-latest",
       "provider": "anthropic"
     },

@@ -91,6 +91,357 @@
             margin-right: 0.5rem;
             color: var(--primary-color);
         }
+
+        /* Floating Chat CSS */
+        .floating-chat-button {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #FF69B4, #FF1493);
+            border: none;
+            border-radius: 50%;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(255, 105, 180, 0.4);
+            z-index: 1000;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .floating-chat-button.minimized {
+            width: 200px;
+            border-radius: 30px;
+            font-size: 14px;
+            padding: 0 20px;
+            justify-content: flex-start;
+            gap: 10px;
+        }
+
+        .floating-chat-button.minimized::after {
+            content: "Auspex Chat";
+            font-weight: 500;
+        }
+
+        .floating-chat-button.minimized i {
+            font-size: 18px;
+        }
+
+        .floating-chat-button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 25px rgba(255, 105, 180, 0.6);
+        }
+
+        .floating-chat-button.pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 4px 20px rgba(255, 105, 180, 0.4); }
+            50% { box-shadow: 0 4px 30px rgba(255, 105, 180, 0.8); }
+            100% { box-shadow: 0 4px 20px rgba(255, 105, 180, 0.4); }
+        }
+
+        .chat-modal .modal-dialog {
+            max-width: 90vw;
+            width: 800px;
+            height: 80vh;
+            margin: 5vh auto;
+        }
+
+        .chat-modal .modal-content {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .chat-modal .modal-body {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            padding: 0;
+        }
+
+        .floating-chat-header {
+            padding: 15px 20px;
+            background: linear-gradient(135deg, #FF69B4, #FF1493);
+            color: white;
+            border-radius: 0;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .floating-chat-header h5,
+        .floating-chat-header small {
+            color: white !important;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        .floating-chat-header select {
+            background: rgba(255, 255, 255, 0.95) !important;
+            border: 1px solid rgba(255, 255, 255, 0.3) !important;
+            color: #333 !important;
+            font-size: 0.875rem;
+        }
+
+        .floating-chat-header select:focus {
+            background: white !important;
+            border-color: rgba(255, 255, 255, 0.8) !important;
+            box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.25) !important;
+        }
+
+        .floating-chat-header select option {
+            background: white !important;
+            color: #333 !important;
+        }
+
+        .floating-chat-controls {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .floating-chat-icon-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-size: 0.75rem;
+        }
+
+        .floating-chat-icon-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .floating-message-copy {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            background: rgba(255, 255, 255, 0.9);
+            border: none;
+            border-radius: 4px;
+            padding: 4px 8px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            color: #666;
+        }
+
+        .floating-message:hover .floating-message-copy {
+            opacity: 1;
+        }
+
+        .floating-message-copy:hover {
+            background: #FF69B4;
+            color: white;
+        }
+
+        .floating-message {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            position: relative;
+        }
+
+        .floating-quick-queries {
+            padding: 10px 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .floating-quick-queries label {
+            font-size: 0.75rem;
+            color: #666;
+            margin-right: 8px;
+            font-weight: 500;
+        }
+
+        .floating-quick-btn {
+            background: white;
+            border: 1px solid #FF69B4;
+            color: #FF69B4;
+            padding: 4px 12px;
+            border-radius: 15px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            transition: all 0.2s ease;
+        }
+
+        .floating-quick-btn:hover {
+            background: #FF69B4;
+            color: white;
+        }
+
+        .floating-quick-btn.custom {
+            background: #f8f9fa;
+            border-color: #6c757d;
+            color: #6c757d;
+            position: relative;
+        }
+
+        .floating-quick-btn.custom:hover {
+            background: #6c757d;
+            color: white;
+        }
+
+        .floating-quick-btn.custom .remove-custom {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            font-size: 10px;
+            line-height: 1;
+            cursor: pointer;
+            display: none;
+        }
+
+        .floating-quick-btn.custom:hover .remove-custom {
+            display: block;
+        }
+
+        .floating-chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #f8f9fa;
+            scroll-behavior: smooth;
+        }
+
+        .floating-chat-input {
+            padding: 15px 20px;
+            background: white;
+            border-top: 1px solid #e9ecef;
+            display: flex;
+            gap: 10px;
+            flex-shrink: 0;
+        }
+
+        .floating-chat-input textarea {
+            flex: 1;
+            resize: none;
+            height: 50px;
+            border-radius: 25px;
+            padding: 12px 20px;
+            border: 1px solid #ddd;
+        }
+
+        .floating-chat-input button {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #FF69B4;
+            border: none;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .floating-message.user {
+            flex-direction: row-reverse;
+        }
+
+        .floating-message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 18px;
+            word-wrap: break-word;
+        }
+
+        .floating-message.user .floating-message-content {
+            background: #FF69B4;
+            color: white;
+        }
+
+        .floating-message.assistant .floating-message-content {
+            background: white;
+            border: 1px solid #e9ecef;
+            color: #333;
+        }
+
+        .floating-message-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            flex-shrink: 0;
+        }
+
+        .floating-message.user .floating-message-avatar {
+            background: #FF1493;
+            color: white;
+        }
+
+        .floating-message.assistant .floating-message-avatar {
+            background: #f8f9fa;
+            color: #666;
+            border: 1px solid #e9ecef;
+        }
+
+        .floating-chat-loading {
+            text-align: center;
+            padding: 10px;
+            color: #666;
+        }
+
+        .floating-chat-loading i {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .chat-modal .modal-dialog {
+                width: 95vw;
+                height: 90vh;
+                margin: 5vh auto;
+            }
+            
+            .floating-chat-button {
+                width: 50px;
+                height: 50px;
+                font-size: 20px;
+                bottom: 15px;
+                right: 15px;
+            }
+
+            .floating-chat-button.minimized {
+                width: 160px;
+                font-size: 12px;
+                padding: 0 15px;
+            }
+        }
     </style>
     {% block extra_css %}{% endblock %}
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -119,14 +470,12 @@
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="intelligenceDropdown">
                             <small class="text-muted"> Daily Insights</small><br>
-                            <li><a class="dropdown-item" href="/topic-dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="View daily insights and analysis"><i class="fas fa-sun"></i> Daily Insights</a></li>
-                            <li><a class="dropdown-item" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="right" title="Monitor news trends and keyword alerts"><i class="fas fa-chart-line"></i> News Trends</a></li>
-                            <li><a class="dropdown-item" href="/dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Access OSINT monitoring dashboard"><i class="fas fa-newspaper"></i> OSINT Monitoring</a></li>
+                            <li><a class="dropdown-item" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="right" title="News trend and keyword alerts"><i class="fas fa-chart-line"></i> News Trends</a></li>
+                            <li><a class="dropdown-item" href="/dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Social media and academic journal monitoring"><i class="fas fa-newspaper"></i> OSINT Monitoring</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <small class="text-muted"> Ad-Hoc Research</small><br>
-                            <li><a class="dropdown-item" href="/collect" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform ad-hoc research and analysis"><i class="fas fa-search"></i> Ad-Hoc Research</a></li>
-                            <li><a class="dropdown-item" href="/research" data-bs-toggle="tooltip" data-bs-placement="right" title="Manually add and analyze articles"><i class="fas fa-plus-circle"></i> Manually Add Article</a></li>
-                            <li><a class="dropdown-item" href="/bulk-research" data-bs-toggle="tooltip" data-bs-placement="right" title="Upload and analyze multiple articles"><i class="fas fa-file-upload"></i> Add Articles in Bulk</a></li>
+                            <li><a class="dropdown-item" href="/collect" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform ad-hoc search for articles, reports and posts"><i class="fas fa-search"></i> Search</a></li>
+                            <li><a class="dropdown-item" href="/submit-article" data-bs-toggle="tooltip" data-bs-placement="right" title="Submit new articles for analysis"><i class="fas fa-newspaper"></i> Submit Article</a></li>
                         </ul>
                     </li>
                     
@@ -136,11 +485,9 @@
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="researchDropdown">
                             <small class="text-muted"> Exploratory Analysis</small><br>
-                            <li><a class="dropdown-item" href="/vector-analysis" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform exploratory vector analysis"><i class="fas fa-vector-square"></i>Exploratory Analysis</a></li>
-                            <li><a class="dropdown-item" href="/database-chat" data-bs-toggle="tooltip" data-bs-placement="right" title="Chat with Auspex AI assistant"><i class="fas fa-comments"></i> Chat with Auspex</a></li>
+                            <li><a class="dropdown-item" href="/vector-analysis-improved" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform exploratory vector analysis"><i class="fas fa-vector-square"></i>Exploratory Analysis</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <small class="text-muted"> Trend Analysis</small><br>
-                            <li><a class="dropdown-item" href="/follow-flow" data-bs-toggle="tooltip" data-bs-placement="right" title="Follow and analyze information flow"><i class="fas fa-stream"></i> Follow the Flow</a></li>
                             <li><a class="dropdown-item" href="/analytics" data-bs-toggle="tooltip" data-bs-placement="right" title="Visualize trend data and charts"><i class="fas fa-chart-line"></i> Trend Chart Visualizer</a></li>
                         </ul>
                     </li>
@@ -150,10 +497,12 @@
                             <i class="fas fa-chart-bar"></i> Communicate
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="analysisDropdown">
+                            <small class="text-muted"> Realtime Insights</small><br>
+                            <li><a class="dropdown-item" href="/topic-dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Daily insights and analysis"><i class="fas fa-sun"></i> Daily Insights</a></li>
+                            <li><hr class="dropdown-divider"></li>
                             <small class="text-muted"> Distribution</small><br>
-                            <li><a class="dropdown-item" href="/newsletter_compiler" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and compile newsletters"><i class="fas fa-file-alt"></i> Newsletter Composer</a></li>
-                            <li><a class="dropdown-item" href="/podcastdirector" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage and create podcasts"><i class="fas fa-microphone"></i> Podcast Director</a></li>
-                            <li><a class="dropdown-item" href="/report" data-bs-toggle="tooltip" data-bs-placement="right" title="Generate detailed reports"><i class="fas fa-file-alt"></i> Report Composer (Old)</a></li>
+                            <li><a class="dropdown-item" href="/newsletter_compiler" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and compile newsletters"><i class="fas fa-file-alt"></i> Newsletter</a></li>
+                            <li><a class="dropdown-item" href="/podcastdirector" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage and create podcasts"><i class="fas fa-microphone"></i> Podcast</a></li>
                         </ul>
                     </li>
                     
@@ -168,7 +517,6 @@
                             <small class="text-muted">Knowledge Engineering</small><br>
                             <li><a class="dropdown-item" href="/promptmanager" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage AI prompts and templates"><i class="fas fa-brain"></i> Prompt Engineering</a></li>
                             <li><a class="dropdown-item" href="/create_topic" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and manage topics"><i class="fas fa-folder-plus"></i> Topic Management</a></li>
-                            <li><a class="dropdown-item" href="/scenario-editor" data-bs-toggle="tooltip" data-bs-placement="right" title="Build and edit scenarios"><i class="fas fa-layer-group"></i> Scenario Builder</a></li>
                             <li><a class="dropdown-item" href="/keyword-monitor" data-bs-toggle="tooltip" data-bs-placement="right" title="Monitor keywords and alerts"><i class="fas fa-search"></i> Keyword Monitoring</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <small class="text-muted">App Configuration</small><br>
@@ -227,6 +575,12 @@
                                     <i class="fab fa-slack"></i> Slack Community
                                 </a>
                             </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li class="px-3 py-1">
+                                <a href="https://chromewebstore.google.com/detail/aunoo-ai-chrome-browser-e/fjgiomiceklnoaefnhliablhgoodceji" target="_blank">
+                                    <i class="fab fa-chrome"></i> Chrome Extension
+                                </a>
+                            </li>
                         </ul>
                     </li>
                     
@@ -246,6 +600,8 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Marked.js for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     {% block extra_js %}{% endblock %}
 
     <!-- Debug info section -->
@@ -309,5 +665,588 @@
     }
     </script>
     {% block scripts %}{% endblock %}
+
+    {% if session.get('user') %}
+    <!-- Floating Chat Button -->
+    <button class="floating-chat-button" id="floatingChatBtn" type="button" data-bs-toggle="modal" data-bs-target="#floatingChatModal">
+        <i class="fas fa-robot"></i>
+    </button>
+
+    <!-- Floating Chat Modal -->
+    <div class="modal fade chat-modal" id="floatingChatModal" tabindex="-1" aria-labelledby="floatingChatModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header floating-chat-header">
+                    <div style="flex: 1;">
+                        <h5 class="modal-title mb-1" id="floatingChatModalLabel">
+                            <i class="fas fa-robot me-2"></i>Auspex AI Assistant
+                        </h5>
+                        <small class="opacity-75">Your AI-powered research companion</small>
+                    </div>
+                    <div class="floating-chat-controls">
+                        <select id="floatingTopicSelect" class="form-select form-select-sm" style="width: 150px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Select research topic">
+                            <option value="">Select topic...</option>
+                        </select>
+                        <select id="floatingModelSelect" class="form-select form-select-sm" style="width: 120px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Choose AI model">
+                            <option value="">Select model...</option>
+                        </select>
+                        <select id="floatingLimitSelect" class="form-select form-select-sm" style="width: 80px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Number of articles to analyze (25-75)">
+                            <option value="25">25</option>
+                            <option value="35">35</option>
+                            <option value="50" selected>50</option>
+                            <option value="65">65</option>
+                            <option value="75">75</option>
+                        </select>
+                        <button class="floating-chat-icon-btn" id="clearChatBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Clear chat history">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                        <button class="floating-chat-icon-btn" id="exportChatBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Export conversation">
+                            <i class="fas fa-download"></i>
+                        </button>
+                        <button class="floating-chat-icon-btn" id="minimizeChatBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Minimize chat">
+                            <i class="fas fa-window-minimize"></i>
+                        </button>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                </div>
+                <div class="modal-body">
+                    <div class="floating-chat-messages" id="floatingChatMessages">
+                        <div class="floating-message assistant">
+                            <div class="floating-message-avatar">
+                                <i class="fas fa-robot"></i>
+                            </div>
+                            <div class="floating-message-content">
+                                <strong>Welcome to Auspex!</strong><br>
+                                I'm your AI research assistant. Select a topic and model above, then ask me anything about your data.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="floating-quick-queries" id="floatingQuickQueries">
+                        <label>Quick queries:</label>
+                        <button class="floating-quick-btn" data-query="Summarize recent trends">Recent trends</button>
+                        <button class="floating-quick-btn" data-query="What are the key insights?">Key insights</button>
+                        <button class="floating-quick-btn" data-query="Analyze sentiment patterns">Sentiment analysis</button>
+                        <button class="floating-quick-btn" data-query="Show future impact predictions">Future impact</button>
+                        <button class="floating-quick-btn" data-query="Compare categories">Compare categories</button>
+                        <button class="floating-quick-btn" data-query="Analyze potential risks and challenges">Risk analysis</button>
+                        <button class="floating-quick-btn" data-query="Provide a comprehensive summary by category">Category summary</button>
+                        <div id="customQueries" style="display: contents;"></div>
+                    </div>
+                    <div class="floating-chat-input">
+                        <textarea id="floatingChatInput" class="form-control" placeholder="Ask Auspex anything..." disabled></textarea>
+                        <button id="floatingChatSave" class="btn" title="Save as quick query" disabled style="margin-right: 5px;">
+                            <i class="fas fa-bookmark"></i>
+                        </button>
+                        <button id="floatingChatSend" class="btn" disabled>
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                    <div class="floating-chat-loading" id="floatingChatLoading" style="display: none;">
+                        <i class="fas fa-spinner"></i> Auspex is thinking...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Chat JavaScript -->
+    <script>
+        class FloatingChat {
+            constructor() {
+                this.elements = {
+                    button: document.getElementById('floatingChatBtn'),
+                    modal: document.getElementById('floatingChatModal'),
+                    topicSelect: document.getElementById('floatingTopicSelect'),
+                    modelSelect: document.getElementById('floatingModelSelect'),
+                    limitSelect: document.getElementById('floatingLimitSelect'),
+                    messages: document.getElementById('floatingChatMessages'),
+                    input: document.getElementById('floatingChatInput'),
+                    sendBtn: document.getElementById('floatingChatSend'),
+                    saveBtn: document.getElementById('floatingChatSave'),
+                    loading: document.getElementById('floatingChatLoading'),
+                    clearBtn: document.getElementById('clearChatBtn'),
+                    exportBtn: document.getElementById('exportChatBtn'),
+                    minimizeBtn: document.getElementById('minimizeChatBtn'),
+                    quickQueries: document.getElementById('floatingQuickQueries')
+                };
+                
+                this.storageKeys = {
+                    topic: 'auspex_floating_last_topic',
+                    model: 'auspex_floating_last_model',
+                    limit: 'auspex_floating_last_limit',
+                    customQueries: 'auspex_floating_custom_queries',
+                    minimized: 'auspex_floating_minimized'
+                };
+                
+                this.conversationHistory = [];
+                this.customQueries = this.loadCustomQueries();
+                this.isMinimized = localStorage.getItem(this.storageKeys.minimized) === 'true';
+                
+                this.init();
+            }
+
+            async init() {
+                await this.loadTopics();
+                await this.loadModels();
+                this.restoreLastSelections();
+                this.renderCustomQueries();
+                this.updateMinimizedState();
+                this.bindEvents();
+                this.updateButtonState();
+            }
+
+            updateMinimizedState() {
+                if (this.isMinimized) {
+                    this.elements.button.classList.add('minimized');
+                    // Change the button to show restore functionality
+                    this.elements.button.onclick = () => this.restoreChat();
+                } else {
+                    this.elements.button.classList.remove('minimized');
+                    // Reset to normal modal toggle
+                    this.elements.button.onclick = null;
+                    this.elements.button.setAttribute('data-bs-toggle', 'modal');
+                    this.elements.button.setAttribute('data-bs-target', '#floatingChatModal');
+                }
+            }
+
+            async loadTopics() {
+                try {
+                    const response = await fetch('/api/topics');
+                    const topics = await response.json();
+                    
+                    topics.forEach(topic => {
+                        const option = document.createElement('option');
+                        option.value = topic.name;
+                        option.textContent = topic.name;
+                        this.elements.topicSelect.appendChild(option);
+                    });
+                } catch (error) {
+                    console.error('Error loading topics:', error);
+                }
+            }
+
+            async loadModels() {
+                try {
+                    const response = await fetch('/api/ai_models');
+                    const models = await response.json();
+                    
+                    const modelList = Array.isArray(models) ? models : [];
+                    modelList.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.name || model;
+                        option.textContent = model.name || model;
+                        this.elements.modelSelect.appendChild(option);
+                    });
+                } catch (error) {
+                    console.error('Error loading models:', error);
+                }
+            }
+
+            restoreLastSelections() {
+                // Restore last selected topic
+                const lastTopic = localStorage.getItem(this.storageKeys.topic);
+                if (lastTopic) {
+                    this.elements.topicSelect.value = lastTopic;
+                }
+
+                // Restore last selected model
+                const lastModel = localStorage.getItem(this.storageKeys.model);
+                if (lastModel) {
+                    this.elements.modelSelect.value = lastModel;
+                }
+
+                // Restore last selected limit
+                const lastLimit = localStorage.getItem(this.storageKeys.limit);
+                if (lastLimit) {
+                    this.elements.limitSelect.value = lastLimit;
+                }
+
+                console.log('Restored selections:', { topic: lastTopic, model: lastModel, limit: lastLimit });
+            }
+
+            saveSelections() {
+                // Save current selections to localStorage
+                if (this.elements.topicSelect.value) {
+                    localStorage.setItem(this.storageKeys.topic, this.elements.topicSelect.value);
+                }
+                if (this.elements.modelSelect.value) {
+                    localStorage.setItem(this.storageKeys.model, this.elements.modelSelect.value);
+                }
+                if (this.elements.limitSelect.value) {
+                    localStorage.setItem(this.storageKeys.limit, this.elements.limitSelect.value);
+                }
+            }
+
+            bindEvents() {
+                // Topic/model selection with saving
+                this.elements.topicSelect.addEventListener('change', () => {
+                    this.saveSelections();
+                    this.updateButtonState();
+                });
+                
+                this.elements.modelSelect.addEventListener('change', () => {
+                    this.saveSelections();
+                    this.updateButtonState();
+                });
+                
+                this.elements.limitSelect.addEventListener('change', () => {
+                    this.saveSelections();
+                    this.updateButtonState();
+                });
+                
+                // Send message
+                this.elements.sendBtn.addEventListener('click', () => this.sendMessage());
+                this.elements.input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        this.sendMessage();
+                    }
+                });
+
+                // Update button states when user types
+                this.elements.input.addEventListener('input', () => this.updateButtonState());
+
+                // Save query button
+                this.elements.saveBtn.addEventListener('click', () => this.saveCurrentQuery());
+
+                // Clear and export buttons
+                this.elements.clearBtn.addEventListener('click', () => this.clearChat());
+                this.elements.exportBtn.addEventListener('click', () => this.exportChat());
+
+                // Minimize button
+                this.elements.minimizeBtn.addEventListener('click', () => this.minimizeChat());
+
+                // Quick query buttons
+                this.elements.quickQueries.addEventListener('click', (e) => {
+                    if (e.target.classList.contains('floating-quick-btn')) {
+                        const query = e.target.dataset.query;
+                        if (query) {
+                            this.elements.input.value = query;
+                            this.sendMessage();
+                        }
+                    }
+                });
+
+                // Show pulse animation when modal opens
+                this.elements.modal.addEventListener('shown.bs.modal', () => {
+                    this.elements.button.classList.remove('pulse');
+                    // Initialize tooltips for new buttons
+                    const tooltipElements = this.elements.modal.querySelectorAll('[data-bs-toggle="tooltip"]');
+                    tooltipElements.forEach(element => {
+                        new bootstrap.Tooltip(element);
+                    });
+                });
+
+                // Handle modal close to update minimized state
+                this.elements.modal.addEventListener('hidden.bs.modal', () => {
+                    if (this.isMinimized) {
+                        this.updateMinimizedState();
+                    }
+                });
+
+                // Add pulse when there might be new insights
+                this.startPulseTimer();
+            }
+
+            updateButtonState() {
+                const isReady = this.elements.topicSelect.value && this.elements.modelSelect.value && this.elements.limitSelect.value;
+                const hasInput = this.elements.input.value.trim().length > 0;
+                
+                this.elements.input.disabled = !isReady;
+                this.elements.sendBtn.disabled = !isReady || !hasInput;
+                this.elements.saveBtn.disabled = !hasInput;
+                
+                if (isReady) {
+                    this.elements.input.placeholder = "Ask Auspex anything...";
+                } else {
+                    this.elements.input.placeholder = "Complete setup above first...";
+                }
+            }
+
+            addMessage(content, isUser = false) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `floating-message ${isUser ? 'user' : 'assistant'}`;
+                
+                const avatar = document.createElement('div');
+                avatar.className = 'floating-message-avatar';
+                avatar.innerHTML = isUser ? '<i class="fas fa-user"></i>' : '<i class="fas fa-robot"></i>';
+                
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'floating-message-content';
+                
+                const textContent = typeof content === 'object' && content.response ? content.response : content;
+                
+                if (isUser) {
+                    contentDiv.textContent = textContent;
+                } else {
+                    contentDiv.innerHTML = marked.parse(textContent);
+                }
+                
+                messageDiv.appendChild(avatar);
+                messageDiv.appendChild(contentDiv);
+                
+                // Add copy button for assistant messages
+                if (!isUser) {
+                    const copyButton = document.createElement('button');
+                    copyButton.className = 'floating-message-copy';
+                    copyButton.innerHTML = '<i class="fas fa-copy"></i>';
+                    copyButton.title = 'Copy message';
+                    copyButton.onclick = () => this.copyMessage(textContent);
+                    messageDiv.appendChild(copyButton);
+                }
+                
+                this.elements.messages.appendChild(messageDiv);
+                this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+                
+                // Track in conversation history (exclude welcome message)
+                if (messageDiv !== this.elements.messages.firstElementChild) {
+                    this.conversationHistory.push({ content: textContent, isUser });
+                }
+            }
+
+            async sendMessage() {
+                const message = this.elements.input.value.trim();
+                if (!message) return;
+
+                // Add user message
+                this.addMessage(message, true);
+                this.elements.input.value = '';
+
+                // Show loading
+                this.elements.loading.style.display = 'block';
+                this.elements.sendBtn.disabled = true;
+
+                try {
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            message: message,
+                            topic: this.elements.topicSelect.value,
+                            model: this.elements.modelSelect.value,
+                            limit: this.elements.limitSelect.value
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    if (data && data.response) {
+                        this.addMessage(data.response, false);
+                    } else {
+                        throw new Error('Invalid response format');
+                    }
+                } catch (error) {
+                    this.addMessage(`Sorry, I encountered an error: ${error.message}`, false);
+                    console.error('Chat error:', error);
+                } finally {
+                    this.elements.loading.style.display = 'none';
+                    this.updateButtonState();
+                }
+            }
+
+            startPulseTimer() {
+                // Add pulse animation every 30 seconds when modal is closed
+                setInterval(() => {
+                    if (!this.elements.modal.classList.contains('show')) {
+                        this.elements.button.classList.add('pulse');
+                        setTimeout(() => {
+                            this.elements.button.classList.remove('pulse');
+                        }, 3000);
+                    }
+                }, 30000);
+            }
+
+            clearChat() {
+                // Keep only the welcome message
+                const welcomeMessage = this.elements.messages.querySelector('.floating-message.assistant');
+                this.elements.messages.innerHTML = '';
+                if (welcomeMessage) {
+                    this.elements.messages.appendChild(welcomeMessage.cloneNode(true));
+                }
+                this.conversationHistory = [];
+            }
+
+            exportChat() {
+                if (this.conversationHistory.length === 0) {
+                    alert('No conversation to export');
+                    return;
+                }
+
+                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                const content = this.conversationHistory.map(msg => 
+                    `${msg.isUser ? 'User' : 'Auspex'}: ${msg.content}`
+                ).join('\n\n');
+                
+                const blob = new Blob([content], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `auspex-conversation-${timestamp}.txt`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }
+
+            copyMessage(content) {
+                navigator.clipboard.writeText(content).then(() => {
+                    // Show brief feedback
+                    const notification = document.createElement('div');
+                    notification.textContent = 'Copied!';
+                    notification.style.cssText = `
+                        position: fixed;
+                        top: 20px;
+                        right: 20px;
+                        background: #28a745;
+                        color: white;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        z-index: 9999;
+                        font-size: 0.875rem;
+                    `;
+                    document.body.appendChild(notification);
+                    setTimeout(() => {
+                        document.body.removeChild(notification);
+                    }, 2000);
+                }).catch(err => {
+                    console.error('Failed to copy:', err);
+                });
+            }
+
+            loadCustomQueries() {
+                try {
+                    const saved = localStorage.getItem(this.storageKeys.customQueries);
+                    return saved ? JSON.parse(saved) : [];
+                } catch (error) {
+                    console.error('Error loading custom queries:', error);
+                    return [];
+                }
+            }
+
+            saveCustomQueries() {
+                try {
+                    localStorage.setItem(this.storageKeys.customQueries, JSON.stringify(this.customQueries));
+                } catch (error) {
+                    console.error('Error saving custom queries:', error);
+                }
+            }
+
+            renderCustomQueries() {
+                const container = document.getElementById('customQueries');
+                container.innerHTML = '';
+                
+                this.customQueries.forEach((query, index) => {
+                    const button = document.createElement('button');
+                    button.className = 'floating-quick-btn custom';
+                    button.dataset.query = query;
+                    button.innerHTML = `
+                        ${query.length > 20 ? query.substring(0, 20) + '...' : query}
+                        <button class="remove-custom" onclick="event.stopPropagation(); floatingChatInstance.removeCustomQuery(${index})" title="Remove query">×</button>
+                    `;
+                    container.appendChild(button);
+                });
+            }
+
+            addCustomQuery(query) {
+                if (query && query.trim()) {
+                    const trimmedQuery = query.trim();
+                    if (!this.customQueries.includes(trimmedQuery)) {
+                        this.customQueries.push(trimmedQuery);
+                        this.saveCustomQueries();
+                        this.renderCustomQueries();
+                        
+                        // Show feedback
+                        const notification = document.createElement('div');
+                        notification.textContent = 'Query saved!';
+                        notification.style.cssText = `
+                            position: fixed;
+                            top: 20px;
+                            right: 20px;
+                            background: #28a745;
+                            color: white;
+                            padding: 8px 16px;
+                            border-radius: 4px;
+                            z-index: 9999;
+                            font-size: 0.875rem;
+                        `;
+                        document.body.appendChild(notification);
+                        setTimeout(() => {
+                            document.body.removeChild(notification);
+                        }, 2000);
+                    } else {
+                        alert('This query already exists!');
+                    }
+                }
+            }
+
+            removeCustomQuery(index) {
+                if (confirm('Remove this custom query?')) {
+                    this.customQueries.splice(index, 1);
+                    this.saveCustomQueries();
+                    this.renderCustomQueries();
+                }
+            }
+
+            saveCurrentQuery() {
+                const query = this.elements.input.value.trim();
+                if (query) {
+                    this.addCustomQuery(query);
+                }
+            }
+
+            minimizeChat() {
+                this.isMinimized = true;
+                localStorage.setItem(this.storageKeys.minimized, 'true');
+                
+                // Properly close the modal and remove backdrop
+                const modalInstance = bootstrap.Modal.getInstance(this.elements.modal);
+                if (modalInstance) {
+                    modalInstance.hide();
+                } else {
+                    // Fallback if no instance exists
+                    this.elements.modal.classList.remove('show');
+                    this.elements.modal.style.display = 'none';
+                    this.elements.modal.setAttribute('aria-hidden', 'true');
+                    document.body.classList.remove('modal-open');
+                    
+                    // Remove any leftover backdrops
+                    const backdrops = document.querySelectorAll('.modal-backdrop');
+                    backdrops.forEach(backdrop => backdrop.remove());
+                }
+                
+                // Ensure body scroll is restored
+                setTimeout(() => {
+                    document.body.style.overflow = '';
+                    document.body.style.paddingRight = '';
+                    document.body.classList.remove('modal-open');
+                    
+                    // Double-check backdrop removal
+                    const remainingBackdrops = document.querySelectorAll('.modal-backdrop');
+                    remainingBackdrops.forEach(backdrop => backdrop.remove());
+                    
+                    // Update button state
+                    this.updateMinimizedState();
+                }, 150); // Give Bootstrap time to clean up
+            }
+
+            restoreChat() {
+                this.isMinimized = false;
+                localStorage.setItem(this.storageKeys.minimized, 'false');
+                this.updateMinimizedState();
+                // Open the modal
+                const modalInstance = new bootstrap.Modal(this.elements.modal);
+                modalInstance.show();
+            }
+        }
+
+        // Initialize floating chat when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            window.floatingChatInstance = new FloatingChat();
+        });
+    </script>
+    {% endif %}
 </body>
 </html>

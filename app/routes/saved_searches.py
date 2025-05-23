@@ -3,8 +3,9 @@ import os
 from typing import List, Optional
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Depends
 from pydantic import BaseModel, Field
+from app.security.session import verify_session
 
 
 # Define the router
@@ -60,13 +61,13 @@ def save_searches(searches: List[SavedSearch]) -> bool:
 
 # Routes
 @router.get("/api/saved-searches", response_model=List[SavedSearch])
-async def get_saved_searches():
+async def get_saved_searches(session=Depends(verify_session)):
     """Get all saved searches."""
     return load_saved_searches()
 
 
 @router.post("/api/saved-searches", response_model=SavedSearch)
-async def create_saved_search(search: SavedSearch):
+async def create_saved_search(search: SavedSearch, session=Depends(verify_session)):
     """Create or update a saved search."""
     searches = load_saved_searches()
     
@@ -94,7 +95,7 @@ async def create_saved_search(search: SavedSearch):
 
 
 @router.delete("/api/saved-searches/{search_id}")
-async def delete_saved_search(search_id: str):
+async def delete_saved_search(search_id: str, session=Depends(verify_session)):
     """Delete a saved search."""
     searches = load_saved_searches()
     original_count = len(searches)

@@ -204,37 +204,28 @@ class Database:
                     ("ensure_users_table_schema", self._ensure_users_table_schema),
                     ("ensure_podcasts_table_schema", self._ensure_podcasts_table_schema),
                     ("ensure_settings_podcasts_table", self._ensure_settings_podcasts_table),
-                    ("add_metadata_column_to_podcasts", self._add_metadata_column_to_podcasts)
+                    ("add_metadata_column_to_podcasts", self._add_metadata_column_to_podcasts),
+                    ("create_newsletter_prompts_table", self._create_newsletter_prompts_table)
                 ]
                 
-                # Apply missing migrations
-                for name, migrate_func in migrations:
+                # Apply migrations that haven't been applied yet
+                for name, callback in migrations:
                     if name not in applied:
                         try:
-                            logger.info(f"Applying migration: {name}")
-                            migrate_func(cursor)
-                            
-                            # Record successful migration
-                            cursor.execute(
-                                "INSERT INTO migrations (name) VALUES (?)",
-                                (name,)
-                            )
-                            conn.commit()
-                            logger.info(f"Migration {name} applied successfully")
-                        except sqlite3.IntegrityError as e:
-                            logger.warning(f"Integrity error during migration {name}: {str(e)}")
-                            # Continue with next migration despite the error
-                            continue
-                        except Exception as e:
-                            logger.error(f"Error applying migration {name}: {str(e)}")
-                            # Continue with next migration despite the error
-                            continue
+                            callback(cursor)
+                            cursor.execute("INSERT INTO migrations (name) VALUES (?)", (name,))
+                            logger.info(f"Applied migration: {name}")
+                        except Exception as migration_error:
+                            logger.error(f"Error applying migration {name}: {str(migration_error)}")
+                            raise
                 
-                return True
+                # Commit all migrations
+                conn.commit()
+                
         except Exception as e:
-            logger.error(f"Error during migration: {str(e)}")
+            logger.error(f"Database migration failed: {str(e)}")
             raise
-            
+
     def _ensure_users_table_schema(self, cursor):
         """Ensure users table has the correct schema with password_hash column."""
         # Check if users table exists
@@ -352,30 +343,371 @@ class Database:
                 )
             """)
 
+    def _create_newsletter_prompts_table(self, cursor):
+        """Create the newsletter_prompts table to store prompt templates."""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS newsletter_prompts (
+                content_type_id TEXT PRIMARY KEY,
+                prompt_template TEXT NOT NULL,
+                description TEXT NOT NULL,
+                last_updated TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Insert default prompts for each content type
+        default_prompts = [
+            (
+                "topic_summary",
+                self._get_default_summary_prompt_template(),
+                "Prompt template for generating topic summaries with recent developments and citations"
+            ),
+            (
+                "trend_analysis",
+                self._get_default_trend_analysis_prompt_template(),
+                "Prompt template for analyzing trends, patterns, and signals from article metadata"
+            ),
+            (
+                "article_insights",
+                self._get_default_article_insights_prompt_template(),
+                "Prompt template for grouping articles by themes and providing insights on each theme"
+            ),
+            (
+                "key_articles",
+                self._get_default_key_articles_prompt_template(),
+                "Prompt template for explaining why specific articles merit attention"
+            ),
+            (
+                "ethical_societal_impact",
+                self._get_default_ethical_impact_prompt_template(),
+                "Prompt template for analyzing ethical and societal impacts related to a topic"
+            ),
+            (
+                "business_impact",
+                self._get_default_business_impact_prompt_template(),
+                "Prompt template for analyzing business opportunities and impacts related to a topic"
+            ),
+            (
+                "market_impact",
+                self._get_default_market_impact_prompt_template(),
+                "Prompt template for analyzing market trends and competitive landscape"
+            ),
+            (
+                "key_charts",
+                self._get_default_key_charts_prompt_template(),
+                "Prompt template for generating chart descriptions and insights for data visualizations"
+            ),
+            (
+                "latest_podcast",
+                self._get_default_podcast_prompt_template(),
+                "Prompt template for summarizing podcast content related to the topic"
+            )
+        ]
+        
+        # Check which prompts already exist
+        cursor.execute("SELECT content_type_id FROM newsletter_prompts")
+        existing_types = {row[0] for row in cursor.fetchall()}
+        
+        # Insert only those prompts that don't exist
+        for prompt in default_prompts:
+            if prompt[0] not in existing_types:
+                cursor.execute(
+                    """
+                    INSERT INTO newsletter_prompts (content_type_id, prompt_template, description)
+                    VALUES (?, ?, ?)
+                    """,
+                    prompt
+                )
+        
+        # Commit changes
+        cursor.connection.commit()
+
+    def _get_default_summary_prompt_template(self) -> str:
+        """Get the default prompt template for the topic summary section."""
+        return (
+            "You are an AI assistant analyzing articles about '{topic}' for a busy decision-maker.\n"
+            "Write a concise, structured summary based on the provided articles. Focus on the most critical information. Use bullet points for lists.\n"
+            "Do not reference article numbers in your output.\n\n"
+            "Use the following format:\n\n"
+            "**Summary of {topic}**\n"
+            "- Provide a brief (2-3 sentences) high-level overview of the current state of '{topic}'.\n"
+            "- For EVERY fact or assertion, include a proper citation using this format: **[Article Title](Article URI)**\n"
+            "- Each citation must be on its own line, not inline with text.\n"
+            "- Ensure your overview is directly based on the articles provided, not general knowledge.\n\n"
+            "**Top Three Developments**\n"
+            "- Development 1: [Briefly state the development].\n  **Why this is need-to-know:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
+            "- Development 2: [Briefly state the development].\n  **Why this is need-to-know:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
+            "- Development 3: [Briefly state the development].\n  **Why this is need-to-know:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n\n"
+            "**Top 3 Industry Trends**\n"
+            "- Trend 1: [Briefly state the trend].\n  **Why this is interesting:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
+            "- Trend 2: [Briefly state the trend].\n  **Why this is interesting:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n"
+            "- Trend 3: [Briefly state the trend].\n  **Why this is interesting:**\n  [Explain its significance in 1-2 sentences].\n  Cite: **[Relevant Article Title](Article URI)**\n\n"
+            "**Strategic Takeaways for Decision Makers:**\n"
+            "- Provide 2-3 high-level strategic implications or actionable insights derived from the above points that a decision maker should consider.\n\n"
+            "Important: Always use the exact article titles and URIs from the data. Be very concise and focus on impact.\n"
+            "Each section MUST include proper citation links to the original articles. DO NOT skip adding links.\n"
+            "PUT LINKS ON THEIR OWN LINES - this is critical for rendering."
+        )
+
+    def _get_default_trend_analysis_prompt_template(self) -> str:
+        """Get the default prompt template for the trend analysis section."""
+        return (
+            "Analyze the following trend data for '{topic}'. "
+            "Provide a concise, structured analysis of trends and patterns, noting emerging themes and developments based on these data patterns.\n\n"
+            "**Overall Trend Data for {topic}:**\n"
+            "- Categories Distribution: {categories_str}\n"
+            "- Sentiment Distribution: {sentiments_str}\n"
+            "- Future Signal Distribution: {signals_str}\n"
+            "- Time to Impact Distribution: {tti_str}\n"
+            "- Top Tags (up to 10 with counts): {tags_str}\n\n"
+            "**Analysis & Insights:**\n"
+            "Begin with a 1-2 sentence overview of the general sentiment and activity level for '{topic}'.\n"
+            "Then, for each of the following aspects, provide 2-3 bullet points highlighting key patterns, shifts, or noteworthy observations. If an observation is particularly illustrated by a specific article, cite it using **[Article Title](Article URI)** from the reference list below. Put each citation on its own line for proper rendering:\n"
+            "  - **Category Insights:** (e.g., Dominant categories, significant shifts in category focus, surprising under/over-representation).\n"
+            "    *Observation 1... \n"
+            "    Cite if applicable.*\n"
+            "    *Observation 2... \n"
+            "    Cite if applicable.*\n"
+            "  - **Sentiment Insights:** (e.g., Predominant sentiment, changes over time if inferable, sentiment drivers).\n"
+            "    *Observation 1... \n"
+            "    Cite if applicable.*\n"
+            "    *Observation 2... \n"
+            "    Cite if applicable.*\n"
+            "  - **Future Outlook (Signals & TTI):** (e.g., Implications of future signals, common TTI, alignment or divergence between signals and TTI).\n"
+            "    *Observation 1... \n"
+            "    Cite if applicable.*\n"
+            "    *Observation 2... \n"
+            "    Cite if applicable.*\n"
+            "  - **Key Tag Themes:** (e.g., Dominant tags and what they signify, clusters of related tags appearing frequently).\n"
+            "    *Observation 1... \n"
+            "    Cite if applicable.*\n"
+            "    *Observation 2... \n"
+            "    Cite if applicable.*\n\n"
+            "Conclude with a 2-3 sentence synthesis on any connections between these different distributions or overall strategic insights valuable for decision-making.\n\n"
+            "Be specific and data-driven. Avoid generic statements."
+        )
+
+    def _get_default_article_insights_prompt_template(self) -> str:
+        """Get the default prompt template for article insights."""
+        return (
+            "Identify 3-5 major themes from the articles about \"{topic}\". For each theme:\n"
+            "- Provide a theme title\n"
+            "- Write a 1-2 sentence summary of the theme\n"
+            "- List the relevant articles for the theme, each with:\n"
+            "    - title\n"
+            "    - url\n"
+            "    - news source\n"
+            "    - publication date\n"
+            "    - a 1-2 sentence summary\n"
+            "\n"
+            "Do not reference article numbers. Do not mention 'Article X'.\n"
+            "\n"
+            "Format your response as a JSON list of themes, each with:\n"
+            "- theme_name\n"
+            "- theme_summary\n"
+            "- articles: list of dicts with title, uri, news_source, publication_date, short_summary"
+        )
+
+    def _get_default_key_articles_prompt_template(self) -> str:
+        """Get the default prompt template for why an article merits attention."""
+        return (
+            "Article Title: \"{article_title}\"\n"
+            "Article Summary: \"{article_summary}\"\n\n"
+            "Based on the title and summary above, provide a single, concise sentence (max 25 words) explaining to a busy decision maker why this specific article merits their attention. Focus on its key insight, implication, or relevance for strategic thinking."
+        )
+
+    def _get_default_ethical_impact_prompt_template(self) -> str:
+        """Get the default prompt template for ethical and societal impact analysis."""
+        return (
+            "Analyze the ethical and societal impacts related to '{topic}' based on the following articles.\n"
+            "Provide a concise analysis (2-3 paragraphs) highlighting key ethical dilemmas, societal consequences, and considerations. Cite specific examples from the articles provided using markdown links: **[Article Title](Article URI)**."
+        )
+
+    def _get_default_business_impact_prompt_template(self) -> str:
+        """Get the default prompt template for business impact analysis."""
+        return (
+            "Analyze the business impacts and opportunities related to '{topic}' based on the following articles.\n"
+            "Provide a concise analysis (2-3 paragraphs) highlighting key business implications, potential opportunities, disruptions, and strategic considerations for businesses. Cite specific examples from the articles provided using markdown links: **[Article Title](Article URI)**."
+        )
+
+    def _get_default_market_impact_prompt_template(self) -> str:
+        """Get the default prompt template for market impact analysis."""
+        return (
+            "Analyze the market impacts, trends, and competitive landscape related to '{topic}' based on the following articles.\n"
+            "Provide a concise analysis (2-3 paragraphs) highlighting key market trends, competitive dynamics, potential market shifts, and implications for market positioning. Cite specific examples from the articles provided using markdown links: **[Article Title](Article URI)**."
+        )
+
+    def _get_default_key_charts_prompt_template(self) -> str:
+        """Get the default prompt template for key charts."""
+        return (
+            "Generate informative charts showing sentiment trends and future signals for '{topic}'."
+        )
+
+    def _get_default_podcast_prompt_template(self) -> str:
+        """Get the default prompt template for latest podcast."""
+        return (
+            "Summarize the transcript of this podcast about '{topic}', highlighting key insights and takeaways in 2-3 concise paragraphs."
+        )
+
     # ------------------------------------------------------------------
     # Podcast settings helpers
     # ------------------------------------------------------------------
 
-    def get_podcast_setting(self, key: str, default=None):
-        try:
-            with self.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT value FROM settings_podcasts WHERE key = ?", (key,))
-                row = cur.fetchone()
-                return row[0] if row else default
-        except Exception as e:
-            logger.error(f"Error fetching podcast setting {key}: {e}")
-            return default
+    def get_podcast_settings(self):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM settings_podcasts LIMIT 1")
+            settings = cursor.fetchone()
+            
+            if settings:
+                columns = [col[0] for col in cursor.description]
+                return dict(zip(columns, settings))
+            else:
+                # Default settings if none exist
+                return {
+                    "id": 1,
+                    "podcast_enabled": 0,
+                    "transcribe_enabled": 1,
+                    "openai_model": "whisper-1",
+                    "transcript_format": "text",
+                    "uploads_folder": "podcast_uploads",
+                    "output_folder": "podcasts"
+                }
+                
+    def update_podcast_settings(self, settings):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if settings exist
+            cursor.execute("SELECT COUNT(*) FROM settings_podcasts")
+            count = cursor.fetchone()[0]
+            
+            if count == 0:
+                # Insert new settings
+                cursor.execute("""
+                    INSERT INTO settings_podcasts (
+                        podcast_enabled, transcribe_enabled, openai_model, 
+                        transcript_format, uploads_folder, output_folder
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    settings.get('podcast_enabled', 0),
+                    settings.get('transcribe_enabled', 1),
+                    settings.get('openai_model', 'whisper-1'),
+                    settings.get('transcript_format', 'text'),
+                    settings.get('uploads_folder', 'podcast_uploads'),
+                    settings.get('output_folder', 'podcasts')
+                ))
+            else:
+                # Update existing settings
+                cursor.execute("""
+                    UPDATE settings_podcasts SET
+                        podcast_enabled = ?,
+                        transcribe_enabled = ?,
+                        openai_model = ?,
+                        transcript_format = ?,
+                        uploads_folder = ?,
+                        output_folder = ?
+                """, (
+                    settings.get('podcast_enabled', 0),
+                    settings.get('transcribe_enabled', 1),
+                    settings.get('openai_model', 'whisper-1'),
+                    settings.get('transcript_format', 'text'),
+                    settings.get('uploads_folder', 'podcast_uploads'),
+                    settings.get('output_folder', 'podcasts')
+                ))
+            
+            conn.commit()
+            return True
 
-    def set_podcast_setting(self, key: str, value: str):
+    # ------------------------------------------------------------------
+    # Newsletter prompt methods
+    # ------------------------------------------------------------------
+
+    def get_newsletter_prompt(self, content_type_id: str) -> dict:
+        """Get the prompt template for a specific newsletter content type."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT content_type_id, prompt_template, description, last_updated 
+                FROM newsletter_prompts 
+                WHERE content_type_id = ?
+                """, 
+                (content_type_id,)
+            )
+            result = cursor.fetchone()
+            
+            if result:
+                return {
+                    "content_type_id": result[0],
+                    "prompt_template": result[1],
+                    "description": result[2],
+                    "last_updated": result[3]
+                }
+            return None
+
+    def get_all_newsletter_prompts(self) -> list:
+        """Get all newsletter prompt templates."""
+        try:
+            logger.info("Fetching all newsletter prompt templates")
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT content_type_id, prompt_template, description, last_updated 
+                    FROM newsletter_prompts
+                    """
+                )
+                results = cursor.fetchall()
+                
+                logger.info(f"Found {len(results)} prompt templates in database")
+                for result in results:
+                    logger.info(f"Template found in DB: {result[0]}")
+                
+                templates = [{
+                    "content_type_id": result[0],
+                    "prompt_template": result[1],
+                    "description": result[2],
+                    "last_updated": result[3]
+                } for result in results]
+                
+                logger.info(f"Returning {len(templates)} prompt templates")
+                return templates
+        except Exception as e:
+            logger.error(f"Error fetching newsletter prompt templates: {str(e)}", exc_info=True)
+            # Return an empty list instead of propagating the error
+            return []
+
+    def update_newsletter_prompt(self, content_type_id: str, prompt_template: str, description: str = None) -> bool:
+        """Update the prompt template for a specific newsletter content type."""
         try:
             with self.get_connection() as conn:
-                cur = conn.cursor()
-                cur.execute("REPLACE INTO settings_podcasts (key, value) VALUES (?, ?)", (key, value))
+                cursor = conn.cursor()
+                
+                # Get current prompt to check if description should be updated
+                if description is None:
+                    cursor.execute(
+                        "SELECT description FROM newsletter_prompts WHERE content_type_id = ?",
+                        (content_type_id,)
+                    )
+                    result = cursor.fetchone()
+                    if result:
+                        description = result[0]
+                    else:
+                        description = "Custom prompt template"
+                
+                # Update the prompt
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO newsletter_prompts 
+                    (content_type_id, prompt_template, description, last_updated) 
+                    VALUES (?, ?, ?, datetime('now'))
+                    """, 
+                    (content_type_id, prompt_template, description)
+                )
                 conn.commit()
                 return True
         except Exception as e:
-            logger.error(f"Error saving podcast setting {key}: {e}")
+            logger.error(f"Error updating newsletter prompt: {str(e)}")
             return False
 
     def create_database(self, name):
@@ -603,126 +935,68 @@ class Database:
                 logger.debug("Article not found")
                 return None
             
-    async def save_article(self, article_data):
-        logger.info(f"Database.save_article called with data: {json.dumps(article_data, indent=2)}")
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
+    def save_article(self, article_data):
+        """Save article to database.
+        
+        Handles both new articles and updates to existing ones.
+        Supports the new media bias fields.
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # Check if article already exists
+            cursor.execute("SELECT uri FROM articles WHERE uri = ?", (article_data['uri'],))
+            existing = cursor.fetchone()
             
-            try:
-                # Standardize submission_date format
-                if 'submission_date' not in article_data:
-                    article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
-                else:
-                    try:
-                        date_obj = datetime.fromisoformat(article_data['submission_date'].replace('Z', '+00:00'))
-                        article_data['submission_date'] = date_obj.strftime('%Y-%m-%dT%H:%M:%S.%f')
-                    except (ValueError, AttributeError):
-                        logger.warning(f"Invalid submission_date format: {article_data['submission_date']}")
-                        article_data['submission_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
-                
-                # Also standardize publication_date format 
-                if 'publication_date' in article_data and article_data['publication_date']:
-                    try:
-                        # Check if it's date-only format (like 2025-04-06)
-                        if 'T' not in article_data['publication_date'] and len(article_data['publication_date']) <= 10:
-                            # Keep date-only format as is
-                            pass
-                        else:
-                            # If it has time component, standardize it
-                            date_obj = datetime.fromisoformat(article_data['publication_date'].replace('Z', '+00:00'))
-                            article_data['publication_date'] = date_obj.strftime('%Y-%m-%dT%H:%M:%S.%f')
-                    except (ValueError, AttributeError):
-                        logger.warning(f"Invalid publication_date format: {article_data['publication_date']}")
-                        # Keep as is rather than replacing, as this might be an intentional date-only value
-                elif 'publication_date' not in article_data or not article_data['publication_date']:
-                    # Set a default value when publication_date is empty
-                    article_data['publication_date'] = datetime.now().strftime('%Y-%m-%dT%H:%M:%S.%f')
-                    logger.warning(f"Empty publication_date detected, setting to now: {article_data['publication_date']}")
-                
-                # Convert tags list to string if necessary
-                tags = article_data.get('tags', [])
-                if isinstance(tags, list):
-                    tags = ','.join(str(tag) for tag in tags)
-                elif tags is None:
-                    tags = ''
-                
-                # Check if article already exists
-                cursor.execute("SELECT 1 FROM articles WHERE uri = ?", (article_data['uri'],))
-                exists = cursor.fetchone() is not None
-                
-                if exists:
-                    # Update existing article
-                    query = """
-                    UPDATE articles SET 
-                        title = ?, news_source = ?, summary = ?, sentiment = ?,
-                        time_to_impact = ?, category = ?, future_signal = ?,
-                        future_signal_explanation = ?, publication_date = ?,
-                        sentiment_explanation = ?, time_to_impact_explanation = ?,
-                        tags = ?, driver_type = ?, driver_type_explanation = ?,
-                        submission_date = ?, topic = ?
-                    WHERE uri = ?
-                    """
-                    params = (
-                        article_data['title'], article_data['news_source'],
-                        article_data['summary'], article_data['sentiment'],
-                        article_data['time_to_impact'], article_data['category'],
-                        article_data['future_signal'], article_data['future_signal_explanation'],
-                        article_data['publication_date'], article_data['sentiment_explanation'],
-                        article_data['time_to_impact_explanation'], tags,
-                        article_data['driver_type'], article_data['driver_type_explanation'],
-                        article_data['submission_date'], article_data['topic'],
-                        article_data['uri']
-                    )
-                else:
-                    # Insert new article
-                    query = """
-                    INSERT INTO articles (
-                        title, uri, news_source, summary, sentiment, time_to_impact,
-                        category, future_signal, future_signal_explanation,
-                        publication_date, sentiment_explanation, time_to_impact_explanation,
-                        tags, driver_type, driver_type_explanation, submission_date, topic
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """
-                    params = (
-                        article_data['title'], article_data['uri'], article_data['news_source'],
-                        article_data['summary'], article_data['sentiment'], article_data['time_to_impact'],
-                        article_data['category'], article_data['future_signal'], article_data['future_signal_explanation'],
-                        article_data['publication_date'], article_data['sentiment_explanation'],
-                        article_data['time_to_impact_explanation'], tags,
-                        article_data['driver_type'], article_data['driver_type_explanation'],
-                        article_data['submission_date'], article_data['topic']
-                    )
-                
-                cursor.execute(query, params)
-                conn.commit()
-                # After committing to the relational DB, index the article in
-                # the vector store.  We swallow any errors so that a failure
-                # in the secondary store does not break the primary flow.
-                try:
-                    from app.vector_store import upsert_article  # Local import to avoid circular deps
+            # Define all possible fields, including media bias fields
+            all_fields = [
+                'uri', 'title', 'news_source', 'summary', 'sentiment', 
+                'time_to_impact', 'category', 'future_signal', 
+                'future_signal_explanation', 'publication_date', 
+                'submission_date', 'topic', 'sentiment_explanation', 
+                'time_to_impact_explanation', 'tags', 'driver_type', 
+                'driver_type_explanation', 'analyzed',
+                # Media bias fields
+                'bias', 'factual_reporting', 'mbfc_credibility_rating',
+                'bias_source', 'bias_country', 'press_freedom', 
+                'media_type', 'popularity'
+            ]
 
-                    upsert_article({
-                        **article_data,
-                        # Provide the original *summary* as the document text
-                        # if available.  Raw content will be attached by
-                        # *Research* when present.
-                    })
-                except Exception as vector_exc:  # pragma: no cover
-                    logger.warning(
-                        "Vector indexing failed for article %s – %s",
-                        article_data.get("uri"),
-                        vector_exc,
-                    )
-                return {"message": "Article saved successfully"}
+            # Filter fields that exist in the article_data
+            fields = [f for f in all_fields if f in article_data]
+            
+            # Convert tags list to string if necessary
+            if 'tags' in article_data and isinstance(article_data['tags'], list):
+                article_data['tags'] = ','.join(article_data['tags'])
+            
+            # Either update or insert
+            if existing:
+                # Build set statements for SQL
+                set_clauses = [f"{field} = ?" for field in fields if field != 'uri']
+                values = [article_data[field] for field in fields if field != 'uri']
+                values.append(article_data['uri'])  # For the WHERE clause
                 
-            except Exception as e:
-                logger.error(f"Error saving article: {str(e)}")
-                logger.error(f"Article data: {article_data}")
-                conn.rollback()  # Rollback any changes on error
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Error saving article: {str(e)}"
-                ) from e
+                # Execute update
+                sql = f"UPDATE articles SET {', '.join(set_clauses)} WHERE uri = ?"
+                cursor.execute(sql, values)
+            else:
+                # Build insert statement
+                placeholders = ", ".join(["?"] * len(fields))
+                values = [article_data[field] for field in fields]
+                
+                # Execute insert
+                sql = f"INSERT INTO articles ({', '.join(fields)}) VALUES ({placeholders})"
+                cursor.execute(sql, values)
+            
+            conn.commit()
+            return {"success": True, "uri": article_data['uri']}
+        except Exception as e:
+            conn.rollback()
+            logging.error(f"Error in save_article: {str(e)}")
+            raise
+        finally:
+            cursor.close()
 
     def delete_article(self, uri):
         logger.info(f"Attempting to delete article with URI: {uri}")
