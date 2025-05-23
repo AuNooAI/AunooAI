@@ -1,6 +1,75 @@
 {% extends "base.html" %}
 {% block title %}Login - AuNoo AI{% endblock %}
 
+{% block extra_css %}
+<style>
+.oauth-login .btn {
+    border-radius: 8px;
+    font-weight: 500;
+    padding: 12px 20px;
+    border: none;
+    transition: all 0.2s ease;
+}
+
+.btn-google {
+    background-color: #db4437;
+    color: white;
+}
+
+.btn-google:hover {
+    background-color: #c23321;
+    color: white;
+}
+
+.btn-github {
+    background-color: #333;
+    color: white;
+}
+
+.btn-github:hover {
+    background-color: #24292e;
+    color: white;
+}
+
+.btn-microsoft {
+    background-color: #00a1f1;
+    color: white;
+}
+
+.btn-microsoft:hover {
+    background-color: #0078d4;
+    color: white;
+}
+
+.oauth-loading {
+    display: none;
+    text-align: center;
+    color: #6c757d;
+}
+
+.divider {
+    position: relative;
+}
+
+.divider hr {
+    margin: 0;
+}
+
+.divider span {
+    background: white;
+    padding: 0 15px;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.oauth-error {
+    margin-top: 10px;
+}
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mt-5">
     <div class="row justify-content-center">
@@ -11,6 +80,24 @@
                     {% if error %}
                     <div class="alert alert-danger">{{ error }}</div>
                     {% endif %}
+                    
+                    <!-- OAuth Login Section -->
+                    <div class="oauth-login mb-4" id="oauth-section" style="display: none;">
+                        <h5 class="text-center mb-3">Quick Login</h5>
+                        <div id="oauth-buttons" class="d-grid gap-2">
+                            <!-- OAuth buttons will be loaded here -->
+                        </div>
+                        <div class="text-center mt-3">
+                            <small class="text-muted">Secure login with your existing account</small>
+                        </div>
+                    </div>
+                    
+                    <div class="divider text-center my-4">
+                        <span class="text-muted">OR</span>
+                        <hr>
+                    </div>
+                    
+                    <!-- Traditional Login Form -->
                     <form method="POST">
                         <div class="mb-3">
                             <label for="username" class="form-label">Username</label>
@@ -20,11 +107,110 @@
                             <label for="password" class="form-label">Password</label>
                             <input type="password" class="form-control" id="password" name="password" required>
                         </div>
-                        <button type="submit" class="btn btn-primary w-100">Login</button>
+                        <button type="submit" class="btn btn-primary w-100">Login with Password</button>
                     </form>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
+<div class="oauth-loading" id="oauth-loading">
+    <div class="spinner-border spinner-border-sm" role="status">
+        <span class="visually-hidden">Loading...</span>
+    </div>
+    <span class="ms-2">Redirecting to authentication...</span>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    loadOAuthProviders();
+    
+    // Check for error parameter in URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const error = urlParams.get('error');
+    if (error) {
+        showOAuthError(decodeURIComponent(error));
+    }
+});
+
+async function loadOAuthProviders() {
+    try {
+        const response = await fetch('/auth/providers');
+        const data = await response.json();
+        
+        if (data.providers && data.providers.length > 0) {
+            renderOAuthButtons(data.providers);
+            document.getElementById('oauth-section').style.display = 'block';
+        } else {
+            // Hide OAuth section if no providers configured
+            document.getElementById('oauth-section').style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Failed to load OAuth providers:', error);
+        document.getElementById('oauth-section').style.display = 'none';
+    }
+}
+
+function renderOAuthButtons(providers) {
+    const container = document.getElementById('oauth-buttons');
+    container.innerHTML = '';
+    
+    providers.forEach(provider => {
+        const button = document.createElement('a');
+        button.href = `/auth/login/${provider.name}`;
+        button.className = `btn ${provider.button_class}`;
+        button.onclick = function(e) {
+            showOAuthLoading();
+        };
+        
+        button.innerHTML = `
+            <i class="${provider.icon}" style="margin-right: 8px;"></i>
+            Continue with ${provider.display_name}
+        `;
+        
+        container.appendChild(button);
+    });
+}
+
+function showOAuthLoading() {
+    document.getElementById('oauth-loading').style.display = 'block';
+}
+
+function showOAuthError(message) {
+    const existingError = document.querySelector('.alert-danger');
+    if (!existingError) {
+        const errorDiv = document.createElement('div');
+        errorDiv.className = 'alert alert-danger oauth-error';
+        errorDiv.textContent = message;
+        
+        const oauthSection = document.getElementById('oauth-section');
+        oauthSection.appendChild(errorDiv);
+        
+        // Auto-remove error after 10 seconds
+        setTimeout(() => {
+            errorDiv.remove();
+        }, 10000);
+    }
+}
+
+// Handle OAuth button clicks with error handling
+document.addEventListener('click', function(e) {
+    if (e.target.closest('.oauth-login .btn')) {
+        const button = e.target.closest('.oauth-login .btn');
+        
+        // Add loading state
+        button.style.opacity = '0.6';
+        button.style.pointerEvents = 'none';
+        
+        setTimeout(() => {
+            button.style.opacity = '1';
+            button.style.pointerEvents = 'auto';
+        }, 5000);
+    }
+});
+</script>
 {% endblock %} 

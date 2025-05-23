@@ -5,6 +5,22 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/awesomplete@1.1.5/awesomplete.css" />
 <style>
+    /* Correct Hot Pink theme matching index.html */
+    :root {
+        --primary-color: #FF69B4;
+        --primary-hover: #FF1493;
+        --primary-light: #FFE4F1;
+        --primary-dark: #FF1493;
+        --secondary-color: #6c757d;
+        --success-color: #28a745;
+        --info-color: #17a2b8;
+        --warning-color: #ffc107;
+        --danger-color: #dc3545;
+        --light-gray: #f8f9fa;
+        --border-color: #dee2e6;
+        --pink-accent: #FFB3D9;
+    }
+    
     /* Enhanced responsive layout - fix nested scrollbars */
     .layout {
         display: grid;
@@ -61,31 +77,38 @@
         min-height: auto;
     }
     
-    /* Fixed filter panels - remove height constraints for better UX */
+    /* Fixed filter panels - professional styling */
     .filter-panel {
         background: white;
         border-radius: 6px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.08);
         margin-bottom: 0.5rem;
         font-size: 0.8rem;
+        border: 1px solid var(--border-color);
     }
     
     .filter-panel-header {
         padding: 0.4rem 0.6rem;
-        border-bottom: 1px solid #e0e0e0;
+        border-bottom: 1px solid var(--border-color);
         display: flex;
         justify-content: space-between;
         align-items: center;
         cursor: pointer;
-        background: #f8f9fa;
+        background: var(--light-gray);
         border-radius: 6px 6px 0 0;
         font-size: 0.8rem;
+        transition: background-color 0.2s ease;
+    }
+    
+    .filter-panel-header:hover {
+        background: var(--pink-accent);
     }
     
     .filter-panel-header h5, .filter-panel-header h6 {
         margin: 0;
         font-size: 0.8rem;
         font-weight: 600;
+        color: var(--primary-color);
     }
     
     .filter-panel-content {
@@ -106,46 +129,47 @@
         position: relative;
     }
     
-    /* Fixed query builder positioning - move it lower */
+    /* Fixed query builder positioning - Hot Pink styling */
     .query-builder-toggle {
         position: absolute;
         top: -15px;
         right: 80px;
         background: white;
         border: 2px solid var(--primary-color);
-        border-radius: 15px;
+        border-radius: 12px;
         padding: 6px 12px;
         font-size: 12px;
         cursor: pointer;
         transition: all 0.2s ease;
         z-index: 9999;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        box-shadow: 0 2px 8px rgba(255, 105, 180, 0.2);
         font-weight: 500;
+        color: var(--primary-color);
     }
     
     .query-builder-toggle:hover {
         background: var(--primary-color);
         color: white;
-        transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(255, 105, 180, 0.3);
     }
     
-    /* Enhanced search bar */
+    /* Enhanced search bar - Hot Pink styling */
     .search-bar-container {
         position: relative;
         display: grid;
         grid-template-columns: 40px 1fr auto;
         width: 100%;
-        border: 2px solid #e0e0e0;
+        border: 2px solid var(--border-color);
         border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         overflow: hidden;
         transition: all 0.3s ease;
     }
     
     .search-bar-container:focus-within {
         border-color: var(--primary-color);
-        box-shadow: 0 2px 12px rgba(108, 99, 255, 0.2);
+        box-shadow: 0 2px 8px rgba(255, 105, 180, 0.15);
     }
     
     .search-icon {
@@ -328,45 +352,51 @@
         }
     }
     
-    /* Active filter chips - make them clickable */
+    /* Active filter chips - Hot Pink styling */
     .filter-chip {
         display: inline-block;
         background: var(--primary-color);
         color: white;
         padding: 0.25rem 0.5rem;
-        border-radius: 12px;
+        border-radius: 8px;
         font-size: 0.8rem;
         margin-right: 0.5rem;
         margin-bottom: 0.25rem;
         cursor: pointer;
         transition: all 0.2s ease;
+        border: 1px solid var(--primary-color);
     }
     
     .filter-chip:hover {
-        background: #5a52d5;
-        transform: scale(1.05);
+        background: var(--primary-hover);
+        border-color: var(--primary-hover);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(255, 105, 180, 0.2);
     }
     
-    /* Quick filter buttons */
+    /* Quick filter buttons - Hot Pink styling */
     .quick-filter-btn {
         width: 100%;
         text-align: left;
         padding: 0.5rem;
         margin-bottom: 0.25rem;
-        border: 1px solid #dee2e6;
+        border: 1px solid var(--border-color);
         background: white;
         border-radius: 4px;
         cursor: pointer;
         transition: all 0.2s ease;
         font-size: 0.85rem;
+        color: var(--secondary-color);
     }
     
     .quick-filter-btn:hover {
-        background: #f8f9fa;
+        background: var(--primary-light);
         border-color: var(--primary-color);
+        color: var(--primary-hover);
+        transform: translateX(2px);
     }
     
-    /* Facet items */
+    /* Facet items - Hot Pink styling */
     .facet-group {
         margin-bottom: 1rem;
     }
@@ -382,16 +412,19 @@
         display: block;
         padding: 0.25rem 0.5rem;
         margin-bottom: 0.125rem;
-        background: #f8f9fa;
+        background: var(--light-gray);
         border-radius: 4px;
         cursor: pointer;
         transition: all 0.2s ease;
         font-size: 0.8rem;
+        border: 1px solid transparent;
     }
     
     .facet-item:hover {
-        background: #e9ecef;
-        color: var(--primary-color);
+        background: var(--primary-light);
+        color: var(--primary-hover);
+        border-color: var(--primary-color);
+        transform: translateX(2px);
     }
     
     /* Metadata table */
@@ -399,10 +432,10 @@
     .meta th { color: var(--primary-color); font-weight: 500; white-space: nowrap; }
     .meta td { word-break: break-word; }
     
-    /* Exploration dropdown styling */
+    /* Exploration dropdown styling - Hot Pink */
     .exploration-item {
         background: white;
-        border: 1px solid #dee2e6;
+        border: 1px solid var(--border-color);
         border-radius: 4px;
         padding: 0.5rem;
         margin-bottom: 0.5rem;
@@ -412,18 +445,21 @@
     
     .exploration-item:hover {
         border-color: var(--primary-color);
-        background: #f8f9fa;
+        background: var(--primary-light);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(255, 105, 180, 0.1);
     }
     
     .exploration-name {
         font-weight: 500;
         font-size: 0.9rem;
         margin-bottom: 0.25rem;
+        color: var(--primary-color);
     }
     
     .exploration-description {
         font-size: 0.8rem;
-        color: #6c757d;
+        color: var(--secondary-color);
     }
     
     /* Impact box styling */
@@ -521,13 +557,13 @@
         min-height: auto;
     }
     
-    /* Expandable controls - fix styling for better visibility */
+    /* Expandable controls - Hot Pink styling */
     .expand-toggle {
         position: absolute;
         top: 5px;
         right: 5px;
         background: white;
-        border: 1px solid var(--primary-color);
+        border: 1px solid var(--border-color);
         border-radius: 4px;
         padding: 4px 8px;
         font-size: 12px;
@@ -535,40 +571,40 @@
         z-index: 10;
         transition: all 0.2s ease;
         box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        color: var(--secondary-color);
     }
     
     .expand-toggle:hover {
-        background: var(--primary-color);
-        color: white;
+        background: var(--primary-light);
+        color: var(--primary-hover);
+        border-color: var(--primary-color);
         transform: translateY(-1px);
-        box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        box-shadow: 0 2px 6px rgba(255, 105, 180, 0.2);
     }
     
     .expand-toggle i {
-        color: var(--primary-color);
+        color: inherit;
         font-size: 10px;
     }
     
-    .expand-toggle:hover i {
-        color: white;
-    }
-    
-    /* Tab expand toggles - different styling */
+    /* Tab expand toggles - Hot Pink styling */
     .nav-link .expand-toggle {
         position: relative;
         top: auto;
         right: auto;
         background: rgba(255,255,255,0.9);
-        border: 1px solid #dee2e6;
+        border: 1px solid var(--border-color);
         border-radius: 3px;
         padding: 2px 4px;
         margin-left: 8px;
         font-size: 10px;
+        color: var(--secondary-color);
     }
     
     .nav-link .expand-toggle:hover {
-        background: var(--primary-color);
+        background: var(--primary-light);
         border-color: var(--primary-color);
+        color: var(--primary-hover);
     }
     
     /* Sidebar panels - make them more flexible */
@@ -603,7 +639,7 @@
         word-wrap: break-word;
     }
     
-    /* Add metadata panel restore button */
+    /* Add metadata panel restore button - Hot Pink styling */
     .meta-restore-btn {
         position: fixed;
         right: 10px;
@@ -617,12 +653,15 @@
         font-size: 12px;
         cursor: pointer;
         z-index: 1000;
-        box-shadow: -2px 0 8px rgba(0,0,0,0.2);
+        box-shadow: -2px 0 8px rgba(255, 105, 180, 0.3);
         display: none;
+        transition: all 0.2s ease;
     }
     
     .meta-restore-btn:hover {
-        background: #5a52d5;
+        background: var(--primary-hover);
+        transform: translateY(-50%) translateX(-2px);
+        box-shadow: -4px 0 12px rgba(255, 105, 180, 0.4);
     }
 </style>
 
