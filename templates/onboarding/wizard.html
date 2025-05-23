@@ -49,6 +49,83 @@
         display: none;
         margin-top: 1rem;
     }
+    .example-value {
+        display: inline-block;
+        padding: 0.35em 0.8em;
+        margin: 0.2rem;
+        background-color: rgba(255, 105, 180, 0.15);
+        color: var(--primary-color);
+        border: 1px solid rgba(255, 105, 180, 0.3);
+        border-radius: 12px;
+        cursor: pointer;
+        font-size: 0.875rem;
+        transition: all 0.2s;
+        position: relative;
+    }
+
+    .example-value:hover {
+        background-color: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .example-value:hover::after {
+        content: "Click to add";
+        position: absolute;
+        top: -20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(0,0,0,0.7);
+        color: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        white-space: nowrap;
+    }
+
+    .tags-input {
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        border-radius: 8px;
+        padding: 0.75rem;
+        min-height: 100px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        align-items: flex-start;
+        background-color: white;
+    }
+
+    .tag {
+        display: inline-flex;
+        align-items: center;
+        background-color: rgba(255, 105, 180, 0.1);
+        color: var(--primary-color);
+        padding: 0.35em 0.8em;
+        border-radius: 12px;
+        font-size: 0.75em;
+        border: 1px solid rgba(255, 105, 180, 0.2);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    }
+
+    .tag .remove {
+        margin-left: 0.5rem;
+        cursor: pointer;
+        opacity: 0.6;
+        transition: opacity 0.2s;
+    }
+
+    .tag .remove:hover {
+        opacity: 1;
+    }
+
+    .tags-input input {
+        border: none;
+        outline: none;
+        padding: 0.2rem;
+        flex-grow: 1;
+        min-width: 150px;
+    }
 </style>
 {% endblock %}
 
@@ -237,21 +314,51 @@
                         <h4>Step 3: Set Up Keywords</h4>
                         <p class="text-muted">Add keywords to monitor for your topic</p>
                         
-                        <div class="mb-3">
-                            <button class="btn btn-outline-primary" type="button" onclick="suggestKeywords()">
-                                <i class="fas fa-magic"></i> Suggest Keywords
-                            </button>
-                        </div>
-
                         <div class="mb-4">
                             <label class="form-label">Keywords</label>
-                            <div class="tags-input" id="keywordsContainer">
-                                <input type="text" id="keywordsInput" placeholder="Type and press Enter to add">
+                            <p class="text-muted">Enter keywords to monitor. You can separate multiple keywords with commas.</p>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label">Companies & Organizations</label>
+                                    <div class="tags-input" id="companiesContainer">
+                                        <input type="text" id="companiesInput" placeholder="Add companies (comma-separated)">
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Technologies</label>
+                                    <div class="tags-input" id="technologiesContainer">
+                                        <input type="text" id="technologiesInput" placeholder="Add technologies (comma-separated)">
+                                    </div>
+                                </div>
                             </div>
-                            <small class="text-muted">Add keywords to monitor (companies, technologies, people, domains)</small>
-                            <div id="keyword-suggestions" class="example-list mt-2">
-                                <!-- Dynamically populated by suggestKeywords() -->
+                            <div class="row g-3 mt-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">General Keywords</label>
+                                    <div class="tags-input" id="generalKeywordsContainer">
+                                        <input type="text" id="generalKeywordsInput" placeholder="Add general keywords (comma-separated)">
+                                    </div>
+                                    <small class="text-muted">Keywords that don't fit into specific categories above</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">People</label>
+                                    <div class="tags-input" id="peopleContainer">
+                                        <input type="text" id="peopleInput" placeholder="Add people (comma-separated)">
+                                    </div>
+                                </div>
                             </div>
+                            <div class="row g-3 mt-2">
+                                <div class="col-md-6">
+                                    <label class="form-label">Exclusion Keywords</label>
+                                    <div class="tags-input" id="exclusionKeywordsContainer">
+                                        <input type="text" id="exclusionKeywordsInput" placeholder="Add exclusions (prefix with - or NOT)">
+                                    </div>
+                                    <small class="text-muted">Prefix with minus (-) or "NOT" to exclude terms from search results</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label">Suggested keywords for your topic:</label>
+                            <div id="keyword-suggestions" class="example-list mt-2"></div>
                         </div>
                     </div>
 
@@ -275,6 +382,9 @@
 <script>
 let currentStep = 1;
 const totalSteps = 3;
+
+// Global variable to store keywords from step 2
+let storedKeywords = null;
 
 // Add this function for password visibility toggle
 function togglePasswordVisibility(inputId) {
@@ -495,72 +605,94 @@ async function validateAllKeys() {
     return allValid;
 }
 
-// Add CSS for tag inputs
-const style = document.createElement('style');
-style.textContent = `
-    .tags-input {
-        border: 1px solid rgba(255, 105, 180, 0.2);
-        border-radius: 8px;
-        padding: 0.75rem;
-        min-height: 100px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 0.5rem;
-        align-items: flex-start;
-        background-color: white;
+// Update the styling for suggestions
+const styleUpdate = document.createElement('style');
+styleUpdate.textContent = `
+    .keyword-category {
+        margin-bottom: 1rem;
+        border-left: 3px solid var(--primary-color);
+        padding-left: 10px;
     }
-
-    .tag {
+    
+    .keyword-category h6 {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--primary-color);
+        margin-bottom: 0.5rem;
+    }
+    
+    .example-value {
         display: inline-flex;
         align-items: center;
-        background-color: rgba(255, 105, 180, 0.1);
-        color: var(--primary-color);
-        padding: 0.35em 0.8em;
-        border-radius: 12px;
-        font-size: 0.75em;
-        border: 1px solid rgba(255, 105, 180, 0.2);
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    }
-
-    .tag .remove {
-        margin-left: 0.5rem;
-        cursor: pointer;
-        opacity: 0.6;
-        transition: opacity 0.2s;
-    }
-
-    .tag .remove:hover {
-        opacity: 1;
-    }
-
-    .tags-input input {
-        border: none;
-        outline: none;
-        padding: 0.2rem;
-        flex-grow: 1;
-        min-width: 150px;
-    }
-
-    .example-value {
-        display: inline-block;
         padding: 0.35em 0.8em;
         margin: 0.2rem;
-        background-color: rgba(255, 105, 180, 0.1);
+        background-color: rgba(255, 105, 180, 0.15);
         color: var(--primary-color);
-        border: 1px solid rgba(255, 105, 180, 0.2);
+        border: 1px solid rgba(255, 105, 180, 0.3);
         border-radius: 12px;
         cursor: pointer;
         font-size: 0.875rem;
         transition: all 0.2s;
+        position: relative;
+    }
+    
+    .example-value:before {
+        content: attr(data-category);
+        display: none;
+        position: absolute;
+        top: -18px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 0.65rem;
+        background: rgba(0,0,0,0.7);
+        color: white;
+        padding: 2px 6px;
+        border-radius: 3px;
+        white-space: nowrap;
+    }
+    
+    .example-value:hover:before {
+        display: block;
     }
 
     .example-value:hover {
         background-color: var(--primary-color);
         color: white;
         transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
+    
+    .example-value:hover::after {
+        content: "Click to add";
+        position: absolute;
+        bottom: -18px;
+        left: 50%;
+        transform: translateX(-50%);
+        background-color: rgba(0,0,0,0.7);
+        color: white;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        white-space: nowrap;
+    }
+    
+    .companies-tag { border-color: #4285f4; }
+    .companies-tag:before { content: "Company"; }
+    
+    .technologies-tag { border-color: #ea4335; }
+    .technologies-tag:before { content: "Technology"; }
+    
+    .general-tag { border-color: #fbbc05; }
+    .general-tag:before { content: "General"; }
+    
+    .people-tag { border-color: #34a853; }
+    .people-tag:before { content: "Person"; }
+    
+    .exclusions-tag { border-color: #ff6d01; }
+    .exclusions-tag:before { content: "Exclusion"; }
 `;
-document.head.appendChild(style);
+document.head.appendChild(styleUpdate);
 
 function createTagInput(containerId, inputId) {
     const container = document.getElementById(containerId);
@@ -568,6 +700,7 @@ function createTagInput(containerId, inputId) {
     const tags = new Set();
 
     function clearTags() {
+        console.log(`Clearing tags for ${containerId}`);
         tags.clear();
         const existingTags = container.querySelectorAll('.tag');
         existingTags.forEach(tag => tag.remove());
@@ -594,7 +727,11 @@ function createTagInput(containerId, inputId) {
     });
 
     function addTag(value) {
-        if (tags.has(value)) return;
+        console.log(`Adding tag "${value}" to ${containerId}`);
+        if (tags.has(value)) {
+            console.log(`Tag "${value}" already exists in ${containerId}`);
+            return;
+        }
         tags.add(value);
         
         const tag = document.createElement('span');
@@ -612,11 +749,13 @@ function createTagInput(containerId, inputId) {
         tag.appendChild(removeBtn);
         
         tag.querySelector('.remove').addEventListener('click', function() {
+            console.log(`Removing tag "${value}" from ${containerId}`);
             container.removeChild(tag);
             tags.delete(value);
         });
         
         container.insertBefore(tag, input);
+        console.log(`Successfully added tag "${value}" to ${containerId}`);
     }
 
     return {
@@ -626,13 +765,24 @@ function createTagInput(containerId, inputId) {
     };
 }
 
-// Initialize tag inputs
-const categoriesInput = createTagInput('categoriesContainer', 'categoriesInput');
-const futureSignalsInput = createTagInput('futureSignalsContainer', 'futureSignalsInput');
-const sentimentsInput = createTagInput('sentimentsContainer', 'sentimentsInput');
-const timeToImpactInput = createTagInput('timeToImpactContainer', 'timeToImpactInput');
-const driverTypesInput = createTagInput('driverTypesContainer', 'driverTypesInput');
-const keywordsInput = createTagInput('keywordsContainer', 'keywordsInput');
+// Initialize tag inputs - make sure this happens after DOM is ready
+let categoriesInput, futureSignalsInput, sentimentsInput, timeToImpactInput, driverTypesInput;
+let companiesInput, technologiesInput, generalKeywordsInput, peopleInput, exclusionKeywordsInput;
+
+function initializeTagInputs() {
+    console.log("Initializing tag inputs...");
+    categoriesInput = createTagInput('categoriesContainer', 'categoriesInput');
+    futureSignalsInput = createTagInput('futureSignalsContainer', 'futureSignalsInput');
+    sentimentsInput = createTagInput('sentimentsContainer', 'sentimentsInput');
+    timeToImpactInput = createTagInput('timeToImpactContainer', 'timeToImpactInput');
+    driverTypesInput = createTagInput('driverTypesContainer', 'driverTypesInput');
+    companiesInput = createTagInput('companiesContainer', 'companiesInput');
+    technologiesInput = createTagInput('technologiesContainer', 'technologiesInput');
+    generalKeywordsInput = createTagInput('generalKeywordsContainer', 'generalKeywordsInput');
+    peopleInput = createTagInput('peopleContainer', 'peopleInput');
+    exclusionKeywordsInput = createTagInput('exclusionKeywordsContainer', 'exclusionKeywordsInput');
+    console.log("Tag inputs initialized successfully");
+}
 
 function addExampleValue(inputId, value) {
     const input = document.getElementById(inputId);
@@ -671,6 +821,13 @@ async function suggestAttributes() {
 
         if (response.ok) {
             const data = await response.json();
+            console.log("Suggest attributes response:", data);
+            
+            // Ensure tag inputs are initialized
+            if (!categoriesInput) {
+                console.log("Tag inputs not initialized, initializing now...");
+                initializeTagInputs();
+            }
             
             // Clear existing tags
             categoriesInput.clearTags();
@@ -678,28 +835,54 @@ async function suggestAttributes() {
             sentimentsInput.clearTags();
             timeToImpactInput.clearTags();
             driverTypesInput.clearTags();
-            keywordsInput.clearTags();
             
-            // Add new tags
-            data.categories.forEach(category => {
-                categoriesInput.addTag(category);
-            });
-
-            data.future_signals.forEach(signal => {
-                futureSignalsInput.addTag(signal);
-            });
-
-            // Add suggested keywords
-            if (data.keywords) {
-                const keywordSuggestions = document.getElementById('keyword-suggestions');
-                keywordSuggestions.innerHTML = '';
-                data.keywords.forEach(keyword => {
-                    const span = document.createElement('span');
-                    span.className = 'example-value';
-                    span.textContent = keyword;
-                    span.onclick = () => addExampleValue('keywordsInput', keyword);
-                    keywordSuggestions.appendChild(span);
+            // Add new tags with validation
+            if (data.categories && Array.isArray(data.categories)) {
+                console.log("Adding categories:", data.categories);
+                data.categories.forEach(category => {
+                    categoriesInput.addTag(category);
                 });
+            }
+
+            if (data.future_signals && Array.isArray(data.future_signals)) {
+                console.log("Adding future signals:", data.future_signals);
+                data.future_signals.forEach(signal => {
+                    futureSignalsInput.addTag(signal);
+                });
+            }
+
+            // Store keywords for Step 3 and show preview
+            if (data.keywords) {
+                console.log("Storing keywords for Step 3:", data.keywords);
+                storedKeywords = data.keywords;
+                
+                // Show a preview of keywords that will be used in Step 3
+                const keywordSuggestions = document.getElementById('keyword-suggestions');
+                if (keywordSuggestions) {
+                    keywordSuggestions.innerHTML = '<div class="alert alert-info"><i class="fas fa-info-circle"></i> Keywords have been generated and will be applied in Step 3.</div>';
+                    
+                    // Show a preview of what will be added
+                    const previewDiv = document.createElement('div');
+                    previewDiv.className = 'mt-2';
+                    previewDiv.innerHTML = '<small class="text-muted">Preview of keywords for Step 3:</small>';
+                    
+                    const keywordPreview = document.createElement('div');
+                    keywordPreview.className = 'd-flex flex-wrap gap-1 mt-1';
+                    
+                    Object.entries(data.keywords).forEach(([cat, arr]) => {
+                        if (Array.isArray(arr) && arr.length > 0) {
+                            arr.slice(0, 3).forEach(keyword => { // Show first 3 of each category
+                                const span = document.createElement('span');
+                                span.className = `badge bg-light text-dark ${cat}-preview`;
+                                span.textContent = keyword;
+                                keywordPreview.appendChild(span);
+                            });
+                        }
+                    });
+                    
+                    previewDiv.appendChild(keywordPreview);
+                    keywordSuggestions.appendChild(previewDiv);
+                }
             }
 
             // Update explanation
@@ -708,26 +891,158 @@ async function suggestAttributes() {
             // Show the suggestions section
             document.getElementById('topic-suggestions').style.display = 'block';
 
-            // Add default values
+            // Add default values and hide their sections
             const defaultSentiment = ['Positive', 'Negative', 'Neutral'];
             const defaultTimeToImpact = ['Immediate (0-6 months)', 'Short-term (6-18 months)', 
                                        'Mid-term (18-60 months)', 'Long-term (60+ months)'];
             const defaultDriverTypes = ['Initiator', 'Accelerator', 'Catalyst', 
                                       'Inhibitor', 'Blocker'];
 
+            // Add default values
             defaultSentiment.forEach(s => sentimentsInput.addTag(s));
             defaultTimeToImpact.forEach(t => timeToImpactInput.addTag(t));
             defaultDriverTypes.forEach(d => driverTypesInput.addTag(d));
+
+            // Hide the sections
+            document.querySelector('label[for="sentiment"]').parentElement.style.display = 'none';
+            document.querySelector('label[for="time-to-impact"]').parentElement.style.display = 'none';
+            document.querySelector('label[for="driver-types"]').parentElement.style.display = 'none';
 
         } else {
             const error = await response.json();
             alert(`Error: ${error.detail}`);
         }
     } catch (error) {
+        console.error("Error in suggestAttributes:", error);
         alert(`Error: ${error.message}`);
     }
 }
 
+// Function to populate Step 3 keywords from stored data
+function populateStep3Keywords() {
+    console.log("=== POPULATING STEP 3 KEYWORDS ===");
+    
+    if (!storedKeywords) {
+        console.log("No stored keywords found");
+        return;
+    }
+    
+    console.log("Stored keywords object:", JSON.stringify(storedKeywords, null, 2));
+    
+    // Ensure tag inputs are initialized
+    if (!companiesInput || !technologiesInput || !generalKeywordsInput || !peopleInput || !exclusionKeywordsInput) {
+        console.log("Tag inputs not initialized for Step 3, initializing now...");
+        initializeTagInputs();
+        
+        // Double-check after initialization
+        if (!companiesInput) {
+            console.error("companiesInput still not initialized!");
+            return;
+        }
+    }
+    
+    // Clear existing keywords
+    console.log("Clearing existing keywords...");
+    companiesInput.clearTags();
+    technologiesInput.clearTags();
+    generalKeywordsInput.clearTags();
+    peopleInput.clearTags();
+    exclusionKeywordsInput.clearTags();
+    
+    // Auto-populate fields with stored keywords
+    console.log("Starting population of keyword fields...");
+    
+    // Companies
+    if (storedKeywords.companies && Array.isArray(storedKeywords.companies) && storedKeywords.companies.length > 0) {
+        console.log(`Adding ${storedKeywords.companies.length} companies:`, storedKeywords.companies);
+        storedKeywords.companies.slice(0, 3).forEach((k, index) => {
+            console.log(`Adding company ${index + 1}: "${k}"`);
+            companiesInput.addTag(k);
+        });
+    } else {
+        console.log("No companies to add:", storedKeywords.companies);
+    }
+    
+    // Technologies
+    if (storedKeywords.technologies && Array.isArray(storedKeywords.technologies) && storedKeywords.technologies.length > 0) {
+        console.log(`Adding ${storedKeywords.technologies.length} technologies:`, storedKeywords.technologies);
+        storedKeywords.technologies.slice(0, 3).forEach((k, index) => {
+            console.log(`Adding technology ${index + 1}: "${k}"`);
+            technologiesInput.addTag(k);
+        });
+    } else {
+        console.log("No technologies to add:", storedKeywords.technologies);
+    }
+    
+    // General keywords
+    if (storedKeywords.general && Array.isArray(storedKeywords.general) && storedKeywords.general.length > 0) {
+        console.log(`Adding ${storedKeywords.general.length} general keywords:`, storedKeywords.general);
+        storedKeywords.general.slice(0, 3).forEach((k, index) => {
+            console.log(`Adding general keyword ${index + 1}: "${k}"`);
+            generalKeywordsInput.addTag(k);
+        });
+    } else {
+        console.log("No general keywords to add:", storedKeywords.general);
+    }
+    
+    // People
+    if (storedKeywords.people && Array.isArray(storedKeywords.people) && storedKeywords.people.length > 0) {
+        console.log(`Adding ${storedKeywords.people.length} people:`, storedKeywords.people);
+        storedKeywords.people.slice(0, 2).forEach((k, index) => {
+            console.log(`Adding person ${index + 1}: "${k}"`);
+            peopleInput.addTag(k);
+        });
+    } else {
+        console.log("No people to add:", storedKeywords.people);
+    }
+    
+    // Exclusions
+    if (storedKeywords.exclusions && Array.isArray(storedKeywords.exclusions) && storedKeywords.exclusions.length > 0) {
+        console.log(`Adding ${storedKeywords.exclusions.length} exclusions:`, storedKeywords.exclusions);
+        storedKeywords.exclusions.slice(0, 2).forEach((k, index) => {
+            console.log(`Adding exclusion ${index + 1}: "${k}"`);
+            exclusionKeywordsInput.addTag(k);
+        });
+    } else {
+        console.log("No exclusions to add:", storedKeywords.exclusions);
+    }
+    
+    console.log("=== POPULATION COMPLETE ===");
+    
+    // Show success message
+    const keywordSuggestions = document.getElementById('keyword-suggestions');
+    if (keywordSuggestions) {
+        keywordSuggestions.innerHTML = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> Keywords from Step 2 have been applied to their respective fields.</div>';
+        
+        // Add "Get More Suggestions" button
+        const moreBtn = document.createElement('button');
+        moreBtn.className = 'btn btn-sm btn-outline-primary mt-2';
+        moreBtn.innerHTML = '<i class="fas fa-sync"></i> Get Different Suggestions';
+        moreBtn.onclick = suggestKeywords;
+        keywordSuggestions.appendChild(moreBtn);
+    }
+}
+
+function showStep(step) {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById(`step${step}`).classList.add('active');
+    
+    document.getElementById('prevBtn').style.display = step === 1 ? 'none' : 'block';
+    document.getElementById('nextBtn').textContent = step === totalSteps ? 'Finish' : 'Next';
+    
+    updateStepIndicators();
+    
+    // Special handling for Step 3 - populate keywords from Step 2
+    if (step === 3) {
+        console.log("Entering Step 3, populating keywords...");
+        // Small delay to ensure DOM is ready
+        setTimeout(() => {
+            populateStep3Keywords();
+        }, 100);
+    }
+}
+
+// Update suggestKeywords to work as "get different suggestions"
 async function suggestKeywords() {
     const topicName = document.getElementById('topic-name').value;
     const topicDescription = document.getElementById('topic-description').value;
@@ -736,7 +1051,14 @@ async function suggestKeywords() {
         return;
     }
 
+    // Enhanced prompt for backend
+    const prompt = `Suggest relevant keywords for the topic "${topicName}". Organize them into these categories: Companies & Organizations, Technologies, General Keywords, People, and Exclusion Keywords (misinformation, unrelated terms). Provide only the most relevant and high-quality keywords for each category. Use real company and technology names where possible. Exclusion keywords should help filter out noise or unrelated results. Topic description: ${topicDescription}`;
+
     try {
+        // Show loading indicator
+        const keywordSuggestions = document.getElementById('keyword-suggestions');
+        keywordSuggestions.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Finding new keyword suggestions...</div>';
+        
         const response = await fetch('/api/onboarding/suggest-topic-attributes', {
             method: 'POST',
             headers: {
@@ -744,33 +1066,138 @@ async function suggestKeywords() {
             },
             body: JSON.stringify({ 
                 topic_name: topicName,
-                topic_description: topicDescription 
+                topic_description: topicDescription,
+                keyword_prompt: prompt
             })
         });
 
         if (response.ok) {
             const data = await response.json();
+            console.log("Backend response:", data);
+            console.log("Keywords received:", JSON.stringify(data.keywords, null, 2));
             
-            // Clear existing keywords
-            keywordsInput.clearTags();
+            // Check if we got generic placeholders or real data with improved detection
+            let isGeneric = false;
+            const genericPatterns = [
+                { category: 'companies', pattern: new RegExp(`${topicName}\\s*(Corp|Inc|LLC|Ltd)`, 'i') },
+                { category: 'technologies', pattern: new RegExp(`${topicName}\\s*(Tech|Platform|API|System)`, 'i') },
+                { category: 'people', pattern: new RegExp(`${topicName}\\s*(Expert|Specialist|Guru)`, 'i') },
+                { category: 'exclusions', pattern: /^(-scam|-unrelated)$/ }
+            ];
             
-            // Add suggested keywords
-            if (data.keywords) {
-                const keywordSuggestions = document.getElementById('keyword-suggestions');
-                keywordSuggestions.innerHTML = '';
-                data.keywords.forEach(keyword => {
-                    const span = document.createElement('span');
-                    span.className = 'example-value';
-                    span.textContent = keyword;
-                    span.onclick = () => addExampleValue('keywordsInput', keyword);
-                    keywordSuggestions.appendChild(span);
+            // If all categories follow generic patterns, consider it generic
+            let genericMatches = 0;
+            let totalCategories = 0;
+            
+            Object.entries(data.keywords).forEach(([cat, arr]) => {
+                if (Array.isArray(arr) && arr.length > 0) {
+                    totalCategories++;
+                    
+                    const pattern = genericPatterns.find(p => p.category === cat)?.pattern;
+                    if (pattern && arr.some(item => pattern.test(item))) {
+                        console.warn(`Found generic pattern in ${cat}: ${arr[0]}`);
+                        genericMatches++;
+                    }
+                }
+            });
+            
+            if (genericMatches > 0 && genericMatches === totalCategories) {
+                console.warn(`All categories (${genericMatches}/${totalCategories}) contain generic patterns`);
+                isGeneric = true;
+            }
+                
+            if (isGeneric) {
+                console.warn("Got generic/fallback keywords from backend");
+                keywordSuggestions.innerHTML = '<div class="alert alert-warning">No verified keywords found for this topic. Please try:</div>';
+                
+                // Provide helpful suggestions
+                const helpList = document.createElement('ul');
+                helpList.className = 'mb-3';
+                const suggestions = [
+                    'Add more details to your topic description',
+                    'Be more specific about the type of keywords you need',
+                    'Try a different topic name',
+                    'Enter keywords manually based on your knowledge'
+                ];
+                
+                suggestions.forEach(suggestion => {
+                    const li = document.createElement('li');
+                    li.textContent = suggestion;
+                    helpList.appendChild(li);
+                });
+                
+                keywordSuggestions.appendChild(helpList);
+                
+                // Add a retry button
+                const retryBtn = document.createElement('button');
+                retryBtn.className = 'btn btn-sm btn-outline-primary';
+                retryBtn.innerHTML = '<i class="fas fa-redo"></i> Try Again';
+                retryBtn.onclick = suggestKeywords;
+                keywordSuggestions.appendChild(retryBtn);
+                
+                return; // Don't use the generic placeholders
+            }
+            
+            // Replace current keywords with new suggestions
+            console.log("Replacing keywords with new suggestions");
+            
+            // Clear existing keywords from input fields
+            companiesInput.clearTags();
+            technologiesInput.clearTags();
+            generalKeywordsInput.clearTags();
+            peopleInput.clearTags();
+            exclusionKeywordsInput.clearTags();
+            
+            // Auto-populate fields with new suggestions
+            if (data.keywords.companies && data.keywords.companies.length > 0) {
+                data.keywords.companies.slice(0, 3).forEach(k => {
+                    companiesInput.addTag(k);
                 });
             }
+            
+            if (data.keywords.technologies && data.keywords.technologies.length > 0) {
+                data.keywords.technologies.slice(0, 3).forEach(k => {
+                    technologiesInput.addTag(k);
+                });
+            }
+            
+            if (data.keywords.general && data.keywords.general.length > 0) {
+                data.keywords.general.slice(0, 3).forEach(k => {
+                    generalKeywordsInput.addTag(k);
+                });
+            }
+            
+            if (data.keywords.people && data.keywords.people.length > 0) {
+                data.keywords.people.slice(0, 2).forEach(k => {
+                    peopleInput.addTag(k);
+                });
+            }
+            
+            if (data.keywords.exclusions && data.keywords.exclusions.length > 0) {
+                data.keywords.exclusions.slice(0, 2).forEach(k => {
+                    exclusionKeywordsInput.addTag(k);
+                });
+            }
+            
+            // Update stored keywords
+            storedKeywords = data.keywords;
+            
+            // Show success message
+            keywordSuggestions.innerHTML = '<div class="alert alert-success"><i class="fas fa-check-circle"></i> New keywords have been applied to their respective fields.</div>';
+            
+            // Add "Get More Suggestions" button
+            const moreBtn = document.createElement('button');
+            moreBtn.className = 'btn btn-sm btn-outline-primary mt-2';
+            moreBtn.innerHTML = '<i class="fas fa-sync"></i> Get Different Suggestions';
+            moreBtn.onclick = suggestKeywords;
+            keywordSuggestions.appendChild(moreBtn);
+            
         } else {
             const error = await response.json();
             alert(`Error: ${error.detail}`);
         }
     } catch (error) {
+        console.error("Error suggesting keywords:", error);
         alert(`Error: ${error.message}`);
     }
 }
@@ -824,9 +1251,11 @@ function updateApiKeyGuidance() {
     }
 }
 
-// Modify the init() function to include loadAvailableModels
+// Modify the init() function to include tag input initialization
 async function init() {
     try {
+        console.log("Starting initialization...");
+        
         // Initialize validatedKeys with model
         validatedKeys = {
             newsapi: false,
@@ -834,10 +1263,28 @@ async function init() {
             model: false
         };
         
-        checkExistingKeys();
-        loadAvailableModels();
+        // Initialize tag inputs first
+        initializeTagInputs();
         
-        showStep(1);
+        // Check existing keys first
+        await checkExistingKeys();
+        
+        // Load available models
+        await loadAvailableModels();
+        
+        // Check if all required keys are present and valid
+        const allKeysPresent = validatedKeys.newsapi && validatedKeys.firecrawl && validatedKeys.model;
+        
+        // If all keys are present, start from step 2
+        if (allKeysPresent) {
+            currentStep = 2;
+            // Hide step 1 dot and line
+            document.querySelector('.step-dot[data-step="1"]').classList.add('completed');
+            document.querySelector('.step-line').classList.add('completed');
+        }
+        
+        showStep(currentStep);
+        console.log("Initialization completed successfully");
     } catch (error) {
         console.error("Initialization error:", error);
     }
@@ -856,7 +1303,7 @@ async function saveTopic() {
         const sentiment = getTagsFromContainer('sentimentsContainer');
         const timeToImpact = getTagsFromContainer('timeToImpactContainer');
         const driverTypes = getTagsFromContainer('driverTypesContainer');
-        const keywords = getTagsFromContainer('keywordsContainer');
+        const keywords = getAllKeywords();
         
         // Validate required fields
         if (!topicName) {
@@ -967,16 +1414,6 @@ function updateStepIndicators() {
     });
 }
 
-function showStep(step) {
-    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
-    document.getElementById(`step${step}`).classList.add('active');
-    
-    document.getElementById('prevBtn').style.display = step === 1 ? 'none' : 'block';
-    document.getElementById('nextBtn').textContent = step === totalSteps ? 'Finish' : 'Next';
-    
-    updateStepIndicators();
-}
-
 async function nextStep() {
     if (currentStep === 1) {
         // Validate all keys before proceeding
@@ -1005,7 +1442,7 @@ async function nextStep() {
         const sentiment = getTagsFromContainer('sentimentsContainer');
         const timeToImpact = getTagsFromContainer('timeToImpactContainer');
         const driverTypes = getTagsFromContainer('driverTypesContainer');
-        const keywords = getTagsFromContainer('keywordsContainer');
+        const keywords = getAllKeywords();
         
         if (keywords.length === 0) {
             if (!confirm("No keywords added. Continue anyway?")) {
@@ -1154,6 +1591,37 @@ function getCurrentStep() {
         return parseInt(visibleStep.id.replace('step', ''));
     }
     return 1; // Default to first step
+}
+
+function getAllKeywords() {
+    console.log("=== COLLECTING KEYWORDS FOR SAVING ===");
+    
+    // Get keywords from each category
+    const companies = getTagsFromContainer('companiesContainer');
+    const technologies = getTagsFromContainer('technologiesContainer'); 
+    const general = getTagsFromContainer('generalKeywordsContainer');
+    const people = getTagsFromContainer('peopleContainer');
+    const exclusions = getTagsFromContainer('exclusionKeywordsContainer');
+    
+    console.log("Companies:", companies);
+    console.log("Technologies:", technologies);
+    console.log("General:", general);
+    console.log("People:", people);
+    console.log("Exclusions:", exclusions);
+    
+    // Flatten all keywords into a single array
+    const allKeywords = [
+        ...companies,
+        ...technologies,
+        ...general,
+        ...people,
+        ...exclusions
+    ].filter(keyword => keyword && keyword.trim() !== ''); // Remove empty values
+    
+    console.log("Flattened keywords to save:", allKeywords);
+    console.log("=== KEYWORD COLLECTION COMPLETE ===");
+    
+    return allKeywords;
 }
 </script>
 {% endblock %} 

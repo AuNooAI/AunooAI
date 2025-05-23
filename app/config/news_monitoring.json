@@ -6,7 +6,6 @@
     "Security Data Fabric": "\"Security Data Fabric\"",
     "Threat Modeling": "\"Threat Modeling\"",
     "Embedded Systems": "\"Embedded Systems\"",
-    "Cloud Repatriation": "\"Cloud Repatriation\"",
     "Competitor Analysis": "Disinformation"
   },
   "paper_filters": {
@@ -16,7 +15,6 @@
     "Security Data Fabric": "\"Security Data\"",
     "Threat Modeling": "\"Threat Modeling\"",
     "Embedded Systems": "\"Embedded Systems\"",
-    "Cloud Repatriation": "\"Cloud Repatriation\"",
     "Competitor Analysis": "Disinformation"
   }
 }
