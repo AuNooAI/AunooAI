@@ -70,6 +70,7 @@ from app.routes.auspex_routes import router as auspex_router
 from app.routes.newsletter_routes import router as newsletter_router, page_router as newsletter_page_router
 from app.routes.dataset_routes import router as dataset_router
 from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
+from app.routes.oauth_routes import router as oauth_router
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -194,8 +195,19 @@ templates.env.filters["timeago"] = timeago_filter
 # Initialize components
 db = Database()
 
+# Initialize OAuth providers
+try:
+    from app.security.oauth import setup_oauth_providers
+    configured_providers = setup_oauth_providers()
+    logger.info(f"OAuth providers initialized: {configured_providers}")
+except Exception as e:
+    logger.warning(f"OAuth initialization failed: {e}")
+
 # Add this line to include the database routes
 app.include_router(database.router)
+
+# Add OAuth routes (authentication)
+app.include_router(oauth_router)
 
 # Add this with your other router includes
 app.include_router(stats_router)
