@@ -9,6 +9,7 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from app.security.session import verify_session
 from app.vector_store import (
     search_articles,
     upsert_article,
@@ -36,6 +37,7 @@ def vector_search_endpoint(
     sentiment: Optional[str] = None,
     news_source: Optional[str] = None,
     cluster: Optional[int] = None,
+    session=Depends(verify_session),
 ):
     """Semantic search endpoint backed by ChromaDB.
 
@@ -122,7 +124,10 @@ def vector_search_endpoint(
 
 
 @router.post("/vector-reindex")
-async def vector_reindex(db: Database = Depends(get_database_instance)):
+async def vector_reindex(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session),
+):
     """Re-index all articles currently stored in the relational DB.
 
     Returns the number of articles sent to the vector store.  This can be
@@ -149,6 +154,7 @@ async def vector_reindex(db: Database = Depends(get_database_instance)):
 def vector_similar_endpoint(
     uri: str = Query(..., description="Article URI"),
     top_k: int = Query(5, ge=1, le=50),
+    session=Depends(verify_session),
 ):
     """Return *top_k* articles most similar to the article with *uri*."""
     return {
@@ -227,6 +233,7 @@ def embedding_projection(
     future_signal: Optional[str] = None,
     sentiment: Optional[str] = None,
     news_source: Optional[str] = None,
+    session=Depends(verify_session),
 ) -> Dict[str, Any]:
     """Return a 2-D UMAP projection together with a lightweight cluster label.
 
@@ -431,6 +438,7 @@ def embedding_projection(
 def embedding_neighbours(
     id: str = Query(..., description="Vector/Article identifier (uri)"),
     top_k: int = Query(5, ge=1, le=50),
+    session=Depends(verify_session),
 ):
     """Return the *top_k* nearest neighbours for a given vector ``id``.
 
@@ -461,6 +469,7 @@ def patterns_endpoint(
     future_signal: Optional[str] = None,
     sentiment: Optional[str] = None,
     news_source: Optional[str] = None,
+    session=Depends(verify_session),
 ):
     """Return simple textual pattern stats.
 
@@ -611,6 +620,7 @@ def statistics_endpoint(
     future_signal: Optional[str] = None,
     sentiment: Optional[str] = None,
     news_source: Optional[str] = None,
+    session=Depends(verify_session),
 ):
     """Return descriptive statistics for the current article subset."""
 
@@ -718,7 +728,7 @@ def statistics_endpoint(
 
 
 @router.post("/clean_collection")
-async def clean_collection():
+async def clean_collection(session=Depends(verify_session)):
     """Delete and rebuild the collection.
 
     This is a helper endpoint to clean up completely.  It deletes the
@@ -750,6 +760,7 @@ def embedding_anomalies(
     category: Optional[str] = None,
     sentiment: Optional[str] = None,
     news_source: Optional[str] = None,
+    session=Depends(verify_session),
 ):
     """Return the *top_k* most isolated articles within the filter scope.
 
@@ -853,7 +864,10 @@ class _SummaryRequest(BaseModel):
 
 
 @router.post("/vector-summary")
-async def vector_summary(req: _SummaryRequest):
+async def vector_summary(
+    req: _SummaryRequest,
+    session=Depends(verify_session),
+):
     """Return a markdown summary of the supplied *ids* using the configured AI.
 
     The endpoint fetches article metadata (title, summary etc.) from Chroma's
@@ -966,7 +980,7 @@ _NEWS_FACTS_FILE = _CONFIG_DIR / "news_facts.json"
 
 
 @router.get("/news-facts")
-async def get_news_facts():
+async def get_news_facts(session=Depends(verify_session)):
     """Return a list of interesting facts about news and journalism."""
     logger = logging.getLogger(__name__)
     try:
@@ -1017,7 +1031,7 @@ async def get_news_facts():
         )
 
 @router.get("/api/news-facts")
-async def get_news_facts_endpoint():
+async def get_news_facts_endpoint(session=Depends(verify_session)):
     """Return facts about news data from the facts JSON file."""
     try:
         facts_path = os.path.join("app", "config", "news_facts.json")

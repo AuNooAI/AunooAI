@@ -121,13 +121,9 @@ def _get_collection() -> chromadb.Collection:
     # We try to get it; if it does not exist we create it with an optional embedder
     try:
         col = client.get_collection(name=_COLLECTION_NAME)
-        # If the collection was created earlier without an embedder, attach one
-        # dynamically so we no longer need to supply embeddings manually.
-        if col._embedding_function is None:  # type: ignore
-            emb_fn = _get_embedding_function()
-            if emb_fn is not None:
-                # Cast to any to satisfy type checker - this is a valid ChromaDB operation
-                col.add_embedding_function(emb_fn)  # type: ignore
+        # Note: ChromaDB collections have their embedding function set at creation time
+        # and cannot be modified afterwards. If we need a different embedding function,
+        # we would need to recreate the collection.
         return col
     except (ValueError, ChromaNotFoundError):  # Collection absent → create
         return client.create_collection(
@@ -146,13 +142,25 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
     vectors so the pipeline still works in dev scenarios without an embedding
     provider.
     """
-    # Ensure all texts are strings to prevent OpenAI API errors
-    texts = [str(text) for text in texts if text is not None]
+    # Ensure all texts are strings and filter out None/empty values
+    raw_texts = [str(text) for text in texts if text is not None]
+    
+    # Clean and validate texts
+    cleaned_texts = []
+    for text in raw_texts:
+        # Strip whitespace and ensure it's not empty
+        cleaned = text.strip()
+        if cleaned:  # Only add non-empty strings
+            # Truncate very long texts (OpenAI has an 8191 token limit for text-embedding-3-small)
+            # Roughly 4 chars per token, so limit to ~30000 chars to be safe
+            if len(cleaned) > 30000:
+                cleaned = cleaned[:30000]
+            cleaned_texts.append(cleaned)
     
     # Handle empty texts list
-    if not texts:
+    if not cleaned_texts:
         import numpy as np
-        logger.warning("Empty texts list passed to _embed_texts")
+        logger.warning("No valid texts to embed after cleaning")
         return np.random.rand(1, 1536).tolist()  # Return single random vector
     
     api_key = os.getenv("OPENAI_API_KEY")
@@ -160,14 +168,11 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
         try:
             # Log the texts being embedded for debugging
             logger.debug("Embedding %d texts, first text (truncated): %s", 
-                        len(texts), 
-                        texts[0][:50] if texts else "")
+                        len(cleaned_texts), 
+                        cleaned_texts[0][:50] if cleaned_texts else "")
             
             if hasattr(openai, "OpenAI"):  # Official >=1.0 client
                 client = openai.OpenAI(api_key=api_key)  # type: ignore
-                
-                # Explicitly clean the input for the API
-                cleaned_texts = [text.strip() for text in texts]
                 
                 logger.debug("Calling OpenAI embedding API with %d texts", len(cleaned_texts))
                 resp = client.embeddings.create(
@@ -179,7 +184,7 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
                 openai.api_key = api_key  # type: ignore[attr-defined]
                 resp = getattr(openai, "Embedding").create(  # type: ignore[attr-defined]
                     model="text-embedding-3-small",
-                    input=texts,
+                    input=cleaned_texts,
                 )
                 data = resp["data"]
 
@@ -200,7 +205,7 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
     # Fallback – random vectors (fixed dimensionality of 1536 for compatibility)
     import numpy as np  # Lazy import to avoid dependency if not needed.
 
-    return np.random.rand(len(texts), 1536).tolist()
+    return np.random.rand(len(cleaned_texts), 1536).tolist()
 
 # --------------------------------------------------------------------------------------
 # Public API – upsert & search

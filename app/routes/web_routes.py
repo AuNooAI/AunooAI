@@ -1,13 +1,13 @@
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from app.security.session import verify_session  # Changed import
-from app.core.shared import templates  # type: ignore
-from app.config.config import load_config # Added
-import logging # Added
+from app.security.session import verify_session  
+from app.core.shared import templates  
+from app.config.config import load_config  
+import logging  
 
-logger = logging.getLogger(__name__) # Added
+logger = logging.getLogger(__name__)  
 router = APIRouter()
+
 
 @router.get("/config", response_class=HTMLResponse)
 async def config_page(request: Request, session=Depends(verify_session)):
@@ -16,22 +16,46 @@ async def config_page(request: Request, session=Depends(verify_session)):
         "session": request.session
     })
 
+
 @router.get("/promptmanager", response_class=HTMLResponse)
-async def prompt_manager_page(request: Request, session=Depends(verify_session)):
+async def prompt_manager_page(
+    request: Request, 
+    session=Depends(verify_session)
+):
     return templates.TemplateResponse("promptmanager.html", {
         "request": request,
         "session": request.session
     })
 
+
 @router.get("/vector-analysis", response_class=HTMLResponse)
-async def vector_analysis_page(request: Request, session=Depends(verify_session)):
+async def vector_analysis_page(
+    request: Request, 
+    session=Depends(verify_session)
+):
     return templates.TemplateResponse("vector_analysis.html", {
         "request": request,
         "session": request.session
     })
 
+
+@router.get("/vector-analysis-improved", response_class=HTMLResponse)
+async def vector_analysis_improved_page(
+    request: Request, 
+    session=Depends(verify_session)
+):
+    """Enhanced vector analysis page with improved performance and UX."""
+    return templates.TemplateResponse("vector_analysis_improved.html", {
+        "request": request,
+        "session": request.session
+    })
+
+
 @router.get("/topic-dashboard", response_class=HTMLResponse)
-async def topic_dashboard_page(request: Request, session=Depends(verify_session)):
+async def topic_dashboard_page(
+    request: Request, 
+    session=Depends(verify_session)
+):
     """Serves the main page for the per-topic dashboard."""
     try:
         config = load_config()

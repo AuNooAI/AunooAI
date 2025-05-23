@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from app.database import get_database_instance, Database
 from app.models.media_bias import MediaBias
+from app.security.session import verify_session
 
 # Set up router
 router = APIRouter(
@@ -37,7 +38,8 @@ class MediaBiasResponse(BaseModel):
 @router.get("", response_model=MediaBiasResponse)
 async def get_media_bias(
     source: str = Query(..., description="The news source to get bias data for"),
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
 ):
     """Get media bias data for a source."""
     try:
@@ -70,7 +72,7 @@ async def get_media_bias(
 
 
 @router.get("/status", response_model=MediaBiasStatus)
-async def get_media_bias_status(db: Database = Depends(get_database_instance)):
+async def get_media_bias_status(db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     """Get media bias system status."""
     try:
         # Create MediaBias instance
@@ -94,7 +96,7 @@ async def get_media_bias_status(db: Database = Depends(get_database_instance)):
 
 
 @router.post("/enable", response_model=MediaBiasStatus)
-async def enable_media_bias(db: Database = Depends(get_database_instance)):
+async def enable_media_bias(db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     """Enable media bias enrichment."""
     try:
         # Create MediaBias instance
@@ -121,7 +123,7 @@ async def enable_media_bias(db: Database = Depends(get_database_instance)):
 
 
 @router.post("/disable", response_model=MediaBiasStatus)
-async def disable_media_bias(db: Database = Depends(get_database_instance)):
+async def disable_media_bias(db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     """Disable media bias enrichment."""
     try:
         # Create MediaBias instance

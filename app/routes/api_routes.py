@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Query, Depends, HTTPException
 from app.database import get_database_instance, Database
+from app.security.session import verify_session
 import logging
 
 # Configure logging
@@ -11,7 +12,8 @@ router = APIRouter()
 @router.get("/enriched_articles")
 async def get_enriched_articles(
     limit: int = Query(10, description="Maximum number of articles to return"),
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
 ):
     """
     Get the most recently enriched articles (articles that have a category)
