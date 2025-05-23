@@ -19,6 +19,7 @@ class ChatRequest(BaseModel):
     message: str
     topic: str
     model: str
+    limit: int = 50  # Default to 50 if not provided
 
 def extract_json_from_response(response: str) -> str:
     """Extract JSON object from LLM response, handling any extra text."""
@@ -97,9 +98,10 @@ async def chat_with_database(
 
         # If vector search found good results, use them; otherwise fall back to SQL search
         if len(vector_articles) >= 10:
-            articles = vector_articles[:50]
+            # Enhanced selection: Apply diversity and quality filtering
+            articles = select_diverse_articles(vector_articles, chat_request.limit)
             total_count = len(vector_articles)
-            search_method = "semantic vector search"
+            search_method = "semantic vector search with diversity filtering"
             
             # Format search criteria for display
             search_summary = f"""## Search Method: Enhanced Semantic Search
@@ -107,6 +109,7 @@ async def chat_with_database(
 - **Topic Filter**: {chat_request.topic}
 - **Search Type**: Vector similarity search using embeddings
 - **Results**: Found {total_count} semantically relevant articles
+- **Analysis Limit**: {chat_request.limit} articles
 
 ## Results Overview
 Analyzing the {len(articles)} most semantically similar articles
@@ -207,7 +210,7 @@ Return your search strategy in this format:""" + r"""
                             pub_date_start=pub_date_start,
                             pub_date_end=pub_date_end,
                             page=1,
-                            per_page=50
+                            per_page=chat_request.limit
                         )
                     # Otherwise, use keyword search
                     else:
@@ -220,7 +223,7 @@ Return your search strategy in this format:""" + r"""
                             pub_date_start=pub_date_start,
                             pub_date_end=pub_date_end,
                             page=1,
-                            per_page=50
+                            per_page=chat_request.limit
                         )
                     
                     logger.debug(f"Query returned {count} articles")
@@ -235,7 +238,7 @@ Return your search strategy in this format:""" + r"""
                         seen_uris.add(article['uri'])
                         unique_articles.append(article)
                 
-                articles = unique_articles[:50]  # Keep top 50 most recent unique articles
+                articles = unique_articles[:chat_request.limit]  # Use user's selected limit instead of 50
                 search_method = "structured keyword search"
 
                 # Format search criteria for display
@@ -253,6 +256,7 @@ Return your search strategy in this format:""" + r"""
 
                 search_summary = f"""## Search Method: {search_method.title()}
 {chr(10).join(['- ' + f for f in active_filters])}
+- **Analysis Limit**: {chat_request.limit} articles
 
 ## Results Overview
 Found {total_count} total matching articles
@@ -359,4 +363,43 @@ If the user asked for specific articles, summarize the search results first."""}
         }
     except Exception as e:
         logger.error(f"Error in chat endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e)) 
+        raise HTTPException(status_code=500, detail=str(e))
+
+def select_diverse_articles(articles, limit):
+    """Select diverse articles from a larger pool based on category, source, and recency."""
+    if len(articles) <= limit:
+        return articles
+    
+    # Sort by similarity score first (best matches first)
+    sorted_articles = sorted(articles, key=lambda x: x.get('similarity_score', 1.0))
+    
+    selected = []
+    seen_categories = set()
+    seen_sources = set()
+    
+    # First pass: Select top articles ensuring category diversity
+    for article in sorted_articles:
+        if len(selected) >= limit:
+            break
+            
+        category = article.get('category', 'Unknown')
+        source = article.get('news_source', 'Unknown')
+        
+        # Prefer articles from new categories and sources
+        category_bonus = 0 if category in seen_categories else 1
+        source_bonus = 0 if source in seen_sources else 0.5
+        
+        # Add if we have space and it adds diversity, or if it's a very good match
+        if (len(selected) < limit * 0.7 or  # Always fill 70% with top matches
+            category_bonus > 0 or source_bonus > 0):
+            selected.append(article)
+            seen_categories.add(category)
+            seen_sources.add(source)
+    
+    # Fill remaining slots with best remaining articles
+    remaining_needed = limit - len(selected)
+    if remaining_needed > 0:
+        remaining_articles = [a for a in sorted_articles if a not in selected]
+        selected.extend(remaining_articles[:remaining_needed])
+    
+    return selected[:limit] 
