@@ -1,0 +1,219 @@
+# Vector Analysis Enhancement Configuration
+# This file configures the improved vector analysis system
+
+# Performance Settings
+performance:
+  # Search caching configuration
+  cache:
+    enabled: true
+    redis:
+      host: "localhost"
+      port: 6379
+      db: 0
+      ttl_seconds: 3600  # 1 hour
+      max_memory: "100mb"
+    memory_fallback:
+      enabled: true
+      max_size: 1000
+      ttl_seconds: 3600
+  
+  # Search timeouts and limits
+  timeouts:
+    search_timeout: 30.0  # seconds
+    visualization_timeout: 45.0  # seconds
+    export_timeout: 60.0  # seconds
+  
+  # Rate limiting
+  rate_limits:
+    searches_per_minute: 100
+    exports_per_hour: 10
+    suggestions_per_minute: 200
+  
+  # Performance monitoring
+  monitoring:
+    enabled: true
+    track_cache_hits: true
+    track_response_times: true
+    alert_slow_queries: true
+    slow_query_threshold: 5.0  # seconds
+
+# UI/UX Features
+interface:
+  # Search enhancements
+  search:
+    enable_query_builder: true
+    enable_real_time_suggestions: true
+    enable_syntax_highlighting: true
+    debounce_delay_ms: 300
+    max_suggestions: 10
+  
+  # Loading and feedback
+  loading:
+    enable_progressive_loader: true
+    enable_skeleton_screens: true
+    show_performance_indicators: true
+    fact_rotation_interval: 18  # seconds
+  
+  # View options
+  views:
+    enable_grid_view: true
+    enable_compact_view: true
+    default_view: "list"  # list, grid, compact
+    enable_view_persistence: true
+  
+  # Export features
+  export:
+    enable_csv: true
+    enable_json: true
+    enable_excel: false  # requires additional libraries
+    enable_visualization_export: true
+    max_export_rows: 10000
+
+# Accessibility
+accessibility:
+  enable_screen_reader_support: true
+  enable_keyboard_navigation: true
+  enable_high_contrast_mode: false
+  enable_focus_indicators: true
+  aria_labels: true
+
+# Mobile/Responsive
+responsive:
+  enable_mobile_layout: true
+  breakpoints:
+    mobile: 768
+    tablet: 1024
+    desktop: 1200
+  
+  mobile_features:
+    collapse_sidebars: true
+    simplified_interface: true
+    touch_friendly_controls: true
+
+# Analytics and Tracking
+analytics:
+  # Usage tracking
+  track_searches: true
+  track_popular_queries: true
+  track_export_usage: true
+  track_performance_metrics: true
+  
+  # Data retention
+  metrics_retention_days: 30
+  search_history_retention_days: 7
+  
+  # Privacy
+  anonymize_queries: false
+  hash_user_data: true
+
+# Feature Flags
+features:
+  # Experimental features
+  enable_ai_query_suggestions: false
+  enable_collaborative_filtering: false
+  enable_real_time_updates: false
+  enable_advanced_clustering: true
+  
+  # Beta features
+  enable_query_optimization: true
+  enable_smart_caching: true
+  enable_predictive_loading: false
+
+# Search Configuration
+search:
+  # Default limits
+  default_page_size: 20
+  max_results: 10000
+  
+  # Vector search settings
+  vector_search:
+    similarity_threshold: 0.7
+    enable_hybrid_search: true
+    embedding_dimensions: 1536
+  
+  # Facet configuration
+  facets:
+    max_facet_values: 50
+    enable_facet_search: true
+    show_facet_counts: true
+  
+  # Clustering settings
+  clustering:
+    default_clusters: 30
+    max_clusters: 100
+    enable_hierarchical: false
+
+# Visualization Settings
+visualization:
+  # Embedding methods
+  methods:
+    default: "umap"
+    available: ["umap", "tsne", "pca"]
+  
+  # Performance optimization
+  max_points: 5000
+  enable_webgl: true
+  enable_progressive_rendering: true
+  
+  # Color schemes
+  color_schemes:
+    default: "category"
+    available: ["cluster", "sentiment", "category", "driver_type", "time_to_impact"]
+
+# Security Settings
+security:
+  # Input validation
+  max_query_length: 1000
+  sanitize_inputs: true
+  enable_sql_injection_protection: true
+  
+  # Rate limiting
+  enable_rate_limiting: true
+  max_concurrent_searches: 10
+  
+  # CORS settings
+  cors:
+    allow_origins: ["http://localhost:3000", "https://yourdomain.com"]
+    allow_methods: ["GET", "POST"]
+    allow_headers: ["Content-Type", "Authorization"]
+
+# Logging and Debugging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  enable_query_logging: true
+  enable_performance_logging: true
+  enable_error_tracking: true
+  
+  # Log formats
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  
+  # File logging
+  file_logging:
+    enabled: true
+    path: "logs/vector_analysis.log"
+    max_size_mb: 100
+    backup_count: 5
+
+# Environment-specific overrides
+environments:
+  development:
+    cache:
+      enabled: false
+    logging:
+      level: "DEBUG"
+    features:
+      enable_ai_query_suggestions: true
+  
+  production:
+    cache:
+      enabled: true
+    monitoring:
+      alert_slow_queries: true
+    security:
+      enable_rate_limiting: true
+  
+  testing:
+    cache:
+      enabled: false
+    analytics:
+      track_searches: false 

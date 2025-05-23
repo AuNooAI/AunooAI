@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from app.database import Database, get_database_instance
 from app.ai_models import LiteLLMModel  # Added for LLM access
-# from app.security.session import verify_session # Commented out as unused for now
+from app.security.session import verify_session
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
@@ -177,7 +177,7 @@ class MapActivityPoint(BaseModel):
 async def get_topic_summary_metrics(
     topic_name: str,
     db: Database = Depends(get_database_instance),
-    # session: dict = Depends(verify_session)
+    session: dict = Depends(verify_session)
 ) -> List[MapActivityPoint]:
     """
     Provides a summary of key metrics for a given topic.
@@ -251,8 +251,8 @@ async def get_topic_articles(
     end_date: Optional[str] = Query(None, description="Filter by specific end date YYYY-MM-DD"),
     # TODO: Add sort_by: Optional[str] = Query(None), sort_order: Optional[str] = Query("desc"),
     db: Database = Depends(get_database_instance),
-    filter_no_category: bool = Query(True, description="Filter out articles with no category") # New parameter
-    # session: dict = Depends(verify_session)
+    filter_no_category: bool = Query(True, description="Filter out articles with no category"), # New parameter
+    session: dict = Depends(verify_session)
 ):
     """
     Retrieves a paginated list of articles for a given topic.
@@ -320,8 +320,8 @@ async def get_topic_volume_over_time(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     days_limit: int = Query(30, ge=1, le=365), # Fallback if no dates provided
-    stack_by: str = Query("category", description="Field to stack by: 'category' or 'sentiment'") # New parameter
-    # session: dict = Depends(verify_session)
+    stack_by: str = Query("category", description="Field to stack by: 'category' or 'sentiment'"), # New parameter
+    session: dict = Depends(verify_session)
 ):
     """
     Provides the number of articles per day, stacked by category or sentiment,
@@ -396,7 +396,7 @@ async def get_topic_sentiment_over_time(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     days_limit: int = Query(30, ge=1, le=365), # Fallback if no dates provided
-    # session: dict = Depends(verify_session)
+    session: dict = Depends(verify_session)
 ):
     """
     Provides the count of articles by various sentiments 
@@ -490,7 +490,7 @@ async def get_topic_top_tags(
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     days_limit: int = Query(30, ge=1, le=365), # Fallback if no dates provided
     limit_tags: int = Query(10, ge=1, le=50), # How many top tags to return
-    # session: dict = Depends(verify_session)
+    session: dict = Depends(verify_session)
 ):
     """
     Provides the most frequent tags for a given topic over a specified period.
@@ -548,7 +548,7 @@ async def get_key_articles(
     topic_name: str,
     top_k: int = Query(3, ge=1, le=5), # How many key articles LLM should identify
     db: Database = Depends(get_database_instance),
-    # session: dict = Depends(verify_session)
+    session: dict = Depends(verify_session)
 ):
     """
     Identifies and returns key articles for a topic, selected and summarized by an LLM.
@@ -671,7 +671,7 @@ async def get_generated_insights(
     end_date: Optional[str] = Query(None),
     days_limit: int = Query(30), 
     db: Database = Depends(get_database_instance),
-    # session: dict = Depends(verify_session)
+    session: dict = Depends(verify_session)
 ):
     """
     Generates analytical insights based on aggregated data trends for the topic using an LLM.
@@ -792,7 +792,7 @@ async def get_semantic_outliers(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     days_limit: int = Query(30, ge=1, le=365), # Fallback if no dates provided
-    # session: dict = Depends(verify_session)
+    session: dict = Depends(verify_session)
 ):
     logger.info(f"Fetching semantic outliers for topic: {topic_name}, dates: {start_date}-{end_date}")
     # Placeholder: Actual implementation would involve vector operations
@@ -855,7 +855,7 @@ async def get_article_insights(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD for article selection"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD for article selection"),
     days_limit: int = Query(7, ge=1, le=90, description="for article selection. Default 7 days."),
-    # session: dict = Depends(verify_session)  # Uncomment for auth
+    session: dict = Depends(verify_session)
 ):
     """
     Identifies common themes across articles and groups them thematically.
@@ -1007,7 +1007,7 @@ async def get_article_insights(
 async def get_latest_podcast_for_topic(
     topic_name: str,
     db: Database = Depends(get_database_instance),
-    # session: dict = Depends(verify_session) # Uncomment if auth is needed
+    session: dict = Depends(verify_session)
 ):
     """
     Retrieves the latest completed podcast associated with a given topic.
@@ -1075,7 +1075,7 @@ async def get_podcasts_for_topic(
     topic_name: str,
     limit: int = Query(5, ge=1, le=20), # Limit the number of previous podcasts shown
     db: Database = Depends(get_database_instance),
-    # session: dict = Depends(verify_session) # Uncomment if auth is needed
+    session: dict = Depends(verify_session)
 ):
     """
     Retrieves a list of completed podcasts associated with a given topic,
@@ -1149,7 +1149,7 @@ async def get_category_insights(
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     days_limit: int = Query(30, ge=1, le=365), # Fallback if no dates provided
     db: Database = Depends(get_database_instance),
-    # session: dict = Depends(verify_session) # Uncomment for auth
+    session: dict = Depends(verify_session)
 ):
     """
     Provides a distribution of articles across categories for a given topic and date range.
@@ -1304,7 +1304,8 @@ async def get_word_frequency(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     days_limit: int = Query(30, ge=1, le=365),
-    limit_words: int = Query(50, ge=1, le=200) # How many top words to return
+    limit_words: int = Query(50, ge=1, le=200), # How many top words to return
+    session: dict = Depends(verify_session)
 ):
     """
     Provides word frequency counts from article titles and summaries for a given topic and date range.
@@ -1364,7 +1365,8 @@ async def get_radar_chart_data(
     db: Database = Depends(get_database_instance),
     start_date: Optional[str] = Query(None),
     end_date: Optional[str] = Query(None),
-    days_limit: int = Query(30, ge=1, le=365)
+    days_limit: int = Query(30, ge=1, le=365),
+    session: dict = Depends(verify_session)
 ):
     """
     Provides aggregated data for the radar chart: articles grouped by 
@@ -1472,7 +1474,8 @@ async def get_radar_chart_data(
 async def get_map_activity_data(
     topic_name: str,
     date_range_str: Optional[str] = Query(None, alias="date_range"),
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session: dict = Depends(verify_session)
 ) -> List[MapActivityPoint]:
     """
     Provides country-based data for the global news activity map.

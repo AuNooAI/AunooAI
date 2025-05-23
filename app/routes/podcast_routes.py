@@ -1,6 +1,7 @@
 # flake8: noqa
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, staticfiles, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
+from app.security.session import verify_session
 from typing import List, Optional, Dict
 from pydantic import BaseModel
 from datetime import datetime
@@ -139,7 +140,7 @@ class PodcastTemplate(BaseModel):
 
 
 @router.get("/podcast_templates/{template_name}")
-async def get_podcast_template(template_name: str):
+async def get_podcast_template(template_name: str, session=Depends(verify_session)):
     """Return template content by name from disk."""
     path = _template_path(template_name)
     if not path.exists():
@@ -150,7 +151,7 @@ async def get_podcast_template(template_name: str):
 
 
 @router.post("/podcast_templates")
-async def save_podcast_template(template: PodcastTemplate):
+async def save_podcast_template(template: PodcastTemplate, session=Depends(verify_session)):
     """Create or update a template file on disk."""
     try:
         _save_template_file(template.name, template.content)
@@ -161,7 +162,7 @@ async def save_podcast_template(template: PodcastTemplate):
 
 
 @router.get("/podcast_templates")
-async def list_podcast_templates():
+async def list_podcast_templates(session=Depends(verify_session)):
     """List all template names and brief info."""
     try:
         TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -196,7 +197,7 @@ def _settings_key(mode: str) -> str:
 
 
 @router.get("/podcast_settings/{mode}")
-async def get_podcast_settings(mode: str, db: Database = Depends(get_database_instance)):
+async def get_podcast_settings(mode: str, db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     """Fetch saved default settings for a mode (conversation/bulletin)."""
     key = _settings_key(mode)
     raw = db.get_podcast_setting(key)
@@ -204,7 +205,7 @@ async def get_podcast_settings(mode: str, db: Database = Depends(get_database_in
 
 
 @router.post("/podcast_settings/{mode}")
-async def save_podcast_settings(mode: str, payload: PodcastSettingModel, db: Database = Depends(get_database_instance)):
+async def save_podcast_settings(mode: str, payload: PodcastSettingModel, db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     """Save default settings (upsert)."""
     key = _settings_key(mode)
     db.set_podcast_setting(key, json.dumps(payload.settings))
@@ -346,7 +347,8 @@ def validate_api_keys():
 @router.post("/generate_podcast_script")
 async def generate_podcast_script(
     request: PodcastScriptRequest,
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
 ):
     try:
         logger.info(f"Generating podcast script for {request.podcast_name} - {request.episode_title}")
@@ -448,7 +450,7 @@ async def generate_podcast_script(
 # before.
 
 @router.post("/generate_tts_podcast")
-async def generate_tts_podcast(request: TTSPodcastRequest):
+async def generate_tts_podcast(request: TTSPodcastRequest, session=Depends(verify_session)):
     """
     Launch podcast generation. The heavy work is off‑loaded to a background
     task so that the request returns quickly with a `podcast_id` that the UI
@@ -799,7 +801,7 @@ def split_into_chunks(text: str, max_chars: int = 2500) -> List[str]:
     return chunks
 
 @router.post("/create", response_model=PodcastResponse)
-async def create_podcast(request: PodcastRequest, db: Database = Depends(get_database_instance)):
+async def create_podcast(request: PodcastRequest, db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     try:
         # Validate API keys before proceeding
         validate_api_keys()
@@ -922,7 +924,7 @@ async def create_podcast(request: PodcastRequest, db: Database = Depends(get_dat
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/podcast/{podcast_id}/transcript")
-async def get_podcast_transcript(podcast_id: str):
+async def get_podcast_transcript(podcast_id: str, session=Depends(verify_session)):
     """Get the transcript of a podcast."""
     try:
         with get_database_instance().get_connection() as conn:
@@ -963,7 +965,7 @@ async def get_podcast_transcript(podcast_id: str):
         )
 
 @router.get("/podcast/list")
-async def list_podcasts():
+async def list_podcasts(session=Depends(verify_session)):
     """List all podcasts."""
     try:
         with get_database_instance().get_connection() as conn:
@@ -1001,7 +1003,7 @@ async def list_podcasts():
         )
 
 @router.get("/podcast/status/{podcast_id}")
-async def get_podcast_status(podcast_id: str):
+async def get_podcast_status(podcast_id: str, session=Depends(verify_session)):
     """Get the status of a podcast generation."""
     try:
         with get_database_instance().get_connection() as conn:
@@ -1042,7 +1044,7 @@ async def get_podcast_status(podcast_id: str):
         )
 
 @router.get("/available_voices", response_model=List[VoiceResponse])
-async def get_available_voices():
+async def get_available_voices(session=Depends(verify_session)):
     """Get list of available voices from ElevenLabs."""
     try:
         # Validate API key
@@ -1091,7 +1093,7 @@ async def get_available_voices():
         )
 
 @router.get("/voice/{voice_id}")
-async def get_voice(voice_id: str):
+async def get_voice(voice_id: str, session=Depends(verify_session)):
     """Get details of a specific voice."""
     try:
         # Validate API key
@@ -1137,7 +1139,7 @@ async def get_voice(voice_id: str):
         )
 
 @router.delete("/podcast/{podcast_id}")
-async def delete_podcast(podcast_id: str):
+async def delete_podcast(podcast_id: str, session=Depends(verify_session)):
     """Delete a podcast and its associated audio file."""
     try:
         with get_database_instance().get_connection() as conn:
@@ -1350,7 +1352,7 @@ class DiaConvertRequest(BaseModel):
     script: str
 
 @router.post("/dia/convert")
-async def dia_convert_endpoint(req: DiaConvertRequest):
+async def dia_convert_endpoint(req: DiaConvertRequest, session=Depends(verify_session)):
     """Return script converted to Dia `[S1]`/`[S2]` format."""
     if not req.script.strip():
         raise HTTPException(status_code=400, detail="Empty script")
@@ -1371,7 +1373,7 @@ class DiaTTSRequest(BaseModel):
     speed_factor: Optional[float] = None
 
 @router.post("/dia/tts")
-async def dia_tts_endpoint(req: DiaTTSRequest):
+async def dia_tts_endpoint(req: DiaTTSRequest, session=Depends(verify_session)):
     """Proxy call to Dia service; returns raw audio bytes."""
     try:
         from app.services import dia_client
@@ -1454,7 +1456,7 @@ class DiaPodcastRequest(BaseModel):
 
 
 @router.post("/dia/generate_podcast")
-async def dia_generate_podcast(request: DiaPodcastRequest):
+async def dia_generate_podcast(request: DiaPodcastRequest, session=Depends(verify_session)):
     """Launch Dia podcast generation in the background (returns podcast_id)."""
 
     podcast_id = str(uuid.uuid4())

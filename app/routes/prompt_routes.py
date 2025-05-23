@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, Request, Path, status
+from fastapi import APIRouter, HTTPException, Request, Path, status, Depends
 from fastapi.responses import HTMLResponse
+from app.security.session import verify_session
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 from app.analyzers.prompt_manager import PromptManager, PromptManagerError
@@ -56,7 +57,7 @@ async def config_page(request: Request):
     return templates.TemplateResponse("config.html", {"request": request})
 
 @router.get("/prompts/types", response_model=TypeListResponse)
-async def get_prompt_types():
+async def get_prompt_types(session=Depends(verify_session)):
     try:
         types = prompt_manager.get_prompt_types()
         return {"types": types}
@@ -66,7 +67,8 @@ async def get_prompt_types():
 
 @router.get("/prompts/{prompt_type}/versions", response_model=VersionListResponse)
 async def get_prompt_versions(
-    prompt_type: str = Path(..., description="The type of prompt to get versions for")
+    prompt_type: str = Path(..., description="The type of prompt to get versions for"),
+    session=Depends(verify_session)
 ):
     try:
         versions = prompt_manager.get_versions(prompt_type)
@@ -78,7 +80,8 @@ async def get_prompt_versions(
 @router.get("/prompts/{prompt_type}/{version_hash}", response_model=VersionResponse)
 async def get_prompt_version(
     prompt_type: str = Path(..., description="The type of prompt"),
-    version_hash: str = Path(..., description="The version hash or 'current'")
+    version_hash: str = Path(..., description="The version hash or 'current'"),
+    session=Depends(verify_session)
 ):
     try:
         version = prompt_manager.get_version(prompt_type, version_hash)
@@ -90,7 +93,8 @@ async def get_prompt_version(
 @router.post("/prompts/{prompt_type}", response_model=VersionResponse)
 async def save_prompt_version(
     prompt_type: str = Path(..., description="The type of prompt"),
-    prompt_data: PromptData = None
+    prompt_data: PromptData = None,
+    session=Depends(verify_session)
 ):
     try:
         if not prompt_data:
@@ -109,7 +113,8 @@ async def save_prompt_version(
 @router.post("/prompts/{prompt_type}/{version_hash}/restore", response_model=VersionResponse)
 async def restore_prompt_version(
     prompt_type: str = Path(..., description="The type of prompt"),
-    version_hash: str = Path(..., description="The version hash to restore")
+    version_hash: str = Path(..., description="The version hash to restore"),
+    session=Depends(verify_session)
 ):
     try:
         version = prompt_manager.restore_version(prompt_type, version_hash)
@@ -122,7 +127,8 @@ async def restore_prompt_version(
 async def compare_prompt_versions(
     prompt_type: str = Path(..., description="The type of prompt"),
     version_a: str = None,
-    version_b: str = "current"
+    version_b: str = "current",
+    session=Depends(verify_session)
 ):
     try:
         if not version_a:
@@ -137,7 +143,8 @@ async def compare_prompt_versions(
 @router.delete("/prompts/{prompt_type}/{version_hash}")
 async def delete_prompt_version(
     prompt_type: str = Path(..., description="The type of prompt"),
-    version_hash: str = Path(..., description="The version hash to delete")
+    version_hash: str = Path(..., description="The version hash to delete"),
+    session=Depends(verify_session)
 ):
     try:
         if version_hash == "current":

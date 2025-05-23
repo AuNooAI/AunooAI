@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, UploadFile
 from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 from app.database import get_database_instance, Database
+from app.security.session import verify_session
 from typing import List, Optional
 from pydantic import BaseModel
 import os
@@ -52,7 +53,7 @@ class AnnotationUpdate(BaseModel):
     is_private: bool
 
 @router.get("/api/databases/download/{db_name}")
-async def download_database(db_name: str, db: Database = Depends(get_database_instance)):
+async def download_database(db_name: str, db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     try:
         # Add debug logging
         print(f"Attempting to download database: {db_name}")
@@ -83,7 +84,7 @@ async def download_database(db_name: str, db: Database = Depends(get_database_in
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/database-info")
-async def get_database_info(db: Database = Depends(get_database_instance)):
+async def get_database_info(db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     try:
         # Force a fresh database instance
         db = Database()
@@ -151,7 +152,8 @@ async def get_database_info(db: Database = Depends(get_database_instance)):
 @router.delete("/api/bulk_delete_articles")
 async def bulk_delete_articles(
     request: BulkDeleteRequest,
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
 ) -> dict:
     """Delete multiple articles and their related data in a single transaction."""
     try:
@@ -189,7 +191,8 @@ async def bulk_delete_articles(
 async def get_article_annotations(
     article_uri: str,
     include_private: bool = False,
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
 ):
     try:
         # Use unquote_plus twice to handle double encoding
@@ -204,7 +207,8 @@ async def get_article_annotations(
 async def create_article_annotation(
     article_uri: str,
     annotation: AnnotationCreate,
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
 ):
     try:
         # Use unquote_plus twice to handle double encoding
@@ -237,7 +241,8 @@ async def update_article_annotation(
     article_uri: str,
     annotation_id: int,
     annotation: AnnotationUpdate,
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
 ):
     success = db.update_article_annotation(
         annotation_id,
@@ -252,7 +257,8 @@ async def update_article_annotation(
 async def delete_article_annotation(
     article_uri: str,
     annotation_id: int,
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
 ):
     success = db.delete_article_annotation(annotation_id)
     if not success:
@@ -260,7 +266,7 @@ async def delete_article_annotation(
     return {"success": True}
 
 @router.post("/api/merge_backup")
-async def merge_backup_database(backup_name: str = None, uploaded_file: UploadFile = None):
+async def merge_backup_database(backup_name: str = None, uploaded_file: UploadFile = None, session=Depends(verify_session)):
     """Merge articles and settings from a backup database or uploaded file"""
     try:
         db = get_database_instance()
@@ -297,7 +303,7 @@ async def merge_backup_database(backup_name: str = None, uploaded_file: UploadFi
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/backups")
-async def get_backups():
+async def get_backups(session=Depends(verify_session)):
     """Get list of database backups with sizes"""
     try:
         # Use the correct backup directory path
@@ -332,7 +338,7 @@ async def get_backups():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/backups")
-async def list_backups():
+async def list_backups(session=Depends(verify_session)):
     """Get list of available database backups"""
     try:
         backup_dir = Path("app/data/backups")
@@ -354,7 +360,7 @@ async def list_backups():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/databases/reset")
-async def reset_database(db: Database = Depends(get_database_instance)):
+async def reset_database(db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     """Reset the database to its initial state"""
     try:
         with db.get_connection() as conn:

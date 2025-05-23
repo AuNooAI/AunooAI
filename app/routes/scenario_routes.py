@@ -1,10 +1,11 @@
 from typing import List, Dict
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, status, Depends
 from pydantic import BaseModel, Field
 from fastapi.responses import HTMLResponse
 from fastapi import Request
 from fastapi.templating import Jinja2Templates
+from app.security.session import verify_session
 
 from app.services import ontology_service as svc
 
@@ -52,7 +53,7 @@ class ScenarioUpdate(BaseModel):
 
 
 @router.post("/building_blocks", status_code=status.HTTP_201_CREATED)
-async def create_building_block(payload: BuildingBlockCreate) -> Dict:
+async def create_building_block(payload: BuildingBlockCreate, session=Depends(verify_session)) -> Dict:
     """Create a new ontological building-block."""
 
     return svc.create_building_block(
@@ -64,7 +65,7 @@ async def create_building_block(payload: BuildingBlockCreate) -> Dict:
 
 
 @router.get("/building_blocks", response_model=List[Dict])
-async def list_building_blocks() -> List[Dict]:
+async def list_building_blocks(session=Depends(verify_session)) -> List[Dict]:
     """Return all building-blocks."""
 
     return svc.list_building_blocks()
@@ -72,7 +73,7 @@ async def list_building_blocks() -> List[Dict]:
 
 @router.patch("/building_blocks/{block_id}")
 async def update_building_block(
-    block_id: int, payload: BuildingBlockUpdate,
+    block_id: int, payload: BuildingBlockUpdate, session=Depends(verify_session)
 ) -> Dict:
     """Update building block fields."""
 
@@ -86,7 +87,7 @@ async def update_building_block(
 
 
 @router.delete("/building_blocks/{block_id}")
-async def delete_building_block(block_id: int) -> Dict:
+async def delete_building_block(block_id: int, session=Depends(verify_session)) -> Dict:
     """Delete a building block."""
 
     return svc.delete_building_block(block_id)
@@ -98,7 +99,7 @@ async def delete_building_block(block_id: int) -> Dict:
 
 
 @router.post("/scenarios", status_code=status.HTTP_201_CREATED)
-async def create_scenario(payload: ScenarioCreate) -> Dict:
+async def create_scenario(payload: ScenarioCreate, session=Depends(verify_session)) -> Dict:
     """Create a scenario and its dedicated article table."""
 
     return svc.create_scenario(
@@ -109,21 +110,21 @@ async def create_scenario(payload: ScenarioCreate) -> Dict:
 
 
 @router.get("/scenarios/{scenario_id}")
-async def get_scenario(scenario_id: int) -> Dict:
+async def get_scenario(scenario_id: int, session=Depends(verify_session)) -> Dict:
     """Retrieve a scenario by id."""
 
     return svc.get_scenario(scenario_id)
 
 
 @router.get("/scenarios", response_model=List[Dict])
-async def list_scenarios() -> List[Dict]:
+async def list_scenarios(session=Depends(verify_session)) -> List[Dict]:
     """List saved scenarios."""
 
     return svc.list_scenarios()
 
 
 @router.patch("/scenarios/{scenario_id}")
-async def update_scenario(scenario_id: int, payload: ScenarioUpdate) -> Dict:
+async def update_scenario(scenario_id: int, payload: ScenarioUpdate, session=Depends(verify_session)) -> Dict:
     """Update scenario details."""
 
     return svc.update_scenario(
@@ -140,7 +141,7 @@ async def update_scenario(scenario_id: int, payload: ScenarioUpdate) -> Dict:
 
 
 @router.delete("/scenarios/{scenario_id}")
-async def delete_scenario(scenario_id: int) -> Dict:
+async def delete_scenario(scenario_id: int, session=Depends(verify_session)) -> Dict:
     """Delete a scenario and its associated article table."""
 
     return svc.delete_scenario(scenario_id)
@@ -152,7 +153,7 @@ async def delete_scenario(scenario_id: int) -> Dict:
 
 
 @router.get("/scenarios/{scenario_id}/prompt")
-async def compose_scenario_prompt(scenario_id: int) -> Dict[str, str]:
+async def compose_scenario_prompt(scenario_id: int, session=Depends(verify_session)) -> Dict[str, str]:
     """Return merged system & user prompt built from scenario blocks."""
 
     return svc.compose_prompt(scenario_id)

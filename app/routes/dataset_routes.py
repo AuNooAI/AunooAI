@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.database import Database, get_database_instance
 from app.models.media_bias import MediaBias
+from app.security.session import verify_session
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ def get_media_bias(db: Database = Depends(get_database_instance)) -> MediaBias:
     return MediaBias(db)
 
 @router.get("/media_bias")
-async def get_media_bias_data(media_bias: MediaBias = Depends(get_media_bias)):
+async def get_media_bias_data(media_bias: MediaBias = Depends(get_media_bias), session=Depends(verify_session)):
     """Get media bias data and status."""
     try:
         sources = media_bias.get_all_sources()
@@ -39,7 +40,7 @@ async def get_media_bias_data(media_bias: MediaBias = Depends(get_media_bias)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/media_bias/import")
-async def import_media_bias(media_bias: MediaBias = Depends(get_media_bias)):
+async def import_media_bias(media_bias: MediaBias = Depends(get_media_bias), session=Depends(verify_session)):
     """Import media bias data from the default CSV file."""
     try:
         # Define path to the default CSV file (included with the application)
@@ -70,7 +71,8 @@ async def import_media_bias(media_bias: MediaBias = Depends(get_media_bias)):
 @router.post("/media_bias/upload")
 async def upload_media_bias_file(
     file: UploadFile = File(...),
-    media_bias: MediaBias = Depends(get_media_bias)
+    media_bias: MediaBias = Depends(get_media_bias),
+    session=Depends(verify_session)
 ):
     """Upload and import a custom media bias CSV file."""
     if not file.filename.endswith('.csv'):
@@ -109,7 +111,8 @@ async def upload_media_bias_file(
 @router.post("/media_bias/enable")
 async def enable_media_bias_enrichment(
     data: Dict[str, Any],
-    media_bias: MediaBias = Depends(get_media_bias)
+    media_bias: MediaBias = Depends(get_media_bias),
+    session=Depends(verify_session)
 ):
     """Enable or disable media bias enrichment."""
     try:
@@ -133,7 +136,7 @@ async def enable_media_bias_enrichment(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/media_bias/reset")
-async def reset_media_bias(media_bias: MediaBias = Depends(get_media_bias)):
+async def reset_media_bias(media_bias: MediaBias = Depends(get_media_bias), session=Depends(verify_session)):
     """Reset (delete) all media bias data."""
     try:
         success = media_bias.reset()
@@ -157,7 +160,8 @@ async def reset_media_bias(media_bias: MediaBias = Depends(get_media_bias)):
 @router.get("/media_bias/source/{source}")
 async def get_bias_for_source(
     source: str,
-    media_bias: MediaBias = Depends(get_media_bias)
+    media_bias: MediaBias = Depends(get_media_bias),
+    session=Depends(verify_session)
 ):
     """Get media bias data for a specific source."""
     try:
@@ -222,7 +226,8 @@ async def search_media_bias(
     country: Optional[str] = None,
     page: int = 1,
     per_page: int = 20,
-    media_bias: MediaBias = Depends(get_media_bias)
+    media_bias: MediaBias = Depends(get_media_bias),
+    session=Depends(verify_session)
 ):
     """Search and filter media bias sources."""
     try:
@@ -247,7 +252,7 @@ async def search_media_bias(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/media_bias/filters")
-async def get_media_bias_filters(media_bias: MediaBias = Depends(get_media_bias)):
+async def get_media_bias_filters(media_bias: MediaBias = Depends(get_media_bias), session=Depends(verify_session)):
     """Get filter options for media bias data."""
     try:
         filters = media_bias.get_filter_options()
@@ -259,7 +264,8 @@ async def get_media_bias_filters(media_bias: MediaBias = Depends(get_media_bias)
 @router.get("/media_bias/by-id/{source_id}")
 async def get_media_bias_by_id(
     source_id: int,
-    media_bias: MediaBias = Depends(get_media_bias)
+    media_bias: MediaBias = Depends(get_media_bias),
+    session=Depends(verify_session)
 ):
     """Get media bias source by ID."""
     try:
@@ -280,7 +286,8 @@ async def get_media_bias_by_id(
 @router.post("/media_bias/add")
 async def add_media_bias_source(
     source_data: Dict[str, Any],
-    media_bias: MediaBias = Depends(get_media_bias)
+    media_bias: MediaBias = Depends(get_media_bias),
+    session=Depends(verify_session)
 ):
     """Add a new media bias source."""
     try:
@@ -299,7 +306,8 @@ async def add_media_bias_source(
 async def update_media_bias_source(
     source_id: int,
     source_data: Dict[str, Any],
-    media_bias: MediaBias = Depends(get_media_bias)
+    media_bias: MediaBias = Depends(get_media_bias),
+    session=Depends(verify_session)
 ):
     """Update an existing media bias source."""
     try:
@@ -317,7 +325,8 @@ async def update_media_bias_source(
 @router.delete("/media_bias/{source_id}")
 async def delete_media_bias_source(
     source_id: int,
-    media_bias: MediaBias = Depends(get_media_bias)
+    media_bias: MediaBias = Depends(get_media_bias),
+    session=Depends(verify_session)
 ):
     """Delete a media bias source."""
     try:
