@@ -740,6 +740,23 @@
         font-weight: 500;
     }
     
+    /* Clickable badge styling */
+    .clickable-badge {
+        transition: all 0.2s ease;
+        cursor: pointer !important;
+    }
+    
+    .clickable-badge:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        filter: brightness(1.1);
+    }
+    
+    .clickable-badge:active {
+        transform: translateY(0);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+    
     .badge.bg-outline-secondary {
         background-color: transparent !important;
         color: var(--secondary-color) !important;
@@ -1499,7 +1516,7 @@ function renderResults(results, reset = false) {
         const pub = r.metadata.publication_date ? new Date(r.metadata.publication_date).toISOString().split('T')[0] : '';
 
         if (isCompactView) {
-            // Compact layout - more table-like
+            // Compact layout - more table-like (no delete button)
             body.innerHTML = `
                 <div class="d-flex align-items-center justify-content-between w-100">
                     <h6 class="mb-0 flex-grow-1 me-3">${link}</h6>
@@ -1508,75 +1525,82 @@ function renderResults(results, reset = false) {
                         <small class="text-muted">${r.metadata.news_source || ''}</small>
                         <small class="text-muted">${r.metadata.category || ''}</small>
                         <small class="badge bg-light text-dark">${r.score.toFixed(2)}</small>
-                        <button class="btn btn-sm btn-outline-danger delete-article-btn" 
-                                onclick="deleteArticleFromVector('${r.id}')" 
-                                title="Delete article">
-                            <i class="fas fa-trash"></i>
-                        </button>
                     </div>
                 </div>`;
         } else {
-            // Regular layout (list and grid) - enhanced badges and delete button
+            // Regular layout (list and grid) - enhanced badges without delete button
             const metadata = r.metadata;
             
-            // Create comprehensive badges for all metadata
+            // Create comprehensive badges for all metadata - make them clickable
             let badgesHtml = '<div class="mb-2">';
             
-            // Primary badges (always visible if present)
+            // Primary badges (always visible if present) - add click handlers
             if (metadata.category) {
-                badgesHtml += `<span class="badge bg-primary me-1 mb-1">${metadata.category}</span>`;
+                badgesHtml += `<span class="badge bg-primary me-1 mb-1 clickable-badge" data-field="category" data-value="${metadata.category}" style="cursor: pointer;" title="Category: ${metadata.category} (click to filter)">${metadata.category}</span>`;
             }
             if (metadata.sentiment) {
                 const sentimentClass = metadata.sentiment.toLowerCase() === 'positive' ? 'bg-success' : 
                                      metadata.sentiment.toLowerCase() === 'negative' ? 'bg-danger' : 
                                      metadata.sentiment.toLowerCase() === 'critical' ? 'bg-dark' :
                                      metadata.sentiment.toLowerCase() === 'mixed' ? 'bg-warning text-dark' : 'bg-secondary';
-                badgesHtml += `<span class="badge ${sentimentClass} me-1 mb-1">${metadata.sentiment}</span>`;
+                badgesHtml += `<span class="badge ${sentimentClass} me-1 mb-1 clickable-badge" data-field="sentiment" data-value="${metadata.sentiment}" style="cursor: pointer;" title="Sentiment: ${metadata.sentiment} (click to filter)">${metadata.sentiment}</span>`;
             }
             if (metadata.time_to_impact) {
                 const timeClass = metadata.time_to_impact.toLowerCase() === 'immediate' ? 'bg-danger' :
                                 metadata.time_to_impact.toLowerCase() === 'short-term' ? 'bg-warning text-dark' :
                                 metadata.time_to_impact.toLowerCase() === 'mid-term' ? 'bg-info' : 'bg-secondary';
-                badgesHtml += `<span class="badge ${timeClass} me-1 mb-1">${metadata.time_to_impact}</span>`;
+                badgesHtml += `<span class="badge ${timeClass} me-1 mb-1 clickable-badge" data-field="time_to_impact" data-value="${metadata.time_to_impact}" style="cursor: pointer;" title="Time to Impact: ${metadata.time_to_impact} (click to filter)">${metadata.time_to_impact}</span>`;
             }
             if (metadata.driver_type) {
-                badgesHtml += `<span class="badge bg-dark me-1 mb-1">${metadata.driver_type}</span>`;
+                badgesHtml += `<span class="badge bg-dark me-1 mb-1 clickable-badge" data-field="driver_type" data-value="${metadata.driver_type}" style="cursor: pointer;" title="Driver Type: ${metadata.driver_type} (click to filter)">${metadata.driver_type}</span>`;
             }
             if (metadata.future_signal) {
-                badgesHtml += `<span class="badge bg-info me-1 mb-1">${metadata.future_signal}</span>`;
+                badgesHtml += `<span class="badge bg-info me-1 mb-1 clickable-badge" data-field="future_signal" data-value="${metadata.future_signal}" style="cursor: pointer;" title="Future Signal: ${metadata.future_signal} (click to filter)">${metadata.future_signal}</span>`;
             }
             
             // Secondary badges (additional metadata)
             if (metadata.topic) {
-                badgesHtml += `<span class="badge bg-outline-secondary border me-1 mb-1">${metadata.topic}</span>`;
+                badgesHtml += `<span class="badge bg-outline-secondary border me-1 mb-1 clickable-badge" data-field="topic" data-value="${metadata.topic}" style="cursor: pointer;" title="Topic: ${metadata.topic} (click to filter)">${metadata.topic}</span>`;
             }
             
             badgesHtml += '</div>';
             
             body.innerHTML = `
-                <div class="d-flex justify-content-between align-items-start">
-                    <div class="flex-grow-1">
-                        <h6 class="ms-4">${link}</h6>
-                        <p class='mb-1 ms-4'><small>${pub} · ${metadata.news_source || ''}</small></p>
-                        <p class='mb-1 text-muted small ms-4'>${summary}</p>
-                        <div class="ms-4">${badgesHtml}</div>
-                        <p class='mb-1 ms-4'><small>Score: ${r.score.toFixed(3)}</small></p>
-                    </div>
-                    <div class="flex-shrink-0 ms-2">
-                        <button class="btn btn-sm btn-outline-danger delete-article-btn" 
-                                onclick="deleteArticleFromVector('${r.id}')" 
-                                title="Delete article from vector database">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
+                <div class="flex-grow-1">
+                    <h6 class="ms-4">${link}</h6>
+                    <p class='mb-1 ms-4'><small>${pub} · ${metadata.news_source || ''}</small></p>
+                    <p class='mb-1 text-muted small ms-4'>${summary}</p>
+                    <div class="ms-4">${badgesHtml}</div>
+                    <p class='mb-1 ms-4'><small>Score: ${r.score.toFixed(3)}</small></p>
                 </div>`;
         }
             
         card.appendChild(checkbox);
         card.appendChild(body);
         
+        // Add click handlers for badges after the card is created
+        card.querySelectorAll('.clickable-badge').forEach(badge => {
+            badge.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent card click event
+                const field = badge.dataset.field;
+                const value = badge.dataset.value;
+                const input = document.getElementById('searchInput');
+                const cleanValue = value.replace(/["']/g, '');
+                const token = `${field}="${cleanValue}"`;
+                
+                if (input.value.includes(token)) {
+                    // Remove filter if already present
+                    input.value = input.value.replace(token, '').trim();
+                } else {
+                    // Add filter
+                    input.value = `${input.value} ${token}`.trim();
+                }
+                runSearch();
+            });
+        });
+        
         card.addEventListener('click', (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'A' || e.target.closest('a') || e.target.closest('button')) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'A' || e.target.closest('a') || e.target.closest('button') || e.target.classList.contains('clickable-badge')) return;
             renderMetadata(r.metadata);
         });
         
