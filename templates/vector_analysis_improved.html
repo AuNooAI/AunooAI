@@ -69,12 +69,33 @@
         max-height: none; /* Remove height limit */
     }
     
-    /* Fixed results container - remove height constraints */
+    /* Fixed results container - add scrollbar instead of infinite scrolling */
     #results {
         flex: 1;
         margin-top: 1rem;
-        overflow: visible; /* Remove overflow constraint */
+        max-height: calc(100vh - 400px); /* Set max height for scrollable container */
+        overflow-y: auto; /* Add vertical scrollbar */
         min-height: auto;
+        padding-right: 10px; /* Space for scrollbar */
+    }
+    
+    /* Custom scrollbar styling */
+    #results::-webkit-scrollbar {
+        width: 8px;
+    }
+    
+    #results::-webkit-scrollbar-track {
+        background: var(--light-gray);
+        border-radius: 4px;
+    }
+    
+    #results::-webkit-scrollbar-thumb {
+        background: var(--primary-color);
+        border-radius: 4px;
+    }
+    
+    #results::-webkit-scrollbar-thumb:hover {
+        background: var(--primary-hover);
     }
     
     /* Fixed filter panels - professional styling */
