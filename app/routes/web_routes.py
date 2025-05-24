@@ -1,7 +1,16 @@
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 from app.security.session import verify_session  
-from app.core.shared import templates  
+from typing import Optional
+from fastapi.templating import Jinja2Templates
+
+# This will be set by the main app - for now use a fallback
+templates: Optional[Jinja2Templates] = None
+
+def set_templates(template_instance: Jinja2Templates):
+    """Set the templates instance for this router."""
+    global templates
+    templates = template_instance  
 from app.config.config import load_config  
 import logging  
 
