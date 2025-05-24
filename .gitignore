@@ -29,6 +29,7 @@ ENV/
 reports/
 app/config/config.json
 #app/data/*.db
+/home/d1g1fox/dev/experimental/AunooAI/chromadb
 
 # IDE and Editor files
 .idea/
