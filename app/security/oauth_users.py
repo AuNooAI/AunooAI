@@ -3,8 +3,20 @@ from typing import Optional, Dict, Any
 import logging
 from datetime import datetime
 import sqlite3
+import os
 
 logger = logging.getLogger(__name__)
+
+# Add allowed domains configuration
+ALLOWED_EMAIL_DOMAINS = os.getenv('ALLOWED_EMAIL_DOMAINS', '').split(',') if os.getenv('ALLOWED_EMAIL_DOMAINS') else []
+
+def is_email_domain_allowed(email: str) -> bool:
+    """Check if email domain is in allowed domains list"""
+    if not ALLOWED_EMAIL_DOMAINS or not ALLOWED_EMAIL_DOMAINS[0]:
+        return True  # No restrictions if not configured
+    
+    domain = email.split('@')[-1].lower()
+    return domain in [d.strip().lower() for d in ALLOWED_EMAIL_DOMAINS if d.strip()]
 
 class OAuthUserManager:
     """Manager for OAuth user operations"""
@@ -49,6 +61,17 @@ class OAuthUserManager:
                     )
                 """)
                 
+                # Create oauth_allowlist table for access control
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS oauth_allowlist (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        email TEXT UNIQUE NOT NULL,
+                        added_by TEXT,
+                        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        is_active BOOLEAN DEFAULT TRUE
+                    )
+                """)
+                
                 conn.commit()
                 logger.info("OAuth tables ensured successfully")
                 
@@ -59,6 +82,22 @@ class OAuthUserManager:
     def create_or_update_oauth_user(self, email: str, name: str, provider: str, 
                                    provider_id: str = None, avatar_url: str = None) -> Dict[str, Any]:
         """Create or update OAuth user in database"""
+        
+        # Check if email domain is allowed
+        if not is_email_domain_allowed(email):
+            logger.warning(f"OAuth login denied for {email} - domain not in allowlist")
+            raise Exception(f"Access denied: {email.split('@')[-1]} domain is not authorized")
+        
+        # Check if user is in allowlist (if allowlist has entries)
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM oauth_allowlist WHERE is_active = 1")
+            allowlist_count = cursor.fetchone()[0]
+            
+            if allowlist_count > 0 and not self.is_user_allowed(email):
+                logger.warning(f"OAuth login denied for {email} - not in user allowlist")
+                raise Exception(f"Access denied: {email} is not authorized to access this application")
+        
         try:
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
@@ -222,6 +261,53 @@ class OAuthUserManager:
         except Exception as e:
             logger.error(f"Failed to list OAuth users: {e}")
             return []
+
+    def is_user_allowed(self, email: str) -> bool:
+        """Check if user email is in the allowlist"""
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT COUNT(*) FROM oauth_allowlist WHERE email = ? AND is_active = 1",
+                    (email.lower(),)
+                )
+                count = cursor.fetchone()[0]
+                return count > 0
+        except Exception as e:
+            logger.error(f"Failed to check allowlist for {email}: {e}")
+            return False
+    
+    def add_to_allowlist(self, email: str, added_by: str = None) -> bool:
+        """Add email to OAuth allowlist"""
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT OR REPLACE INTO oauth_allowlist (email, added_by) VALUES (?, ?)",
+                    (email.lower(), added_by)
+                )
+                conn.commit()
+                logger.info(f"Added {email} to OAuth allowlist")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to add {email} to allowlist: {e}")
+            return False
+    
+    def remove_from_allowlist(self, email: str) -> bool:
+        """Remove email from OAuth allowlist"""
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "UPDATE oauth_allowlist SET is_active = 0 WHERE email = ?",
+                    (email.lower(),)
+                )
+                conn.commit()
+                logger.info(f"Removed {email} from OAuth allowlist")
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Failed to remove {email} from allowlist: {e}")
+            return False
 
 def get_oauth_user_by_session(session_data: dict) -> Optional[dict]:
     """Get OAuth user details from session data"""
