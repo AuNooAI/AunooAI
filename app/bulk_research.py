@@ -232,8 +232,33 @@ class BulkResearch:
                     logger.error(f"Error getting media bias data for {url}: {str(bias_error)}")
                     # Don't fail the entire process on bias lookup error
                 
-                results.append(result)
                 logger.info(f"Successfully analyzed URL: {url}")
+                
+                # ✅ ADD AUTOMATIC VECTOR INDEXING FOR ANALYZED ARTICLES
+                try:
+                    from app.vector_store import upsert_article
+                    
+                    # Create a copy of result for vector indexing
+                    vector_article = result.copy()
+                    
+                    # Add raw article content if available (upsert_article looks for 'raw' field)
+                    if article_content and article_content.get('content'):
+                        vector_article['raw'] = article_content['content']
+                    
+                    # Ensure we have some content for indexing
+                    if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
+                        # Index into vector database with correct function signature
+                        upsert_article(vector_article)
+                        logger.info(f"Successfully indexed analyzed article into vector database: {result.get('title', url)}")
+                    else:
+                        logger.warning(f"No content available for vector indexing during analysis: {url}")
+                        
+                except Exception as vector_error:
+                    logger.error(f"Failed to index analyzed article into vector database: {str(vector_error)}")
+                    # Don't fail the analysis if vector indexing fails
+                    logger.warning("Article analyzed but not indexed in vector store")
+                
+                results.append(result)
                 
             except Exception as e:
                 logger.error(f"Error processing URL {url}: {str(e)}")
@@ -353,6 +378,40 @@ class BulkResearch:
                         article['raw_markdown'],
                         article.get('topic', '')
                     )
+                
+                # ✅ ADD AUTOMATIC VECTOR INDEXING
+                try:
+                    from app.vector_store import upsert_article
+                    
+                    # Create a copy of article for vector indexing
+                    vector_article = article.copy()
+                    
+                    # Add raw content if available (upsert_article looks for 'raw' field)
+                    raw_content = article.get('raw_markdown', '')
+                    if not raw_content:
+                        # Try to get from database
+                        try:
+                            raw_article = self.db.get_raw_article(article['uri'])
+                            if raw_article:
+                                raw_content = raw_article.get('raw_markdown', '')
+                        except Exception:
+                            pass
+                    
+                    if raw_content:
+                        vector_article['raw'] = raw_content
+                    
+                    # Ensure we have some content for indexing
+                    if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
+                        # Index into vector database with correct function signature
+                        upsert_article(vector_article)
+                        logger.info(f"Successfully indexed bulk article into vector database: {article['title']}")
+                    else:
+                        logger.warning(f"No content available for vector indexing: {article['uri']}")
+                        
+                except Exception as vector_error:
+                    logger.error(f"Failed to index bulk article into vector database: {str(vector_error)}")
+                    # Don't fail the entire save operation if vector indexing fails
+                    logger.warning("Bulk article saved to database but not indexed in vector store")
                 
                 logger.info(f"Successfully saved article: {article['title']}")
                 results["success"].append({
@@ -584,6 +643,31 @@ class BulkResearch:
                     # Don't fail the entire process on bias lookup error
                 
                 logger.info(f"[stream] Finished URL: {url}")
+                
+                # ✅ ADD AUTOMATIC VECTOR INDEXING FOR STREAMING ANALYSIS
+                try:
+                    from app.vector_store import upsert_article
+                    
+                    # Create a copy of result for vector indexing
+                    vector_article = result.copy()
+                    
+                    # Add raw article content if available (upsert_article looks for 'raw' field)
+                    if article_content and article_content.get('content'):
+                        vector_article['raw'] = article_content['content']
+                    
+                    # Ensure we have some content for indexing
+                    if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
+                        # Index into vector database with correct function signature
+                        upsert_article(vector_article)
+                        logger.info(f"[stream] Successfully indexed analyzed article into vector database: {result.get('title', url)}")
+                    else:
+                        logger.warning(f"[stream] No content available for vector indexing during analysis: {url}")
+                        
+                except Exception as vector_error:
+                    logger.error(f"[stream] Failed to index analyzed article into vector database: {str(vector_error)}")
+                    # Don't fail the analysis if vector indexing fails
+                    logger.warning("[stream] Article analyzed but not indexed in vector store")
+                
                 yield result
                 # Give control back to event loop to flush stream quickly
                 await asyncio.sleep(0)

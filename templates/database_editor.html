@@ -370,12 +370,20 @@
         <!-- Header with bulk delete button -->
         <div class="panel-header d-flex justify-content-between align-items-center mb-3">
             <h6>ARTICLES</h6>
-            <button id="bulkDeleteBtn" 
-                    class="btn btn-danger" 
-                    onclick="bulkDeleteArticles()" 
-                    disabled>
-                Delete Selected (0)
-            </button>
+            <div class="btn-group" role="group">
+                <button type="button" id="bulkDeleteBtn" class="btn btn-danger dropdown-toggle" 
+                        data-bs-toggle="dropdown" aria-expanded="false" disabled>
+                    Delete Selected (0)
+                </button>
+                <ul class="dropdown-menu">
+                    <li><button class="dropdown-item" onclick="bulkDeleteArticles(false)">
+                        <i class="fas fa-database me-2"></i>Database Only
+                    </button></li>
+                    <li><button class="dropdown-item" onclick="bulkDeleteArticles(true)">
+                        <i class="fas fa-trash me-2"></i>Database + Vector Store
+                    </button></li>
+                </ul>
+            </div>
         </div>
 
         <!-- Single pagination container -->
@@ -883,8 +891,22 @@ function displayArticles() {
             <td><span class="badge ${article.analyzed ? 'bg-success' : 'bg-secondary'}">${article.analyzed ? 'Yes' : 'No'}</span></td>
             <td>
                 ${articleUri ? `
-                    <button class="btn btn-sm btn-primary" onclick="editArticle('${articleUri}')">Edit</button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteArticle('${articleUri}')">Delete</button>
+                    <div class="btn-group" role="group">
+                        <button class="btn btn-sm btn-primary" onclick="editArticle('${articleUri}')">Edit</button>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-sm btn-danger dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                                Delete
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><button class="dropdown-item" onclick="deleteArticle('${articleUri}', false)">
+                                    <i class="fas fa-database me-2"></i>Database Only
+                                </button></li>
+                                <li><button class="dropdown-item" onclick="deleteArticle('${articleUri}', true)">
+                                    <i class="fas fa-trash me-2"></i>Database + Vector Store
+                                </button></li>
+                            </ul>
+                        </div>
+                    </div>
                 ` : '<span class="text-muted">No URI</span>'}
             </td>
         `;
@@ -1357,11 +1379,14 @@ async function editArticle(uri) {
     }
 }
 
-async function deleteArticle(uri) {
-    if (confirm('Are you sure you want to delete this article?')) {
+async function deleteArticle(uri, includeVectorStore = false) {
+    const deleteType = includeVectorStore ? 'database and vector store' : 'database only';
+    if (confirm(`Are you sure you want to delete this article from the ${deleteType}?`)) {
         try {
             // Decode the URI first in case it's already encoded, then encode it once
             const decodedUri = decodeURIComponent(uri);
+            
+            // Delete from main database
             const response = await fetch(`/api/article?uri=${encodeURIComponent(decodedUri)}`, { 
                 method: 'DELETE' 
             });
@@ -1373,7 +1398,32 @@ async function deleteArticle(uri) {
             
             const result = await response.json();
             console.log('Delete result:', result);
-            alert('Article deleted successfully');
+            
+            // If requested, also delete from vector store
+            if (includeVectorStore) {
+                try {
+                    const vectorResponse = await fetch(`/api/vector-delete/${encodeURIComponent(decodedUri)}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (vectorResponse.ok) {
+                        console.log('Successfully deleted from vector store');
+                        alert('Article deleted successfully from both database and vector store');
+                    } else {
+                        const vectorError = await vectorResponse.json();
+                        console.warn('Vector store deletion failed:', vectorError);
+                        alert('Article deleted from database, but vector store deletion failed: ' + vectorError.detail);
+                    }
+                } catch (vectorError) {
+                    console.warn('Vector store deletion error:', vectorError);
+                    alert('Article deleted from database, but vector store deletion failed');
+                }
+            } else {
+                alert('Article deleted successfully from database');
+            }
             
             // Refresh the articles list
             const topicSelect = document.getElementById('topicSelect');
@@ -1571,17 +1621,19 @@ async function fetchArticles(topicName) {
 }
 
 // Add this function to handle bulk deletion
-async function bulkDeleteArticles() {
+async function bulkDeleteArticles(includeVectorStore = false) {
     if (selectedArticlesForDeletion.size === 0) {
         alert('Please select at least one article to delete');
         return;
     }
 
-    if (!confirm(`Are you sure you want to delete ${selectedArticlesForDeletion.size} articles?`)) {
+    const deleteType = includeVectorStore ? 'database and vector store' : 'database only';
+    if (!confirm(`Are you sure you want to delete ${selectedArticlesForDeletion.size} articles from the ${deleteType}?`)) {
         return;
     }
 
     try {
+        // Delete from main database
         const response = await fetch('/api/bulk_delete_articles', {
             method: 'DELETE',
             headers: {
@@ -1597,7 +1649,43 @@ async function bulkDeleteArticles() {
         }
 
         const result = await response.json();
-        alert(`Successfully deleted ${result.deleted_count} articles`);
+        
+        // If requested, also delete from vector store
+        if (includeVectorStore) {
+            let vectorSuccessCount = 0;
+            let vectorErrors = [];
+            
+            // Delete each article from vector store individually
+            for (const uri of selectedArticlesForDeletion) {
+                try {
+                    const decodedUri = decodeURIComponent(uri);
+                    const vectorResponse = await fetch(`/api/vector-delete/${encodeURIComponent(decodedUri)}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (vectorResponse.ok) {
+                        vectorSuccessCount++;
+                    } else {
+                        const vectorError = await vectorResponse.json();
+                        vectorErrors.push(`${decodedUri}: ${vectorError.detail}`);
+                    }
+                } catch (vectorError) {
+                    vectorErrors.push(`${uri}: ${vectorError.message}`);
+                }
+            }
+            
+            // Show appropriate message based on results
+            if (vectorErrors.length === 0) {
+                alert(`Successfully deleted ${result.deleted_count} articles from database and ${vectorSuccessCount} from vector store`);
+            } else {
+                alert(`Database: deleted ${result.deleted_count} articles\nVector store: deleted ${vectorSuccessCount}, failed ${vectorErrors.length}\n\nVector errors:\n${vectorErrors.slice(0, 5).join('\n')}${vectorErrors.length > 5 ? '\n...' : ''}`);
+            }
+        } else {
+            alert(`Successfully deleted ${result.deleted_count} articles from database`);
+        }
         
         // Clear selection and refresh the list
         selectedArticlesForDeletion.clear();

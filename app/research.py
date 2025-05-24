@@ -782,6 +782,40 @@ class Research:
                     article_data.get('topic', '')
                 )
             
+            # ✅ ADD AUTOMATIC VECTOR INDEXING
+            try:
+                from app.vector_store import upsert_article
+                
+                # Create a copy of article_data for vector indexing
+                vector_article = article_data.copy()
+                
+                # Add raw content if available (upsert_article looks for 'raw' field)
+                raw_content = article_data.get('raw_markdown', '')
+                if not raw_content:
+                    # Try to get from database
+                    try:
+                        raw_article = self.db.get_raw_article(article_data['uri'])
+                        if raw_article:
+                            raw_content = raw_article.get('raw_markdown', '')
+                    except Exception:
+                        pass
+                
+                if raw_content:
+                    vector_article['raw'] = raw_content
+                
+                # Ensure we have some content for indexing
+                if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
+                    # Index into vector database with correct function signature
+                    upsert_article(vector_article)
+                    logger.info(f"Successfully indexed article into vector database: {article_data['title']}")
+                else:
+                    logger.warning(f"No content available for vector indexing: {article_data['uri']}")
+                    
+            except Exception as vector_error:
+                logger.error(f"Failed to index article into vector database: {str(vector_error)}")
+                # Don't fail the entire save operation if vector indexing fails
+                logger.warning("Article saved to database but not indexed in vector store")
+            
             logger.info(f"Article saved successfully: {article_data['title']}")
             return True
         except Exception as e:
@@ -1236,6 +1270,43 @@ class Research:
             return scrape_result.__dict__.get("data", scrape_result.__dict__)
 
         return {}
+
+    def check_vector_indexing_status(self, uri: str) -> Dict[str, Any]:
+        """Debug utility to check if an article is indexed in the vector database."""
+        try:
+            from app.vector_store import _get_collection
+            
+            collection = _get_collection()
+            
+            # Try to get the article from vector database
+            result = collection.get(
+                ids=[uri],
+                include=['metadatas', 'documents']
+            )
+            
+            if result and result.get('ids') and uri in result['ids']:
+                idx = result['ids'].index(uri)
+                return {
+                    "indexed": True,
+                    "uri": uri,
+                    "metadata": result.get('metadatas', [{}])[idx] if result.get('metadatas') else {},
+                    "has_content": bool(result.get('documents', [''])[idx]) if result.get('documents') else False,
+                    "content_length": len(result.get('documents', [''])[idx] or '') if result.get('documents') else 0
+                }
+            else:
+                return {
+                    "indexed": False,
+                    "uri": uri,
+                    "message": "Article not found in vector database"
+                }
+                
+        except Exception as e:
+            logger.error(f"Error checking vector indexing status: {str(e)}")
+            return {
+                "indexed": False,
+                "uri": uri,
+                "error": str(e)
+            }
 
 
 

@@ -129,6 +129,7 @@ def _get_collection() -> chromadb.Collection:
         return client.create_collection(
             name=_COLLECTION_NAME,
             embedding_function=_get_embedding_function(),
+            metadata={"hnsw:space": "cosine"}  # Use cosine distance for 0-1 similarity scores
         )
 
 # --------------------------------------------------------------------------------------

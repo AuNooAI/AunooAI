@@ -631,6 +631,16 @@
     #scatter {
         min-height: 300px;
         overflow: visible;
+        width: 100% !important;
+        height: 450px !important;
+        background: white;
+        border: 1px solid #e9ecef;
+        border-radius: 4px;
+    }
+    
+    /* Ensure scatter plot shows properly when loaded */
+    #scatter[style*="display: block"] {
+        display: block !important;
     }
     
     /* Card body constraints - allow natural expansion */
@@ -662,6 +672,105 @@
         background: var(--primary-hover);
         transform: translateY(-50%) translateX(-2px);
         box-shadow: -4px 0 12px rgba(255, 105, 180, 0.4);
+    }
+    
+    /* Enhanced facet styling for show more/less functionality */
+    .facet-more-items {
+        border-top: 1px solid var(--border-color);
+        margin-top: 0.5rem;
+        padding-top: 0.5rem;
+    }
+    
+    .facet-group .btn-link {
+        color: var(--primary-color);
+        text-decoration: none;
+        font-size: 0.75rem;
+    }
+    
+    .facet-group .btn-link:hover {
+        color: var(--primary-hover);
+        text-decoration: underline;
+    }
+    
+    /* Delete button styling - Hot Pink theme */
+    .delete-article-btn {
+        opacity: 0.7;
+        transition: all 0.2s ease;
+        border-color: #dc3545;
+        color: #dc3545;
+    }
+    
+    .delete-article-btn:hover {
+        opacity: 1;
+        background-color: #dc3545;
+        color: white;
+        transform: scale(1.05);
+        box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
+    }
+    
+    .delete-article-btn:active {
+        transform: scale(0.95);
+    }
+    
+    /* Enhanced badge styling for metadata */
+    .badge {
+        font-size: 0.75rem;
+        padding: 0.35em 0.6em;
+        font-weight: 500;
+    }
+    
+    .badge.bg-outline-secondary {
+        background-color: transparent !important;
+        color: var(--secondary-color) !important;
+        border: 1px solid var(--secondary-color);
+    }
+    
+    .badge.bg-outline-secondary:hover {
+        background-color: var(--secondary-color) !important;
+        color: white !important;
+    }
+    
+    /* Success alert styling for delete confirmations */
+    .alert-success.position-fixed {
+        border: none;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        border-left: 4px solid #28a745;
+    }
+    
+    /* Timeline chart container improvements */
+    #timelineChart {
+        min-height: 80px;
+        max-height: 200px;
+    }
+    
+    .tab-pane canvas {
+        background: white;
+        border-radius: 4px;
+    }
+    
+    /* Load more button improvements */
+    .btn-outline-primary.my-3 {
+        transition: all 0.2s ease;
+        border-width: 2px;
+    }
+    
+    .btn-outline-primary.my-3:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(108, 99, 255, 0.2);
+    }
+    
+    /* Enhanced card hover effects for better UX */
+    .card {
+        transition: all 0.2s ease;
+    }
+    
+    .card:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        transform: translateY(-1px);
+    }
+    
+    .card:hover .delete-article-btn {
+        opacity: 1;
     }
 </style>
 
@@ -819,6 +928,11 @@
                     <button id="clearSearchBtn" class="btn btn-sm btn-link text-muted" 
                             style="display:none;" title="Clear search" aria-label="Clear search">
                         <i class="fas fa-times"></i>
+                    </button>
+                    <button id="debugBtn" class="btn btn-sm btn-outline-warning" 
+                            title="Debug ID mismatch issues" aria-label="Debug search results vs vector DB"
+                            onclick="debugSearchResults()">
+                        <i class="fas fa-bug"></i>
                     </button>
                     <button id="saveSearchBtn" class="btn btn-sm btn-outline-secondary" 
                             title="Save Search" aria-label="Save current search">
@@ -1361,9 +1475,6 @@ function renderResults(results, reset = false) {
         const title = r.metadata.title || 'Untitled';
         const link = r.metadata.uri ? `<a href="${r.metadata.uri}" target="_blank" rel="noopener">${title}</a>` : title;
         const summary = (r.metadata.summary || '').slice(0, 160);
-        const cat = r.metadata.category ? `Category: ${r.metadata.category}` : '';
-        const topic = r.metadata.topic ? `Topic: ${r.metadata.topic}` : '';
-        const driver = r.metadata.driver_type ? `Driver: ${r.metadata.driver_type}` : '';
         const pub = r.metadata.publication_date ? new Date(r.metadata.publication_date).toISOString().split('T')[0] : '';
 
         if (isCompactView) {
@@ -1376,41 +1487,75 @@ function renderResults(results, reset = false) {
                         <small class="text-muted">${r.metadata.news_source || ''}</small>
                         <small class="text-muted">${r.metadata.category || ''}</small>
                         <small class="badge bg-light text-dark">${r.score.toFixed(2)}</small>
+                        <button class="btn btn-sm btn-outline-danger delete-article-btn" 
+                                onclick="deleteArticleFromVector('${r.id}')" 
+                                title="Delete article">
+                            <i class="fas fa-trash"></i>
+                        </button>
                     </div>
                 </div>`;
         } else {
-            // Regular layout (list and grid) - add badges for sentiment, time_to_impact, and driver
-            const sentiment = r.metadata.sentiment;
-            const timeToImpact = r.metadata.time_to_impact;
-            const driverType = r.metadata.driver_type;
+            // Regular layout (list and grid) - enhanced badges and delete button
+            const metadata = r.metadata;
             
-            // Create badges HTML
-            let badgesHtml = '';
-            if (sentiment) {
-                const sentimentClass = sentiment.toLowerCase() === 'positive' ? 'bg-success' : 
-                                     sentiment.toLowerCase() === 'negative' ? 'bg-danger' : 'bg-secondary';
-                badgesHtml += `<span class="badge ${sentimentClass} me-1">${sentiment}</span>`;
+            // Create comprehensive badges for all metadata
+            let badgesHtml = '<div class="mb-2">';
+            
+            // Primary badges (always visible if present)
+            if (metadata.category) {
+                badgesHtml += `<span class="badge bg-primary me-1 mb-1">${metadata.category}</span>`;
             }
-            if (timeToImpact) {
-                badgesHtml += `<span class="badge bg-info me-1">${timeToImpact}</span>`;
+            if (metadata.sentiment) {
+                const sentimentClass = metadata.sentiment.toLowerCase() === 'positive' ? 'bg-success' : 
+                                     metadata.sentiment.toLowerCase() === 'negative' ? 'bg-danger' : 
+                                     metadata.sentiment.toLowerCase() === 'critical' ? 'bg-dark' :
+                                     metadata.sentiment.toLowerCase() === 'mixed' ? 'bg-warning text-dark' : 'bg-secondary';
+                badgesHtml += `<span class="badge ${sentimentClass} me-1 mb-1">${metadata.sentiment}</span>`;
             }
-            if (driverType) {
-                badgesHtml += `<span class="badge bg-warning text-dark me-1">${driverType}</span>`;
+            if (metadata.time_to_impact) {
+                const timeClass = metadata.time_to_impact.toLowerCase() === 'immediate' ? 'bg-danger' :
+                                metadata.time_to_impact.toLowerCase() === 'short-term' ? 'bg-warning text-dark' :
+                                metadata.time_to_impact.toLowerCase() === 'mid-term' ? 'bg-info' : 'bg-secondary';
+                badgesHtml += `<span class="badge ${timeClass} me-1 mb-1">${metadata.time_to_impact}</span>`;
+            }
+            if (metadata.driver_type) {
+                badgesHtml += `<span class="badge bg-dark me-1 mb-1">${metadata.driver_type}</span>`;
+            }
+            if (metadata.future_signal) {
+                badgesHtml += `<span class="badge bg-info me-1 mb-1">${metadata.future_signal}</span>`;
             }
             
-            body.innerHTML = `<h6 class="ms-4">${link}</h6>
-                <p class='mb-1 ms-4'><small>${pub} · ${r.metadata.news_source || ''}</small></p>
-                <p class='mb-1 text-muted small ms-4'>${summary}</p>
-                <p class='mb-1 ms-4'><small>${cat}${cat && topic ? ' · ' : ''}${topic}</small></p>
-                ${badgesHtml ? `<p class='mb-1 ms-4'>${badgesHtml}</p>` : ''}
-                <p class='mb-1 ms-4'><small>Score: ${r.score.toFixed(3)}</small></p>`;
+            // Secondary badges (additional metadata)
+            if (metadata.topic) {
+                badgesHtml += `<span class="badge bg-outline-secondary border me-1 mb-1">${metadata.topic}</span>`;
+            }
+            
+            badgesHtml += '</div>';
+            
+            body.innerHTML = `
+                <div class="d-flex justify-content-between align-items-start">
+                    <div class="flex-grow-1">
+                        <h6 class="ms-4">${link}</h6>
+                        <p class='mb-1 ms-4'><small>${pub} · ${metadata.news_source || ''}</small></p>
+                        <p class='mb-1 text-muted small ms-4'>${summary}</p>
+                        <div class="ms-4">${badgesHtml}</div>
+                        <p class='mb-1 ms-4'><small>Score: ${r.score.toFixed(3)}</small></p>
+                    </div>
+                    <div class="flex-shrink-0 ms-2">
+                        <button class="btn btn-sm btn-outline-danger delete-article-btn" 
+                                onclick="deleteArticleFromVector('${r.id}')" 
+                                title="Delete article from vector database">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>`;
         }
             
         card.appendChild(checkbox);
         card.appendChild(body);
         
         card.addEventListener('click', (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'A' || e.target.closest('a')) return;
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'A' || e.target.closest('a') || e.target.closest('button')) return;
             renderMetadata(r.metadata);
         });
         
@@ -1428,7 +1573,9 @@ function renderFacets(facets) {
         group.innerHTML = `<strong>${field}</strong>`;
         
         const entries = Object.entries(values).sort((a, b) => b[1] - a[1]);
-        entries.slice(0, 5).forEach(([val, count]) => {
+        
+        // Show first 10 items instead of 5, with show more/less functionality
+        entries.slice(0, 10).forEach(([val, count]) => {
             const item = document.createElement('div');
             item.className = 'facet-item';
             item.innerHTML = `${val} (${count})`;
@@ -1446,6 +1593,47 @@ function renderFacets(facets) {
             });
             group.appendChild(item);
         });
+        
+        // Add "show more" functionality if there are more than 10 items
+        if (entries.length > 10) {
+            const hiddenItems = entries.slice(10);
+            const moreContainer = document.createElement('div');
+            moreContainer.className = 'facet-more-items';
+            moreContainer.style.display = 'none';
+            
+            hiddenItems.forEach(([val, count]) => {
+                const item = document.createElement('div');
+                item.className = 'facet-item';
+                item.innerHTML = `${val} (${count})`;
+                item.addEventListener('click', () => {
+                    const input = document.getElementById('searchInput');
+                    const cleanValue = val.replace(/["']/g, '');
+                    const token = `${field}="${cleanValue}"`;
+                    
+                    if (input.value.includes(token)) {
+                        input.value = input.value.replace(token, '').trim();
+                    } else {
+                        input.value = `${input.value} ${token}`.trim();
+                    }
+                    runSearch();
+                });
+                moreContainer.appendChild(item);
+            });
+            
+            const toggleButton = document.createElement('button');
+            toggleButton.className = 'btn btn-sm btn-link text-primary p-0 mt-1';
+            toggleButton.innerHTML = `<i class="fas fa-chevron-down me-1"></i>Show ${hiddenItems.length} more`;
+            toggleButton.addEventListener('click', () => {
+                const isVisible = moreContainer.style.display === 'block';
+                moreContainer.style.display = isVisible ? 'none' : 'block';
+                toggleButton.innerHTML = isVisible ? 
+                    `<i class="fas fa-chevron-down me-1"></i>Show ${hiddenItems.length} more` :
+                    `<i class="fas fa-chevron-up me-1"></i>Show less`;
+            });
+            
+            group.appendChild(moreContainer);
+            group.appendChild(toggleButton);
+        }
         
         el.appendChild(group);
     });
@@ -1508,7 +1696,10 @@ function renderMetadata(meta) {
 // Simple bar chart with Chart.js (use CDN)
 let timelineChart;
 async function renderTimeline(timeline){
-    if(!timeline || !Object.keys(timeline).length){return;}
+    if(!timeline || !Object.keys(timeline).length){
+        console.log('No timeline data available');
+        return;
+    }
 
     // Build date axis
     const dateSet=new Set();
@@ -1516,6 +1707,11 @@ async function renderTimeline(timeline){
         Object.keys(catObj).forEach(d=>dateSet.add(d));
     });
     const labels=Array.from(dateSet).sort();
+    
+    if (labels.length === 0) {
+        console.log('No timeline labels found');
+        return;
+    }
 
     const palette=[
         '#6c63ff','#ff6384','#36a2eb','#ff9f40','#4bc0c0','#9966ff','#c9cbcf',
@@ -1527,54 +1723,100 @@ async function renderTimeline(timeline){
         stack:'stack1'
     }));
 
-    if(!window.Chart){await loadChartJs();}
-    const ctx=document.getElementById('timelineChart').getContext('2d');
-    if(timelineChart){timelineChart.destroy();}
-    timelineChart=new Chart(ctx,{
-        type:'bar',
-        data:{labels,datasets},
-        options:{
-            plugins:{legend:{display:true,position:'bottom'}},
-            scales:{
-                x:{stacked:true,ticks:{autoSkip:true,maxTicksLimit:10}},
-                y:{stacked:true,beginAtZero:true},
+    if(!window.Chart){
+        console.log('Loading Chart.js...');
+        await loadChartJs();
+    }
+    
+    const canvas = document.getElementById('timelineChart');
+    if (!canvas) {
+        console.error('Timeline chart canvas not found');
+        return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    if(timelineChart){
+        timelineChart.destroy();
+    }
+    
+    try {
+        timelineChart=new Chart(ctx,{
+            type:'bar',
+            data:{labels,datasets},
+            options:{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins:{legend:{display:true,position:'bottom'}},
+                scales:{
+                    x:{stacked:true,ticks:{autoSkip:true,maxTicksLimit:10}},
+                    y:{stacked:true,beginAtZero:true},
+                }
             }
-        }
-    });
+        });
+        console.log('Timeline chart rendered successfully');
+    } catch (error) {
+        console.error('Error creating timeline chart:', error);
+    }
 }
 
 function loadChartJs(){
     return new Promise(res=>{
+        if (window.Chart) {
+            res();
+            return;
+        }
         const s=document.createElement('script');
         s.src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
-        s.onload=res;
+        s.onload=()=>{
+            console.log('Chart.js loaded successfully');
+            res();
+        };
+        s.onerror=()=>{
+            console.error('Failed to load Chart.js');
+            res(); // Still resolve to prevent hanging
+        };
         document.head.appendChild(s);
     });
 }
 
-// Pagination helpers
+// Pagination helpers - Fixed to ensure proper functionality
 const loadMoreBtn=document.createElement('button');
 loadMoreBtn.textContent='Load more';
-// Visually centre the button and keep a consistent width
 loadMoreBtn.className='btn btn-outline-primary my-3 d-block mx-auto';
 loadMoreBtn.style.display='none';
 loadMoreBtn.addEventListener('click',()=>renderNextPage());
-document.getElementById('results').after(loadMoreBtn);
+
+// Ensure the button is added to the DOM after results container
+document.addEventListener('DOMContentLoaded', () => {
+    const resultsContainer = document.getElementById('results');
+    if (resultsContainer && !resultsContainer.nextElementSibling?.classList.contains('btn-outline-primary')) {
+        resultsContainer.after(loadMoreBtn);
+    }
+});
 
 function renderNextPage(){
-  const per = window._pageSize || DEFAULT_PAGE_SIZE;
-  const slice=window.lastResults.slice(currentIndex, currentIndex + per);
-  if(!slice.length){
-    loadMoreBtn.style.display='none';
-    return;
-  }
-  renderResults(slice, currentIndex===0);
-  currentIndex+=slice.length;
-  if(currentIndex>=window.lastResults.length){
-      loadMoreBtn.style.display='none';
-  }else{
-      loadMoreBtn.style.display='block';
-  }
+    const per = window._pageSize || DEFAULT_PAGE_SIZE;
+    const slice=window.lastResults.slice(currentIndex, currentIndex + per);
+    
+    if(!slice.length){
+        loadMoreBtn.style.display='none';
+        return;
+    }
+    
+    renderResults(slice, currentIndex===0);
+    currentIndex+=slice.length;
+    
+    // Update load more button visibility
+    if(currentIndex>=window.lastResults.length){
+        loadMoreBtn.style.display='none';
+    } else {
+        loadMoreBtn.style.display='block';
+        // Update button text to show progress
+        const remaining = window.lastResults.length - currentIndex;
+        loadMoreBtn.textContent = `Load ${Math.min(remaining, per)} more (${remaining} remaining)`;
+    }
+    
+    console.log(`Rendered page: ${currentIndex}/${window.lastResults.length} articles`);
 }
 
 function updateActionButtons(){
@@ -1876,6 +2118,13 @@ function initializePageElements() {
         
         // Run search with the constructed input
         setTimeout(() => runSearch(), 100); // Small delay to ensure DOM is ready
+    } else {
+        // No URL parameters - set default search to "*" and run search
+        console.log('No URL parameters found, setting default search to "*"');
+        document.getElementById('searchInput').value = '*';
+        
+        // Run search with default query after a small delay
+        setTimeout(() => runSearch(), 200); // Small delay to ensure DOM is ready
     }
     
     // Load saved searches
@@ -2584,6 +2833,23 @@ async function updateScatter(forceRefresh = false){
             pointColors=pts.map(p=>colourMap.get(p.cluster));
         }
 
+        // Debug logging
+        console.log('🎨 Visualization Debug Info:');
+        console.log('Points:', pts.length);
+        console.log('Color mode:', colorMode);
+        console.log('Legend items:', legendItems);
+        console.log('Point colors length:', pointColors.length);
+        console.log('Sample point colors:', pointColors.slice(0, 5));
+        
+        // Validate pointColors array
+        if (!pointColors || pointColors.length === 0) {
+            console.error('❌ pointColors array is empty!');
+            pointColors = new Array(pts.length).fill('#6c63ff'); // fallback color
+        }
+        
+        // Ensure all colors are valid
+        pointColors = pointColors.map(color => color || '#6c63ff');
+
         let trace;
         let layout;
         if(dims3d){
@@ -2592,28 +2858,60 @@ async function updateScatter(forceRefresh = false){
               x:pts.map(p=>p.x),
               y:pts.map(p=>p.y),
               z:pts.map(p=>p.z||0),
-              marker:{size:3,color:pointColors,opacity:0.8},
+              marker:{
+                size:3, // Half the previous size for very subtle dots
+                color:pointColors,
+                opacity:0.75, // Semi-transparent for softer look
+                symbol: 'circle'
+              },
               text:pts.map(p=>p.title||''),
               customdata:custom,
               hovertemplate:'%{text}<br><small>%{customdata}</small><extra></extra>'
             };
-            layout={margin:{t:0,l:0,r:0,b:0},scene:{aspectmode:'data'}};
+            layout={
+                margin:{t:0,l:0,r:0,b:0},
+                scene:{
+                    aspectmode:'data',
+                    camera: {eye: {x: 1.2, y: 1.2, z: 1.2}}
+                }
+            };
         }else{
             trace={
-              type:'scattergl',mode:'markers',
+              type:'scatter',mode:'markers',
               x:pts.map(p=>p.x),
               y:pts.map(p=>p.y),
-              marker:{size:7,color:pointColors,opacity:0.9},
+              marker:{
+                size:4, // Half the previous size for very subtle dots
+                color:pointColors,
+                opacity:0.75, // Semi-transparent for softer look
+                symbol: 'circle'
+              },
               text:pts.map(p=>p.title||''),
               customdata:custom,
               hovertemplate:'%{text}<br><small>%{customdata}</small><extra></extra>'
             };
-            layout={margin:{t:0,l:0,r:0,b:0},hovermode:'closest'};
+            layout={
+                margin:{t:20,l:20,r:20,b:20},
+                hovermode:'closest',
+                showlegend: false,
+                xaxis: {showgrid: true, zeroline: true},
+                yaxis: {showgrid: true, zeroline: true}
+            };
         }
         
-        // Create the plot
-        Plotly.react(div,[trace],layout);
+        console.log('📊 Creating plot with trace:', trace);
+        console.log('📊 Layout:', layout);
         
+        // Create the plot with error handling
+        try {
+            await Plotly.react(div,[trace],layout);
+            console.log('✅ Plotly chart created successfully');
+        } catch (plotError) {
+            console.error('❌ Plotly.react failed:', plotError);
+            loading.innerHTML = `<div class="alert alert-danger">Chart rendering failed: ${plotError.message}</div>`;
+            return;
+        }
+
         // Now attach click event after the plot is initialized
         div.removeAttribute('on');  // Clear any existing handlers
         div.onclick = null;  // Also clear standard handlers
@@ -2944,12 +3242,38 @@ function rebuildLegend(items, colourMap, nonCluster=false, colorMode='cluster'){
   });
 }
 
-// simple fallback: cycle through a fixed palette
+// Enhanced palette with many more distinct colors for better cluster visualization
 function palette(n){
-  const base = ['#6c63ff','#36a2eb','#ff6384','#ff9f40',
-                '#4bc0c0','#9966ff','#c9cbcf'];
+  const base = [
+    // Primary vibrant colors
+    '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8',
+    '#F7DC6F', '#BB8FCE', '#85C1E9', '#F8C471', '#82E0AA', '#F1948A', '#AED6F1',
+    
+    // Secondary rich colors
+    '#E74C3C', '#3498DB', '#2ECC71', '#F39C12', '#9B59B6', '#1ABC9C', '#E67E22',
+    '#34495E', '#95A5A6', '#F1C40F', '#8E44AD', '#16A085', '#D35400', '#2C3E50',
+    
+    // Tertiary distinctive colors
+    '#FF9F43', '#10AC84', '#5F27CD', '#00D2D3', '#FF6348', '#FF9FF3', '#54A0FF',
+    '#5F27CD', '#00D2D3', '#FF9F43', '#1DD1A1', '#FD79A8', '#6C5CE7', '#A29BFE',
+    
+    // Additional vibrant colors
+    '#FD79A8', '#FDCB6E', '#6C5CE7', '#74B9FF', '#00B894', '#E17055', '#81ECEC',
+    '#FAB1A0', '#00CEC9', '#55A3FF', '#FF7675', '#A29BFE', '#FD79A8', '#FDCB6E',
+    
+    // More distinctive colors
+    '#FF3838', '#FF9500', '#FFDD59', '#3742FA', '#2F3542', '#FF6348', '#1E90FF',
+    '#FFB142', '#78E08F', '#60A3BC', '#EE5A6F', '#D63031', '#74B9FF', '#0984E3',
+    
+    // Extended palette for very large cluster counts
+    '#E84393', '#00B894', '#FDCB6E', '#6C5CE7', '#FD79A8', '#00CEC9', '#FF7675',
+    '#74B9FF', '#55A3FF', '#A29BFE', '#FD79A8', '#81ECEC', '#FAB1A0', '#E17055'
+  ];
+  
   const colours = [];
-  for (let i = 0; i < n; i++) colours.push(base[i % base.length]);
+  for (let i = 0; i < n; i++) {
+    colours.push(base[i % base.length]);
+  }
   return colours;
 }
 
@@ -3141,5 +3465,151 @@ document.getElementById('auspexModal').addEventListener('hidden.bs.modal', funct
    document.getElementById('searchInput')?.focus();
 });
 
+// Delete article from vector database
+async function deleteArticleFromVector(articleId) {
+    console.log('🔍 DELETE REQUEST DEBUG:');
+    console.log('ArticleId passed to delete function:', articleId);
+    console.log('ArticleId length:', articleId.length);
+    console.log('ArticleId type:', typeof articleId);
+    
+    if (!confirm('Are you sure you want to delete this article from the vector database? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/vector-delete/${encodeURIComponent(articleId)}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            console.error('❌ DELETE FAILED:');
+            console.error('Status:', response.status);
+            console.error('Error details:', error);
+            throw new Error(error.detail || 'Failed to delete article');
+        }
+        
+        const result = await response.json();
+        console.log('✅ Delete result:', result);
+        
+        // Remove the article from the current results
+        window.lastResults = window.lastResults.filter(r => r.id !== articleId);
+        
+        // Remove from selected URIs if it was selected
+        selectedUris.delete(articleId);
+        updateActionButtons();
+        
+        // Re-render the current page
+        currentIndex = 0;
+        renderNextPage();
+        
+        // Update counts
+        if (document.getElementById('totalCount')) {
+            document.getElementById('totalCount').textContent = window.lastResults.length;
+        }
+        if (document.getElementById('dataPointsCount')) {
+            document.getElementById('dataPointsCount').textContent = window.lastResults.length;
+        }
+        
+        // Show success message
+        const Toast = Swal ? Swal.mixin({
+            toast: true,
+            position: 'top-end',
+            showConfirmButton: false,
+            timer: 3000,
+            timerProgressBar: true
+        }) : null;
+        
+        if (Toast) {
+            Toast.fire({
+                icon: 'success',
+                title: 'Article deleted successfully'
+            });
+        } else {
+            // Fallback if SweetAlert is not available
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-success alert-dismissible fade show position-fixed';
+            alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+            alertDiv.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>Article deleted successfully
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(alertDiv);
+            setTimeout(() => alertDiv.remove(), 3000);
+        }
+        
+    } catch (error) {
+        console.error('❌ Error deleting article:', error);
+        alert(`Error deleting article: ${error.message}`);
+    }
+}
+
+// Add debug function to inspect search results
+function debugSearchResults() {
+    if (!window.lastResults || window.lastResults.length === 0) {
+        console.log('No search results to debug');
+        return;
+    }
+    
+    console.log('🔍 SEARCH RESULTS DEBUG:');
+    console.log('Total results:', window.lastResults.length);
+    
+    window.lastResults.slice(0, 5).forEach((result, index) => {
+        console.log(`\n--- Result ${index + 1} ---`);
+        console.log('ID:', result.id);
+        console.log('ID length:', result.id ? result.id.length : 'undefined');
+        console.log('ID type:', typeof result.id);
+        console.log('Title:', result.metadata?.title || 'No title');
+        console.log('URI in metadata:', result.metadata?.uri || 'No URI in metadata');
+        console.log('ID === metadata.uri:', result.id === result.metadata?.uri);
+        
+        // Check for any truncation or encoding issues
+        if (result.id && result.id.includes('…')) {
+            console.warn('⚠️ ID contains ellipsis - possible truncation!');
+        }
+        if (result.id && result.metadata?.uri && result.id !== result.metadata?.uri) {
+            console.warn('⚠️ ID mismatch: result.id !== metadata.uri');
+        }
+    });
+    
+    // Check what's actually in the vector database
+    fetch('/api/vector-debug')
+        .then(response => response.json())
+        .then(vectorData => {
+            console.log('\n🔍 VECTOR DATABASE DEBUG:');
+            console.log('Vector DB data:', vectorData);
+            
+            if (vectorData.sample_articles) {
+                console.log('Sample vector DB IDs:');
+                vectorData.sample_articles.slice(0, 5).forEach((article, index) => {
+                    console.log(`Vector ${index + 1}: ${article.id}`);
+                });
+                
+                // Compare search results with vector DB
+                const searchIds = window.lastResults.slice(0, 5).map(r => r.id);
+                const vectorIds = vectorData.sample_articles.slice(0, 5).map(a => a.id);
+                
+                console.log('\n🔍 ID COMPARISON:');
+                console.log('Search result IDs:', searchIds);
+                console.log('Vector DB IDs:', vectorIds);
+                
+                const matches = searchIds.filter(searchId => 
+                    vectorIds.some(vectorId => vectorId === searchId)
+                );
+                console.log('Exact matches:', matches.length);
+                
+                if (matches.length === 0) {
+                    console.warn('⚠️ NO EXACT MATCHES FOUND BETWEEN SEARCH AND VECTOR DB!');
+                    console.log('This explains why delete fails - ID format mismatch');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching vector debug info:', error);
+        });
+}
 </script>
 {% endblock %} 

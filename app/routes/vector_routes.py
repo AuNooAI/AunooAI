@@ -4,6 +4,7 @@ from dateutil.parser import parse as dt_parse  # add top of file
 import json
 from pathlib import Path
 import os
+import urllib.parse
 
 from fastapi import APIRouter, Query, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -1048,4 +1049,218 @@ async def get_news_facts_endpoint(session=Depends(verify_session)):
         )
         return {
             "facts": ["Did you know? There was an error loading news facts."]
+        }
+
+@router.delete("/vector-delete/{article_id}")
+async def delete_article_from_vector(
+    article_id: str,
+    session=Depends(verify_session),
+):
+    """Delete an article from the vector database.
+    
+    This removes the article from the ChromaDB collection but does not affect
+    the relational database. Use this when you want to remove articles from
+    vector search results while keeping them in the main database.
+    """
+    logger = logging.getLogger(__name__)
+    
+    # Decode the article_id in case it's URL encoded
+    try:
+        decoded_id = urllib.parse.unquote(article_id)
+        logger.info(f"Delete request - Original: {article_id}")
+        logger.info(f"Delete request - Decoded: {decoded_id}")
+    except Exception as e:
+        logger.warning(f"Could not decode article_id: {e}")
+        decoded_id = article_id
+    
+    try:
+        collection = _vector_collection()
+        
+        # First, let's try a broader search to find the article
+        # by searching for articles that contain the domain or part of the URL
+        found_id = None
+        
+        # Try both the original and decoded versions first
+        article_ids_to_try = [article_id, decoded_id]
+        if article_id != decoded_id:
+            article_ids_to_try = [decoded_id, article_id]  # Try decoded first
+        else:
+            article_ids_to_try = [article_id]
+        
+        # Try direct ID lookup first
+        for try_id in article_ids_to_try:
+            try:
+                logger.info(f"Checking if article exists with ID: {try_id}")
+                result = collection.get(ids=[try_id], include=["metadatas"])
+                if result.get("ids") and try_id in result["ids"]:
+                    found_id = try_id
+                    logger.info(f"Found article with direct ID lookup: {found_id}")
+                    break
+                else:
+                    logger.info(f"Article not found with ID: {try_id}")
+            except Exception as e:
+                logger.warning(
+                    f"Error checking article with ID '{try_id}': {e}"
+                )
+                continue
+        
+        # If direct lookup failed, try searching by metadata
+        if not found_id:
+            logger.info("Direct ID lookup failed, trying metadata search")
+            try:
+                # Extract domain and path for searching
+                if "://" in decoded_id:
+                    # Try to find by searching for the URL in metadata
+                    # Get a larger sample to search through
+                    all_results = collection.get(
+                        limit=1000, 
+                        include=["metadatas"],
+                        where=None
+                    )
+                    ids = all_results.get("ids", [])
+                    metadatas = all_results.get("metadatas", [])
+                    
+                    logger.info(f"Searching through {len(ids)} articles for match")
+                    
+                    # Look for exact matches or close matches
+                    for i, (stored_id, metadata) in enumerate(zip(ids, metadatas)):
+                        # Check if the stored ID matches our target
+                        if stored_id == decoded_id or stored_id == article_id:
+                            found_id = stored_id
+                            logger.info(f"Found exact match: {found_id}")
+                            break
+                        
+                        # Check if URI in metadata matches
+                        stored_uri = metadata.get("uri", "")
+                        if stored_uri == decoded_id or stored_uri == article_id:
+                            found_id = stored_id
+                            logger.info(f"Found by URI metadata: {found_id}")
+                            break
+                        
+                        # Check for partial URL matches (domain + path)
+                        if (decoded_id in stored_id or stored_id in decoded_id or
+                            decoded_id in stored_uri or stored_uri in decoded_id):
+                            found_id = stored_id
+                            logger.info(f"Found by partial match: {found_id}")
+                            break
+                    
+                    # Log some debug info about what we found
+                    if not found_id:
+                        domain = decoded_id.split("://")[1].split("/")[0]
+                        domain_matches = [
+                            id for id in ids if domain in id
+                        ]
+                        logger.info(f"No exact match found. Found {len(domain_matches)} articles from {domain}")
+                        if domain_matches:
+                            logger.info(f"Sample {domain} articles: {domain_matches[:3]}")
+                            
+            except Exception as search_e:
+                logger.warning(f"Error during metadata search: {search_e}")
+        
+        if not found_id:
+            # Get some debug info about what IDs actually exist
+            try:
+                sample_results = collection.get(limit=10, include=["metadatas"])
+                existing_ids = sample_results.get("ids", [])
+                logger.info(f"Vector DB contains articles, sample IDs: {existing_ids[:3]}")
+                
+                # Count total
+                total_count = collection.count()
+                logger.info(f"Total articles in vector DB: {total_count}")
+                
+            except Exception as debug_e:
+                logger.warning(f"Could not get debug info: {debug_e}")
+            
+            raise HTTPException(
+                status_code=404, 
+                detail=(
+                    f"Article not found in vector database. "
+                    f"Searched for: {article_ids_to_try}. "
+                    f"The article appears in search results but cannot be found "
+                    f"for deletion. This might indicate an ID format mismatch. "
+                    f"Try running a vector reindex to sync the databases."
+                )
+            )
+        
+        # Delete the article from the vector database
+        try:
+            collection.delete(ids=[found_id])
+            logger.info(
+                f"Successfully deleted article '{found_id}' from vector "
+                f"database"
+            )
+            
+            return {
+                "success": True,
+                "message": "Article deleted from vector database",
+                "deleted_id": found_id,
+                "original_id": article_id,
+                "search_method": "direct" if found_id in article_ids_to_try else "metadata_search"
+            }
+            
+        except Exception as e:
+            logger.error("Error deleting article from vector database: %s", e)
+            raise HTTPException(
+                status_code=500, 
+                detail=(
+                    "Failed to delete article from vector database: "
+                    f"{str(e)}"
+                )
+            )
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error("Unexpected error in delete_article_from_vector: %s", e)
+        raise HTTPException(
+            status_code=500, 
+            detail="Internal server error while deleting article"
+        )
+
+
+@router.get("/vector-debug")
+async def vector_debug_info(
+    session=Depends(verify_session),
+):
+    """Debug endpoint to check what articles exist in the vector database."""
+    logger = logging.getLogger(__name__)
+    
+    try:
+        collection = _vector_collection()
+        
+        # Get all articles (limited to 100 for debugging)
+        result = collection.get(limit=100, include=["metadatas"])
+        ids = result.get("ids", [])
+        metadatas = result.get("metadatas", [])
+        
+        # Count total articles
+        total_count = collection.count()
+        
+        # Group by domain
+        domain_counts = {}
+        for article_id in ids:
+            if "://" in article_id:
+                domain = article_id.split("://")[1].split("/")[0]
+                domain_counts[domain] = domain_counts.get(domain, 0) + 1
+        
+        return {
+            "total_articles": total_count,
+            "sample_articles": [
+                {
+                    "id": ids[i] if i < len(ids) else None,
+                    "title": metadatas[i].get("title") if i < len(metadatas) else None,
+                    "domain": ids[i].split("://")[1].split("/")[0] if i < len(ids) and "://" in ids[i] else "unknown"
+                }
+                for i in range(min(10, len(ids)))
+            ],
+            "domain_counts": domain_counts,
+            "message": f"Showing first 10 of {len(ids)} articles retrieved (total: {total_count})"
+        }
+        
+    except Exception as e:
+        logger.error("Error in vector debug: %s", e)
+        return {
+            "error": str(e),
+            "message": "Could not retrieve vector database information"
         } 
