@@ -1803,6 +1803,839 @@ async def save_template(template_data: dict = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/markdown_to_html")
+async def markdown_to_html(request: Request):
+    data = await request.json()
+    markdown_text = data.get('markdown', '')
+    html = markdown.markdown(markdown_text)
+    return JSONResponse(content={"html": html})
+
+@app.post("/api/save_article")
+async def save_article(article: ArticleData):
+    try:
+        logger.info(f"Received article data: {article.dict()}")
+        result = db.save_article(article.dict())
+        return JSONResponse(content=result)
+    except HTTPException as he:
+        logger.error(f"HTTP error saving article: {str(he)}")
+        raise he
+    except Exception as e:
+        logger.error(f"Error saving article: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/categories")
+async def get_categories(topic: Optional[str] = None, research: Research = Depends(get_research)):
+    try:
+        categories = await research.get_categories(topic)
+        logger.info(f"Retrieved categories for topic {topic}: {categories}")
+        return categories
+    except Exception as e:
+        logger.error(f"Error fetching categories: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
+
+@app.get("/api/future_signals")
+async def get_future_signals(topic: Optional[str] = None, research: Research = Depends(get_research)):
+    return await research.get_future_signals(topic)
+
+@app.get("/api/sentiments")
+async def get_sentiments(topic: Optional[str] = None, research: Research = Depends(get_research)):
+    return await research.get_sentiments(topic)
+
+@app.get("/api/time_to_impact")
+async def get_time_to_impact(topic: Optional[str] = None, research: Research = Depends(get_research)):
+    return await research.get_time_to_impact(topic)
+
+@app.get("/api/latest_articles")
+async def get_latest_articles(
+    topic_name: Optional[str] = None, 
+    limit: Optional[int] = Query(10, ge=1),
+    research: Research = Depends(get_research)
+):
+    try:
+        logger.info(f"API request for latest articles - topic: {topic_name}, limit: {limit}")
+        if topic_name:
+            articles = research.get_recent_articles_by_topic(topic_name, limit=limit)
+            logger.info(f"Retrieved {len(articles)} articles for topic {topic_name}")
+        else:
+            articles = await research.get_recent_articles(limit=limit)
+            logger.info(f"Retrieved {len(articles)} articles (no topic filter)")
+        return JSONResponse(content=articles)
+    except Exception as e:
+        logger.error(f"Error fetching latest articles: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error fetching latest articles")
+
+@app.get("/api/article")
+async def get_article(
+    uri: str,
+    research: Research = Depends(get_research)
+):
+    try:
+        # First try to get the article from the database
+        article = db.get_article(uri)
+        
+        # If the article exists, return it
+        if article:
+            return JSONResponse(content=article)
+        
+        # If the article doesn't exist, try to fetch it
+        logger.info(f"Article not found in database, attempting to fetch/scrape: {uri}")
+        try:
+            # First try to fetch from raw_articles
+            raw_article = research.get_existing_article_content(uri)
+            if raw_article:
+                logger.info(f"Found raw article content for {uri}")
+                return JSONResponse(
+                    content={
+                        "message": "Article found in raw content but not fully analyzed",
+                        "content": raw_article,
+                        "status": "raw_only"
+                    }
+                )
+                
+            # If not in raw_articles either, try to scrape it
+            logger.info(f"No raw content found, attempting to scrape: {uri}")
+            scraped_result = await research.scrape_article(uri)
+            
+            if "error" in scraped_result:
+                error_msg = scraped_result.get("error", "Unknown error")
+                logger.error(f"Error scraping article: {error_msg}")
+                return JSONResponse(
+                    status_code=404,
+                    content={
+                        "error": error_msg,
+                        "message": "Article not found and could not be scraped",
+                        "details": scraped_result.get("content", "")
+                    }
+                )
+            
+            return JSONResponse(
+                content={
+                    "message": "Article scraped successfully but not yet analyzed",
+                    "content": scraped_result,
+                    "status": "scraped_only"
+                }
+            )
+            
+        except Exception as fetch_error:
+            logger.error(f"Error fetching/scraping article: {str(fetch_error)}", exc_info=True)
+            return JSONResponse(
+                status_code=404,
+                content={
+                    "error": "Article not found",
+                    "message": f"Article not found and could not be fetched: {str(fetch_error)}"
+                }
+            )
+    except Exception as e:
+        logger.error(f"Error in get_article endpoint: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": "Server error",
+                "message": f"An unexpected error occurred: {str(e)}"
+            }
+        )
+
+@app.delete("/api/article")
+async def delete_article(
+    uri: str,
+    research: Research = Depends(get_research)
+):
+    logger.info(f"Received delete request for article with URI: {uri}")
+    try:
+        success = research.delete_article(uri)
+        if success:
+            logger.info(f"Successfully deleted article with URI: {uri}")
+            return JSONResponse(content={"message": "Article deleted successfully"})
+        else:
+            logger.warning(f"Article with URI {uri} not found or not deleted")
+            raise HTTPException(status_code=404, detail="Article not found")
+    except Exception as e:
+        logger.error(f"Error deleting article: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/debug_settings")
+async def debug_settings():
+    try:
+        settings_dict = {key: value for key, value in config.items() if not key.startswith('__')}
+        return JSONResponse(content=settings_dict)
+    except Exception as e:
+        logger.error(f"Error in debug_settings: {str(e)}", exc_info=True)
+        return JSONResponse(status_code=500, content={"detail": f"Internal Server Error: {str(e)}"})
+
+@app.get("/api/debug_articles")
+async def debug_articles():
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM articles")
+            articles = cursor.fetchall()
+        return JSONResponse(content={"article_count": len(articles), "articles": articles})
+    except Exception as e:
+        logger.error(f"Error in debug_articles: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+class DatabaseCreate(BaseModel):
+    name: str
+
+class DatabaseActivate(BaseModel):
+    name: str
+
+class ConfigItem(BaseModel):
+    content: str
+
+@app.get("/api/databases")
+async def get_databases():
+    try:
+        databases = db.get_databases()
+        return JSONResponse(content=databases)
+    except Exception as e:
+        logger.error(f"Error fetching databases: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/databases")
+async def create_database(database: DatabaseCreate):
+    try:
+        new_database = db.create_database(database.name)
+        return JSONResponse(content=new_database)
+    except Exception as e:
+        logger.error(f"Error creating database: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/active-database")
+async def set_active_database(database: DatabaseActivate):
+    try:
+        result = db.set_active_database(database.name)
+        db.migrate_db()
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.error(f"Error setting active database: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/databases/{name}")
+async def delete_database(name: str):
+    try:
+        # Get a fresh database instance
+        database = Database()
+        
+        # Check if trying to delete active database
+        active_db = database.get_active_database()
+        if name == active_db:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot delete active database. Please switch to another database first."
+            )
+            
+        result = database.delete_database(name)
+        return JSONResponse(content=result)
+        
+    except Exception as e:
+        logger.error(f"Error deleting database: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/config/{item_name}")
+async def get_config_item(item_name: str):
+    try:
+        content = db.get_config_item(item_name)
+        return JSONResponse(content={"content": content})
+    except Exception as e:
+        logger.error(f"Error fetching config item: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/config/{item_name}")
+async def save_config_item(item_name: str, item: ConfigItem):
+    try:
+        db.save_config_item(item_name, item.content)
+        return JSONResponse(content={"message": f"{item_name} saved successfully"})
+    except Exception as e:
+        logger.error(f"Error saving config item: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/database-info")
+async def get_database_info():
+    try:
+        info = db.get_database_info()
+        return JSONResponse(content=info)
+    except Exception as e:
+        logger.error(f"Error fetching database info: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/active-database")
+async def get_active_database():
+    try:
+        active_db = Database.get_active_database()
+        return JSONResponse(content={"name": active_db})
+    except Exception as e:
+        logger.error(f"Error getting active database: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.on_event("startup")
+async def startup_event():
+    try:
+        # Use the new centralized application initialization
+        from app.startup import initialize_application
+        
+        # Configure logging
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        )
+        
+        logger = logging.getLogger('main')
+        logger.setLevel(logging.INFO)
+        
+        # Initialize the application
+        success = initialize_application()
+        if success:
+            logger.info("Application initialized successfully")
+        else:
+            logger.error("Failed to initialize application")
+            
+        # Start the keyword monitor background task
+        try:
+            logger.info("Starting keyword monitor background task...")
+            asyncio.create_task(run_keyword_monitor())
+            logger.info("Keyword monitor background task started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start keyword monitor background task: {str(e)}")
+            
+    except Exception as e:
+        logging.error(f"Error during startup: {str(e)}", exc_info=True)
+        raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    try:
+        logger = logging.getLogger('main')
+        logger.info("Application shutting down...")
+        
+        # Clean up any resources here
+        # For example, close database connections, stop background tasks, etc.
+        
+        logger.info("Application shutdown complete")
+    except Exception as e:
+        logging.error(f"Error during shutdown: {str(e)}", exc_info=True)
+        raise
+
+@app.get("/api/fetch_article_content")
+async def fetch_article_content(uri: str, research: Research = Depends(get_research), save: bool = Query(True)):
+    return await research.fetch_article_content(uri, save_with_topic=save)
+
+@app.get("/api/get_existing_article_content")
+async def get_existing_article_content(uri: str, research: Research = Depends(get_research)):
+    return research.get_existing_article_content(uri)
+
+@app.get("/api/scrape_article")
+async def scrape_article(
+    uri: str,
+    research: Research = Depends(get_research)
+):
+    try:
+        logger.info(f"Received scrape request for URI: {uri}")
+        
+        if not uri:
+            logger.warning("Empty URI provided for scraping")
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Empty URL provided", "message": "Please provide a valid URL"}
+            )
+            
+        if not uri.startswith(('http://', 'https://')):
+            logger.warning(f"Invalid URI format: {uri}")
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Invalid URL format", "message": "URL must start with http:// or https://"}
+            )
+            
+        result = await research.scrape_article(uri)
+        
+        if "error" in result:
+            error_msg = result.get("error", "Unknown error")
+            logger.error(f"Error scraping article: {error_msg}")
+            return JSONResponse(
+                status_code=500,
+                content={"error": error_msg, "message": result.get("content", "Failed to scrape article")}
+            )
+            
+        return result
+    except Exception as e:
+        logger.error(f"Unexpected error in scrape_article endpoint: {str(e)}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Server error", "message": f"An unexpected error occurred: {str(e)}"}
+        )
+
+@app.get("/fetch_article_content")
+async def fetch_article_content(url: str):
+    try:
+        result = await research.fetch_article_content(url)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/driver_types")
+async def get_driver_types(
+    topic: Optional[str] = None,
+    research: Research = Depends(get_research)
+):
+    return await research.get_driver_types(topic)
+
+@app.get("/api/integrated_analysis")
+async def get_integrated_analysis(timeframe: str = Query("all"), category: str = Query(None)):
+    logger.info(f"Received request for integrated analysis. Timeframe: {timeframe}, Category: {category}")
+    try:
+        analyze_db = AnalyzeDB(db)
+        data = analyze_db.get_integrated_analysis(timeframe, category)
+        logger.info(f"Integrated analysis data: {json.dumps(data)}")
+        if not data:
+            logger.warning("No data returned from get_integrated_analysis")
+            return JSONResponse(content={"error": "No data available"}, status_code=404)
+        return JSONResponse(content=data)
+    except Exception as e:
+        logger.error(f"Error in get_integrated_analysis: {str(e)}", exc_info=True)
+        return JSONResponse(content={"error": str(e)}, status_code=500)
+
+@app.get("/api/topics")
+async def get_topics():
+    """Get list of available topics."""
+    # Load fresh config each time
+    config = load_config()
+    topics = [{"name": topic['name']} for topic in config['topics']]
+    #logger.debug(f"Returning topics: {topics}")
+    return topics
+
+@app.get("/api/ai_models")
+def get_ai_models():
+    return ai_get_available_models()  # Use the function from ai_models.py
+
+@app.get("/api/ai_models_config")
+async def get_ai_models_config():
+    config = load_config()
+    #logger.info(f"Full configuration: {config}")
+    models = config.get("ai_models", [])
+    #logger.info(f"AI models config: {models}")
+    return {"ai_models": models}
+
+@app.get("/api/available_models")
+def get_available_models():
+    return ai_get_available_models()  # Use the function from ai_models.py
+
+@app.get("/api/debug_ai_config")
+async def debug_ai_config():
+    config_path = os.path.join(os.path.dirname(__file__), 'config', 'ai_config.json')
+    try:
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        return JSONResponse(content={"config": config, "path": config_path})
+    except Exception as e:
+        return JSONResponse(content={"error": str(e), "path": config_path}, status_code=500)
+
+@app.get("/api/categories/{topic_name}")
+async def get_categories_for_topic(topic_name: str):
+    """Get categories for a specific topic."""
+    try:
+        # Import the necessary functions from config module
+        from app.config.config import load_config, get_topic_config
+        
+        # Load the config and get topic-specific configuration
+        config = load_config()
+        topic_config = get_topic_config(config, topic_name)
+        
+        logger.debug(f"Retrieved categories for topic {topic_name}: {topic_config['categories']}")
+        return JSONResponse(content=topic_config['categories'])
+    except ValueError as e:
+        logger.error(f"Error getting categories for topic {topic_name}: {str(e)}")
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error getting categories for topic {topic_name}: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/collect_articles")
+async def collect_articles(
+    source: str,
+    query: str,
+    topic: str,
+    max_results: int = Query(10, ge=1, le=100),
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    language: str = Query("en", min_length=2, max_length=2),
+    locale: Optional[str] = None,
+    domains: Optional[str] = None,
+    exclude_domains: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    source_ids: Optional[str] = None,
+    exclude_source_ids: Optional[str] = None,
+    categories: Optional[str] = None,
+    exclude_categories: Optional[str] = None,
+    search_fields: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    db: Database = Depends(get_database_instance)  # Add database dependency
+):
+    try:
+        collector = CollectorFactory.get_collector(source, db)  # Pass db instance
+        
+        # Convert date strings to datetime objects if provided
+        start_date_obj = datetime.fromisoformat(start_date) if start_date else None
+        end_date_obj = datetime.fromisoformat(end_date) if end_date else None
+        
+        # Convert comma-separated strings to lists
+        domains_list = domains.split(',') if domains else None
+        exclude_domains_list = exclude_domains.split(',') if exclude_domains else None
+        source_ids_list = source_ids.split(',') if source_ids else None
+        exclude_source_ids_list = exclude_source_ids.split(',') if exclude_source_ids else None
+        categories_list = categories.split(',') if categories else None
+        exclude_categories_list = exclude_categories.split(',') if exclude_categories else None
+        search_fields_list = search_fields.split(',') if search_fields else None
+        
+        articles = await collector.search_articles(
+            query=query,
+            topic=topic,
+            max_results=max_results,
+            start_date=start_date_obj,
+            end_date=end_date_obj,
+            language=language,
+            locale=locale,
+            domains=domains_list,
+            exclude_domains=exclude_domains_list,
+            sort_by=sort_by,
+            source_ids=source_ids_list,
+            exclude_source_ids=exclude_source_ids_list,
+            categories=categories_list,
+            exclude_categories=exclude_categories_list,
+            search_fields=search_fields_list,
+            page=page
+        )
+        
+        # Get media bias data for articles
+        try:
+            # Import here to avoid circular imports
+            from app.models.media_bias import MediaBias
+            media_bias = MediaBias(db)
+            
+            # Add media bias data to each article
+            for article in articles:
+                source_url = article.get('url', '')
+                source_name = article.get('source', '')
+                
+                # Try to get media bias data first from URL, then from source name
+                bias_data = media_bias.get_bias_for_source(source_url)
+                if not bias_data:
+                    bias_data = media_bias.get_bias_for_source(source_name)
+                    
+                # Add bias data to article if found
+                if bias_data:
+                    article['bias'] = bias_data.get('bias', '')
+                    article['factual_reporting'] = bias_data.get('factual_reporting', '')
+                    article['mbfc_credibility_rating'] = bias_data.get('mbfc_credibility_rating', '')
+                    article['bias_country'] = bias_data.get('country', '')
+                    article['press_freedom'] = bias_data.get('press_freedom', '')
+                    article['media_type'] = bias_data.get('media_type', '')
+                    article['popularity'] = bias_data.get('popularity', '')
+        except Exception as bias_error:
+            logger.warning(f"Error enriching articles with media bias data: {str(bias_error)}")
+            # Continue without media bias data
+        
+        return JSONResponse(content={
+            "source": source,
+            "query": query,
+            "topic": topic,
+            "article_count": len(articles),
+            "articles": articles
+        })
+        
+    except Exception as e:
+        logger.error(f"Error collecting articles: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/available_sources")
+async def get_available_sources():
+    """Get list of available article sources."""
+    return JSONResponse(content=CollectorFactory.get_available_sources())
+
+@app.get("/collect", response_class=HTMLResponse)
+async def collect_page(request: Request, session=Depends(verify_session)):
+    return templates.TemplateResponse("collect.html", {
+        "request": request,
+        "session": request.session
+    })
+
+@app.post("/config/newsapi")
+async def save_newsapi_config(config: NewsAPIConfig):
+    """Save NewsAPI configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        env_var_name = 'PROVIDER_NEWSAPI_KEY'
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Update or add the key
+        new_line = f'{env_var_name}="{config.api_key}"\n'
+        key_found = False
+
+        for i, line in enumerate(lines):
+            if line.startswith(f'{env_var_name}='):
+                lines[i] = new_line
+                key_found = True
+                break
+
+        if not key_found:
+            lines.append(new_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment
+        os.environ[env_var_name] = config.api_key
+        
+        # Use explicit JSONResponse
+        return JSONResponse(
+            status_code=200,
+            content={"message": "NewsAPI configuration saved successfully"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error saving NewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/newsapi")
+async def get_newsapi_config():
+    """Get NewsAPI configuration status."""
+    try:
+        # Force reload of environment variables
+        load_dotenv(override=True)
+        
+        newsapi_key = os.getenv('PROVIDER_NEWSAPI_KEY')
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": bool(newsapi_key),
+                "message": "NewsAPI is configured" if newsapi_key else "NewsAPI is not configured"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error in get_newsapi_config: {str(e)}")
+        logger.error(f"Error checking NewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/newsapi")
+async def remove_newsapi_config():
+    """Remove NewsAPI configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        
+        # Read existing content
+        with open(env_path, "r") as env_file:
+            lines = env_file.readlines()
+
+        # Remove the primary and secondary API key lines
+        lines = [line for line in lines if not (
+            line.startswith('PROVIDER_NEWSAPI_KEY=') or 
+            line.startswith('NEWSAPI_KEY=')
+        )]
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Remove from current environment
+        if 'PROVIDER_NEWSAPI_KEY' in os.environ:
+            del os.environ['PROVIDER_NEWSAPI_KEY']
+        if 'NEWSAPI_KEY' in os.environ:
+            del os.environ['NEWSAPI_KEY']
+
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
+
+        return {"message": "NewsAPI configuration removed successfully"}
+
+    except Exception as e:
+        logger.error(f"Error removing NewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/create_topic", response_class=HTMLResponse)
+async def create_topic_page(request: Request, session=Depends(verify_session)):
+    config = load_config()
+    
+    # Gather examples from existing topics
+    example_topics = [topic['name'] for topic in config['topics']]
+    example_categories = list(set(cat for topic in config['topics'] for cat in topic['categories']))
+    example_signals = list(set(signal for topic in config['topics'] for signal in topic['future_signals']))
+    example_sentiments = list(set(sent for topic in config['topics'] for sent in topic['sentiment']))
+    example_time_to_impact = list(set(time for topic in config['topics'] for time in topic['time_to_impact']))
+    example_driver_types = list(set(driver for topic in config['topics'] for driver in topic['driver_types']))
+    
+    return templates.TemplateResponse("create_topic.html", {
+        "request": request,
+        "session": request.session,
+        "example_topics": example_topics,
+        "example_categories": example_categories,
+        "example_signals": example_signals,
+        "example_sentiments": example_sentiments,
+        "example_time_to_impact": example_time_to_impact,
+        "example_driver_types": example_driver_types
+    })
+
+@app.post("/api/create_topic")
+async def create_topic(topic_data: dict):
+    try:
+        config = load_config()
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config', 'config.json')
+        
+        # Load existing config
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        
+        # Check if updating existing topic
+        existing_topic_index = next((i for i, topic in enumerate(config['topics']) 
+                               if topic['name'] == topic_data['name']), None)
+        
+        # Save to database first
+        db = Database()
+        if existing_topic_index is not None:
+            # Update in database
+            db.update_topic(topic_data['name'])
+            config['topics'][existing_topic_index] = topic_data
+        else:
+            # Create in database
+            db.create_topic(topic_data['name'])
+            # Add to config
+            config['topics'].append(topic_data)
+        
+        # Save updated config
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+        
+        # ADD THIS SECTION only - for news_monitoring.json update
+        news_monitoring_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                                           'config', 'news_monitoring.json')
+        try:
+            with open(news_monitoring_path, 'r') as f:
+                news_monitoring = json.load(f)
+                
+            # Add the new topic to news_filters and paper_filters if it doesn't exist
+            topic_name = topic_data['name']
+            
+            if topic_name not in news_monitoring['news_filters']:
+                news_monitoring['news_filters'][topic_name] = f'"{topic_name}"'
+                
+            if topic_name not in news_monitoring['paper_filters']:
+                news_monitoring['paper_filters'][topic_name] = f'"{topic_name}"'
+                
+            # Save the updated configuration
+            with open(news_monitoring_path, 'w') as f:
+                json.dump(news_monitoring, f, indent=2)
+                
+            logger.info(f"Added topic '{topic_name}' to news_monitoring.json")
+            
+        except Exception as e:
+            logger.error(f"Error updating news_monitoring.json: {str(e)}")
+            # Continue without failing if this part encounters issues
+        
+        return {"status": "success", "message": "Topic created successfully"}
+        
+    except Exception as e:
+        logger.error(f"Error creating/updating topic: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error creating/updating topic: {str(e)}")
+
+@app.get("/api/topic/{topic_name}")
+async def get_topic_config(topic_name: str):
+    """Get configuration for a specific topic."""
+    try:
+        config = load_config()
+        topic_config = next((topic for topic in config['topics'] if topic['name'] == topic_name), None)
+        if not topic_config:
+            raise HTTPException(status_code=404, detail="Topic not found")
+        return JSONResponse(content=topic_config)
+    except Exception as e:
+        logger.error(f"Error getting topic config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/providers")
+async def get_providers():
+    """Get all configured providers."""
+    config = load_config()
+    return JSONResponse(content={"providers": config.get("providers", [])})
+
+@app.post("/api/research/bulk")
+async def bulk_research_endpoint(
+    request: Request,
+    data: dict = Body(
+        ...,
+        example={
+            "urls": ["https://example.com/article1", "https://example.com/article2"],
+            "topic": "AI and Machine Learning",
+            "summary_type": "curious_ai",
+            "model_name": "gpt-4",
+            "summary_length": "medium",
+            "summary_voice": "neutral"
+        }
+    )
+):
+    try:
+        bulk_research = BulkResearch(db)
+        results = await bulk_research.analyze_bulk_urls(
+            urls=data.get("urls", []),
+            summary_type=data.get("summary_type", "curious_ai"),
+            model_name=data.get("model_name", "gpt-4"),
+            summary_length=data.get("summary_length", "medium"),
+            summary_voice=data.get("summary_voice", "neutral"),
+            topic=data.get("topic")
+        )
+        
+        # Generate a unique batch ID
+        batch_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        return {"batch_id": batch_id, "results": results}
+        
+    except Exception as e:
+        logger.error(f"Bulk research error: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/templates")
+async def get_templates():
+    """Get all available report templates."""
+    try:
+        templates = report.get_all_templates()
+        return JSONResponse(content={"templates": templates})
+    except Exception as e:
+        logger.error(f"Error getting templates: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/templates/{name}")
+async def get_template(name: str):
+    """Get a specific template by name."""
+    try:
+        template = report.get_template(name)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        return JSONResponse(content={"content": template})
+    except Exception as e:
+        logger.error(f"Error getting template: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/templates")
+async def save_template(template_data: dict = Body(...)):
+    """Save or update a template."""
+    try:
+        name = template_data.get("name")
+        content = template_data.get("content")
+        if not name or not content:
+            raise HTTPException(status_code=400, detail="Name and content are required")
+        
+        success = report.save_template(name, content)
+        return JSONResponse(content={"success": success})
+    except Exception as e:
+        logger.error(f"Error saving template: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/markdown_to_html")
 async def markdown_to_html(data: dict = Body(...)):
     """Convert markdown to HTML for preview."""
     try:
@@ -2466,12 +3299,27 @@ async def keyword_monitor_page(request: Request, session=Depends(verify_session)
             topics = [{"id": topic["name"], "name": topic["name"]} 
                      for topic in config.get("topics", [])]
             
+            # Get enterprise license status
+            cursor.execute("SELECT value FROM app_settings WHERE key = 'enterprise_license_active'")
+            license_result = cursor.fetchone()
+            is_enterprise_active = bool(license_result and license_result[0] == "1")
+            
+            # Get available LLM models if enterprise is active
+            available_llm_models = []
+            if is_enterprise_active:
+                try:
+                    available_llm_models = ai_get_available_models()
+                except Exception as e:
+                    logger.warning(f"Failed to get available models: {str(e)}")
+            
             return templates.TemplateResponse(
                 "keyword_monitor.html",
                 get_template_context(request, {
                     "keyword_groups": list(groups.values()),
                     "topics": topics,
-                    "session": session
+                    "session": session,
+                    "is_enterprise_active": is_enterprise_active,  # Add enterprise status
+                    "available_llm_models": available_llm_models  # Add available models
                 })
             )
     except Exception as e:
@@ -2594,7 +3442,13 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                                 SELECT GROUP_CONCAT(keyword, '||')
                                 FROM monitored_keywords
                                 WHERE id IN (SELECT value FROM json_each('['||REPLACE(kam.keyword_ids, ',', ',')||']'))
-                            ) as matched_keywords
+                            ) as matched_keywords,
+                            a.topic_alignment_score,
+                            a.keyword_relevance_score,
+                            a.confidence_score,
+                            a.overall_match_explanation,
+                            a.extracted_article_topics,
+                            a.extracted_article_keywords
                         FROM keyword_article_matches kam
                         JOIN articles a ON kam.article_uri = a.uri
                         WHERE kam.group_id = ? AND kam.is_read = 0
@@ -2605,7 +3459,7 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                     alerts = []
                     
                     for row in rows:
-                        alert_id, detected_at, article_uri, title, url, news_source, publication_date, summary, keyword_ids, matched_keywords = row
+                        alert_id, detected_at, article_uri, title, url, news_source, publication_date, summary, keyword_ids, matched_keywords, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords = row
                         
                         # Convert the matched_keywords string to a list
                         keywords_list = matched_keywords.split('||') if matched_keywords else []
@@ -2619,7 +3473,13 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                                 'url': url,
                                 'source': news_source,
                                 'publication_date': publication_date,
-                                'summary': summary
+                                'summary': summary,
+                                'topic_alignment_score': topic_alignment_score,
+                                'keyword_relevance_score': keyword_relevance_score,
+                                'confidence_score': confidence_score,
+                                'overall_match_explanation': overall_match_explanation,
+                                'extracted_article_topics': extracted_article_topics,
+                                'extracted_article_keywords': extracted_article_keywords
                             },
                             'matched_keyword': keywords_list[0] if keywords_list else "",
                             'matched_keywords': keywords_list
@@ -2636,7 +3496,13 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                             a.news_source,
                             a.publication_date,
                             a.summary,
-                            mk.keyword as matched_keyword
+                            mk.keyword as matched_keyword,
+                            a.topic_alignment_score,
+                            a.keyword_relevance_score,
+                            a.confidence_score,
+                            a.overall_match_explanation,
+                            a.extracted_article_topics,
+                            a.extracted_article_keywords
                         FROM keyword_alerts ka
                         JOIN monitored_keywords mk ON ka.keyword_id = mk.id
                         JOIN articles a ON ka.article_uri = a.uri
@@ -2654,13 +3520,19 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                                 'url': url,
                                 'source': news_source,
                                 'publication_date': publication_date,
-                                'summary': summary
+                                'summary': summary,
+                                'topic_alignment_score': topic_alignment_score,
+                                'keyword_relevance_score': keyword_relevance_score,
+                                'confidence_score': confidence_score,
+                                'overall_match_explanation': overall_match_explanation,
+                                'extracted_article_topics': extracted_article_topics,
+                                'extracted_article_keywords': extracted_article_keywords
                             },
                             'matched_keyword': matched_keyword,
                             'matched_keywords': [matched_keyword] if matched_keyword else []
                         }
                         for alert_id, detected_at, article_uri, title, url, news_source, 
-                            publication_date, summary, matched_keyword in cursor.fetchall()
+                            publication_date, summary, matched_keyword, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords in cursor.fetchall()
                     ]
                 
                 growth_status = 'No Data'
@@ -2677,6 +3549,19 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                     'unread_count': unread_count or 0
                 })
             
+            # Get enterprise license status
+            cursor.execute("SELECT value FROM app_settings WHERE key = 'enterprise_license_active'")
+            license_result = cursor.fetchone()
+            is_enterprise_active = bool(license_result and license_result[0] == "1")
+            
+            # Get available LLM models if enterprise is active
+            available_llm_models = []
+            if is_enterprise_active:
+                try:
+                    available_llm_models = ai_get_available_models()
+                except Exception as e:
+                    logger.warning(f"Failed to get available models: {str(e)}")
+            
             return templates.TemplateResponse(
                 "keyword_alerts.html",
                 get_template_context(request, {
@@ -2688,7 +3573,9 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                     "session": session,
                     "now": now.isoformat(),
                     "is_enabled": is_enabled,
-                    "status_colors": status_colors  # Add this line
+                    "status_colors": status_colors,  # Add this line
+                    "is_enterprise_active": is_enterprise_active,  # Add enterprise status
+                    "available_llm_models": available_llm_models  # Add available models
                 })
             )
             
@@ -3821,3 +4708,164 @@ async def submit_article_page(request: Request, session=Depends(verify_session))
         "submit_article.html", 
         get_template_context(request)
     )
+
+# ---------------------------------------------------------------------------
+# License Management Endpoints
+# ---------------------------------------------------------------------------
+
+class LicenseActivationRequest(BaseModel):
+    license_key: str = Field(..., min_length=1)
+
+@app.get("/api/license-status")
+async def get_license_status(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Get current license status"""
+    try:
+        # Get enterprise license status from app_settings
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM app_settings WHERE key = 'enterprise_license_active'")
+            result = cursor.fetchone()
+            is_active = bool(result and result[0] == "1")
+            
+            # Get additional license info if active
+            license_info = {
+                "is_active": is_active,
+                "license_type": None,
+                "activated_date": None,
+                "license_key": None
+            }
+            
+            if is_active:
+                # Get license key
+                cursor.execute("SELECT value FROM app_settings WHERE key = 'enterprise_license_key'")
+                key_result = cursor.fetchone()
+                if key_result:
+                    license_info["license_key"] = key_result[0]
+                    
+                # Get activation date
+                cursor.execute("SELECT value FROM app_settings WHERE key = 'enterprise_license_activated_date'")
+                date_result = cursor.fetchone()
+                if date_result:
+                    license_info["activated_date"] = date_result[0]
+                    
+                # Determine license type from key prefix
+                if key_result and key_result[0]:
+                    if "ENTERPRISE" in key_result[0]:
+                        license_info["license_type"] = "Enterprise"
+                    elif "PREMIUM" in key_result[0]:
+                        license_info["license_type"] = "Premium"
+                    elif "TRIAL" in key_result[0]:
+                        license_info["license_type"] = "Trial"
+                    else:
+                        license_info["license_type"] = "Standard"
+            
+            return JSONResponse(content=license_info)
+            
+    except Exception as e:
+        logger.error(f"Error getting license status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get license status: {str(e)}")
+
+@app.post("/api/activate-license")
+async def activate_license(
+    request: LicenseActivationRequest,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Activate enterprise license"""
+    try:
+        # Load valid keys from config file
+        valid_keys_path = os.path.join(os.path.dirname(__file__), 'config', 'valid_keys.json')
+        if not os.path.exists(valid_keys_path):
+            raise HTTPException(status_code=500, detail="License validation system not configured")
+            
+        with open(valid_keys_path, 'r') as f:
+            valid_keys_data = json.load(f)
+            valid_keys = valid_keys_data.get("valid_keys", [])
+        
+        # Validate the license key
+        if request.license_key not in valid_keys:
+            raise HTTPException(status_code=400, detail="Invalid license key")
+        
+        # Check if license is already activated
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM app_settings WHERE key = 'enterprise_license_active'")
+            existing_result = cursor.fetchone()
+            
+            if existing_result and existing_result[0] == "1":
+                raise HTTPException(status_code=400, detail="License already activated")
+            
+            # Activate the license
+            activation_date = datetime.utcnow().isoformat()
+            
+            # Set enterprise_license_active to 1
+            cursor.execute("""
+                INSERT OR REPLACE INTO app_settings (key, value) 
+                VALUES ('enterprise_license_active', '1')
+            """)
+            
+            # Store the license key
+            cursor.execute("""
+                INSERT OR REPLACE INTO app_settings (key, value) 
+                VALUES ('enterprise_license_key', ?)
+            """, (request.license_key,))
+            
+            # Store activation date
+            cursor.execute("""
+                INSERT OR REPLACE INTO app_settings (key, value) 
+                VALUES ('enterprise_license_activated_date', ?)
+            """, (activation_date,))
+            
+            conn.commit()
+        
+        return JSONResponse(content={
+            "message": "License activated successfully",
+            "license_key": request.license_key,
+            "activated_date": activation_date,
+            "is_active": True
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error activating license: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to activate license: {str(e)}")
+
+@app.post("/api/deactivate-license")
+async def deactivate_license(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Deactivate enterprise license"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Set enterprise_license_active to 0
+            cursor.execute("""
+                INSERT OR REPLACE INTO app_settings (key, value) 
+                VALUES ('enterprise_license_active', '0')
+            """)
+            
+            # Clear the license key
+            cursor.execute("""
+                INSERT OR REPLACE INTO app_settings (key, value) 
+                VALUES ('enterprise_license_key', '')
+            """)
+            
+            # Clear activation date
+            cursor.execute("""
+                INSERT OR REPLACE INTO app_settings (key, value) 
+                VALUES ('enterprise_license_activated_date', '')
+            """)
+            
+            conn.commit()
+        
+        return JSONResponse(content={"message": "License deactivated successfully", "is_active": False})
+        
+    except Exception as e:
+        logger.error(f"Error deactivating license: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to deactivate license: {str(e)}")

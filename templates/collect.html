@@ -68,6 +68,7 @@
         transition: transform 0.2s ease;
         position: relative;
         padding-bottom: 60px;  /* Increased space for buttons */
+        overflow: visible !important; /* Allow tooltips to overflow */
     }
 
     .article-card:hover {
@@ -289,7 +290,7 @@
     .source-tooltip .tooltip-content {
         visibility: hidden;
         position: absolute;
-        z-index: 100;
+        z-index: 1050; /* Updated z-index for desktop */
         bottom: 125%;
         left: 50%;
         transform: translateX(-50%) translateY(10px);
@@ -413,7 +414,7 @@
     .source-tooltip .tooltip-content {
         visibility: hidden;
         position: absolute;
-        z-index: 100;
+        z-index: 1050; /* Updated z-index for desktop */
         bottom: 125%;
         left: 50%;
         transform: translateX(-50%);

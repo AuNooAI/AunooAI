@@ -97,6 +97,9 @@ class Database:
             # Create ontology tables (building_blocks, scenarios, scenario_blocks)
             self.create_ontology_tables()
             
+            # Create app_settings table for general application settings
+            self.create_app_settings_table() # New table creation
+            
             # Run migrations to ensure schema is up to date
             self.migrate_db()
             
@@ -127,7 +130,13 @@ class Database:
                     driver_type TEXT,
                     driver_type_explanation TEXT,
                     topic TEXT,
-                    analyzed BOOLEAN DEFAULT FALSE
+                    analyzed BOOLEAN DEFAULT FALSE,
+                    topic_alignment_score REAL,
+                    keyword_relevance_score REAL,
+                    confidence_score REAL,
+                    overall_match_explanation TEXT,
+                    extracted_article_topics TEXT,
+                    extracted_article_keywords TEXT
                 )
             """)
             
@@ -205,7 +214,9 @@ class Database:
                     ("ensure_podcasts_table_schema", self._ensure_podcasts_table_schema),
                     ("ensure_settings_podcasts_table", self._ensure_settings_podcasts_table),
                     ("add_metadata_column_to_podcasts", self._add_metadata_column_to_podcasts),
-                    ("create_newsletter_prompts_table", self._create_newsletter_prompts_table)
+                    ("create_newsletter_prompts_table", self._create_newsletter_prompts_table),
+                    ("add_relevance_columns_to_articles", self._add_relevance_columns_to_articles),
+                    ("create_app_settings_table_migration", self._create_app_settings_table_migration) # New migration
                 ]
                 
                 # Apply migrations that haven't been applied yet
@@ -342,6 +353,32 @@ class Database:
                     metadata TEXT
                 )
             """)
+
+    def _add_relevance_columns_to_articles(self, cursor):
+        """Add relevance score columns to the articles table."""
+        # Check if articles table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles'")
+        if cursor.fetchone():
+            # Check which columns already exist
+            cursor.execute("PRAGMA table_info(articles)")
+            columns = {row[1] for row in cursor.fetchall()}
+            
+            relevance_columns = {
+                "topic_alignment_score": "REAL",
+                "keyword_relevance_score": "REAL",
+                "confidence_score": "REAL",
+                "overall_match_explanation": "TEXT",
+                "extracted_article_topics": "TEXT",
+                "extracted_article_keywords": "TEXT"
+            }
+            
+            for col_name, col_type in relevance_columns.items():
+                if col_name not in columns:
+                    logger.info(f"Adding column '{col_name}' to articles table")
+                    cursor.execute(f"ALTER TABLE articles ADD COLUMN {col_name} {col_type}")
+        else:
+            # This case should ideally be handled by create_articles_table
+            logger.warning("articles table does not exist while trying to add relevance columns.")
 
     def _create_newsletter_prompts_table(self, cursor):
         """Create the newsletter_prompts table to store prompt templates."""
@@ -874,7 +911,10 @@ class Database:
                             future_signal = ?, future_signal_explanation = ?,
                             publication_date = ?, topic = ?, analyzed = TRUE,
                             sentiment_explanation = ?, time_to_impact_explanation = ?,
-                            tags = ?, driver_type = ?, driver_type_explanation = ?
+                            tags = ?, driver_type = ?, driver_type_explanation = ?,
+                            topic_alignment_score = ?, keyword_relevance_score = ?, 
+                            confidence_score = ?, overall_match_explanation = ?,
+                            extracted_article_topics = ?, extracted_article_keywords = ?
                         WHERE uri = ?
                     """, (
                         article_data['title'], article_data['news_source'],
@@ -884,7 +924,11 @@ class Database:
                         article_data['publication_date'], article_data['topic'],
                         article_data['sentiment_explanation'], article_data['time_to_impact_explanation'],
                         article_data['tags'], article_data['driver_type'],
-                        article_data['driver_type_explanation'], article_data['uri']
+                        article_data['driver_type_explanation'], 
+                        article_data.get('topic_alignment_score'), article_data.get('keyword_relevance_score'),
+                        article_data.get('confidence_score'), article_data.get('overall_match_explanation'),
+                        article_data.get('extracted_article_topics'), article_data.get('extracted_article_keywords'),
+                        article_data['uri']
                     ))
                 else:
                     # Insert new article
@@ -894,8 +938,11 @@ class Database:
                             time_to_impact, category, future_signal,
                             future_signal_explanation, publication_date, topic,
                             sentiment_explanation, time_to_impact_explanation,
-                            tags, driver_type, driver_type_explanation, analyzed
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
+                            tags, driver_type, driver_type_explanation, analyzed,
+                            topic_alignment_score, keyword_relevance_score, 
+                            confidence_score, overall_match_explanation,
+                            extracted_article_topics, extracted_article_keywords
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, ?, ?, ?, ?, ?, ?)
                     """, (
                         article_data['uri'], article_data['title'],
                         article_data['news_source'], article_data['summary'],
@@ -906,7 +953,10 @@ class Database:
                         article_data['sentiment_explanation'],
                         article_data['time_to_impact_explanation'],
                         article_data['tags'], article_data['driver_type'],
-                        article_data['driver_type_explanation']
+                        article_data['driver_type_explanation'],
+                        article_data.get('topic_alignment_score'), article_data.get('keyword_relevance_score'),
+                        article_data.get('confidence_score'), article_data.get('overall_match_explanation'),
+                        article_data.get('extracted_article_topics'), article_data.get('extracted_article_keywords')
                     ))
                 
                 return True
@@ -960,7 +1010,11 @@ class Database:
                 # Media bias fields
                 'bias', 'factual_reporting', 'mbfc_credibility_rating',
                 'bias_source', 'bias_country', 'press_freedom', 
-                'media_type', 'popularity'
+                'media_type', 'popularity',
+                # Relevance score fields
+                'topic_alignment_score', 'keyword_relevance_score', 
+                'confidence_score', 'overall_match_explanation',
+                'extracted_article_topics', 'extracted_article_keywords'
             ]
 
             # Filter fields that exist in the article_data
@@ -2003,6 +2057,63 @@ class Database:
             cursor.execute(create_sql)
             conn.commit()
             self._debug_schema()  # Optional: logs new schema
+
+    def _create_app_settings_table_migration(self, cursor):
+        """Migration to ensure app_settings table exists and has default enterprise status."""
+        self.create_app_settings_table(cursor) # Call the creation method
+
+    def create_app_settings_table(self, custom_cursor=None):
+        """Create the app_settings table if it doesn't exist and add default settings."""
+        conn_passed = custom_cursor is not None
+        conn = custom_cursor.connection if conn_passed else self.get_connection()
+        cursor = custom_cursor if conn_passed else conn.cursor()
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
+        
+        # Add default enterprise license status if not present
+        cursor.execute("SELECT value FROM app_settings WHERE key = ?", ('enterprise_license_active',))
+        if cursor.fetchone() is None:
+            cursor.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)", 
+                           ('enterprise_license_active', '0')) # '0' for False
+
+        if not conn_passed:
+            conn.commit()
+
+    def is_enterprise_active(self) -> bool:
+        """Check if the enterprise license is active."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM app_settings WHERE key = ?", ('enterprise_license_active',))
+                result = cursor.fetchone()
+                if result and result[0] == '1': # '1' for True
+                    return True
+                return False
+        except Exception as e:
+            logger.error(f"Error checking enterprise status: {str(e)}")
+            return False # Default to false on error
+
+    def set_enterprise_license(self, license_key: str) -> bool:
+        """Set the enterprise license status based on a key (placeholder)."""
+        # For now, any non-empty key activates the enterprise features.
+        # In a real scenario, this would involve actual license validation.
+        is_active = bool(license_key and license_key.strip())
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", 
+                               ('enterprise_license_active', '1' if is_active else '0'))
+                conn.commit()
+                logger.info(f"Enterprise status set to: {is_active}")
+                return True
+        except Exception as e:
+            logger.error(f"Error setting enterprise license: {str(e)}")
+            return False
 
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"

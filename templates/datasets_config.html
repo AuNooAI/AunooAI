@@ -508,6 +508,7 @@ It manages data enrichment sources like media bias datasets.
         cursor: pointer;
         border-bottom: 1px solid #eee;
         position: relative;
+        overflow: visible !important; /* Allow tooltips to overflow */
     }
     
     .search-result-item:hover {
@@ -533,7 +534,7 @@ It manages data enrichment sources like media bias datasets.
     .search-result-item .bias-tooltip .tooltip-content {
         visibility: hidden;
         position: absolute;
-        z-index: 100;
+        z-index: 1050; /* Updated z-index */
         bottom: 125%;
         left: 50%;
         transform: translateX(-50%);

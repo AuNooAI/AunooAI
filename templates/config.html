@@ -31,6 +31,11 @@
                 <i class="fas fa-lock"></i> Security
             </button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="license-tab" data-bs-toggle="tab" data-bs-target="#license" type="button" role="tab">
+                <i class="fas fa-certificate"></i> License
+            </button>
+        </li>
     </ul>
 
     <!-- Tab content -->
@@ -379,6 +384,81 @@
                     <div class="alert alert-info mt-4">
                         <i class="fas fa-info-circle"></i>
                         For maximum security, use a unique password that you don't use elsewhere.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- License Tab -->
+        <div class="tab-pane fade" id="license" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>License Activation</h2>
+                    <p class="text-muted mb-4">Activate your enterprise license to unlock advanced features.</p>
+                    
+                    <form id="license-activation-form">
+                        <div class="form-group">
+                            <label for="license-key" class="form-label">License Key</label>
+                            <input type="text" id="license-key" 
+                                   placeholder="Enter your license key (e.g., NORN-XXXX-XXXX-XXXX-XXXX)" 
+                                   required 
+                                   class="form-control"
+                                   data-tooltip="Enter the license key provided by your account manager">
+                            <small class="form-text text-muted">Contact support if you need a license key</small>
+                        </div>
+
+                        <button type="submit" class="mt-3" id="activate-license-btn">
+                            <i class="fas fa-key"></i> Activate License
+                        </button>
+                    </form>
+                    
+                    <div class="config-item mt-4">
+                        <h3>Enterprise Features</h3>
+                        <p class="text-muted small mb-3">Features unlocked with an active enterprise license:</p>
+                        <ul class="feature-list">
+                            <li><i class="fas fa-check-circle text-success"></i> Advanced Relevance Analysis</li>
+                            <li><i class="fas fa-check-circle text-success"></i> Custom AI Model Selection</li>
+                            <li><i class="fas fa-check-circle text-success"></i> Priority Support</li>
+                            <li><i class="fas fa-check-circle text-success"></i> Extended API Limits</li>
+                            <li><i class="fas fa-check-circle text-success"></i> And more...</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="right-panel">
+                    <h2>License Status</h2>
+                    <p class="text-muted mb-4">Current license information and activation status.</p>
+                    <div id="license-info" class="info-panel">
+                        <div class="info-group">
+                            <div class="info-item">
+                                <span class="info-label">Status:</span>
+                                <span class="info-value" id="license-status">
+                                    <span class="badge bg-secondary">Loading...</span>
+                                </span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">License Type:</span>
+                                <span class="info-value" id="license-type">N/A</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Activated On:</span>
+                                <span class="info-value" id="license-activated-date">N/A</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">License Key:</span>
+                                <span class="info-value" id="current-license-key">Not activated</span>
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4" id="license-actions" style="display: none;">
+                            <button class="btn btn-sm btn-outline-danger" onclick="deactivateLicense()">
+                                <i class="fas fa-times"></i> Deactivate License
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-info mt-4">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Need a license?</strong> Contact our sales team at sales@norn-ai.com or visit our pricing page.
                     </div>
                 </div>
             </div>
@@ -979,6 +1059,44 @@
         margin-bottom: 8px;
         font-weight: 600;
     }
+
+    /* License tab styles */
+    .feature-list {
+        list-style: none;
+        padding-left: 0;
+        margin-top: 1rem;
+    }
+
+    .feature-list li {
+        padding: 0.5rem 0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: var(--dark-gray);
+    }
+
+    .feature-list li i {
+        color: var(--secondary-color);
+        font-size: 1.1rem;
+    }
+
+    #license-info .badge {
+        font-size: 0.85rem;
+        padding: 0.35em 0.65em;
+    }
+
+    #license-actions button {
+        background-color: rgba(220, 53, 69, 0.1);
+        border: 1px solid rgba(220, 53, 69, 0.2);
+        color: #dc3545;
+        padding: 6px 12px;
+        font-size: 0.875rem;
+    }
+
+    #license-actions button:hover {
+        background-color: #dc3545;
+        color: white;
+    }
 </style>
 
 <script>
@@ -1403,6 +1521,7 @@
         loadProviderOptions();
         loadAvailableProviders();
         loadBlueskyCredentials();
+        loadLicenseStatus();  // Add this line
     });
 
     // Add this function to reload the configuration after key changes
@@ -2322,6 +2441,137 @@
             const button = document.getElementById('clean-all-btn');
             button.disabled = false;
             button.innerHTML = '<i class="fas fa-magic"></i> Clean All Orphaned';
+        }
+    }
+
+    // License management functions
+    async function loadLicenseStatus() {
+        try {
+            const response = await fetch('/api/license-status');
+            if (!response.ok) {
+                throw new Error('Failed to load license status');
+            }
+            
+            const data = await response.json();
+            console.log('License status:', data);
+            
+            // Update UI based on license status
+            if (data.is_active) {
+                document.getElementById('license-status').innerHTML = 
+                    '<span class="badge bg-success">Active</span>';
+                document.getElementById('license-type').textContent = data.license_type || 'Enterprise';
+                document.getElementById('license-activated-date').textContent = 
+                    data.activated_date ? formatDate(data.activated_date) : 'N/A';
+                document.getElementById('current-license-key').textContent = 
+                    data.license_key ? maskLicenseKey(data.license_key) : 'N/A';
+                document.getElementById('license-actions').style.display = 'block';
+                document.getElementById('activate-license-btn').disabled = true;
+            } else {
+                document.getElementById('license-status').innerHTML = 
+                    '<span class="badge bg-warning">Not Activated</span>';
+                document.getElementById('license-type').textContent = 'N/A';
+                document.getElementById('license-activated-date').textContent = 'N/A';
+                document.getElementById('current-license-key').textContent = 'Not activated';
+                document.getElementById('license-actions').style.display = 'none';
+                document.getElementById('activate-license-btn').disabled = false;
+            }
+        } catch (error) {
+            console.error('Error loading license status:', error);
+            document.getElementById('license-status').innerHTML = 
+                '<span class="badge bg-danger">Error</span>';
+        }
+    }
+
+    // Helper function to mask license key for security
+    function maskLicenseKey(key) {
+        if (!key || key.length < 8) return key;
+        const firstPart = key.substring(0, 4);
+        const lastPart = key.substring(key.length - 4);
+        return `${firstPart}...${lastPart}`;
+    }
+
+    // License activation form handler
+    document.getElementById('license-activation-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const licenseKey = document.getElementById('license-key').value.trim();
+        const button = document.getElementById('activate-license-btn');
+        const originalText = button.innerHTML;
+        
+        if (!licenseKey) {
+            showAlert('Please enter a license key', 'warning');
+            return;
+        }
+        
+        try {
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Activating...';
+            
+            const response = await fetch('/api/activate-license', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ license_key: licenseKey })
+            });
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.detail || 'Failed to activate license');
+            }
+            
+            showAlert('License activated successfully! Enterprise features are now available.', 'success');
+            document.getElementById('license-key').value = '';
+            
+            // Reload license status to update UI
+            await loadLicenseStatus();
+            
+            // Reload the page after a short delay to ensure all features are updated
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+            
+        } catch (error) {
+            console.error('Error activating license:', error);
+            showAlert(`Failed to activate license: ${error.message}`, 'danger');
+        } finally {
+            button.disabled = false;
+            button.innerHTML = originalText;
+        }
+    });
+
+    // Deactivate license function
+    async function deactivateLicense() {
+        if (!confirm('Are you sure you want to deactivate your license? This will disable all enterprise features.')) {
+            return;
+        }
+        
+        try {
+            const response = await fetch('/api/deactivate-license', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to deactivate license');
+            }
+            
+            showAlert('License deactivated successfully', 'success');
+            
+            // Reload license status to update UI
+            await loadLicenseStatus();
+            
+            // Reload the page after a short delay to ensure all features are updated
+            setTimeout(() => {
+                window.location.reload();
+            }, 2000);
+            
+        } catch (error) {
+            console.error('Error deactivating license:', error);
+            showAlert(`Failed to deactivate license: ${error.message}`, 'danger');
         }
     }
 </script>{% endblock %}

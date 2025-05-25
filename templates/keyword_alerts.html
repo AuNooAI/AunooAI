@@ -371,7 +371,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 .source-tooltip .tooltip-content {
     visibility: hidden;
     position: absolute;
-    z-index: 100;
+    z-index: 1050; /* Updated z-index for desktop */
     bottom: 125%;
     left: 50%;
     transform: translateX(-50%) translateY(10px);
@@ -458,7 +458,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 .bias-tooltip {
     visibility: hidden;
     position: absolute;
-    z-index: 1;
+    z-index: 1050; /* Updated z-index */
     bottom: 125%;
     left: 0;
     width: 300px;
@@ -483,6 +483,133 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     visibility: visible;
     opacity: 1;
 }
+
+    /* Addressing the tooltip clipping by card-header */
+    .card .card-header {
+        overflow: visible !important; /* Allow tooltips to overflow the header bounds */
+        position: relative; /* Needed if card-header itself needs to manage z-indexed children or for specific layout reasons */
+    }
+
+    /* Ensure the card itself also allows overflow for tooltips */
+    .card {
+        overflow: visible !important;
+    }
+
+    /* Relevance tooltip styles */
+    .relevance-container {
+        position: relative;
+        display: inline-block;
+    }
+
+    .relevance-tooltip {
+        position: relative;
+        display: inline-block;
+    }
+
+    .relevance-tooltip .relevance-tooltip-content {
+        visibility: hidden;
+        position: fixed;
+        z-index: 99999;
+        background-color: white;
+        padding: 12px;
+        border-radius: 8px;
+        box-shadow: 0 8px 25px rgba(0,0,0,0.25);
+        width: max-content;
+        min-width: 280px;
+        max-width: 350px;
+        border: 1px solid #ddd;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+        white-space: normal;
+    }
+
+    .relevance-tooltip:hover .relevance-tooltip-content {
+        visibility: visible;
+        opacity: 1;
+    }
+
+    .relevance-tooltip .relevance-tooltip-content::after {
+        content: '';
+        position: absolute;
+        bottom: -5px;
+        left: 20px;
+        border-width: 5px;
+        border-style: solid;
+        border-color: white transparent transparent transparent;
+    }
+
+    /* Mobile relevance tooltip adjustments */
+    @media (max-width: 767px) {
+        .relevance-tooltip .relevance-tooltip-content {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            bottom: auto;
+            transform: translate(-50%, -50%);
+            min-width: 280px;
+            max-width: 90vw;
+            z-index: 1050;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        }
+        
+        .relevance-tooltip:hover .relevance-tooltip-content {
+            transform: translate(-50%, -50%);
+        }
+        
+        .relevance-tooltip .relevance-tooltip-content::after {
+            display: none;
+        }
+    }
+</style>
+
+<style>
+    /* Styles for enterprise feature locking */
+    .enterprise-feature-disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+    .enterprise-feature-disabled select,
+    .enterprise-feature-disabled input,
+    .enterprise-feature-disabled button {
+        pointer-events: none;
+    }
+    .enterprise-tooltip {
+        position: relative; /* Establishes a stacking context */
+        display: inline-block;
+        /* z-index: 50; */ /* Remove this - let natural stacking or parent context rule */
+    }
+    .enterprise-tooltip .enterprise-tooltip-text {
+        visibility: hidden;
+        width: 220px;
+        background-color: #555;
+        color: #fff;
+        text-align: center;
+        border-radius: 6px;
+        padding: 5px 0;
+        position: absolute;
+        z-index: 1050; /* Restore high z-index */
+        bottom: 100%; /* Position bottom of tooltip at the top of .enterprise-tooltip (the icon's wrapper) */
+        left: 50%;
+        transform: translateX(-50%); /* Center the tooltip */
+        margin-bottom: 8px; /* Space between icon and tooltip */
+        opacity: 0;
+        transition: opacity 0.3s;
+    }
+    .enterprise-tooltip .enterprise-tooltip-text::after {
+        content: "";
+        position: absolute;
+        top: 100%; /* Arrow at the bottom of the tooltip */
+        left: 50%;
+        margin-left: -5px;
+        border-width: 5px;
+        border-style: solid;
+        border-color: #555 transparent transparent transparent;
+    }
+    .enterprise-tooltip:hover .enterprise-tooltip-text {
+        visibility: visible;
+        opacity: 1;
+    }
 </style>
 {% endblock %}
 
@@ -551,6 +678,45 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
         </div>
     </div>
 
+    <!-- Relevance Model Configuration Section -->
+    <div class="card mb-4 {% if not is_enterprise_active %}enterprise-feature-disabled{% endif %}">
+        <div class="card-header">
+            <h5 class="mb-0">
+                Relevance Analysis Configuration
+                {% if not is_enterprise_active %}
+                <span class="enterprise-tooltip">
+                    <i class="fas fa-lock ms-2 text-warning"></i>
+                    <span class="enterprise-tooltip-text">This is an enterprise feature. Please activate your license in settings.</span>
+                </span>
+                {% endif %}
+            </h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <label for="relevanceModelSelect" class="form-label">Relevance Calculation Model</label>
+                    <select id="relevanceModelSelect" class="form-select" {% if not is_enterprise_active %}disabled{% endif %}>
+                        {% if available_llm_models %}
+                            {% for model in available_llm_models %}
+                                <option value="{{ model.name }}" data-provider="{{ model.provider }}">
+                                    {{ model.name }} ({{ model.provider }})
+                                </option>
+                            {% endfor %}
+                        {% else %}
+                            <option value="" disabled selected>No models available</option>
+                        {% endif %}
+                    </select>
+                    {% if not is_enterprise_active %}
+                        <small class="form-text text-muted">
+                            This feature requires an active enterprise license.
+                        </small>
+                    {% endif %}
+                </div>
+                <!-- Add other relevance settings here if needed -->
+            </div>
+        </div>
+    </div>
+
     <!-- Replace the existing trend chart section with this -->
     <div class="card mb-4">
         <div class="card-header">
@@ -600,7 +766,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                 </div>
                             </td>
                             <td>
-                                <div class="d-flex gap-1">
+                                <div class="d-flex gap-1 flex-wrap">
                                     {% if group.alerts %}
                                         {% for alert in group.alerts[:3] %}
                                         <span class="article-reference"
@@ -613,20 +779,6 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                               title="{{ alert.article.title }}">
                                             {{ loop.index }}
                                         </span>
-                                        {% if alert.matched_keyword %}
-                                            <span class="badge bg-info ms-1">
-                                                <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
-                                            </span>
-                                        {% endif %}
-                                        {% if alert.matched_keywords %}
-                                            {% for keyword in alert.matched_keywords %}
-                                                {% if keyword and keyword != alert.matched_keyword %}
-                                                <span class="badge bg-info ms-1">
-                                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
-                                                </span>
-                                                {% endif %}
-                                            {% endfor %}
-                                        {% endif %}
                                         {% endfor %}
                                     {% else %}
                                         <span class="text-muted">No recent references</span>
@@ -709,6 +861,16 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                     <i class="fas fa-microscope"></i> 
                                     Analyze Selected (<span class="selected-count">0</span>)
                                 </button>
+                                {% if is_enterprise_active %}
+                                <button class="btn btn-outline-info btn-sm bulk-relevance-btn" 
+                                        data-topic="{{ group.topic }}"
+                                        data-group-id="{{ group.id }}"
+                                        onclick="analyzeRelevance('{{ group.topic }}', '{{ group.id }}')"
+                                        style="display: none;">
+                                    <i class="fas fa-chart-line"></i> 
+                                    Relevance (<span class="relevance-count">0</span>)
+                                </button>
+                                {% endif %}
                                 <button class="btn btn-outline-danger btn-sm bulk-delete-btn"
                                         data-topic="{{ group.topic }}"
                                         data-group-id="{{ group.id }}"
@@ -732,6 +894,9 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                     <th style="width: 150px">Source</th>
                                     <th style="width: 150px">Detected</th>
                                     <th style="width: 150px">Tags</th>
+                                    {% if is_enterprise_active %}
+                                    <th style="width: 120px">Relevance</th>
+                                    {% endif %}
                                     <th style="width: 250px">Actions</th>
                                 </tr>
                             </thead>
@@ -797,6 +962,48 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                             {% endif %}
                                         </div>
                                     </td>
+                                    {% if is_enterprise_active %}
+                                    <td>
+                                        <div class="relevance-container">
+                                            {% if alert.article['topic_alignment_score'] is not none and alert.article['topic_alignment_score'] >= 0 %}
+                                                <div class="relevance-tooltip">
+                                                    <i class="fas fa-chart-line text-primary" style="cursor: help;"></i>
+                                                    <div class="relevance-tooltip-content">
+                                                        <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">
+                                                            Relevance Analysis
+                                                        </div>
+                                                        <table class="mb-0" style="font-size: 0.85rem; width: 100%;">
+                                                            <tr>
+                                                                <td><strong>Topic Alignment:</strong></td>
+                                                                <td>{{ "%.2f"|format(alert.article['topic_alignment_score'] or 0) }}</td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td><strong>Keyword Relevance:</strong></td>
+                                                                <td>{{ "%.2f"|format(alert.article['keyword_relevance_score'] or 0) }}</td>
+                                                            </tr>
+                                                            <tr>
+                                                                <td><strong>Confidence:</strong></td>
+                                                                <td>{{ "%.2f"|format(alert.article['confidence_score'] or 0) }}</td>
+                                                            </tr>
+                                                            {% if alert.article['overall_match_explanation'] %}
+                                                            <tr>
+                                                                <td colspan="2" style="padding-top: 8px;">
+                                                                    <strong>Explanation:</strong><br>
+                                                                    <small>{{ alert.article['overall_match_explanation'][:200] }}{% if alert.article['overall_match_explanation']|length > 200 %}...{% endif %}</small>
+                                                                </td>
+                                                            </tr>
+                                                            {% endif %}
+                                                        </table>
+                                                    </div>
+                                                </div>
+                                            {% else %}
+                                                <span class="text-muted" style="opacity: 0.5;">
+                                                    <i class="fas fa-chart-line"></i>
+                                                </span>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    {% endif %}
                                     <td>
                                         <div class="d-flex flex-column gap-2">
                                             <div class="d-flex gap-2">
@@ -1505,6 +1712,20 @@ function updateBulkButtons(topic, groupId) {
         }
     }
     
+    // Update relevance analysis button for this specific group
+    const bulkRelevanceBtn = buttonContainer.querySelector('.bulk-relevance-btn');
+    if (bulkRelevanceBtn) {
+        if (groupArticles.length > 0) {
+            bulkRelevanceBtn.style.display = 'inline-block';
+            const relevanceCount = bulkRelevanceBtn.querySelector('.relevance-count');
+            if (relevanceCount) {
+                relevanceCount.textContent = groupArticles.length;
+            }
+        } else {
+            bulkRelevanceBtn.style.display = 'none';
+        }
+    }
+    
     // Update delete button for this specific group
     const bulkDeleteBtn = buttonContainer.querySelector('.bulk-delete-btn');
     if (bulkDeleteBtn) {
@@ -1534,6 +1755,89 @@ function analyzeBulkArticles(topic, groupId) {
     });
     
     window.location.href = `/submit-article?${params.toString()}`;
+}
+
+async function analyzeRelevance(topic, groupId) {
+    const articles = selectedArticles.byGroup[groupId] || [];
+    if (articles.length === 0) {
+        showAlert('No articles selected for relevance analysis', 'warning');
+        return;
+    }
+    
+    // Get the selected model from the relevance model dropdown
+    const modelSelect = document.getElementById('relevanceModelSelect');
+    if (!modelSelect || !modelSelect.value) {
+        showAlert('Please select a relevance calculation model first', 'warning');
+        return;
+    }
+    
+    const modelName = modelSelect.value;
+    const button = event.target.closest('button');
+    const originalHtml = button.innerHTML;
+    
+    try {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
+        
+        console.log(`Starting relevance analysis for ${articles.length} articles using model: ${modelName}`);
+        
+        const response = await fetch('/api/keyword-monitor/analyze-relevance', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                model_name: modelName,
+                topic: topic,
+                group_id: groupId,
+                article_uris: articles.map(article => article.url)
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || 'Failed to analyze relevance');
+        }
+        
+        const result = await response.json();
+        console.log('Relevance analysis completed:', result);
+        
+        // Show success message with results summary
+        const avgTopicScore = result.results.reduce((sum, r) => sum + r.topic_alignment_score, 0) / result.results.length;
+        const avgKeywordScore = result.results.reduce((sum, r) => sum + r.keyword_relevance_score, 0) / result.results.length;
+        
+        showAlert(
+            `Relevance analysis completed! ${result.updated_count} articles analyzed. ` +
+            `Average topic alignment: ${avgTopicScore.toFixed(2)}, ` +
+            `Average keyword relevance: ${avgKeywordScore.toFixed(2)}`,
+            'success'
+        );
+        
+        // Clear selections
+        selectedArticles.byGroup[groupId] = [];
+        selectedArticles.byTopic[topic] = [];
+        
+        // Update UI to remove selection indicators
+        document.querySelectorAll('.article-reference.selected').forEach(el => {
+            el.classList.remove('selected');
+        });
+        
+        // Update bulk buttons
+        updateBulkButtons(topic, groupId);
+        
+        // Optionally refresh the articles to show updated relevance scores
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (toggle) {
+            await refreshGroupArticles(topic, groupId, toggle.checked || false);
+        }
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert('Failed to analyze relevance: ' + error.message, 'danger');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+    }
 }
 
 async function bulkDeleteArticles(topic, groupId) {
@@ -1700,7 +2004,8 @@ function updateGroupAlerts(card, data, groupId) {
     
     // Generate alerts HTML
     let html = '';
-    for (const alert of data.alerts) {
+    for (let index = 0; index < data.alerts.length; index++) {
+        const alert = data.alerts[index];
         console.log(`Processing alert: ${alert.id}, Source: ${alert.article.source}`);
         console.log('Media bias data in alert:', 
                   'bias:', alert.article.bias, 
@@ -1908,6 +2213,71 @@ function updateGroupAlerts(card, data, groupId) {
         // Let's render all properties of the article object for debugging
         console.log('Final mediaBiasHtml length:', mediaBiasHtml ? mediaBiasHtml.length : 0);
         
+        // Generate relevance column HTML if enterprise is active
+        const isEnterpriseActive = document.querySelector('.enterprise-feature-disabled') === null;
+        let relevanceColumnHtml = '';
+        if (isEnterpriseActive) {
+            // Debug: Log relevance data for this article
+            console.log(`Article relevance data:`, {
+                title: alert.article.title,
+                topic_alignment_score: alert.article.topic_alignment_score,
+                keyword_relevance_score: alert.article.keyword_relevance_score,
+                confidence_score: alert.article.confidence_score,
+                has_relevance: alert.article.topic_alignment_score !== null && alert.article.topic_alignment_score !== undefined
+            });
+            
+            if (alert.article.topic_alignment_score !== null && alert.article.topic_alignment_score !== undefined && alert.article.topic_alignment_score >= 0) {
+                const topicScore = (alert.article.topic_alignment_score || 0).toFixed(2);
+                const keywordScore = (alert.article.keyword_relevance_score || 0).toFixed(2);
+                const confidenceScore = (alert.article.confidence_score || 0).toFixed(2);
+                const explanation = alert.article.overall_match_explanation || '';
+                const truncatedExplanation = explanation.length > 200 ? explanation.substring(0, 200) + '...' : explanation;
+                
+                relevanceColumnHtml = `
+                    <td>
+                        <div class="relevance-container">
+                            <div class="relevance-tooltip">
+                                <i class="fas fa-chart-line text-primary" style="cursor: help;"></i>
+                                <div class="relevance-tooltip-content">
+                                    <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">
+                                        Relevance Analysis
+                                    </div>
+                                    <table class="mb-0" style="font-size: 0.85rem; width: 100%;">
+                                        <tr>
+                                            <td><strong>Topic Alignment:</strong></td>
+                                            <td>${topicScore}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Keyword Relevance:</strong></td>
+                                            <td>${keywordScore}</td>
+                                        </tr>
+                                        <tr>
+                                            <td><strong>Confidence:</strong></td>
+                                            <td>${confidenceScore}</td>
+                                        </tr>
+                                        ${explanation ? `
+                                        <tr>
+                                            <td colspan="2" style="padding-top: 8px;">
+                                                <strong>Explanation:</strong><br>
+                                                <small>${truncatedExplanation}</small>
+                                            </td>
+                                        </tr>
+                                        ` : ''}
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </td>`;
+            } else {
+                relevanceColumnHtml = `
+                    <td>
+                        <span class="text-muted" style="opacity: 0.5;">
+                            <i class="fas fa-chart-line"></i>
+                        </span>
+                    </td>`;
+            }
+        }
+        
         html += `
             <tr class="${alert.is_read ? 'text-muted bg-light' : ''}"
                 data-bias="${alert.article.bias || ''}"
@@ -1936,7 +2306,7 @@ function updateGroupAlerts(card, data, groupId) {
                                       data-group-id="${groupId}"
                                       onclick="toggleArticleSelection(this)"
                                       title="${alert.article.title}">
-                                    ${alert.id}
+                                    ${index + 1}
                                 </span>
                                 <a href="${alert.article.url}" target="_blank">${alert.article.title}</a>
                             </div>
@@ -1966,6 +2336,7 @@ function updateGroupAlerts(card, data, groupId) {
                         ${keywordBadges}
                     </div>
                 </td>
+                ${relevanceColumnHtml}
                 <td>
                     <div class="d-flex flex-column gap-2">
                         <div class="d-flex gap-2">
@@ -2648,5 +3019,54 @@ async function resetApiCounter() {
         showAlert('Failed to reset API counter: ' + error.message, 'danger');
     }
 }
+
+// Handle relevance tooltip positioning
+function setupRelevanceTooltips() {
+    document.querySelectorAll('.relevance-tooltip').forEach(tooltip => {
+        const icon = tooltip.querySelector('i');
+        const content = tooltip.querySelector('.relevance-tooltip-content');
+        
+        if (icon && content) {
+            icon.addEventListener('mouseenter', function(e) {
+                const rect = icon.getBoundingClientRect();
+                
+                // Position tooltip above the icon with some spacing
+                let top = rect.top - 10;
+                let left = rect.left + 20;
+                
+                // Ensure tooltip doesn't go off screen
+                const tooltipWidth = 350; // max-width from CSS
+                const tooltipHeight = 200; // estimated height
+                
+                if (left + tooltipWidth > window.innerWidth) {
+                    left = window.innerWidth - tooltipWidth - 10;
+                }
+                if (left < 10) {
+                    left = 10;
+                }
+                if (top - tooltipHeight < 10) {
+                    top = rect.bottom + 10; // Show below if no space above
+                }
+                
+                content.style.top = top + 'px';
+                content.style.left = left + 'px';
+            });
+        }
+    });
+}
+
+// Call setup function when DOM is loaded and after dynamic content updates
+document.addEventListener('DOMContentLoaded', function() {
+    setupRelevanceTooltips();
+});
+
+// Also call after updating group alerts
+const originalUpdateGroupAlerts = updateGroupAlerts;
+updateGroupAlerts = function(...args) {
+    const result = originalUpdateGroupAlerts.apply(this, args);
+    // Setup tooltips after content is updated
+    setTimeout(setupRelevanceTooltips, 100);
+    return result;
+};
 </script>
 {% endblock %} 

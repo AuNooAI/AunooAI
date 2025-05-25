@@ -62,8 +62,7 @@ def get_unread_alerts(cursor) -> List[Dict]:
             ka.matched_keyword,
             a.uri,
             a.title,
-            a.url,
-            a.source,
+            a.news_source,
             a.publication_date,
             a.summary
         FROM keyword_alerts ka
@@ -82,10 +81,10 @@ def get_unread_alerts(cursor) -> List[Dict]:
             'article': {
                 'uri': row[4],
                 'title': row[5],
-                'url': row[6],
-                'source': row[7],
-                'publication_date': row[8],
-                'summary': row[9]
+                'url': row[4],  # Use uri as url since they're the same
+                'source': row[6],
+                'publication_date': row[7],
+                'summary': row[8]
             }
         }
         for row in alerts_data
