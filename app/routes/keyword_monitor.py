@@ -300,7 +300,7 @@ async def get_alerts(
                     article_data["media_type"] = bias_data.get("media_type")
                     article_data["popularity"] = bias_data.get("popularity")
                 
-                formatted_alerts.append({
+                alerts.append({
                     'id': alert_data.get("id", ""),
                     'is_read': bool(alert_data.get("is_read", 0)),
                     'detected_at': alert_data.get("detected_at", ""),
@@ -309,7 +309,7 @@ async def get_alerts(
                 })
             
             return {
-                "alerts": formatted_alerts
+                "alerts": alerts
             }
     except Exception as e:
         logger.error(f"Error fetching alerts: {str(e)}")
@@ -1024,13 +1024,13 @@ async def get_group_alerts(
     topic: str,
     group_id: int,
     show_read: bool = False,
+    skip_media_bias: bool = False,
     db: Database = Depends(get_database_instance)
 ):
     """Get alerts for a specific keyword group."""
     try:
-        # Initialize media bias for article enrichment
-        media_bias = MediaBias(db)
-        logger.info(f"Processing alerts for topic '{topic}', group ID {group_id}")
+        # Initialize media bias for article enrichment only if not skipping
+        media_bias = MediaBias(db) if not skip_media_bias else None
         
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -1047,19 +1047,18 @@ async def get_group_alerts(
                     SELECT 
                         ka.id, 
                         ka.article_uri,
-                        ka.keyword_id,
-                        ka.matched_keyword,
+                        ka.keyword_ids,
+                        NULL as matched_keyword,
                         ka.is_read,
                         ka.detected_at,
                         a.title,
                         a.summary,
-                        a.url,
-                        a.source,
+                        a.uri,
+                        a.news_source,
                         a.publication_date
                     FROM keyword_article_matches ka
                     JOIN articles a ON ka.article_uri = a.uri
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    WHERE mk.group_id = ? {read_condition}
+                    WHERE ka.group_id = ? {read_condition}
                     ORDER BY ka.detected_at DESC
                 """, (group_id,))
             else:
@@ -1075,8 +1074,8 @@ async def get_group_alerts(
                         ka.detected_at,
                         a.title,
                         a.summary,
-                        a.url,
-                        a.source,
+                        a.uri,
+                        a.news_source,
                         a.publication_date
                     FROM keyword_alerts ka
                     JOIN articles a ON ka.article_uri = a.uri
@@ -1085,13 +1084,15 @@ async def get_group_alerts(
                     ORDER BY ka.detected_at DESC
                 """, (group_id,))
             
+            # Store the results before doing other queries
+            alert_results = cursor.fetchall()
+            
             # Get unread count for this group
             if use_new_table:
                 cursor.execute("""
                     SELECT COUNT(ka.id)
                     FROM keyword_article_matches ka
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    WHERE mk.group_id = ? AND ka.is_read = 0
+                    WHERE ka.group_id = ? AND ka.is_read = 0
                 """, (group_id,))
             else:
                 cursor.execute("""
@@ -1108,8 +1109,7 @@ async def get_group_alerts(
                 cursor.execute("""
                     SELECT COUNT(ka.id)
                     FROM keyword_article_matches ka
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    WHERE mk.group_id = ?
+                    WHERE ka.group_id = ?
                 """, (group_id,))
             else:
                 cursor.execute("""
@@ -1122,17 +1122,26 @@ async def get_group_alerts(
             total_count = cursor.fetchone()[0]
             
             alerts = []
-            for alert in cursor.fetchall():
-                alert_id, article_uri, keyword_id, matched_keyword, is_read, detected_at, title, summary, url, source, publication_date = alert
+            for alert in alert_results:
+                alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date = alert
                 
                 # Get all matched keywords for this article and group
                 if use_new_table:
-                    cursor.execute("""
-                        SELECT DISTINCT matched_keyword
-                        FROM keyword_article_matches ka
-                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                        WHERE ka.article_uri = ? AND mk.group_id = ?
-                    """, (article_uri, group_id))
+                    # For new table, keyword_ids is a comma-separated string
+                    if keyword_ids:
+                        keyword_id_list = [int(kid.strip()) for kid in keyword_ids.split(',') if kid.strip()]
+                        if keyword_id_list:
+                            placeholders = ','.join(['?'] * len(keyword_id_list))
+                            cursor.execute(f"""
+                                SELECT DISTINCT keyword
+                                FROM monitored_keywords
+                                WHERE id IN ({placeholders}) AND group_id = ?
+                            """, keyword_id_list + [group_id])
+                            matched_keywords = [kw[0] for kw in cursor.fetchall()]
+                        else:
+                            matched_keywords = []
+                    else:
+                        matched_keywords = []
                 else:
                     cursor.execute("""
                         SELECT DISTINCT mk.keyword
@@ -1140,66 +1149,35 @@ async def get_group_alerts(
                         JOIN monitored_keywords mk ON ka.keyword_id = mk.id
                         WHERE ka.article_uri = ? AND mk.group_id = ?
                     """, (article_uri, group_id))
+                    matched_keywords = [kw[0] for kw in cursor.fetchall()]
                 
-                matched_keywords = [kw[0] for kw in cursor.fetchall()]
-                
-                # Try to get media bias data using both source name and URL with multiple variations
-                logging.debug(f"Looking up media bias for source: {source}")
-                
-                # Check for Vanity Fair specifically
-                if source and ('vanity fair' in source.lower() or 'vanityfair' in source.lower().replace(' ', '')):
-                    logger.info(f"Found Vanity Fair article: {title}")
-                
-                # Try multiple source name variations for better matching
-                source_variations = []
-                if source:
-                    # Original source name
-                    source_variations.append(source)
-                    
-                    # Common source name variations
-                    source_lower = source.lower()
-                    source_variations.extend([
-                        source_lower,                          # lowercase
-                        source_lower.replace(" ", ""),         # no spaces
-                        source_lower.replace(" ", "."),        # dots instead of spaces
-                        source_lower + ".com",                 # add .com
-                        "www." + source_lower,                 # add www
-                        "www." + source_lower + ".com",        # add www and .com
-                    ])
-                
-                    # Extra manipulations for specific sources
-                    if "forbes" in source_lower:
-                        source_variations.append("forbes.com")
-                    elif "cnn" in source_lower:
-                        source_variations.append("cnn.com")
-                    elif "yahoo" in source_lower:
-                        source_variations.append("yahoo.com")
-                    elif "verge" in source_lower:
-                        source_variations.append("theverge.com")
-                
-                # Try all source variations
+                # Try to get media bias data only if not skipping
                 bias_data = None
-                source_found = None
                 
-                for variation in source_variations:
-                    logger.debug(f"Trying source variation: {variation}")
-                    bias_data = media_bias.get_bias_for_source(variation)
-                    if bias_data:
-                        logger.info(f"Found bias data using variation '{variation}': {bias_data}")
-                        source_found = variation
-                        break
+                if media_bias and news_source:
+                    # First try with the original source name
+                    bias_data = media_bias.get_bias_for_source(news_source)
+                    
+                    # If no match, try a few common variations (reduced from many)
+                    if not bias_data:
+                        source_lower = news_source.lower()
+                        variations = [
+                            source_lower,
+                            source_lower.replace(" ", ""),
+                            source_lower + ".com"
+                        ]
+                        
+                        for variation in variations:
+                            bias_data = media_bias.get_bias_for_source(variation)
+                            if bias_data:
+                                break
                 
                 # If no match with source variations, try with the URL
-                if not bias_data and url:
-                    logger.debug(f"No bias data found for source variations, trying URL: {url}")
-                    bias_data = media_bias.get_bias_for_source(url)
-                    if bias_data:
-                        logger.info(f"Found bias data using URL '{url}': {bias_data}")
-                        source_found = url
+                if media_bias and not bias_data and uri:
+                    bias_data = media_bias.get_bias_for_source(uri)
                 
                 # If we found bias data, ensure the source is enabled
                 if bias_data and 'enabled' in bias_data and bias_data['enabled'] == 0:
-                    logger.info(f"Automatically enabling media bias source: {bias_data.get('source')}")
                     try:
                         with db.get_connection() as conn:
                             cursor = conn.cursor()
@@ -1208,26 +1186,22 @@ async def get_group_alerts(
                                 (bias_data.get('source'),)
                             )
                             conn.commit()
-                            logger.info(f"Successfully enabled media bias source: {bias_data.get('source')}")
                             # Update the bias data to show it's now enabled
                             bias_data['enabled'] = 1
                     except Exception as e:
                         logger.error(f"Error enabling media bias source {bias_data.get('source')}: {e}")
-                elif not bias_data:
-                    logger.info(f"No bias data found for source '{source}' or its variations")
                 
                 article_data = {
-                    "url": url,
+                    "url": uri,
                     "uri": article_uri,
                     "title": title,
                     "summary": summary,
-                    "source": source,
+                    "source": news_source,
                     "publication_date": publication_date
                 }
                 
                 # Add bias data if found
                 if bias_data:
-                    logger.debug(f"Found bias data for {source}: {bias_data.get('bias')}, {bias_data.get('factual_reporting')}")
                     article_data["bias"] = bias_data.get("bias")
                     article_data["factual_reporting"] = bias_data.get("factual_reporting")
                     article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
@@ -1235,16 +1209,11 @@ async def get_group_alerts(
                     article_data["press_freedom"] = bias_data.get("press_freedom")
                     article_data["media_type"] = bias_data.get("media_type")
                     article_data["popularity"] = bias_data.get("popularity")
-                    
-                    # Double check the bias data was actually assigned
-                    logger.info(f"After assigning, article_data has bias: {article_data.get('bias')}, factual: {article_data.get('factual_reporting')}")
-                else:
-                    logger.debug(f"No media bias data found for {source}")
                 
                 alerts.append({
                     "id": alert_id,
                     "article": article_data,
-                    "matched_keyword": matched_keyword,
+                    "matched_keyword": matched_keywords[0] if matched_keywords else None,
                     "matched_keywords": matched_keywords,
                     "is_read": bool(is_read),
                     "detected_at": detected_at
@@ -1255,17 +1224,7 @@ async def get_group_alerts(
             group_row = cursor.fetchone()
             group_name = group_row[0] if group_row else "Unknown Group"
             
-            # Log the full response data
-            response_data = {
-                "topic": topic,
-                "group_id": group_id, 
-                "group_name": group_name,
-                "alerts": [{"id": a["id"], "source": a["article"]["source"], "has_bias": bool(a["article"].get("bias"))} for a in alerts],
-                "unread_count": unread_count,
-                "total_count": total_count
-            }
-            logger.info(f"Returning response: {response_data}")
-            
+            # Return the response data
             return {
                 "topic": topic,
                 "group_id": group_id, 

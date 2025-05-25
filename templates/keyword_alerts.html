@@ -1618,12 +1618,12 @@ async function bulkDeleteArticles(topic, groupId) {
     }
 }
 
-// Update refreshGroupArticles to add more debugging for media bias data
-async function refreshGroupArticles(topic, groupId, showRead = false) {
+// Update refreshGroupArticles to skip media bias lookup on refresh
+async function refreshGroupArticles(topic, groupId, showRead = false, skipMediaBias = true) {
     try {
         console.log(`Refreshing articles for group ${groupId} (${topic}), showRead: ${showRead}`);
         
-        const response = await fetch(`/api/keyword-monitor/alerts/${encodeURIComponent(topic)}?show_read=${showRead}&group_id=${groupId}`);
+        const response = await fetch(`/api/keyword-monitor/alerts/${encodeURIComponent(topic)}?show_read=${showRead}&group_id=${groupId}&skip_media_bias=${skipMediaBias}`);
         
         if (!response.ok) {
             throw new Error('Failed to fetch alerts');
