@@ -1264,3 +1264,293 @@ async def vector_debug_info(
             "error": str(e),
             "message": "Could not retrieve vector database information"
         } 
+
+# ------------------------------------------------------------------
+# Enhanced Topic Mapping with OpenAI Embeddings
+# ------------------------------------------------------------------
+
+@router.get("/topic-map")
+async def generate_topic_map(
+    limit: int = Query(500, ge=10, le=2000, description="Number of articles to analyze"),
+    topic_filter: Optional[str] = Query(None, description="Filter by specific topic"),
+    category_filter: Optional[str] = Query(None, description="Filter by specific category"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Generate hierarchical topic map using BERTopic with OpenAI embeddings.
+    
+    This endpoint creates a 3-layer knowledge graph:
+    - Layer 1: Main categories (like "Technology", "Business", etc.)
+    - Layer 2: Semantic topics within each category
+    - Layer 3: Subtopics for detailed exploration
+    
+    Uses the same high-quality OpenAI embeddings from the vector store
+    for consistent semantic analysis.
+    """
+    try:
+        logger = logging.getLogger(__name__)
+        logger.info(f"Topic map generation requested: limit={limit}, topic_filter={topic_filter}, category_filter={category_filter}")
+        
+        from app.services.topic_map_service import TopicMapService
+        from app.vector_store import get_chroma_client
+        
+        # Initialize the topic mapping service
+        topic_service = TopicMapService(db, get_chroma_client())
+        
+        # Generate the topic map using OpenAI embeddings
+        result = topic_service.get_topic_map_data(
+            topic_filter=topic_filter,
+            category_filter=category_filter,
+            limit=limit,
+            use_guided=False
+        )
+        
+        logger.info(f"Generated topic map with {len(result.get('nodes', []))} nodes")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error generating topic map: {e}", exc_info=True)
+        return {
+            "nodes": [],
+            "edges": [],
+            "clusters": [],
+            "error": str(e),
+            "metadata": {
+                "error": "Topic map generation failed",
+                "fallback": True
+            }
+        }
+
+
+@router.post("/topic-map/guided")
+async def generate_guided_topic_map(
+    request: Dict[str, Any],
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Generate guided topic map with predefined seed topics using OpenAI embeddings.
+    
+    Request body should contain:
+    {
+        "seed_topics": [
+            ["artificial intelligence", "machine learning", "neural networks"],
+            ["business", "market", "economics"],
+            ["climate", "environment", "sustainability"]
+        ],
+        "limit": 500,
+        "topic_filter": null,
+        "category_filter": null
+    }
+    """
+    try:
+        logger = logging.getLogger(__name__)
+        
+        # Extract parameters from request
+        seed_topics = request.get("seed_topics", [])
+        limit = request.get("limit", 500)
+        topic_filter = request.get("topic_filter")
+        category_filter = request.get("category_filter")
+        
+        if not seed_topics:
+            raise HTTPException(
+                status_code=400,
+                detail="seed_topics parameter is required for guided topic mapping"
+            )
+        
+        logger.info(f"Guided topic map generation requested with {len(seed_topics)} seed topics")
+        
+        from app.services.topic_map_service import TopicMapService
+        from app.vector_store import get_chroma_client
+        
+        # Initialize the topic mapping service
+        topic_service = TopicMapService(db, get_chroma_client())
+        
+        # Generate the guided topic map using OpenAI embeddings
+        result = topic_service.get_topic_map_data(
+            topic_filter=topic_filter,
+            category_filter=category_filter,
+            limit=limit,
+            use_guided=True,
+            seed_topics=seed_topics
+        )
+        
+        logger.info(f"Generated guided topic map with {len(result.get('nodes', []))} nodes")
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating guided topic map: {e}", exc_info=True)
+        return {
+            "nodes": [],
+            "edges": [],
+            "clusters": [],
+            "error": str(e),
+            "metadata": {
+                "error": "Guided topic map generation failed",
+                "fallback": True
+            }
+        }
+
+
+@router.get("/topic-map/visualizations")
+async def get_topic_visualizations(
+    limit: int = Query(300, ge=50, le=1000, description="Number of articles for analysis"),
+    topic_filter: Optional[str] = Query(None, description="Filter by specific topic"),
+    category_filter: Optional[str] = Query(None, description="Filter by specific category"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Generate debugging visualizations for topic analysis using OpenAI embeddings.
+    
+    Returns various visualization data including:
+    - Topics per class (category distribution)
+    - Topic similarity heatmap
+    - Topic terms and scores
+    - Hierarchical topic structure
+    - Topic tree with representative documents
+    """
+    try:
+        logger = logging.getLogger(__name__)
+        logger.info(f"Topic visualizations requested: limit={limit}")
+        
+        from app.services.topic_map_service import TopicMapService
+        from app.vector_store import get_chroma_client
+        
+        # Initialize the topic mapping service
+        topic_service = TopicMapService(db, get_chroma_client())
+        
+        # Extract articles for analysis
+        articles = topic_service.extract_topics_from_articles(
+            limit=limit,
+            topic_filter=topic_filter,
+            category_filter=category_filter
+        )
+        
+        if len(articles) < 10:
+            return {
+                "error": "Too few articles for visualization",
+                "article_count": len(articles),
+                "minimum_required": 10
+            }
+        
+        # Build topic model with OpenAI embeddings
+        hierarchy = topic_service.build_hierarchical_topic_map(articles)
+        
+        # Check if we have a proper topic model for visualizations
+        if 'error' in hierarchy:
+            return {
+                "error": "Topic modeling failed",
+                "details": hierarchy.get('error')
+            }
+        
+        # For now, return basic statistics until we can access the topic model
+        # This would need to be enhanced to store the topic model for visualization access
+        return {
+            "article_count": len(articles),
+            "hierarchy_summary": {
+                "nodes": len(hierarchy.get('nodes', [])),
+                "edges": len(hierarchy.get('edges', [])),
+                "node_types": Counter([n.get('type') for n in hierarchy.get('nodes', [])])
+            },
+            "metadata": hierarchy.get('metadata', {}),
+            "note": "Full visualizations require topic model persistence - this shows summary stats"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error generating topic visualizations: {e}", exc_info=True)
+        return {
+            "error": str(e),
+            "visualization_data": {}
+        }
+
+
+@router.get("/topic-map/debug-info")
+async def get_topic_debug_info(
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Get debug information about topic mapping capabilities and data.
+    
+    Returns information about:
+    - Available articles for topic mapping
+    - OpenAI embedding status
+    - ChromaDB connection status
+    - Topic mapping service configuration
+    """
+    try:
+        logger = logging.getLogger(__name__)
+        
+        from app.services.topic_map_service import TopicMapService
+        from app.vector_store import get_chroma_client, _embed_texts
+        
+        # Test database connection
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) as total,
+                       COUNT(CASE WHEN analyzed = 1 THEN 1 END) as analyzed,
+                       COUNT(CASE WHEN summary IS NOT NULL AND LENGTH(summary) > 50 THEN 1 END) as with_summary
+                FROM articles
+            """)
+            article_stats = cursor.fetchone()
+        
+        # Test OpenAI embeddings
+        openai_status = "available"
+        try:
+            test_embedding = _embed_texts(["test document for embedding check"])
+            embedding_dim = len(test_embedding[0]) if test_embedding else 0
+        except Exception as e:
+            openai_status = f"error: {str(e)}"
+            embedding_dim = 0
+        
+        # Test ChromaDB connection
+        chroma_status = "available"
+        chroma_count = 0
+        try:
+            client = get_chroma_client()
+            collection = client.get_collection("articles")
+            chroma_count = collection.count()
+        except Exception as e:
+            chroma_status = f"error: {str(e)}"
+        
+        # Initialize topic service for configuration info
+        topic_service = TopicMapService(db, get_chroma_client())
+        
+        return {
+            "database": {
+                "total_articles": int(article_stats[0]),
+                "analyzed_articles": int(article_stats[1]),
+                "articles_with_summary": int(article_stats[2]),
+                "suitable_for_topic_mapping": int(article_stats[2])
+            },
+            "embeddings": {
+                "openai_status": openai_status,
+                "embedding_dimensions": embedding_dim,
+                "model": "text-embedding-3-small"
+            },
+            "vector_store": {
+                "chroma_status": chroma_status,
+                "vector_count": chroma_count,
+                "collection_name": "articles"
+            },
+            "topic_service": {
+                "custom_stopwords_count": len(topic_service.custom_stopwords),
+                "embedding_method": "OpenAI via vector store",
+                "clustering_algorithm": "HDBSCAN",
+                "topic_modeling": "BERTopic with hierarchical capabilities"
+            },
+            "capabilities": {
+                "hierarchical_topics": True,
+                "guided_topic_modeling": True,
+                "openai_embedding_reuse": True,
+                "three_layer_visualization": True
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting debug info: {e}", exc_info=True)
+        return {
+            "error": str(e),
+            "debug_info": "unavailable"
+        } 

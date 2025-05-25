@@ -113,6 +113,10 @@ app.include_router(keyword_monitor_router)
 app.include_router(keyword_monitor_api_router, prefix="/api")
 app.include_router(onboarding_router)
 
+# Add topic map routes
+app.include_router(topic_map_api_router)  # API routes (already have /api prefix)
+app.include_router(topic_map_page_router)  # Page routes
+
 class ArticleData(BaseModel):
     title: str
     news_source: str

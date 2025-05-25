@@ -3181,6 +3181,15 @@ document.addEventListener('DOMContentLoaded', function() {
         clearSavedStateBtn.addEventListener('click', clearSavedState);
     }
     
+    // Add refresh saved newsletters button handler
+    const refreshSavedNewslettersBtn = document.getElementById('refreshSavedNewslettersBtn');
+    if (refreshSavedNewslettersBtn) {
+        refreshSavedNewslettersBtn.addEventListener('click', function() {
+            console.log('Refreshing saved newsletters...');
+            loadSavedNewsletters();
+        });
+    }
+    
     // Add event listener to save editor content when it changes
 if (editor) {
     // Track content length to avoid saving unnecessarily for large documents

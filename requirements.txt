@@ -44,3 +44,8 @@ plotly==5.18.0
 kaleido==0.2.1  # For static image export
 pandas==2.1.4
 atproto
+# BERTopic and dependencies for proper topic modeling
+bertopic>=0.15.0
+sentence-transformers>=2.2.0
+hdbscan>=0.8.29
+transformers>=4.21.0
