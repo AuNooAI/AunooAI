@@ -24,6 +24,26 @@ def verify_session(request: Request):
         headers={"Location": "/login"}
     )
 
+def verify_session_api(request: Request):
+    """Verify session for API endpoints - returns 401 instead of redirect"""
+    session_data = request.session
+    
+    # Check for traditional session user
+    if session_data.get("user"):
+        return session_data
+    
+    # Check for OAuth user
+    oauth_user = get_oauth_user_by_session(session_data)
+    if oauth_user and oauth_user.get('is_oauth'):
+        return session_data
+    
+    # No valid session found - return 401 for API endpoints
+    logger.debug("No valid session found for API request")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication required"
+    )
+
 def verify_session_optional(request: Request):
     """Verify session but return None if not authenticated (no redirect)"""
     try:

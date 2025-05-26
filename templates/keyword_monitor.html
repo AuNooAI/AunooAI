@@ -51,7 +51,7 @@
     <div class="row">
         {% for group in keyword_groups %}
         <div class="col-md-6 mb-4">
-            <div class="card">
+            <div class="card" id="group-{{ group.id }}">
                 <div class="card-header">
                     <div class="d-flex justify-content-between align-items-center">
                         <h5 class="mb-0">{{ group.name }}</h5>

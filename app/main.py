@@ -753,6 +753,7 @@ async def search_articles(
     page: int = Query(1),
     per_page: int = Query(10),
     date_type: str = Query('publication'),  # Default to 'publication'
+    session=Depends(verify_session)  # Add authentication
 ):
     pub_date_start, pub_date_end = None, None
     
@@ -842,7 +843,7 @@ async def save_article(article: ArticleData):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/categories")
-async def get_categories(topic: Optional[str] = None, research: Research = Depends(get_research)):
+async def get_categories(topic: Optional[str] = None, research: Research = Depends(get_research), session=Depends(verify_session)):
     try:
         categories = await research.get_categories(topic)
         logger.info(f"Retrieved categories for topic {topic}: {categories}")
@@ -852,11 +853,11 @@ async def get_categories(topic: Optional[str] = None, research: Research = Depen
         raise HTTPException(status_code=500, detail=f"Error fetching categories: {str(e)}")
 
 @app.get("/api/future_signals")
-async def get_future_signals(topic: Optional[str] = None, research: Research = Depends(get_research)):
+async def get_future_signals(topic: Optional[str] = None, research: Research = Depends(get_research), session=Depends(verify_session)):
     return await research.get_future_signals(topic)
 
 @app.get("/api/sentiments")
-async def get_sentiments(topic: Optional[str] = None, research: Research = Depends(get_research)):
+async def get_sentiments(topic: Optional[str] = None, research: Research = Depends(get_research), session=Depends(verify_session)):
     return await research.get_sentiments(topic)
 
 @app.get("/api/time_to_impact")
@@ -1213,7 +1214,7 @@ async def get_integrated_analysis(timeframe: str = Query("all"), category: str =
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 @app.get("/api/topics")
-async def get_topics():
+async def get_topics(session=Depends(verify_session)):
     """Get list of available topics."""
     # Load fresh config each time
     config = load_config()
@@ -3556,11 +3557,11 @@ if __name__ == "__main__":
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(cert_file, keyfile=key_file)
         
-        logger.info("Starting server with SSL on https://0.0.0.0:8010")
+        logger.info("Starting server with SSL on https://0.0.0.0:10000")
         uvicorn.run(
             "main:app",
             host="0.0.0.0",
-            port=8010,
+            port=10000,
             ssl_keyfile=key_file,
             ssl_certfile=cert_file,
             reload=True

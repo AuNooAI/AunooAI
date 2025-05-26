@@ -93,47 +93,24 @@ function createMediaBiasDisplay(article) {
         </span>`;
     }
     
-    html += `<span class="source-tooltip">
+    // Create tooltip text for media bias info
+    let tooltipText = 'Media Bias Info for ' + (article.source || 'Unknown Source');
+    const details = [];
+    
+    if (article.bias) details.push(`Bias: ${article.bias}`);
+    if (article.factual_reporting) details.push(`Factual: ${article.factual_reporting}`);
+    if (article.mbfc_credibility_rating) details.push(`Rating: ${article.mbfc_credibility_rating}`);
+    if (article.bias_country) details.push(`Country: ${article.bias_country}`);
+    if (article.press_freedom) details.push(`Press Freedom: ${article.press_freedom}`);
+    if (article.media_type) details.push(`Media Type: ${article.media_type}`);
+    if (article.popularity) details.push(`Popularity: ${article.popularity}`);
+    
+    if (details.length > 0) {
+        tooltipText += ' | ' + details.join(' | ');
+    }
+    
+    html += `<span class="source-tooltip" title="${tooltipText}">
         <i class="fas fa-info-circle"></i>
-        <div class="tooltip-content">
-            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
-            <table class="mb-0" style="font-size: 0.85rem; width: 100%;">`;
-    
-    // Always show source name if available
-    if (article.source) {
-        html += `<tr><td><strong>Source:</strong></td><td>${article.source}</td></tr>`;
-    }
-    
-    if (article.bias) {
-        html += `<tr><td><strong>Bias:</strong></td><td>${article.bias}</td></tr>`;
-    }
-    
-    if (article.factual_reporting) {
-        html += `<tr><td><strong>Factual:</strong></td><td>${article.factual_reporting}</td></tr>`;
-    }
-    
-    if (article.mbfc_credibility_rating) {
-        html += `<tr><td><strong>Rating:</strong></td><td>${article.mbfc_credibility_rating}</td></tr>`;
-    }
-    
-    if (article.bias_country) {
-        html += `<tr><td><strong>Country:</strong></td><td>${article.bias_country}</td></tr>`;
-    }
-    
-    if (article.press_freedom) {
-        html += `<tr><td><strong>Press&nbsp;Freedom:</strong></td><td>${article.press_freedom}</td></tr>`;
-    }
-    
-    if (article.media_type) {
-        html += `<tr><td><strong>Media&nbsp;Type:</strong></td><td>${article.media_type}</td></tr>`;
-    }
-    
-    if (article.popularity) {
-        html += `<tr><td><strong>Popularity:</strong></td><td>${article.popularity}</td></tr>`;
-    }
-    
-    html += `</table>
-        </div>
     </span>
     </div>
     </div>`;
@@ -245,50 +222,240 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
         color: var(--primary-color);
     }
 
-/* Specific styles for keyword alerts page */
-.article-reference {
-    display: inline-flex !important;
-    align-items: center !important;
-    justify-content: center !important;
-    width: 24px !important;
-    height: 24px !important;
-    border-radius: 50% !important;
-    background-color: var(--light-gray) !important;
-    border: 1px solid var(--border-color) !important;
-    color: var(--text-color) !important;
-    text-decoration: none !important;
-    cursor: pointer !important;
-    transition: all 0.2s ease !important;
+/* Responsive layout improvements */
+.container {
+    max-width: 100%;
+    padding-left: 15px;
+    padding-right: 15px;
 }
 
-.article-reference:hover {
-    background-color: var(--primary-color) !important;
+/* Header responsive improvements */
+.header-controls {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.header-controls .d-flex {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* Table responsive improvements */
+.table-responsive {
+    border: none;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+}
+
+.table {
+    min-width: 980px; /* Increased minimum width to accommodate Update Now button */
+    max-width: 100%;
+    margin-bottom: 0;
+    table-layout: fixed; /* Fixed layout for better control */
+}
+
+.table th,
+.table td {
+    vertical-align: middle;
+    padding: 0.5rem;
+    overflow: hidden;
+}
+
+.table th {
+    white-space: nowrap;
+    font-weight: 600;
+    background-color: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+    position: sticky;
+    top: 0;
+    z-index: 10; /* Higher z-index for sticky headers */
+}
+
+.table td {
+    border-top: 1px solid #dee2e6;
+    position: relative;
+}
+
+/* Ensure proper spacing between columns */
+.table td:not(:last-child) {
+    padding-right: 0.75rem;
+}
+
+/* Article content improvements */
+.article-content {
+    max-width: none;
+    min-width: 300px;
+}
+
+.article-title {
+    word-break: break-word;
+    line-height: 1.3;
+    max-width: 400px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-decoration: none;
+    color: #0d6efd;
+}
+
+.article-title:hover {
+    text-decoration: underline;
+    color: #0a58ca;
+}
+
+.article-summary {
+    word-break: break-word;
+    line-height: 1.3;
+    max-width: 400px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+/* Source column improvements */
+.source-info {
+    min-width: 120px;
+    max-width: 150px;
+}
+
+.source-name {
+    word-break: break-word;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Action buttons improvements - Fixed z-index issue */
+.action-buttons {
+    min-width: 120px;
+    max-width: 150px;
+    position: relative;
+    z-index: 5; /* Lower than sticky headers but higher than content */
+}
+
+.action-buttons .btn {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    margin: 0;
+    border: 1px solid;
+    background-clip: padding-box;
+}
+
+/* Tags column improvements with tooltips */
+.tags-column {
+    max-width: 120px;
+    overflow: hidden;
+    position: relative;
+}
+
+.tags-column .badge {
+    font-size: 0.65rem;
+    margin: 1px;
+    display: inline-block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100px;
+    cursor: help;
+    position: relative;
+}
+
+/* Improved badge colors for better variety with white text */
+.badge.bg-info:nth-child(1) { background-color: #0dcaf0 !important; color: white !important; }
+.badge.bg-info:nth-child(2) { background-color: #6f42c1 !important; color: white !important; }
+.badge.bg-info:nth-child(3) { background-color: #fd7e14 !important; color: white !important; }
+.badge.bg-info:nth-child(4) { background-color: #20c997 !important; color: white !important; }
+.badge.bg-info:nth-child(5) { background-color: #e83e8c !important; color: white !important; }
+.badge.bg-info:nth-child(6) { background-color: #6610f2 !important; color: white !important; }
+
+/* Ensure all badges have white text for better readability */
+.badge {
     color: white !important;
-    border-color: var(--primary-color) !important;
 }
 
-.article-reference.selected {
-    background-color: var(--primary-color) !important;
-    color: white !important;
-    border-color: var(--primary-color) !important;
+/* Badge tooltip - Using JavaScript tooltips only */
+.badge[title] {
+    position: relative;
+    cursor: help;
 }
 
+/* Checkbox styling */
+.article-checkbox {
+    width: 18px;
+    height: 18px;
+    margin-right: 8px;
+    cursor: pointer;
+}
+
+.select-all-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+/* Bulk action buttons */
+.bulk-actions {
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 15;
+    padding: 10px 0;
+    border-bottom: 1px solid #dee2e6;
+    margin-bottom: 10px;
+}
+
+/* Enhanced sparkline container */
 .sparkline-container {
     position: relative;
     margin-right: 10px;
-    background-color: #fff;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
     border: 1px solid var(--border-color);
-    width: 120px;
-    height: 40px;
-    padding: 5px;
+    border-radius: 6px;
+    width: 140px;
+    height: 50px;
+    padding: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
 }
 
 .sparkline-container canvas {
     position: absolute;
+    top: 8px;
+    left: 8px;
+    width: calc(100% - 16px) !important;
+    height: calc(100% - 16px) !important;
+}
+
+.sparkline-container::before {
+    content: '';
+    position: absolute;
     top: 0;
     left: 0;
-    width: 100% !important;
-    height: 100% !important;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(45deg, transparent 49%, rgba(255,105,180,0.1) 50%, transparent 51%);
+    border-radius: 6px;
+    pointer-events: none;
+}
+
+/* Trend link styling */
+.trend-link {
+    color: inherit;
+    text-decoration: none;
+    display: block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background-color 0.2s ease;
+}
+
+.trend-link:hover {
+    background-color: rgba(255, 105, 180, 0.1);
+    color: var(--primary-color);
+    text-decoration: none;
 }
 
 .keyword-labels {
@@ -368,63 +535,111 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     opacity: 1;
 }
 
-.source-tooltip .tooltip-content {
-    visibility: hidden;
-    position: absolute;
-    z-index: 100;
-    bottom: 125%;
-    left: 50%;
-    transform: translateX(-50%) translateY(10px);
-    background-color: white;
-    padding: 12px;
-    border-radius: 8px;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.15);
-    width: max-content;
-    min-width: 260px;
-    max-width: 320px;
-    border: 1px solid var(--medium-gray);
-    opacity: 0;
-    transition: opacity 0.3s, transform 0.2s;
-    pointer-events: none;
-}
-
-.source-tooltip:hover .tooltip-content {
-    visibility: visible;
-    opacity: 1;
-    transform: translateX(-50%) translateY(0);
-}
-
-.source-tooltip .tooltip-content::after {
-    content: '';
-    position: absolute;
-    top: 100%;
-    left: 50%;
-    margin-left: -5px;
-    border-width: 5px;
-    border-style: solid;
-    border-color: white transparent transparent transparent;
-}
-
-/* Mobile tooltip adjustments */
+/* Mobile responsive adjustments */
 @media (max-width: 767px) {
+    .container {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+    
+    /* Header adjustments */
+    .d-flex.justify-content-between {
+        flex-direction: column;
+        gap: 1rem;
+    }
+    
+    .header-controls .d-flex {
+        flex-direction: column;
+        align-items: flex-start !important;
+    }
+    
+    /* Card header adjustments */
+    .card-header .d-flex {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    /* Table adjustments */
+    .table {
+        min-width: 600px;
+        font-size: 0.85rem;
+    }
+    
+    .table th,
+    .table td {
+        padding: 0.25rem;
+    }
+    
+    /* Hide less important columns on mobile */
+    .table th:nth-child(4),
+    .table td:nth-child(4) {
+        display: none; /* Hide Detected column */
+    }
+    
+    /* Article content mobile */
+    .article-title {
+        max-width: 250px;
+        font-size: 0.9rem;
+    }
+    
+    .article-summary {
+        max-width: 250px;
+        font-size: 0.8rem;
+    }
+    
+    /* Action buttons mobile */
+    .action-buttons {
+        min-width: 90px;
+        max-width: 110px;
+    }
+    
+    .action-buttons .btn {
+        padding: 0.2rem 0.3rem;
+        font-size: 0.7rem;
+    }
+    
+    /* Ensure no overlap on mobile */
+    .table td {
+        padding-right: 0.5rem !important;
+    }
+    
+    /* Source info mobile */
+    .source-info {
+        min-width: 100px;
+        max-width: 120px;
+        font-size: 0.8rem;
+    }
+    
+    /* Tags mobile */
+    .tags-column {
+        max-width: 80px;
+    }
+    
+    .tags-column .badge {
+        font-size: 0.6rem;
+        padding: 0.1rem 0.3rem;
+    }
+    
+    /* Tooltip adjustments - Disabled in favor of JavaScript tooltips */
     .source-tooltip .tooltip-content {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        bottom: auto;
-        transform: translate(-50%, -50%);
-        min-width: 280px;
-        max-width: 90vw;
-        z-index: 1050;
-        box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        display: none; /* Disabled to prevent conflicts with JS tooltips */
+    }
+}
+
+/* Tablet responsive adjustments */
+@media (max-width: 991px) and (min-width: 768px) {
+    .table {
+        min-width: 700px;
     }
     
-    .source-tooltip:hover .tooltip-content {
-        transform: translate(-50%, -50%);
+    .article-title,
+    .article-summary {
+        max-width: 300px;
     }
     
-    .source-tooltip .tooltip-content::after {
-        display: none;
+    .action-buttons {
+        min-width: 100px;
+        max-width: 130px;
     }
 }
 
@@ -492,9 +707,9 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-start mb-4">
-        <div>
+        <div class="flex-grow-1">
             <h2 class="mb-3">Trends Dashboard</h2>
-            <div class="d-flex flex-column gap-2">
+            <div class="header-controls d-flex flex-column gap-2">
                 <div class="d-flex align-items-center gap-3">
                     <span class="text-muted">
                         <i class="fas fa-clock"></i> Last search: {{ last_check_time|default('Never', true) }}
@@ -528,6 +743,9 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                     <span class="text-muted" id="resetTimer" style="font-size: 0.9rem;">
                         <i class="fas fa-refresh"></i> Loading reset time...
                     </span>
+                    <span class="text-danger" id="rateLimitWarning" style="display: none; font-size: 0.9rem;">
+                        <i class="fas fa-exclamation-triangle"></i> Rate limit reached
+                    </span>
                 </div>
                 <div class="d-flex align-items-center gap-3 mt-1">
                     <div class="form-check form-switch">
@@ -544,14 +762,14 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                 </div>
             </div>
         </div>
-        <div>
+        <div class="flex-shrink-0 ms-3">
             <a href="/keyword-monitor" class="btn btn-primary">
                 <i class="fas fa-cog"></i> Manage Keywords
             </a>
         </div>
     </div>
 
-    <!-- Replace the existing trend chart section with this -->
+    <!-- Enhanced trend chart section -->
     <div class="card mb-4">
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
@@ -614,15 +832,15 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                             {{ loop.index }}
                                         </span>
                                         {% if alert.matched_keyword %}
-                                            <span class="badge bg-info ms-1">
-                                                <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
+                                            <span class="badge bg-info ms-1" title="{{ alert.matched_keyword }}">
+                                                <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword|truncate(8, True, '...') }}
                                             </span>
                                         {% endif %}
                                         {% if alert.matched_keywords %}
                                             {% for keyword in alert.matched_keywords %}
                                                 {% if keyword and keyword != alert.matched_keyword %}
-                                                <span class="badge bg-info ms-1">
-                                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                                <span class="badge bg-info ms-1" title="{{ keyword }}">
+                                                    <i class="fas fa-tag me-1"></i>{{ keyword|truncate(8, True, '...') }}
                                                 </span>
                                                 {% endif %}
                                             {% endfor %}
@@ -635,11 +853,11 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                             </td>
                             <td>
                                 <div class="d-flex align-items-center">
-                                    <div class="sparkline-container" style="width: 120px; height: 40px;">
+                                    <div class="sparkline-container" style="width: 140px; height: 50px;">
                                         <canvas id="sparkline-{{ group.id }}" 
-                                                width="120" 
-                                                height="40" 
-                                                style="width: 120px; height: 40px;"></canvas>
+                                                width="140" 
+                                                height="50" 
+                                                style="width: 140px; height: 50px;"></canvas>
                                     </div>
                                 </div>
                             </td>
@@ -648,15 +866,15 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                             </td>
                             <td>
                                 {% for keyword in group.keywords[:3] %}
-                                <span class="badge bg-info">
-                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                <span class="badge bg-info" title="{{ keyword }}">
+                                    <i class="fas fa-tag me-1"></i>{{ keyword|truncate(10, True, '...') }}
                                 </span>
                                 {% endfor %}
                             </td>
                             <td>
-                                <button class="btn btn-sm btn-outline-secondary" title="Hide trend">
-                                    <i class="fas fa-eye-slash"></i>
-                                </button>
+                                <a href="/keyword-monitor#group-{{ group.id }}" class="btn btn-sm btn-outline-primary trend-link" title="Manage this keyword group">
+                                    <i class="fas fa-cog"></i> Manage
+                                </a>
                             </td>
                         </tr>
                         {% endfor %}
@@ -670,7 +888,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
         <div class="row">
             {% for group in groups %}
             <div class="col-12 mb-4">
-                <div class="card">
+                <div class="card" id="group-{{ group.id }}">
                     <div class="card-header bg-light">
                         <div class="d-flex justify-content-between align-items-center">
                             <div class="d-flex align-items-center gap-3">
@@ -681,8 +899,8 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                         {% if group.keywords %}
                                             <span class="ms-2">Monitoring: 
                                                 {% for keyword in group.keywords %}
-                                                <span class="badge bg-info">
-                                                    <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                                <span class="badge bg-info" title="{{ keyword }}">
+                                                    <i class="fas fa-tag me-1"></i>{{ keyword|truncate(12, True, '...') }}
                                                 </span>
                                                 {% endfor %}
                                             </span>
@@ -717,55 +935,106 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                     <i class="fas fa-trash"></i>
                                     Delete Selected (<span class="delete-count">0</span>)
                                 </button>
+                                <button class="btn btn-outline-success btn-sm" 
+                                        onclick="updateGroupNow('{{ group.topic }}', '{{ group.id }}')"
+                                        title="Check for new articles in this group">
+                                    <i class="fas fa-sync"></i> Update Now!
+                                </button>
+                                <button class="btn btn-outline-info btn-sm" 
+                                        onclick="exportGroupAlerts('{{ group.topic }}', '{{ group.id }}')"
+                                        title="Export alerts for this group">
+                                    <i class="fas fa-download"></i> Export
+                                </button>
                                 <span class="badge bg-primary">{{ group.unread_count }} alerts</span>
+                                {% set enriched_count = group.alerts|selectattr('article.category')|list|length + group.alerts|selectattr('article.analysis_complete')|list|length %}
+                                {% if enriched_count > 0 %}
+                                <span class="badge bg-success ms-1" title="{{ enriched_count }} articles have been analyzed">
+                                    <i class="fas fa-brain me-1"></i>{{ enriched_count }} enriched
+                                </span>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
                     
                     {% if group.alerts %}
                     <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <!-- Bulk actions bar -->
+                        <div class="bulk-actions" id="bulkActions_{{ group.id }}" style="display: none;">
+                            <div class="d-flex align-items-center gap-3">
+                                <label class="form-check-label">
+                                    <input type="checkbox" class="select-all-checkbox me-2" 
+                                           onchange="toggleSelectAll(this, '{{ group.id }}')">
+                                    Select All
+                                </label>
+                                <button class="btn btn-sm btn-outline-primary" 
+                                        onclick="analyzeSelectedArticles('{{ group.topic }}', '{{ group.id }}')">
+                                    <i class="fas fa-microscope"></i> Analyze Selected
+                                </button>
+                                <button class="btn btn-sm btn-outline-success" 
+                                        onclick="bulkMarkAsRead('{{ group.id }}')">
+                                    <i class="fas fa-check"></i> Mark Selected as Read
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" 
+                                        onclick="bulkDeleteSelected('{{ group.id }}')">
+                                    <i class="fas fa-trash"></i> Delete Selected
+                                </button>
+                                <span class="text-muted" id="selectedInfo_{{ group.id }}">0 selected</span>
+                            </div>
+                        </div>
+                        
                         <table class="table table-hover align-middle mb-0">
-                            <thead style="position: sticky; top: 0; background: white; z-index: 1;">
+                            <thead style="position: sticky; top: 0; background: white; z-index: 10;">
                                 <tr>
-                                    <th style="width: 80px">Status</th>
-                                    <th>Article</th>
-                                    <th style="width: 150px">Source</th>
-                                    <th style="width: 150px">Detected</th>
-                                    <th style="width: 150px">Tags</th>
-                                    <th style="width: 250px">Actions</th>
+                                    <th style="width: 50px; min-width: 50px;">
+                                        <input type="checkbox" class="select-all-checkbox" 
+                                               onchange="toggleSelectAll(this, '{{ group.id }}')">
+                                    </th>
+                                    <th style="width: 80px; min-width: 60px;">Status</th>
+                                    <th style="width: 30%; min-width: 280px;">Article</th>
+                                    <th style="width: 15%; min-width: 120px;">Source</th>
+                                    <th style="width: 12%; min-width: 100px;">Detected</th>
+                                    <th style="width: 13%; min-width: 100px;">Tags</th>
+                                    <th style="width: 25%; min-width: 200px;">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for alert in group.alerts %}
-                                <tr>
+                                <tr data-alert-id="{{ alert.id }}" data-group-id="{{ group.id }}"
+                                    data-article-category="{{ alert.article.category|default('', true) }}"
+                                    data-article-sentiment="{{ alert.article.sentiment|default('', true) }}"
+                                    data-article-driver-type="{{ alert.article.driver_type|default('', true) }}"
+                                    data-article-time-to-impact="{{ alert.article.time_to_impact|default('', true) }}">
+                                    <td>
+                                        <input type="checkbox" class="article-checkbox" 
+                                               data-alert-id="{{ alert.id }}"
+                                               data-group-id="{{ group.id }}"
+                                               onchange="updateBulkActions('{{ group.id }}')">
+                                    </td>
                                     <td>
                                         <div class="d-flex align-items-center">
+                                            {% set has_enrichment = (alert.article.category and alert.article.category|trim) or (alert.article.sentiment and alert.article.sentiment|trim) or (alert.article.driver_type and alert.article.driver_type|trim) or (alert.article.time_to_impact and alert.article.time_to_impact|trim) %}
+                                            {% if has_enrichment %}
+                                            <span class="badge bg-success">Added</span>
+                                            {% else %}
                                             <span class="badge bg-primary">New</span>
+                                            {% endif %}
+                                            <!-- DEBUG: {{ alert.article.category }}|{{ alert.article.sentiment }}|{{ alert.article.driver_type }}|{{ alert.article.time_to_impact }} -->
                                         </div>
                                     </td>
                                     <td>
-                                        <div class="d-flex flex-column" style="max-width: 600px;">
+                                        <div class="article-content d-flex flex-column">
                                             <div class="mb-1">
-                                                <div class="d-flex gap-2 align-items-center">
-                                                    <span class="article-reference"
-                                                          data-url="{{ alert.article.url }}"
-                                                          data-title="{{ alert.article.title }}"
-                                                          data-summary="{{ alert.article.summary }}"
-                                                          data-topic="{{ group.topic }}"
-                                                          data-group-id="{{ group.id }}"
-                                                          onclick="toggleArticleSelection(this)"
-                                                          title="{{ alert.article.title }}">
-                                                        {{ loop.index }}
-                                                    </span>
-                                                    <a href="{{ alert.article.url }}" target="_blank">{{ alert.article.title }}</a>
+                                                                                            <div class="d-flex gap-2 align-items-start">
+                                                <a href="{{ alert.article.url }}" target="_blank" class="article-title">{{ alert.article.title }}</a>
                                                 </div>
-                                                <p class="text-muted mb-0 small">{{ alert.article.summary }}</p>
+                                                <p class="text-muted mb-0 small article-summary">{{ alert.article.summary }}</p>
+
                                             </div>
                                         </div>
                                     </td>
                                     <td>
-                                        <div class="small">
-                                            <div class="fw-bold">{{ alert.article.source }}</div>
+                                        <div class="source-info small">
+                                            <div class="source-name">{{ alert.article.source }}</div>
                                             <div class="text-muted">
                                                 {{ alert.article.publication_date|datetime }}
                                             </div>
@@ -780,17 +1049,17 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                         </div>
                                     </td>
                                     <td>
-                                        <div>
+                                        <div class="tags-column">
                                             {% if alert.matched_keyword %}
-                                                <span class="badge bg-info ms-1">
-                                                    <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword }}
+                                                <span class="badge bg-info" title="{{ alert.matched_keyword }}">
+                                                    <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword|truncate(10, True, '...') }}
                                                 </span>
                                             {% endif %}
                                             {% if alert.matched_keywords %}
                                                 {% for keyword in alert.matched_keywords %}
                                                     {% if keyword and keyword != alert.matched_keyword %}
-                                                    <span class="badge bg-info ms-1">
-                                                        <i class="fas fa-tag me-1"></i>{{ keyword }}
+                                                    <span class="badge bg-info" title="{{ keyword }}">
+                                                        <i class="fas fa-tag me-1"></i>{{ keyword|truncate(10, True, '...') }}
                                                     </span>
                                                     {% endif %}
                                                 {% endfor %}
@@ -798,8 +1067,8 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                         </div>
                                     </td>
                                     <td>
-                                        <div class="d-flex flex-column gap-2">
-                                            <div class="d-flex gap-2">
+                                        <div class="action-buttons d-flex flex-column gap-1">
+                                            <div class="d-flex gap-1">
                                                 <button class="btn btn-sm btn-outline-success" 
                                                         onclick="markAsRead('{{ alert.id }}')"
                                                         data-topic="{{ group.topic }}"
@@ -813,16 +1082,16 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                                     <i class="fas fa-microscope"></i>
                                                 </a>
                                             </div>
-                                            <div class="d-flex gap-2">
+                                            <div class="d-flex gap-1">
                                                 <a href="https://12ft.io/{{ alert.article.url }}" 
                                                    class="btn btn-sm btn-outline-secondary"
-                                                   title="Bypass Paywall with 12ft.io" 
+                                                   title="Bypass Paywall" 
                                                    target="_blank">
                                                     <i class="fas fa-unlock"></i>
                                                 </a>
                                                 <a href="https://archive.is/{{ alert.article.url }}" 
                                                    class="btn btn-sm btn-outline-secondary"
-                                                   title="View archived version" 
+                                                   title="Archive" 
                                                    target="_blank">
                                                     <i class="fas fa-archive"></i>
                                                 </a>
@@ -862,6 +1131,283 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 </div>
 
 <script>
+// Debug initial page data
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Checking initial page data for enrichment fields...');
+    
+    // Check all articles in the initial page load
+    const allArticleRows = document.querySelectorAll('tr[data-alert-id]');
+    console.log(`Found ${allArticleRows.length} article rows on initial load`);
+    
+    allArticleRows.forEach((row, index) => {
+        const title = row.querySelector('.article-title')?.textContent || 'Unknown';
+        const statusBadge = row.querySelector('.badge')?.textContent || 'Unknown';
+        
+        // Check if this is a Jinja-rendered row that should show enrichment
+        const hasEnrichmentBadge = row.querySelector('.badge.bg-success')?.textContent === 'Added';
+        
+        console.log(`Initial row ${index}:`, {
+            title: title.substring(0, 50) + '...',
+            statusBadge: statusBadge,
+            hasEnrichmentBadge: hasEnrichmentBadge,
+            alertId: row.dataset.alertId
+        });
+    });
+});
+
+// Enhanced sparkline drawing with better visuals
+function drawSparkline(canvas, data) {
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const height = canvas.height;
+    const padding = 4;
+    
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+    
+    // Find min and max values
+    const maxValue = Math.max(...data.counts, 1);
+    const minValue = Math.min(...data.counts, 0);
+    const range = maxValue - minValue || 1;
+    
+    // Calculate scales
+    const xScale = (width - 2 * padding) / Math.max(data.counts.length - 1, 1);
+    const yScale = (height - 2 * padding) / range;
+    
+    // Draw background gradient
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, 'rgba(255, 105, 180, 0.1)');
+    gradient.addColorStop(1, 'rgba(255, 105, 180, 0.05)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+    
+    // Draw grid lines
+    ctx.strokeStyle = 'rgba(255, 105, 180, 0.2)';
+    ctx.lineWidth = 0.5;
+    
+    // Horizontal grid lines
+    for (let i = 1; i <= 2; i++) {
+        const y = padding + (i * (height - 2 * padding) / 3);
+        ctx.beginPath();
+        ctx.moveTo(padding, y);
+        ctx.lineTo(width - padding, y);
+        ctx.stroke();
+    }
+    
+    if (data.counts.length > 1) {
+        // Draw area under the line
+    ctx.beginPath();
+        ctx.moveTo(padding, height - padding - ((data.counts[0] - minValue) * yScale));
+        
+        for (let i = 1; i < data.counts.length; i++) {
+            ctx.lineTo(
+                i * xScale + padding,
+                height - padding - ((data.counts[i] - minValue) * yScale)
+            );
+        }
+        
+        ctx.lineTo(width - padding, height - padding);
+        ctx.lineTo(padding, height - padding);
+        ctx.closePath();
+        
+        const areaGradient = ctx.createLinearGradient(0, 0, 0, height);
+        areaGradient.addColorStop(0, 'rgba(255, 105, 180, 0.3)');
+        areaGradient.addColorStop(1, 'rgba(255, 105, 180, 0.05)');
+        ctx.fillStyle = areaGradient;
+        ctx.fill();
+        
+        // Draw the main line
+        ctx.strokeStyle = '#FF69B4';
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        
+    ctx.moveTo(
+        padding,
+            height - padding - ((data.counts[0] - minValue) * yScale)
+    );
+    
+    for (let i = 1; i < data.counts.length; i++) {
+        ctx.lineTo(
+            i * xScale + padding,
+                height - padding - ((data.counts[i] - minValue) * yScale)
+        );
+    }
+    ctx.stroke();
+    
+        // Draw points with glow effect
+        ctx.shadowColor = '#FF69B4';
+        ctx.shadowBlur = 4;
+        ctx.fillStyle = '#FF69B4';
+        
+    data.counts.forEach((value, i) => {
+            const x = i * xScale + padding;
+            const y = height - padding - ((value - minValue) * yScale);
+            
+        ctx.beginPath();
+            ctx.arc(x, y, 3, 0, 2 * Math.PI);
+        ctx.fill();
+            
+            // Add value labels for significant points
+            if (value > 0 && (i === 0 || i === data.counts.length - 1 || value === maxValue)) {
+                ctx.shadowBlur = 0;
+                ctx.fillStyle = '#333';
+                ctx.font = 'bold 10px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(value.toString(), x, y - 8);
+                ctx.fillStyle = '#FF69B4';
+                ctx.shadowBlur = 4;
+            }
+        });
+        
+        ctx.shadowBlur = 0;
+    } else {
+        // Single data point
+        ctx.fillStyle = '#FF69B4';
+        ctx.beginPath();
+        ctx.arc(width / 2, height / 2, 4, 0, 2 * Math.PI);
+        ctx.fill();
+        
+        ctx.fillStyle = '#333';
+        ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+        ctx.fillText(data.counts[0].toString(), width / 2, height / 2 - 10);
+    }
+}
+
+// Checkbox and bulk action functionality
+function toggleSelectAll(checkbox, groupId) {
+    const checkboxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox`);
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+    });
+    updateBulkActions(groupId);
+}
+
+function updateBulkActions(groupId) {
+    const checkboxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox`);
+    const checkedBoxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox:checked`);
+    const bulkActions = document.getElementById(`bulkActions_${groupId}`);
+    const selectedInfo = document.getElementById(`selectedInfo_${groupId}`);
+    
+    if (checkedBoxes.length > 0) {
+        bulkActions.style.display = 'block';
+        selectedInfo.textContent = `${checkedBoxes.length} selected`;
+    } else {
+        bulkActions.style.display = 'none';
+    }
+    
+    // Update select all checkbox state
+    const selectAllCheckboxes = document.querySelectorAll(`[data-group-id="${groupId}"] .select-all-checkbox`);
+    selectAllCheckboxes.forEach(cb => {
+        cb.indeterminate = checkedBoxes.length > 0 && checkedBoxes.length < checkboxes.length;
+        cb.checked = checkedBoxes.length === checkboxes.length && checkboxes.length > 0;
+    });
+}
+
+function bulkMarkAsRead(groupId) {
+    const checkedBoxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox:checked`);
+    const alertIds = Array.from(checkedBoxes).map(cb => cb.dataset.alertId);
+    
+    if (alertIds.length === 0) {
+        showAlert('No articles selected', 'warning');
+        return;
+    }
+    
+    if (!confirm(`Mark ${alertIds.length} articles as read?`)) return;
+    
+    // Get the topic from the group container instead of the checkbox
+    const groupContainer = document.querySelector(`[data-group-id="${groupId}"]`);
+    let topic = groupContainer ? groupContainer.dataset.topic : null;
+    
+    if (!topic) {
+        // Fallback: try to get topic from the card header
+        const cardHeader = document.querySelector(`#group-${groupId}`);
+        if (cardHeader) {
+            const topicBadge = cardHeader.querySelector('.badge.bg-secondary');
+            if (topicBadge) {
+                topic = topicBadge.textContent.trim();
+            }
+        }
+    }
+    
+    // Mark each alert as read
+    Promise.all(alertIds.map(alertId => 
+        fetch(`/api/keyword-monitor/alerts/${alertId}/read`, { 
+            method: 'POST',
+            credentials: 'same-origin'
+        })
+    )).then(() => {
+        showAlert(`${alertIds.length} articles marked as read`, 'success');
+        // Refresh the group
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (topic && toggle) {
+            refreshGroupArticles(topic, groupId, toggle.checked);
+        } else {
+            // If we can't get the topic, just reload the page
+            setTimeout(() => window.location.reload(), 1000);
+        }
+    }).catch(error => {
+        console.error('Error:', error);
+        showAlert('Failed to mark articles as read', 'danger');
+    });
+}
+
+function bulkDeleteSelected(groupId) {
+    const checkedBoxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox:checked`);
+    const alertIds = Array.from(checkedBoxes).map(cb => cb.dataset.alertId);
+    
+    if (alertIds.length === 0) {
+        showAlert('No articles selected', 'warning');
+        return;
+    }
+    
+    if (!confirm(`Delete ${alertIds.length} selected articles? This action cannot be undone.`)) return;
+    
+    // Get the topic from the group container instead of the checkbox
+    const groupContainer = document.querySelector(`[data-group-id="${groupId}"]`);
+    let topic = groupContainer ? groupContainer.dataset.topic : null;
+    
+    if (!topic) {
+        // Fallback: try to get topic from the card header
+        const cardHeader = document.querySelector(`#group-${groupId}`);
+        if (cardHeader) {
+            const topicBadge = cardHeader.querySelector('.badge.bg-secondary');
+            if (topicBadge) {
+                topic = topicBadge.textContent.trim();
+            }
+        }
+    }
+    
+    // Get article URLs for deletion
+    const articleUrls = Array.from(checkedBoxes).map(cb => {
+        const row = cb.closest('tr');
+        const articleLink = row.querySelector('.article-title');
+        return articleLink ? articleLink.href : null;
+    }).filter(url => url);
+    
+    fetch('/api/bulk_delete_articles', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uris: articleUrls })
+    }).then(response => response.json())
+    .then(result => {
+        showAlert(`${result.deleted_count} articles deleted`, 'success');
+        // Refresh the group
+        const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+        if (topic && toggle) {
+            refreshGroupArticles(topic, groupId, toggle.checked);
+        } else {
+            // If we can't get the topic, just reload the page
+            setTimeout(() => window.location.reload(), 1000);
+        }
+    }).catch(error => {
+        console.error('Error:', error);
+        showAlert('Failed to delete articles', 'danger');
+    });
+}
+
 // At the top of the script section, change the storage structure
 const selectedArticles = {
     byTopic: {},  // Store by topic for bulk operations
@@ -874,87 +1420,11 @@ function generateTopicId(topic) {
 
 let selectedArticlesByTopic = {};
 
-function drawSparkline(canvas, data) {
-    const ctx = canvas.getContext('2d');
-    const width = canvas.width;
-    const height = canvas.height;
-    const padding = 2;
-    
-    // Clear canvas
-    ctx.clearRect(0, 0, width, height);
-    
-    // Find min and max values
-    const maxValue = Math.max(...data.counts, 1);  // At least 1 to avoid division by zero
-    
-    // Calculate scales
-    const xScale = (width - 2 * padding) / (data.counts.length - 1);
-    const yScale = (height - 2 * padding) / maxValue;
-    
-    // Draw grid lines
-    ctx.strokeStyle = '#f0f0f0';
-    ctx.lineWidth = 0.5;
-    
-    // Horizontal grid lines (3 lines)
-    for (let i = 1; i <= 3; i++) {
-        const y = height - (i * (height - 2 * padding) / 3);
-        ctx.beginPath();
-        ctx.moveTo(padding, y);
-        ctx.lineTo(width - padding, y);
-        ctx.stroke();
-    }
-    
-    // Draw the sparkline
-    ctx.strokeStyle = '#0d6efd';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    
-    // Move to first point
-    ctx.moveTo(
-        padding,
-        height - padding - (data.counts[0] * yScale)
-    );
-    
-    // Draw lines to subsequent points
-    for (let i = 1; i < data.counts.length; i++) {
-        ctx.lineTo(
-            i * xScale + padding,
-            height - padding - (data.counts[i] * yScale)
-        );
-    }
-    ctx.stroke();
-    
-    // Draw points
-    ctx.fillStyle = '#0d6efd';
-    data.counts.forEach((value, i) => {
-        ctx.beginPath();
-        ctx.arc(
-            i * xScale + padding,
-            height - padding - (value * yScale),
-            2,
-            0,
-            2 * Math.PI
-        );
-        ctx.fill();
-    });
-    
-    // Add value labels
-    ctx.fillStyle = '#666';
-    ctx.font = '8px Arial';
-    ctx.textAlign = 'center';
-    data.counts.forEach((value, i) => {
-        if (value > 0) {  // Only show non-zero values
-            ctx.fillText(
-                value.toString(),
-                i * xScale + padding,
-                height - padding - (value * yScale) - 5
-            );
-        }
-    });
-}
-
 async function loadTrendChart() {
     try {
-        const response = await fetch('/api/keyword-monitor/trends');
+        const response = await fetch('/api/keyword-monitor/trends', {
+            credentials: 'same-origin'
+        });
         if (!response.ok) throw new Error('Failed to fetch trend data');
         
         const data = await response.json();
@@ -982,7 +1452,8 @@ document.addEventListener('DOMContentLoaded', () => {
 async function markAsRead(alertId) {
     try {
         const response = await fetch(`/api/keyword-monitor/alerts/${alertId}/read`, {
-            method: 'POST'
+            method: 'POST',
+            credentials: 'same-origin'
         });
         
         if (!response.ok) throw new Error('Failed to mark alert as read');
@@ -1052,13 +1523,24 @@ function showAlert(message, type = 'danger') {
         clearTimeout(alert.timeoutId);
     }
     
-    // Auto-dismiss after 5 seconds
+    // For rate limit warnings, show longer and update the status indicator
+    const timeout = type === 'warning' && message.toLowerCase().includes('rate limit') ? 10000 : 5000;
+    
+    // Show rate limit warning indicator if this is a rate limit error
+    if (type === 'warning' && message.toLowerCase().includes('rate limit')) {
+        const rateLimitWarning = document.getElementById('rateLimitWarning');
+        if (rateLimitWarning) {
+            rateLimitWarning.style.display = 'inline';
+        }
+    }
+    
+    // Auto-dismiss after timeout
     alert.timeoutId = setTimeout(() => {
         alert.classList.remove('show');
         setTimeout(() => {
             alert.style.display = 'none';
         }, 150); // Match the fade transition time
-    }, 5000);
+    }, timeout);
     
     // Add click handler for manual dismissal
     const closeButton = alert.querySelector('.btn-close');
@@ -1082,27 +1564,47 @@ async function checkKeywords() {
         
         console.log("Sending check-now request to API...");
         const response = await fetch('/api/keyword-monitor/check-now', {
-            method: 'POST'
+            method: 'POST',
+            credentials: 'same-origin'
         });
         
         console.log("API response received:", response.status);
         
         if (response.status === 429) {
-            showAlert('API daily request limit reached. Please try again tomorrow.', 'warning');
+            const errorData = await response.json().catch(() => ({}));
+            const message = errorData.detail || 'API daily request limit reached. Please try again tomorrow.';
+            showAlert(message, 'warning');
             return;
         }
         
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             console.error("API error:", errorData);
+            
+            // Check if the error message contains rate limit information
+            if (errorData.detail && errorData.detail.toLowerCase().includes('rate limit')) {
+                showAlert('Rate limit exceeded. Please try again later or upgrade your API plan.', 'warning');
+            } else {
             throw new Error(errorData.detail || 'Failed to check keywords');
+            }
+            return;
         }
         
         const result = await response.json();
         console.log("API check complete:", result);
         
+        // Check if the result indicates rate limiting or no articles due to limits
+        if (result.message && result.message.toLowerCase().includes('rate limit')) {
+            showAlert('Rate limit reached during keyword check. Some keywords may not have been processed.', 'warning');
+        } else if (result.error && result.error.toLowerCase().includes('rate limit')) {
+            showAlert('Rate limit reached during keyword check. Some keywords may not have been processed.', 'warning');
+        } else if (result.new_articles === 0 && result.warnings && result.warnings.some(w => w.toLowerCase().includes('rate limit'))) {
+            showAlert('Rate limit reached. No new articles found due to API limitations.', 'warning');
+        } else {
         // Show success message
-        showAlert('Keyword check completed successfully. Refreshing page...', 'success');
+            const articlesFound = result.new_articles || 0;
+            showAlert(`Keyword check completed successfully. Found ${articlesFound} new articles. Refreshing page...`, 'success');
+        }
         
         // Wait a moment to ensure database operations complete
         setTimeout(() => {
@@ -1112,7 +1614,13 @@ async function checkKeywords() {
         
     } catch (error) {
         console.error('Error:', error);
+        
+        // Check if the error message contains rate limit information
+        if (error.message && error.message.toLowerCase().includes('rate limit')) {
+            showAlert('Rate limit exceeded. Please try again later or upgrade your API plan.', 'warning');
+        } else {
         showAlert('Failed to check keywords: ' + error.message, 'danger');
+        }
     } finally {
         button.disabled = false;
         button.innerHTML = originalHtml;
@@ -1386,7 +1894,8 @@ async function togglePolling(enabled) {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ enabled })
+            body: JSON.stringify({ enabled }),
+            credentials: 'same-origin'
         });
         
         if (!response.ok) {
@@ -1423,11 +1932,11 @@ async function togglePolling(enabled) {
     }
 }
 
-// Old updateResetTimer and DOMContentLoaded event listener removed to avoid duplication
-
 async function exportAlerts() {
     try {
-        const response = await fetch('/api/keyword-monitor/export-alerts');
+        const response = await fetch('/api/keyword-monitor/export-alerts', {
+            credentials: 'same-origin'
+        });
         if (!response.ok) throw new Error('Failed to export alerts');
         
         const blob = await response.blob();
@@ -1524,8 +2033,8 @@ function analyzeBulkArticles(topic, groupId) {
     const articles = selectedArticles.byGroup[groupId] || [];
     if (articles.length === 0) {
         showAlert('No articles selected for analysis', 'warning');
-        return;
-    }
+            return;
+        }
     
     const urls = articles.map(article => article.url).join('\n');
     const params = new URLSearchParams({
@@ -1534,6 +2043,198 @@ function analyzeBulkArticles(topic, groupId) {
     });
     
     window.location.href = `/submit-article?${params.toString()}`;
+}
+
+// Function to analyze selected articles using checkboxes
+function analyzeSelectedArticles(topic, groupId) {
+    const checkedBoxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox:checked`);
+    
+    if (checkedBoxes.length === 0) {
+        showAlert('No articles selected for analysis', 'warning');
+        return;
+    }
+    
+    // Extract URLs from the checked articles
+    const urls = Array.from(checkedBoxes).map(checkbox => {
+        const row = checkbox.closest('tr');
+        const articleLink = row.querySelector('.article-title');
+        return articleLink ? articleLink.href : null;
+    }).filter(url => url).join('\n');
+    
+    if (!urls) {
+        showAlert('No valid URLs found in selected articles', 'warning');
+        return;
+    }
+    
+    // Redirect to submit-article page with the URLs
+    const params = new URLSearchParams({
+        url: urls,
+        topic: topic
+    });
+    
+    window.location.href = `/submit-article?${params.toString()}`;
+}
+
+// Function to check if an article has been enriched (has categories, etc.)
+function isArticleEnriched(article) {
+    // Check if article has been enriched - check for any enrichment fields
+    const hasCategory = !!(article.category && article.category.trim() !== '');
+    const hasSentiment = !!(article.sentiment && article.sentiment.trim() !== '');
+    const hasDriverType = !!(article.driver_type && article.driver_type.trim() !== '');
+    const hasTimeToImpact = !!(article.time_to_impact && article.time_to_impact.trim() !== '');
+    
+    const isEnriched = hasCategory || hasSentiment || hasDriverType || hasTimeToImpact;
+    
+    // Debug logging for specific articles
+    if (article.uri && (article.uri.includes('tomshardware') || article.uri.includes('yahoo') || article.uri.includes('forbes'))) {
+        console.log('isArticleEnriched check:', {
+            uri: article.uri,
+            category: article.category,
+            sentiment: article.sentiment,
+            driver_type: article.driver_type,
+            time_to_impact: article.time_to_impact,
+            hasCategory: hasCategory,
+            hasSentiment: hasSentiment,
+            hasDriverType: hasDriverType,
+            hasTimeToImpact: hasTimeToImpact,
+            isEnriched: isEnriched,
+            articleKeys: Object.keys(article)
+        });
+    }
+    
+    return isEnriched;
+}
+
+// Function to create enrichment status badge
+function createEnrichmentBadge(article) {
+    if (isArticleEnriched(article)) {
+        return `<span class="badge bg-info ms-1" title="Article has been analyzed">
+            <i class="fas fa-check-circle me-1"></i>Analyzed
+        </span>`;
+    }
+    return '';
+}
+
+
+
+// Function to export alerts for a specific group
+async function exportGroupAlerts(topic, groupId) {
+    const button = event.target.closest('button');
+    const originalHtml = button.innerHTML;
+    
+    try {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+        
+        console.log(`Exporting alerts for group ${groupId}, topic: ${topic}`);
+        
+        const response = await fetch(`/api/keyword-monitor/export-group-alerts?topic=${encodeURIComponent(topic)}&group_id=${groupId}`, {
+            credentials: 'same-origin'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to export group alerts');
+        }
+        
+        // Create download link
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const timestamp = new Date().toISOString().split('T')[0];
+        const filename = `${topic.replace(/[^a-zA-Z0-9]/g, '_')}_alerts_${timestamp}.csv`;
+        
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+        
+        showAlert(`Alerts exported successfully for ${topic}!`, 'success');
+        
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert(`Failed to export alerts: ${error.message}`, 'danger');
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+    }
+}
+
+// Function to update a specific group now
+async function updateGroupNow(topic, groupId) {
+    const button = event.target.closest('button');
+    const originalHtml = button.innerHTML;
+    
+    try {
+        button.disabled = true;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+        
+        console.log(`Updating group ${groupId} (${topic}) now...`);
+        
+        const response = await fetch('/api/keyword-monitor/check-now', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                topic: topic,
+                group_id: parseInt(groupId)
+            }),
+            credentials: 'same-origin'
+        });
+        
+        if (response.status === 429) {
+            const errorData = await response.json().catch(() => ({}));
+            const message = errorData.detail || 'API daily request limit reached. Please try again tomorrow.';
+            showAlert(message, 'warning');
+            return;
+        }
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            
+            // Check if the error message contains rate limit information
+            if (errorData.detail && errorData.detail.toLowerCase().includes('rate limit')) {
+                showAlert('Rate limit exceeded. Please try again later or upgrade your API plan.', 'warning');
+            } else {
+                throw new Error(errorData.detail || 'Failed to update group');
+            }
+            return;
+        }
+        
+        const result = await response.json();
+        console.log("Group update complete:", result);
+        
+        // Check if the result indicates rate limiting
+        if (result.message && result.message.toLowerCase().includes('rate limit')) {
+            showAlert(`Group "${topic}" check completed but rate limit reached. Some keywords may not have been processed.`, 'warning');
+        } else {
+            // Show success message
+            showAlert(`Group "${topic}" updated successfully. Refreshing...`, 'success');
+        }
+        
+        // Wait a moment then refresh the group
+        setTimeout(async () => {
+            const toggle = document.querySelector(`#showReadToggle_${groupId}`);
+            if (toggle) {
+                await refreshGroupArticles(topic, groupId, toggle.checked);
+            }
+        }, 1500);
+        
+    } catch (error) {
+        console.error('Error:', error);
+        
+        // Check if the error message contains rate limit information
+        if (error.message && error.message.toLowerCase().includes('rate limit')) {
+            showAlert('Rate limit exceeded. Please try again later or upgrade your API plan.', 'warning');
+        } else {
+            showAlert(`Failed to update group: ${error.message}`, 'danger');
+        }
+    } finally {
+        button.disabled = false;
+        button.innerHTML = originalHtml;
+    }
 }
 
 async function bulkDeleteArticles(topic, groupId) {
@@ -1556,7 +2257,8 @@ async function bulkDeleteArticles(topic, groupId) {
             },
             body: JSON.stringify({
                 uris: articles.map(article => article.url)
-            })
+            }),
+            credentials: 'same-origin'
         });
         
         if (!response.ok) {
@@ -1623,49 +2325,85 @@ async function refreshGroupArticles(topic, groupId, showRead = false, skipMediaB
     try {
         console.log(`Refreshing articles for group ${groupId} (${topic}), showRead: ${showRead}`);
         
-        const response = await fetch(`/api/keyword-monitor/alerts/${encodeURIComponent(topic)}?show_read=${showRead}&group_id=${groupId}&skip_media_bias=${skipMediaBias}`);
+        const response = await fetch(`/api/keyword-monitor/alerts/${encodeURIComponent(topic)}?show_read=${showRead}&group_id=${groupId}&skip_media_bias=${skipMediaBias}`, {
+            credentials: 'same-origin',
+            headers: {
+                'Accept': 'application/json',
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        console.log('API Response status:', response.status);
+        console.log('API Response headers:', response.headers.get('content-type'));
         
         if (!response.ok) {
+            console.error('API Response not OK:', response.status, response.statusText);
+            const text = await response.text();
+            console.error('Response body:', text.substring(0, 500));
             throw new Error('Failed to fetch alerts');
         }
         
         const data = await response.json();
         
-        // Debug: Log the detailed data structure
-        console.log('API Response:', data);
+        console.log('API Response data:', data);
+        console.log('Number of alerts:', data.alerts ? data.alerts.length : 0);
         if (data.alerts && data.alerts.length > 0) {
             console.log('First alert:', data.alerts[0]);
-            console.log('Media bias data from API:', 
-                        'bias:', data.alerts[0].article.bias, 
-                        'factual:', data.alerts[0].article.factual_reporting);
-            
-            // Check for articles with sources we know should have bias data
-            const sourcesToCheck = ['vanity fair', 'vanityfair', 'cnn', 'fox', 'nyt', 'new york times'];
-            const matchedArticles = data.alerts.filter(alert => 
-                sourcesToCheck.some(s => 
-                    alert.article.source && alert.article.source.toLowerCase().includes(s)
-                )
-            );
-            
-            if (matchedArticles.length > 0) {
-                console.log('*** Found articles with known sources that should have bias data: ***');
-                matchedArticles.forEach(alert => {
-                    console.log(`Source: ${alert.article.source}`);
-                    console.log(`Has bias data: ${!!(alert.article.bias || alert.article.factual_reporting)}`);
-                    console.log(`Bias: ${alert.article.bias || 'MISSING'}`);
-                    console.log(`Factual: ${alert.article.factual_reporting || 'MISSING'}`);
-                    console.log('---');
+            console.log('First alert article:', data.alerts[0].article);
+            console.log('First alert enrichment fields:', {
+                category: data.alerts[0].article.category,
+                sentiment: data.alerts[0].article.sentiment,
+                driver_type: data.alerts[0].article.driver_type,
+                time_to_impact: data.alerts[0].article.time_to_impact,
+                analysis_complete: data.alerts[0].article.analysis_complete
+            });
+            // Log all articles to see their enrichment status
+            data.alerts.forEach((alert, index) => {
+                console.log(`Alert ${index} enrichment:`, {
+                    title: alert.article.title.substring(0, 50) + '...',
+                    category: alert.article.category,
+                    sentiment: alert.article.sentiment,
+                    driver_type: alert.article.driver_type,
+                    time_to_impact: alert.article.time_to_impact,
+                    isEnriched: isArticleEnriched(alert.article)
                 });
+            });
+        }
+        
+        // Try multiple ways to find the card
+        let card = null;
+        
+        // Method 1: Find by group-id in the header
+        const groupHeader = document.querySelector(`.d-flex[data-group-id="${groupId}"]`);
+        if (groupHeader) {
+            card = groupHeader.closest('.card');
+        }
+        
+        // Method 2: Find by the group ID in the card itself
+        if (!card) {
+            card = document.querySelector(`#group-${groupId}`);
+        }
+        
+        // Method 3: Find any card that contains the group ID
+        if (!card) {
+            const allCards = document.querySelectorAll('.card');
+            for (const candidateCard of allCards) {
+                const groupIdElement = candidateCard.querySelector(`[data-group-id="${groupId}"]`);
+                if (groupIdElement) {
+                    card = candidateCard;
+                    break;
+                }
             }
         }
         
-        // Update the card selector to find by group-id
-        const card = document.querySelector(`.card .d-flex[data-group-id="${groupId}"]`).closest('.card');
         if (!card) {
             console.error(`Card not found for group ${groupId} (${topic})`);
+            console.error('Available cards:', document.querySelectorAll('.card'));
+            showAlert(`Unable to find group ${groupId} on page`, 'warning');
             return;
         }
         
+        console.log(`Found card for group ${groupId}:`, card);
         updateGroupAlerts(card, data, groupId);
         
     } catch (error) {
@@ -1676,10 +2414,157 @@ async function refreshGroupArticles(topic, groupId, showRead = false, skipMediaB
 
 // Update the updateGroupAlerts function to add more debugging for media bias HTML generation
 function updateGroupAlerts(card, data, groupId) {
-    const tableBody = card.querySelector('tbody');
+    // Try multiple selectors to find the table body, including nested card structures
+    let tableBody = card.querySelector('tbody');
+    
     if (!tableBody) {
-        console.error('Table body not found');
+        // Try to find it in the table-responsive container
+        const tableContainer = card.querySelector('.table-responsive');
+        if (tableContainer) {
+            tableBody = tableContainer.querySelector('tbody');
+        }
+    }
+    
+    if (!tableBody) {
+        // Try to find any table body in the card (including nested cards)
+        tableBody = card.querySelector('table tbody');
+    }
+    
+    // Handle nested card structure - look for content area
+    let contentArea = null;
+    if (!tableBody) {
+        // Check if this is a group with no alerts (showing the alert div)
+        // Look in both the main card and any nested cards
+        const alertDiv = card.querySelector('.alert.alert-info');
+        
+        if (alertDiv && data.alerts && data.alerts.length > 0) {
+            // We have alerts to show but no table structure - need to create it
+            console.log('Creating table structure for group with new alerts');
+            
+            // Find the appropriate container - could be nested
+            contentArea = alertDiv.closest('.card-body');
+            
+            // If we're in a nested card structure, we might need to replace the entire nested card
+            const nestedCard = alertDiv.closest('.card.mb-4');
+            if (nestedCard && nestedCard !== card) {
+                // We're in a nested card, replace its content with table-responsive structure
+                nestedCard.innerHTML = `
+                    <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
+                        <!-- Bulk actions bar -->
+                        <div class="bulk-actions" id="bulkActions_${groupId}" style="display: none;">
+                            <div class="d-flex align-items-center gap-3">
+                                <label class="form-check-label">
+                                    <input type="checkbox" class="select-all-checkbox me-2" 
+                                           onchange="toggleSelectAll(this, '${groupId}')">
+                                    Select All
+                                </label>
+                                <button class="btn btn-sm btn-outline-primary" 
+                                        onclick="analyzeSelectedArticles('${data.topic}', '${groupId}')">
+                                    <i class="fas fa-microscope"></i> Analyze Selected
+                                </button>
+                                <button class="btn btn-sm btn-outline-success" 
+                                        onclick="bulkMarkAsRead('${groupId}')">
+                                    <i class="fas fa-check"></i> Mark Selected as Read
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger" 
+                                        onclick="bulkDeleteSelected('${groupId}')">
+                                    <i class="fas fa-trash"></i> Delete Selected
+                                </button>
+                                <span class="text-muted" id="selectedInfo_${groupId}">0 selected</span>
+                            </div>
+                        </div>
+                        
+                        <table class="table table-hover align-middle mb-0">
+                            <thead style="position: sticky; top: 0; background: white; z-index: 10;">
+                                <tr>
+                                    <th style="width: 50px; min-width: 50px;">
+                                        <input type="checkbox" class="select-all-checkbox" 
+                                               onchange="toggleSelectAll(this, '${groupId}')">
+                                    </th>
+                                    <th style="width: 80px; min-width: 60px;">Status</th>
+                                    <th style="width: 30%; min-width: 280px;">Article</th>
+                                    <th style="width: 15%; min-width: 120px;">Source</th>
+                                    <th style="width: 12%; min-width: 100px;">Detected</th>
+                                    <th style="width: 13%; min-width: 100px;">Tags</th>
+                                    <th style="width: 25%; min-width: 200px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+                
+                // Now find the tbody we just created
+                tableBody = nestedCard.querySelector('tbody');
+                contentArea = nestedCard;
+            } else if (contentArea) {
+                // Replace content in the card body
+                contentArea.innerHTML = `
+                    <!-- Bulk actions bar -->
+                    <div class="bulk-actions" id="bulkActions_${groupId}" style="display: none;">
+                        <div class="d-flex align-items-center gap-3">
+                            <label class="form-check-label">
+                                <input type="checkbox" class="select-all-checkbox me-2" 
+                                       onchange="toggleSelectAll(this, '${groupId}')">
+                                Select All
+                            </label>
+                            <button class="btn btn-sm btn-outline-primary" 
+                                    onclick="analyzeSelectedArticles('${data.topic}', '${groupId}')">
+                                <i class="fas fa-microscope"></i> Analyze Selected
+                            </button>
+                            <button class="btn btn-sm btn-outline-success" 
+                                    onclick="bulkMarkAsRead('${groupId}')">
+                                <i class="fas fa-check"></i> Mark Selected as Read
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" 
+                                    onclick="bulkDeleteSelected('${groupId}')">
+                                <i class="fas fa-trash"></i> Delete Selected
+                            </button>
+                            <span class="text-muted" id="selectedInfo_${groupId}">0 selected</span>
+                        </div>
+                    </div>
+                    
+                    <table class="table table-hover align-middle mb-0">
+                        <thead style="position: sticky; top: 0; background: white; z-index: 10;">
+                            <tr>
+                                <th style="width: 50px; min-width: 50px;">
+                                    <input type="checkbox" class="select-all-checkbox" 
+                                           onchange="toggleSelectAll(this, '${groupId}')">
+                                </th>
+                                <th style="width: 80px; min-width: 60px;">Status</th>
+                                <th style="width: 30%; min-width: 280px;">Article</th>
+                                <th style="width: 15%; min-width: 120px;">Source</th>
+                                <th style="width: 12%; min-width: 100px;">Detected</th>
+                                <th style="width: 13%; min-width: 100px;">Tags</th>
+                                <th style="width: 25%; min-width: 200px;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                `;
+                
+                // Now find the tbody we just created
+                tableBody = contentArea.querySelector('tbody');
+            }
+        }
+        
+        if (!tableBody) {
+            console.error('Table body not found in card:', card);
+            console.error('Available elements:', card.querySelectorAll('*'));
+            console.error('Alert div found:', card.querySelector('.alert.alert-info'));
+            console.error('Data alerts length:', data.alerts ? data.alerts.length : 'undefined');
+            
+            // Last resort: try to reload the page if we can't update the structure
+            if (data.alerts && data.alerts.length > 0) {
+                showAlert('Unable to update group display. Reloading page to show new articles...', 'info');
+                setTimeout(() => window.location.reload(), 2000);
+            } else {
+                showAlert('Unable to update group articles - table structure not found', 'warning');
+            }
         return;
+        }
     }
     
     // Update count in the group panel
@@ -1701,47 +2586,22 @@ function updateGroupAlerts(card, data, groupId) {
     // Generate alerts HTML
     let html = '';
     for (const alert of data.alerts) {
-        console.log(`Processing alert: ${alert.id}, Source: ${alert.article.source}`);
-        console.log('Media bias data in alert:', 
-                  'bias:', alert.article.bias, 
-                  'factual_reporting:', alert.article.factual_reporting);
-        
-        // Check if this is a known source for debugging
-        const knownSources = ['vanity fair', 'vanityfair', 'cnn', 'fox', 'nyt', 'new york times'];
-        const isKnownSource = knownSources.some(s => 
-            alert.article.source && alert.article.source.toLowerCase().includes(s)
-        );
-        
-        if (isKnownSource) {
-            console.log(`Known source "${alert.article.source}" found! Has bias data: ${!!(alert.article.bias || alert.article.factual_reporting)}`);
-        }
-                    
-        // Check if this alert is for Vanity Fair
-        const isVanityFair = alert.article.source && 
-            (alert.article.source.toLowerCase().includes('vanity') || 
-             alert.article.source.toLowerCase().includes('vanityfair'));
-             
-        if (isVanityFair) {
-            console.log('Processing Vanity Fair alert:', alert);
-            
-            // Force add bias data if it's missing
-            if (!alert.article.bias) {
-                console.log('Adding hard-coded bias data for Vanity Fair');
-                alert.article.bias = 'Left';
-                alert.article.factual_reporting = 'Mixed';
-                alert.article.bias_country = 'USA';
-                alert.article.press_freedom = 'Mostly Free';
-                alert.article.media_type = 'Magazine';
-                alert.article.popularity = 'High Traffic';
-                alert.article.mbfc_credibility_rating = 'High Credibility';
-            }
-        }
+
         
         // Process keywords for this alert
         let keywordBadges = '';
+        
+        // Debug logging for keywords
+        if (alert.article.title && alert.article.title.includes("AI Uncertainty")) {
+            console.log('DEBUG: Keywords for AI Uncertainty article:', {
+                matched_keyword: alert.matched_keyword,
+                matched_keywords: alert.matched_keywords
+            });
+        }
+        
         if (alert.matched_keyword) {
-            keywordBadges += `<span class="badge bg-info">
-                <i class="fas fa-tag me-1"></i>${alert.matched_keyword}
+            keywordBadges += `<span class="badge bg-info" title="${alert.matched_keyword}">
+                <i class="fas fa-tag me-1"></i>${alert.matched_keyword.length > 10 ? alert.matched_keyword.substring(0, 10) + '...' : alert.matched_keyword}
             </span>`;
         }
         
@@ -1749,8 +2609,8 @@ function updateGroupAlerts(card, data, groupId) {
         if (alert.matched_keywords && Array.isArray(alert.matched_keywords)) {
             alert.matched_keywords.forEach(keyword => {
                 if (keyword && keyword !== alert.matched_keyword) {
-                    keywordBadges += `<span class="badge bg-info ms-1">
-                        <i class="fas fa-tag me-1"></i>${keyword}
+                    keywordBadges += `<span class="badge bg-info ms-1" title="${keyword}">
+                        <i class="fas fa-tag me-1"></i>${keyword.length > 10 ? keyword.substring(0, 10) + '...' : keyword}
                     </span>`;
                 }
             });
@@ -1759,157 +2619,16 @@ function updateGroupAlerts(card, data, groupId) {
         // Create media bias badges if available
         let mediaBiasHtml = '';
         
-        // Log all properties of the article for debugging
-        console.log('Article object properties:', Object.keys(alert.article));
-        console.log('Article bias value type:', typeof alert.article.bias);
-        
         if (alert.article.bias || alert.article.factual_reporting) {
-            console.log('Creating media bias HTML for source:', alert.article.source);
-            console.log('Bias value:', alert.article.bias);
-            console.log('Factual reporting value:', alert.article.factual_reporting);
-            
             // First try using the global function if it exists
             if (typeof window.createMediaBiasDisplay === 'function') {
-                console.log('Using global createMediaBiasDisplay function');
                 mediaBiasHtml = window.createMediaBiasDisplay(alert.article);
-                console.log('Generated HTML from global function:', mediaBiasHtml);
-            } else {
-                // Fallback implementation if the function isn't available
-                console.log('Using fallback media bias implementation');
-                
-                // Helper functions for the fallback
-                function getBiasClass(bias) {
-                    if (!bias) return '';
-                    
-                    bias = (bias || '').toLowerCase();
-                    console.log('Getting bias class for:', bias);
-                    
-                    if (bias.includes('left') && !bias.includes('center')) {
-                        return 'bias-left';
-                    } else if (bias.includes('left-center')) {
-                        return 'bias-left-center';
-                    } else if (bias.includes('least biased')) {
-                        return 'bias-least-biased';
-                    } else if (bias.includes('center')) {
-                        return 'bias-center';
-                    } else if (bias.includes('right-center')) {
-                        return 'bias-right-center';
-                    } else if (bias.includes('right')) {
-                        return 'bias-right';
-                    } else if (bias.includes('pro-science')) {
-                        return 'bias-pro-science';
-                    } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
-                        return 'bias-conspiracy-pseudoscience';
-                    } else if (bias.includes('questionable')) {
-                        return 'bias-questionable';
-                    } else if (bias.includes('satire')) {
-                        return 'bias-satire';
-                    }
-                    
-                    return '';
-                }
-                
-                function getFactualClass(factual) {
-                    if (!factual) return '';
-                    
-                    factual = (factual || '').toLowerCase();
-                    console.log('Getting factual class for:', factual);
-                    
-                    if (factual.includes('very high')) {
-                        return 'factual-very-high';
-                    } else if (factual.includes('high') && !factual.includes('very')) {
-                        return 'factual-high';
-                    } else if (factual.includes('mostly')) {
-                        return 'factual-mostly-factual';
-                    } else if (factual.includes('mixed')) {
-                        return 'factual-mixed';
-                    } else if (factual.includes('low') && !factual.includes('very')) {
-                        return 'factual-low';
-                    } else if (factual.includes('very low')) {
-                        return 'factual-very-low';
-                    }
-                    
-                    return '';
-                }
-                
-                const biasClass = getBiasClass(alert.article.bias);
-                const factualClass = getFactualClass(alert.article.factual_reporting);
-                
-                console.log('Fallback implementation results - Bias class:', biasClass, 'Factual class:', factualClass);
-                
-                mediaBiasHtml = `<div class="source-metadata">
-                    <div class="d-flex align-items-center flex-wrap gap-2">`;
-                
-                if (alert.article.bias) {
-                    mediaBiasHtml += `<span class="bias-badge ${biasClass}">
-                        <i class="fas fa-balance-scale-right me-1"></i> ${alert.article.bias}
-                    </span>`;
-                }
-                
-                if (alert.article.factual_reporting) {
-                    mediaBiasHtml += `<span class="bias-badge ${factualClass}">
-                        <i class="fas fa-check-circle me-1"></i> ${alert.article.factual_reporting}
-                    </span>`;
-                }
-                
-                mediaBiasHtml += `
-                    <span class="source-tooltip">
-                        <i class="fas fa-info-circle"></i>
-                        <div class="tooltip-content">
-                            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
-                            <table class="mb-0" style="font-size: 0.85rem;">
-                                <tr><td><strong>Source:</strong></td><td>${alert.article.source}</td></tr>
-                                ${alert.article.bias ? `<tr><td><strong>Bias:</strong></td><td>${alert.article.bias}</td></tr>` : ''}
-                                ${alert.article.factual_reporting ? `<tr><td><strong>Factual:</strong></td><td>${alert.article.factual_reporting}</td></tr>` : ''}
-                                ${alert.article.mbfc_credibility_rating ? `<tr><td><strong>Rating:</strong></td><td>${alert.article.mbfc_credibility_rating}</td></tr>` : ''}
-                                ${alert.article.bias_country ? `<tr><td><strong>Country:</strong></td><td>${alert.article.bias_country}</td></tr>` : ''}
-                                ${alert.article.press_freedom ? `<tr><td><strong>Press Freedom:</strong></td><td>${alert.article.press_freedom}</td></tr>` : ''}
-                                ${alert.article.media_type ? `<tr><td><strong>Media Type:</strong></td><td>${alert.article.media_type}</td></tr>` : ''}
-                                ${alert.article.popularity ? `<tr><td><strong>Popularity:</strong></td><td>${alert.article.popularity}</td></tr>` : ''}
-                            </table>
-                        </div>
-                    </span>
-                </div>
-                </div>`;
-                
-                console.log('Generated media bias HTML from fallback:', mediaBiasHtml);
             }
-        } else if (isVanityFair) {
-            // If it's Vanity Fair but still no media bias HTML, create a hardcoded one
-            console.log('Creating hardcoded media bias HTML for Vanity Fair');
-            mediaBiasHtml = `<div class="source-metadata">
-                <div class="d-flex align-items-center flex-wrap gap-2">
-                    <span class="bias-badge bias-left">
-                        <i class="fas fa-balance-scale-right me-1"></i> Left
-                    </span>
-                    <span class="bias-badge factual-mixed">
-                        <i class="fas fa-check-circle me-1"></i> Mixed
-                    </span>
-                    <span class="source-tooltip">
-                        <i class="fas fa-info-circle"></i>
-                        <div class="tooltip-content">
-                            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
-                            <table class="mb-0" style="font-size: 0.85rem;">
-                                <tr><td><strong>Source:</strong></td><td>${alert.article.source}</td></tr>
-                                <tr><td><strong>Bias:</strong></td><td>Left</td></tr>
-                                <tr><td><strong>Factual:</strong></td><td>Mixed</td></tr>
-                                <tr><td><strong>Country:</strong></td><td>USA</td></tr>
-                                <tr><td><strong>Media Type:</strong></td><td>Magazine</td></tr>
-                            </table>
-                        </div>
-                    </span>
-                </div>
-            </div>`;
-            console.log('Generated hardcoded HTML for Vanity Fair:', mediaBiasHtml);
-        } else {
-            console.log('No bias data available for this article:', alert.article.source);
         }
-        
-        // Let's render all properties of the article object for debugging
-        console.log('Final mediaBiasHtml length:', mediaBiasHtml ? mediaBiasHtml.length : 0);
         
         html += `
             <tr class="${alert.is_read ? 'text-muted bg-light' : ''}"
+                data-alert-id="${alert.id}" data-group-id="${groupId}"
                 data-bias="${alert.article.bias || ''}"
                 data-factual-reporting="${alert.article.factual_reporting || ''}"
                 data-credibility-rating="${alert.article.mbfc_credibility_rating || ''}"
@@ -1918,35 +2637,50 @@ function updateGroupAlerts(card, data, groupId) {
                 data-media-type="${alert.article.media_type || ''}"
                 data-popularity="${alert.article.popularity || ''}">
                 <td>
+                    <input type="checkbox" class="article-checkbox" 
+                           data-alert-id="${alert.id}"
+                           data-group-id="${groupId}"
+                           onchange="updateBulkActions('${groupId}')">
+                </td>
+                <td>
                     <div class="d-flex align-items-center">
-                        ${alert.is_read ? 
-                            '<span class="badge bg-secondary">Read</span>' : 
-                            '<span class="badge bg-primary">New</span>'}
+                        ${(() => {
+                            // Debug logging for specific articles
+                            if (alert.article.title && alert.article.title.includes("AI Uncertainty")) {
+                                console.log('DEBUG: AI Uncertainty article in updateGroupAlerts:', {
+                                    alertId: alert.id,
+                                    article: alert.article,
+                                    hasCategory: !!alert.article.category,
+                                    hasSentiment: !!alert.article.sentiment,
+                                    hasDriverType: !!alert.article.driver_type,
+                                    hasTimeToImpact: !!alert.article.time_to_impact,
+                                    isEnriched: isArticleEnriched(alert.article)
+                                });
+                            }
+                            
+                            if (alert.is_read) {
+                                return '<span class="badge bg-secondary">Read</span>';
+                            } else if (isArticleEnriched(alert.article)) {
+                                return '<span class="badge bg-success">Added</span>';
+                            } else {
+                                return '<span class="badge bg-primary">New</span>';
+                            }
+                        })()}
                     </div>
                 </td>
                 <td>
-                    <div class="d-flex flex-column" style="max-width: 600px;">
+                    <div class="article-content d-flex flex-column">
                         <div class="mb-1">
-                            <div class="d-flex gap-2 align-items-center">
-                                <span class="article-reference"
-                                      data-url="${alert.article.url}"
-                                      data-title="${alert.article.title}"
-                                      data-summary="${alert.article.summary}"
-                                      data-topic="${data.topic}"
-                                      data-group-id="${groupId}"
-                                      onclick="toggleArticleSelection(this)"
-                                      title="${alert.article.title}">
-                                    ${alert.id}
-                                </span>
-                                <a href="${alert.article.url}" target="_blank">${alert.article.title}</a>
+                            <div class="d-flex gap-2 align-items-start">
+                                <a href="${alert.article.url}" target="_blank" class="article-title">${alert.article.title}</a>
                             </div>
-                            <p class="text-muted mb-0 small">${alert.article.summary}</p>
+                            <p class="text-muted mb-0 small article-summary">${alert.article.summary}</p>
                         </div>
                     </div>
                 </td>
                 <td>
-                    <div class="small">
-                        <div class="fw-bold">${alert.article.source}</div>
+                    <div class="source-info small">
+                        <div class="source-name">${alert.article.source}</div>
                         <div class="text-muted">
                             ${new Date(alert.article.publication_date).toLocaleString()}
                         </div>
@@ -1962,13 +2696,13 @@ function updateGroupAlerts(card, data, groupId) {
                     </div>
                 </td>
                 <td>
-                    <div>
+                    <div class="tags-column">
                         ${keywordBadges}
                     </div>
                 </td>
                 <td>
-                    <div class="d-flex flex-column gap-2">
-                        <div class="d-flex gap-2">
+                    <div class="action-buttons d-flex flex-column gap-1">
+                        <div class="d-flex gap-1">
                             ${!alert.is_read ? 
                                 `<button class="btn btn-sm btn-outline-success" 
                                          onclick="markAsRead('${alert.id}')"
@@ -1988,16 +2722,16 @@ function updateGroupAlerts(card, data, groupId) {
                                 <i class="fas fa-microscope"></i>
                             </a>
                         </div>
-                        <div class="d-flex gap-2">
+                        <div class="d-flex gap-1">
                             <a href="https://12ft.io/${alert.article.url}" 
                                class="btn btn-sm btn-outline-secondary"
-                               title="Bypass Paywall with 12ft.io" 
+                               title="Bypass Paywall" 
                                target="_blank">
                                 <i class="fas fa-unlock"></i>
                             </a>
                             <a href="https://archive.is/${alert.article.url}" 
                                class="btn btn-sm btn-outline-secondary"
-                               title="View archived version" 
+                               title="Archive" 
                                target="_blank">
                                 <i class="fas fa-archive"></i>
                             </a>
@@ -2008,7 +2742,33 @@ function updateGroupAlerts(card, data, groupId) {
         `;
     }
     
+    // If there are no alerts, show the "no alerts" message
+    if (data.alerts.length === 0) {
+        // Handle nested card structure
+        const nestedCard = card.querySelector('.card.mb-4');
+        if (nestedCard) {
+            // Replace the nested card content
+            nestedCard.innerHTML = `
+                <div class="card-body">
+                    <div class="alert alert-info mb-0">
+                        <i class="fas fa-info-circle"></i> No new alerts for this group
+                    </div>
+                </div>
+            `;
+        } else {
+            // Fallback to card body
+            const cardBody = tableBody.closest('.card-body') || card.querySelector('.card-body');
+            if (cardBody) {
+                cardBody.innerHTML = `
+                    <div class="alert alert-info mb-0">
+                        <i class="fas fa-info-circle"></i> No new alerts for this group
+                    </div>
+                `;
+            }
+        }
+    } else {
     tableBody.innerHTML = html;
+    }
     
     // Update the total count in toggle label
     const totalCount = card.querySelector('.total-count');
@@ -2016,15 +2776,18 @@ function updateGroupAlerts(card, data, groupId) {
         totalCount.textContent = data.total_count;
     }
     
-    // Update bulk action buttons
+    // Update bulk action buttons only if we have alerts
+    if (data.alerts.length > 0) {
     updateBulkButtons(data.topic, groupId);
+    }
 }
 
 // Update markAsUnread to pass the correct showRead state
 async function markAsUnread(alertId) {
     try {
         const response = await fetch(`/api/keyword-monitor/alerts/${alertId}/unread`, {
-            method: 'POST'
+            method: 'POST',
+            credentials: 'same-origin'
         });
         
         if (!response.ok) throw new Error('Failed to mark alert as unread');
@@ -2043,39 +2806,6 @@ async function markAsUnread(alertId) {
     }
 }
 
-async function fixDuplicateAlerts() {
-    const button = event.target.closest('button');
-    const originalHtml = button.innerHTML;
-    
-    try {
-        button.disabled = true;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fixing...';
-        
-        const response = await fetch('/api/keyword-monitor/fix-duplicate-alerts', {
-            method: 'POST'
-        });
-        
-        if (!response.ok) {
-            throw new Error('Failed to fix duplicate alerts');
-        }
-        
-        const result = await response.json();
-        showAlert(`${result.message}`, 'success');
-        
-        // Reload the page to show the updated alerts
-        setTimeout(() => {
-            window.location.reload();
-        }, 2000);
-        
-    } catch (error) {
-        console.error('Error:', error);
-        showAlert('Failed to fix duplicate alerts. Please try again.', 'danger');
-    } finally {
-        button.disabled = false;
-        button.innerHTML = originalHtml;
-    }
-}
-
 $(document).ready(function() {
     // Fetch monitor status on page load
     fetchMonitorStatus();
@@ -2087,7 +2817,9 @@ $(document).ready(function() {
 });
 
 function fetchMonitorStatus() {
-    fetch('/api/keyword-monitor/status')
+    fetch('/api/keyword-monitor/status', {
+        credentials: 'same-origin'
+    })
         .then(response => response.json())
         .then(data => {
             // Update next check time in the header
@@ -2178,6 +2910,8 @@ function updateStatusDisplay(data) {
     // Update API usage
     if (data.api_usage) {
         const resetTimer = document.getElementById('resetTimer');
+        const rateLimitWarning = document.getElementById('rateLimitWarning');
+        
         if (resetTimer) {
             const percentage = (data.api_usage.requests_today / data.api_usage.limit) * 100;
             resetTimer.innerHTML = `<i class="fas fa-refresh"></i> API usage: ${data.api_usage.requests_today}/${data.api_usage.limit}`;
@@ -2185,12 +2919,27 @@ function updateStatusDisplay(data) {
             if (percentage >= 100) {
                 resetTimer.classList.add('text-danger');
                 resetTimer.classList.remove('text-warning', 'text-muted');
+                
+                // Show rate limit warning
+                if (rateLimitWarning) {
+                    rateLimitWarning.style.display = 'inline';
+                }
             } else if (percentage >= 80) {
                 resetTimer.classList.add('text-warning');
                 resetTimer.classList.remove('text-danger', 'text-muted');
+                
+                // Hide rate limit warning
+                if (rateLimitWarning) {
+                    rateLimitWarning.style.display = 'none';
+                }
             } else {
                 resetTimer.classList.add('text-muted');
                 resetTimer.classList.remove('text-danger', 'text-warning');
+                
+                // Hide rate limit warning
+                if (rateLimitWarning) {
+                    rateLimitWarning.style.display = 'none';
+                }
             }
         }
     }
@@ -2229,7 +2978,9 @@ function updateResetTimer() {
 
 // Fetch current API usage periodically
 function fetchApiUsage() {
-    fetch('/api/keyword-monitor/status')
+    fetch('/api/keyword-monitor/status', {
+        credentials: 'same-origin'
+    })
         .then(response => response.json())
         .then(data => {
             if (data.api_usage) {
@@ -2259,379 +3010,16 @@ function fetchApiUsage() {
         .catch(error => console.error('Error fetching API usage:', error));
 }
 
-// Update the DOMContentLoaded event listener to include API usage checks
-document.addEventListener('DOMContentLoaded', function() {
-    // Initialize toggles
-    document.querySelectorAll('.show-read-toggle').forEach(toggle => {
-        const topic = toggle.dataset.topic;
-        const groupId = toggle.dataset.groupId;
-        
-        if (!topic || !groupId) {
-            console.error('Toggle missing required data attributes');
+// Function to manually reset the API counter
+async function resetApiCounter() {
+    if (!confirm("Are you sure you want to manually reset the API counter? This should only be needed if the automatic daily reset isn't working.")) {
             return;
         }
         
-        const savedState = localStorage.getItem(`showReadArticles_${groupId}`);
-        toggle.checked = savedState === 'true' || false;
-        
-        toggle.addEventListener('change', async function() {
-            console.log(`Toggle changed for group ${groupId} (${topic}): ${this.checked}`);
-            localStorage.setItem(`showReadArticles_${groupId}`, this.checked);
-            await refreshGroupArticles(topic, groupId, this.checked);
-        });
-    });
-
-    // Fetch API usage immediately
-    fetchApiUsage();
-    
-    // Initialize reset timer and set periodic updates
-    updateResetTimer();
-    setInterval(updateResetTimer, 60000);  // Update the countdown every minute
-    setInterval(fetchApiUsage, 300000);    // Fetch fresh API usage every 5 minutes
-    
-    // Add media bias info to all articles
-    console.log('Initializing media bias enhancement');
-    
-    // First call the enhanced media bias function for initial page load
-    enhanceAllArticlesWithMediaBias();
-    
-    // Rest of existing init code...
-});
-
-// Extract domain from URL to match with media bias sources
-function extractDomain(url) {
-    try {
-        // For URLs with protocol
-        if (url.includes('://')) {
-            const urlObj = new URL(url);
-            return urlObj.hostname;
-        }
-        
-        // For domain strings without protocol
-        if (url.includes('.')) {
-            // If there's no protocol but it looks like a domain
-            return url.trim().split('/')[0];
-        }
-        
-        return url.trim();
-    } catch (e) {
-        console.warn('Error extracting domain:', e);
-        return url;
-    }
-}
-
-// Check if two domains match, including subdomain support
-function domainsMatch(sourceDomain, targetDomain) {
-    if (!sourceDomain || !targetDomain) return false;
-    
-    sourceDomain = sourceDomain.toLowerCase();
-    targetDomain = targetDomain.toLowerCase();
-    
-    // Exact match
-    if (sourceDomain === targetDomain) return true;
-    
-    // Check if sourceDomain is a subdomain of targetDomain
-    if (sourceDomain.endsWith('.' + targetDomain)) return true;
-    
-    // Check if targetDomain is a subdomain of sourceDomain
-    if (targetDomain.endsWith('.' + sourceDomain)) return true;
-    
-    // Extract root domain (e.g., "example.com" from "sub.example.com")
-    const sourceRoot = sourceDomain.split('.').slice(-2).join('.');
-    const targetRoot = targetDomain.split('.').slice(-2).join('.');
-    
-    // Match on root domains
-    return sourceRoot === targetRoot;
-}
-
-// Get media bias data for a given article
-function getMediaBiasFromArticle(article) {
-    // Check if article has media bias fields
-    if (!article || !article.bias) {
-        return { found: false };
-    }
-    
-    return { 
-        found: true, 
-        data: {
-            source: article.source,
-            bias: article.bias,
-            factual_reporting: article.factual_reporting,
-            mbfc_credibility_rating: article.mbfc_credibility_rating,
-            country: article.bias_country,
-            press_freedom: article.press_freedom,
-            media_type: article.media_type,
-            popularity: article.popularity
-        }
-    };
-}
-
-// Populate media bias metadata using data already in the article objects
-function populateMediaBiasMetadata() {
-    console.log('Populating media bias tooltips from article data...');
-    // Get all source containers
-    const sourceContainers = document.querySelectorAll('td div.small');
-    
-    for (const container of sourceContainers) {
-        // Check if this is a source container with source name
-        const sourceElement = container.querySelector('.fw-bold');
-        if (!sourceElement || container.querySelector('.source-tooltip')) {
-            // Skip if no source element or already has tooltip
-            continue;
-        }
-        
-        // Find the article-reference that contains the article data
-        const articleRow = container.closest('tr');
-        if (!articleRow) continue;
-        
-        const articleRef = articleRow.querySelector('.article-reference');
-        if (!articleRef) continue;
-        
-        // Get article URL from the reference
-        const articleUrl = articleRef.dataset.url;
-        
-        // Get the article data from the container element
-        const article = {
-            source: sourceElement.textContent.trim(),
-            bias: articleRow.dataset.bias,
-            factual_reporting: articleRow.dataset.factualReporting,
-            mbfc_credibility_rating: articleRow.dataset.credibilityRating,
-            bias_country: articleRow.dataset.biasCountry,
-            press_freedom: articleRow.dataset.pressFreedom,
-            media_type: articleRow.dataset.mediaType,
-            popularity: articleRow.dataset.popularity
-        };
-        
-        // Skip if no bias data
-        if (!article.bias && !article.factual_reporting) {
-            continue;
-        }
-        
-        // Create tooltip HTML using our helper functions
-        if (!container.querySelector('.source-tooltip')) {
-            const biasClass = getBiasClass(article.bias);
-            const factualClass = getFactualClass(article.factual_reporting);
-            
-            // Create the bias badge element
-            const biasContainer = document.createElement('div');
-            biasContainer.className = 'mt-1 media-bias-container d-inline-flex align-items-center';
-            
-            // Add bias badge if available
-            if (article.bias) {
-                const biasBadge = document.createElement('span');
-                biasBadge.className = `bias-badge ${biasClass}`;
-                biasBadge.textContent = article.bias;
-                biasContainer.appendChild(biasBadge);
-            }
-            
-            // Add factual reporting badge if available
-            if (article.factual_reporting) {
-                const factualBadge = document.createElement('span');
-                factualBadge.className = `bias-badge ${factualClass}`;
-                factualBadge.textContent = article.factual_reporting;
-                biasContainer.appendChild(factualBadge);
-            }
-            
-            // Add tooltip
-            const tooltip = document.createElement('span');
-            tooltip.className = 'source-tooltip';
-            tooltip.innerHTML = '<i class="fas fa-info-circle"></i>';
-            
-            // Create tooltip content
-            const tooltipContent = document.createElement('div');
-            tooltipContent.className = 'tooltip-content';
-            
-            let tooltipHtml = '<div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>';
-            tooltipHtml += '<table class="mb-0" style="font-size: 0.85rem;">';
-            
-            // Add source info
-            tooltipHtml += `<tr><td><strong>Source:</strong></td><td>${article.source}</td></tr>`;
-            
-            // Add bias badge if available
-            if (article.bias) {
-                tooltipHtml += `<tr><td><strong>Bias:</strong></td><td>${article.bias}</td></tr>`;
-            }
-            
-            // Add factual reporting badge if available
-            if (article.factual_reporting) {
-                tooltipHtml += `<tr><td><strong>Factual:</strong></td><td>${article.factual_reporting}</td></tr>`;
-            }
-            
-            // Add credibility rating if available
-            if (article.mbfc_credibility_rating) {
-                tooltipHtml += `<tr><td><strong>Rating:</strong></td><td>${article.mbfc_credibility_rating}</td></tr>`;
-            }
-            
-            // Add country if available
-            if (article.bias_country) {
-                tooltipHtml += `<tr><td><strong>Country:</strong></td><td>${article.bias_country}</td></tr>`;
-            }
-            
-            // Add press freedom if available
-            if (article.press_freedom) {
-                tooltipHtml += `<tr><td><strong>Press Freedom:</strong></td><td>${article.press_freedom}</td></tr>`;
-            }
-            
-            // Add media type if available
-            if (article.media_type) {
-                tooltipHtml += `<tr><td><strong>Media Type:</strong></td><td>${article.media_type}</td></tr>`;
-            }
-            
-            // Add popularity if available
-            if (article.popularity) {
-                tooltipHtml += `<tr><td><strong>Popularity:</strong></td><td>${article.popularity}</td></tr>`;
-            }
-            
-            tooltipHtml += '</table>';
-            
-            tooltipContent.innerHTML = tooltipHtml;
-            tooltip.appendChild(tooltipContent);
-            biasContainer.appendChild(tooltip);
-            
-            // Add the bias container after the source element
-            sourceElement.after(biasContainer);
-        }
-    }
-}
-
-// These functions are now provided by media_bias_display.html
-// Removing them since we now use the global functions from media_bias_display.html component
-
-// Make sure the media bias display functions are available
-document.addEventListener('DOMContentLoaded', function() {
-    // Check if media bias display functions exist, define them if not
-    if (typeof window.getBiasClass !== 'function') {
-        console.log('Defining media bias functions...');
-        
-        window.getBiasClass = function(bias) {
-            if (!bias) return '';
-            
-            bias = bias.toLowerCase();
-            
-            if (bias.includes('left') && !bias.includes('center')) {
-                return 'bias-left';
-            } else if (bias.includes('left-center')) {
-                return 'bias-left-center';
-            } else if (bias.includes('least biased') || bias.includes('center')) {
-                return 'bias-least-biased';
-            } else if (bias.includes('right-center')) {
-                return 'bias-right-center';
-            } else if (bias.includes('right') && !bias.includes('center')) {
-                return 'bias-right';
-            } else if (bias.includes('pro-science')) {
-                return 'bias-pro-science';
-            } else if (bias.includes('conspiracy') || bias.includes('pseudo')) {
-                return 'bias-conspiracy-pseudoscience';
-            } else if (bias.includes('questionable')) {
-                return 'bias-questionable';
-            } else if (bias.includes('satire')) {
-                return 'bias-satire';
-            }
-            
-            return '';
-        };
-        
-        window.getFactualClass = function(factual) {
-            if (!factual) return '';
-            
-            factual = factual.toLowerCase();
-            
-            if (factual.includes('very high')) {
-                return 'factual-very-high';
-            } else if (factual.includes('high') && !factual.includes('very')) {
-                return 'factual-high';
-            } else if (factual.includes('mostly')) {
-                return 'factual-mostly-factual';
-            } else if (factual.includes('mixed')) {
-                return 'factual-mixed';
-            } else if (factual.includes('low') && !factual.includes('very')) {
-                return 'factual-low';
-            } else if (factual.includes('very low')) {
-                return 'factual-very-low';
-            }
-            
-            return '';
-        };
-        
-        window.createMediaBiasDisplay = function(article) {
-            if (!article || (!article.bias && !article.factual_reporting)) {
-                return '';
-            }
-            
-            let biasClass = window.getBiasClass(article.bias);
-            let factualClass = window.getFactualClass(article.factual_reporting);
-            
-            let html = `<div class="source-metadata">
-                <div class="d-flex align-items-center flex-wrap gap-2">`;
-            
-            if (article.bias) {
-                html += `<span class="bias-badge ${biasClass}">
-                    <i class="fas fa-balance-scale-right me-1"></i> ${article.bias}
-                </span>`;
-            }
-            
-            if (article.factual_reporting) {
-                html += `<span class="bias-badge ${factualClass}">
-                    <i class="fas fa-check-circle me-1"></i> ${article.factual_reporting}
-                </span>`;
-            }
-            
-            html += `<span class="source-tooltip">
-                <i class="fas fa-info-circle"></i>
-                <div class="tooltip-content">
-                    <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
-                    <table class="mb-0" style="font-size: 0.85rem;">`;
-            
-            if (article.bias) {
-                html += `<tr><td><strong>Bias:</strong></td><td>${article.bias}</td></tr>`;
-            }
-            
-            if (article.factual_reporting) {
-                html += `<tr><td><strong>Factual:</strong></td><td>${article.factual_reporting}</td></tr>`;
-            }
-            
-            if (article.mbfc_credibility_rating) {
-                html += `<tr><td><strong>Rating:</strong></td><td>${article.mbfc_credibility_rating}</td></tr>`;
-            }
-            
-            if (article.bias_country) {
-                html += `<tr><td><strong>Country:</strong></td><td>${article.bias_country}</td></tr>`;
-            }
-            
-            if (article.press_freedom) {
-                html += `<tr><td><strong>Press&nbsp;Freedom:</strong></td><td>${article.press_freedom}</td></tr>`;
-            }
-            
-            if (article.media_type) {
-                html += `<tr><td><strong>Media&nbsp;Type:</strong></td><td>${article.media_type}</td></tr>`;
-            }
-            
-            if (article.popularity) {
-                html += `<tr><td><strong>Popularity:</strong></td><td>${article.popularity}</td></tr>`;
-            }
-            
-            html += `</table>
-                </div>
-            </span>
-            </div>
-            </div>`;
-            
-            return html;
-        };
-    } else {
-        console.log('Media bias functions already defined.');
-    }
-});
-
-// ... Add the resetApiCounter function to the script section ...
-async function resetApiCounter() {
-    if (!confirm("Are you sure you want to manually reset the API counter? This should only be needed if the automatic daily reset isn't working.")) {
-        return;
-    }
-    
     try {
         const response = await fetch('/api/keyword-monitor/reset-api-counter', {
-            method: 'POST'
+            method: 'POST',
+            credentials: 'same-origin'
         });
         
         if (!response.ok) {
@@ -2648,5 +3036,136 @@ async function resetApiCounter() {
         showAlert('Failed to reset API counter: ' + error.message, 'danger');
     }
 }
+
+// Handle smooth scrolling to keyword groups when manage links are clicked
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if there's a hash in the URL for group navigation
+    if (window.location.hash && window.location.hash.startsWith('#group-')) {
+        const groupId = window.location.hash.substring(7); // Remove '#group-'
+        const groupElement = document.getElementById(`group-${groupId}`);
+        if (groupElement) {
+            setTimeout(() => {
+                groupElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Add a highlight effect
+                groupElement.style.boxShadow = '0 0 20px rgba(255, 105, 180, 0.5)';
+                setTimeout(() => {
+                    groupElement.style.boxShadow = '';
+                }, 3000);
+            }, 500);
+        }
+    }
+    
+    // Enhanced tooltip system for better multi-screen support
+    initializeTooltips();
+});
+
+// Initialize enhanced tooltip system
+function initializeTooltips() {
+    // Create a tooltip container
+    const tooltipContainer = document.createElement('div');
+    tooltipContainer.id = 'tooltip-container';
+    tooltipContainer.style.cssText = `
+        position: fixed;
+        z-index: 10000;
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 0.8rem;
+        max-width: 300px;
+        word-wrap: break-word;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.2s;
+        display: none;
+    `;
+    document.body.appendChild(tooltipContainer);
+    
+    // Add event listeners to all elements with title attributes
+    document.addEventListener('mouseover', function(e) {
+        const element = e.target.closest('[title]');
+        if (element && element.title) {
+            showTooltip(element, element.title, e);
+        }
+    });
+    
+    document.addEventListener('mouseout', function(e) {
+        const element = e.target.closest('[title]');
+        if (element) {
+            hideTooltip();
+        }
+    });
+    
+    document.addEventListener('mousemove', function(e) {
+        const tooltip = document.getElementById('tooltip-container');
+        if (tooltip.style.display === 'block') {
+            positionTooltip(tooltip, e);
+        }
+    });
+}
+
+function showTooltip(element, text, event) {
+    const tooltip = document.getElementById('tooltip-container');
+    tooltip.textContent = text;
+    tooltip.style.display = 'block';
+    positionTooltip(tooltip, event);
+    setTimeout(() => {
+        tooltip.style.opacity = '1';
+    }, 10);
+}
+
+function hideTooltip() {
+    const tooltip = document.getElementById('tooltip-container');
+    tooltip.style.opacity = '0';
+    setTimeout(() => {
+        tooltip.style.display = 'none';
+    }, 200);
+}
+
+function positionTooltip(tooltip, event) {
+    const rect = tooltip.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    let x = event.clientX + 10;
+    let y = event.clientY - rect.height - 10;
+    
+    // Adjust if tooltip would go off-screen horizontally
+    if (x + rect.width > viewportWidth) {
+        x = event.clientX - rect.width - 10;
+    }
+    
+    // Adjust if tooltip would go off-screen vertically
+    if (y < 0) {
+        y = event.clientY + 10;
+    }
+    
+    // Ensure tooltip stays within viewport bounds
+    x = Math.max(10, Math.min(x, viewportWidth - rect.width - 10));
+    y = Math.max(10, Math.min(y, viewportHeight - rect.height - 10));
+    
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+}
+
+// After initializing reset timer and media bias enhancement
+// Automatically refresh each group once to ensure status badges are correct on first load
+async function initialRefreshGroups() {
+    const toggles = document.querySelectorAll('.show-read-toggle');
+    for (const toggle of toggles) {
+        const topic = toggle.dataset.topic;
+        const groupId = toggle.dataset.groupId;
+        if (!topic || !groupId) continue;
+        try {
+            await refreshGroupArticles(topic, groupId, toggle.checked, true);
+        } catch (err) {
+            console.error('Initial refresh error for group', groupId, err);
+        }
+    }
+}
+// Give the page a short moment to render, then trigger the refresh
+setTimeout(initialRefreshGroups, 100);
 </script>
 {% endblock %} 

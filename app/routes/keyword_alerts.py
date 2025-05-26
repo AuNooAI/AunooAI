@@ -4,9 +4,10 @@ from fastapi.templating import Jinja2Templates
 from typing import List, Dict, Optional
 from datetime import datetime
 import logging
-from pathlib import Path
-from app.database import Database
-from app.security.session import verify_session
+
+from pydantic import BaseModel
+from app.database import Database, get_database_instance
+from app.security.session import verify_session, verify_session_api, verify_session_api
 
 router = APIRouter()
 db = Database()
@@ -91,10 +92,14 @@ def get_unread_alerts(cursor) -> List[Dict]:
         for row in alerts_data
     ] 
 
+class DeleteArticlesRequest(BaseModel):
+    uris: List[str]
+
 @router.delete("/bulk_delete_articles")
 async def bulk_delete_articles(
     request: DeleteArticlesRequest,
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
 ):
     try:
         with db.get_connection() as conn:
@@ -104,6 +109,14 @@ async def bulk_delete_articles(
             for uri in request.uris:
                 # First delete related keyword alerts
                 cursor.execute("DELETE FROM keyword_alerts WHERE article_uri = ?", (uri,))
+                
+                # Check if keyword_article_matches table exists and delete from there too
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='keyword_article_matches'
+                """)
+                if cursor.fetchone():
+                    cursor.execute("DELETE FROM keyword_article_matches WHERE article_uri = ?", (uri,))
                 
                 # Then delete the article
                 cursor.execute("DELETE FROM articles WHERE uri = ?", (uri,))

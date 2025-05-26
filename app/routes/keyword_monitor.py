@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from app.database import Database, get_database_instance
 from app.tasks.keyword_monitor import KeywordMonitor, get_task_status
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from app.models.media_bias import MediaBias
 import logging
 import json
@@ -47,7 +47,7 @@ class PollingToggle(BaseModel):
     enabled: bool
 
 @router.post("/groups")
-async def create_group(group: KeywordGroup, db=Depends(get_database_instance)):
+async def create_group(group: KeywordGroup, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -61,7 +61,7 @@ async def create_group(group: KeywordGroup, db=Depends(get_database_instance)):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/keywords")
-async def add_keyword(keyword: Keyword, db=Depends(get_database_instance)):
+async def add_keyword(keyword: Keyword, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -75,7 +75,7 @@ async def add_keyword(keyword: Keyword, db=Depends(get_database_instance)):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/keywords/{keyword_id}")
-async def delete_keyword(keyword_id: int, db=Depends(get_database_instance)):
+async def delete_keyword(keyword_id: int, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -86,7 +86,7 @@ async def delete_keyword(keyword_id: int, db=Depends(get_database_instance)):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/groups/{group_id}")
-async def delete_group(group_id: int, db=Depends(get_database_instance)):
+async def delete_group(group_id: int, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -97,7 +97,7 @@ async def delete_group(group_id: int, db=Depends(get_database_instance)):
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/groups/by-topic/{topic_name}")
-async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instance)):
+async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instance), session=Depends(verify_session)):
     """Delete all keyword groups associated with a specific topic and clean up orphaned data"""
     try:
         with db.get_connection() as conn:
@@ -164,7 +164,7 @@ async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instan
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/alerts/{alert_id}/read")
-async def mark_alert_read(alert_id: int, db=Depends(get_database_instance)):
+async def mark_alert_read(alert_id: int, db=Depends(get_database_instance), session=Depends(verify_session_api)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -203,18 +203,40 @@ async def mark_alert_read(alert_id: int, db=Depends(get_database_instance)):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+class CheckNowRequest(BaseModel):
+    topic: Optional[str] = None
+    group_id: Optional[int] = None
+
+
 @router.post("/check-now")
-async def check_now(db=Depends(get_database_instance)):
+async def check_now(request: CheckNowRequest = None, db=Depends(get_database_instance), session=Depends(verify_session_api)):
     """Trigger an immediate keyword check"""
     try:
+        # Handle both old-style (no body) and new-style (with body) requests
+        if request is None:
+            # Old-style request - check all keywords
+            topic = None
+            group_id = None
+        else:
+            topic = request.topic
+            group_id = request.group_id
+        
         # Log number of keywords being monitored
         with db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM monitored_keywords")
-            keyword_count = cursor.fetchone()[0]
-            logger.info(f"Running manual keyword check - {keyword_count} keywords configured")
+            if group_id:
+                cursor.execute("SELECT COUNT(*) FROM monitored_keywords WHERE group_id = ?", (group_id,))
+                keyword_count = cursor.fetchone()[0]
+                logger.info(f"Running manual keyword check for group {group_id} - {keyword_count} keywords configured")
+            else:
+                cursor.execute("SELECT COUNT(*) FROM monitored_keywords")
+                keyword_count = cursor.fetchone()[0]
+                logger.info(f"Running manual keyword check - {keyword_count} keywords configured")
         
         monitor = KeywordMonitor(db)
+        
+        # Note: KeywordMonitor.check_keywords() doesn't support group_id parameter
+        # For now, we'll run the full check and filter results if needed
         result = await monitor.check_keywords()
         
         if result.get("success", False):
@@ -226,11 +248,19 @@ async def check_now(db=Depends(get_database_instance)):
             
     except ValueError as e:
         logger.error(f"Value error in check_now: {str(e)}")
-        if "Rate limit exceeded" in str(e) or "request limit reached" in str(e):
-            # Return a specific status code for rate limiting
+        if "Rate limit exceeded" in str(e) or "request limit reached" in str(e) or "rate limit" in str(e).lower():
+            # Return a specific status code for rate limiting with the actual error message
+            error_msg = str(e)
+            if "NewsAPI rate limit exceeded" in error_msg:
+                detail = "NewsAPI rate limit exceeded. Developer accounts are limited to 100 requests per 24 hours. Please upgrade to a paid plan or try again tomorrow."
+            elif "request limit reached" in error_msg:
+                detail = "Daily API request limit reached. Please try again tomorrow."
+            else:
+                detail = f"Rate limit exceeded: {error_msg}"
+            
             raise HTTPException(
                 status_code=429,  # Too Many Requests
-                detail="API daily request limit reached. Please try again tomorrow."
+                detail=detail
             )
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -291,6 +321,54 @@ async def get_alerts(
                 if not bias_data and article_data["url"]:
                     bias_data = media_bias.get_bias_for_source(article_data["url"])
                     
+                if bias_data:
+                    article_data["bias"] = bias_data.get("bias")
+                    article_data["factual_reporting"] = bias_data.get("factual_reporting")
+                    article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
+                    article_data["bias_country"] = bias_data.get("country")
+                    article_data["press_freedom"] = bias_data.get("press_freedom")
+                    article_data["media_type"] = bias_data.get("media_type")
+                    article_data["popularity"] = bias_data.get("popularity")
+                
+                # Add specific logging for the Tom's Hardware article
+                if "tomshardware.com" in article_data["url"] and "stargate" in article_data["url"]:
+                    logger.info(f"STARGATE ARTICLE DEBUG: uri={article_data['url']}")
+                    logger.info(f"STARGATE ARTICLE DEBUG: Data before enrichment lookup: {article_data}")
+                
+                # Check for enrichment data in the articles table
+                try:
+                    cursor.execute("""
+                        SELECT category, sentiment
+                        FROM articles 
+                        WHERE uri = ?
+                    """, (article_data["uri"],))
+                    enrichment_row = cursor.fetchone()
+                    if enrichment_row:
+                        category, sentiment = enrichment_row
+                        logger.info(f"API ENRICHMENT FOUND for {article_data['uri']}: category={category}, sentiment={sentiment}")
+                        if category:
+                            article_data["category"] = category
+                            logger.info(f"API CATEGORY ADDED to article_data: {category}")
+                            # Debug log to confirm it's in the article_data dictionary
+                            logger.info(f"VERIFIED: article_data now contains category: {article_data.get('category')}")
+                            
+                            # Special debugging for the Tom's Hardware article
+                            if "tomshardware.com" in article_data["url"] and "stargate" in article_data["url"]:
+                                logger.info(f"STARGATE ARTICLE DEBUG: Article data after adding category: {article_data}")
+                        if sentiment:
+                            article_data["sentiment"] = sentiment
+                    else:
+                        logger.info(f"API NO ENRICHMENT DATA for {article_data['uri']}")
+                        
+                        # Special debugging for the Tom's Hardware article
+                        if "tomshardware.com" in article_data["url"] and "stargate" in article_data["url"]:
+                            logger.info(f"STARGATE ARTICLE DEBUG: No enrichment found for Stargate article!")
+                except Exception as e:
+                    # If enrichment columns don't exist, that's fine
+                    logger.debug(f"No enrichment data available for article {article_data['uri']}: {e}")
+                    pass
+                
+                # Add bias data if found
                 if bias_data:
                     article_data["bias"] = bias_data.get("bias")
                     article_data["factual_reporting"] = bias_data.get("factual_reporting")
@@ -381,20 +459,18 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     SELECT 
                         ka.id, 
                         ka.article_uri,
-                        ka.keyword_id,
-                        ka.matched_keyword,
+                        ka.keyword_ids,
+                        NULL as matched_keyword,
                         ka.is_read,
                         ka.detected_at,
-                        mk.keyword,
                         a.title,
                         a.summary,
-                        a.url,
-                        a.source,
+                        a.uri,
+                        a.news_source,
                         a.publication_date
                     FROM keyword_article_matches ka
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
                     JOIN articles a ON ka.article_uri = a.uri
-                    WHERE mk.group_id = ? AND ka.is_read = 0
+                    WHERE ka.group_id = ? AND ka.is_read = 0
                     ORDER BY ka.detected_at DESC
                     LIMIT 25
                 """, (group_id,))
@@ -402,37 +478,96 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                 alerts = []
                 for alert in cursor.fetchall():
                     (
-                        alert_id, article_uri, keyword_id, matched_keyword, 
-                        is_read, detected_at, keyword, title, summary, url,
-                        source, publication_date
+                        alert_id, article_uri, keyword_ids, matched_keyword, 
+                        is_read, detected_at, title, summary, uri,
+                        news_source, publication_date
                     ) = alert
                     
-                    # Get all matched keywords for this article
-                    cursor.execute("""
-                        SELECT DISTINCT mk.keyword
-                        FROM keyword_article_matches ka
-                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                        WHERE ka.article_uri = ? AND mk.group_id = ?
-                    """, (article_uri, group_id))
+                    # Get all matched keywords for this article and group
+                    if keyword_ids:
+                        keyword_id_list = [int(kid.strip()) for kid in keyword_ids.split(',') if kid.strip()]
+                        if keyword_id_list:
+                            placeholders = ','.join(['?'] * len(keyword_id_list))
+                            cursor.execute(f"""
+                                SELECT DISTINCT keyword
+                                FROM monitored_keywords
+                                WHERE id IN ({placeholders}) AND group_id = ?
+                            """, keyword_id_list + [group_id])
+                            matched_keywords = [kw[0] for kw in cursor.fetchall()]
+                        else:
+                            matched_keywords = []
+                    else:
+                        cursor.execute("""
+                            SELECT DISTINCT mk.keyword
+                            FROM keyword_alerts ka
+                            JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                            WHERE ka.article_uri = ? AND mk.group_id = ?
+                        """, (article_uri, group_id))
+                        matched_keywords = [kw[0] for kw in cursor.fetchall()]
                     
-                    matched_keywords = [kw[0] for kw in cursor.fetchall()]
                     
                     # Try to get media bias data using both source name and URL
                     # First try with the source name as it's more reliable
-                    bias_data = media_bias.get_bias_for_source(source)
+                    bias_data = media_bias.get_bias_for_source(news_source)
                     
                     # If no match with source name, try with the URL
-                    if not bias_data and url:
-                        bias_data = media_bias.get_bias_for_source(url)
+                    if not bias_data and uri:
+                        bias_data = media_bias.get_bias_for_source(uri)
                     
                     article_data = {
-                        "url": url,
+                        "url": uri,
                         "uri": article_uri,
                         "title": title,
                         "summary": summary,
-                        "source": source,
+                        "source": news_source,
                         "publication_date": publication_date
                     }
+                    
+                    # Add specific logging for the Tom's Hardware article
+                    if "tomshardware.com" in uri and "stargate" in uri:
+                        logger.info(f"STARGATE ARTICLE DEBUG: uri={uri}")
+                        logger.info(f"STARGATE ARTICLE DEBUG: Data before enrichment lookup: {article_data}")
+                    
+                    # Check for enrichment data in the articles table
+                    try:
+                        cursor.execute("""
+                            SELECT category, sentiment, driver_type, time_to_impact
+                            FROM articles 
+                            WHERE uri = ?
+                        """, (article_uri,))
+                        enrichment_row = cursor.fetchone()
+                        if enrichment_row:
+                            category, sentiment, driver_type, time_to_impact = enrichment_row
+                            logger.info(f"API ENRICHMENT FOUND for {article_uri}: category={category}, sentiment={sentiment}, driver_type={driver_type}, time_to_impact={time_to_impact}")
+                            if category:
+                                article_data["category"] = category
+                                logger.info(f"API CATEGORY ADDED to article_data: {category}")
+                                # Debug log to confirm it's in the article_data dictionary
+                                logger.info(f"VERIFIED: article_data now contains category: {article_data.get('category')}")
+                                
+                                # Special debugging for the Tom's Hardware article
+                                if "tomshardware.com" in uri and "stargate" in uri:
+                                    logger.info(f"STARGATE ARTICLE DEBUG: Article data after adding category: {article_data}")
+                            if sentiment:
+                                article_data["sentiment"] = sentiment
+                            if driver_type:
+                                article_data["driver_type"] = driver_type
+                            if time_to_impact:
+                                article_data["time_to_impact"] = time_to_impact
+                            
+                            # Debug log to verify enrichment is in article_data
+                            if "Uncertainty" in title:
+                                logger.info(f"TEMPLATE DEBUG - AI Uncertainty article data after enrichment: {article_data}")
+                        else:
+                            logger.info(f"API NO ENRICHMENT DATA for {article_uri}")
+                            
+                            # Special debugging for the Tom's Hardware article
+                            if "tomshardware.com" in uri and "stargate" in uri:
+                                logger.info(f"STARGATE ARTICLE DEBUG: No enrichment found for Stargate article!")
+                    except Exception as e:
+                        # If enrichment columns don't exist, that's fine
+                        logger.debug(f"No enrichment data available for article {article_uri}: {e}")
+                        pass
                     
                     # Add bias data if found
                     if bias_data:
@@ -447,7 +582,7 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     alerts.append({
                         "id": alert_id,
                         "article": article_data,
-                        "matched_keyword": matched_keyword,
+                        "matched_keyword": matched_keywords[0] if matched_keywords else None,
                         "matched_keywords": matched_keywords,
                         "is_read": bool(is_read),
                         "detected_at": detected_at
@@ -520,7 +655,7 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
         )
 
 @router.get("/settings")
-async def get_settings(db=Depends(get_database_instance)):
+async def get_settings(db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -628,7 +763,7 @@ async def get_settings(db=Depends(get_database_instance)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/settings")
-async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_database_instance)):
+async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_database_instance), session=Depends(verify_session)):
     """Save keyword monitor settings"""
     try:
         with db.get_connection() as conn:
@@ -674,7 +809,7 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/trends")
-async def get_trends(db=Depends(get_database_instance)):
+async def get_trends(db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -736,7 +871,7 @@ async def get_trends(db=Depends(get_database_instance)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/toggle-polling")
-async def toggle_polling(toggle: PollingToggle, db=Depends(get_database_instance)):
+async def toggle_polling(toggle: PollingToggle, db=Depends(get_database_instance), session=Depends(verify_session_api)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -784,7 +919,7 @@ async def toggle_polling(toggle: PollingToggle, db=Depends(get_database_instance
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/fix-duplicate-alerts")
-async def fix_duplicate_alerts(db=Depends(get_database_instance)):
+async def fix_duplicate_alerts(db=Depends(get_database_instance), session=Depends(verify_session)):
     """Fix duplicate alerts by removing duplicates and ensuring the unique constraint exists"""
     try:
         with db.get_connection() as conn:
@@ -867,7 +1002,7 @@ async def fix_duplicate_alerts(db=Depends(get_database_instance)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/export-alerts")
-async def export_alerts(db=Depends(get_database_instance)):
+async def export_alerts(db=Depends(get_database_instance), session=Depends(verify_session_api)):
     try:
         output = io.StringIO()
         writer = csv.writer(output)
@@ -962,6 +1097,119 @@ async def export_alerts(db=Depends(get_database_instance)):
         logger.error(f"Error exporting alerts: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/export-group-alerts")
+async def export_group_alerts(
+    topic: str,
+    group_id: int,
+    db=Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Export alerts for a specific group"""
+    try:
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # Write headers
+        writer.writerow([
+            'Group Name',
+            'Topic',
+            'Article Title',
+            'Source',
+            'URL',
+            'Publication Date',
+            'Matched Keywords',
+            'Detection Time',
+            'Is Read'
+        ])
+        
+        # Get alerts for the specific group
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if the keyword_article_matches table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='keyword_article_matches'
+            """)
+            use_new_table = cursor.fetchone() is not None
+            
+            if use_new_table:
+                # Use the new table structure
+                cursor.execute("""
+                    SELECT 
+                        kg.name as group_name,
+                        kg.topic,
+                        a.title,
+                        a.news_source,
+                        a.uri,
+                        a.publication_date,
+                        (
+                            SELECT GROUP_CONCAT(keyword, ', ')
+                            FROM monitored_keywords
+                            WHERE id IN (SELECT value FROM json_each('['||REPLACE(kam.keyword_ids, ',', ',')||']'))
+                        ) as matched_keywords,
+                        kam.detected_at,
+                        kam.is_read
+                    FROM keyword_article_matches kam
+                    JOIN keyword_groups kg ON kam.group_id = kg.id
+                    JOIN articles a ON kam.article_uri = a.uri
+                    WHERE kg.id = ? AND kg.topic = ?
+                    ORDER BY kam.detected_at DESC
+                """, (group_id, topic))
+            else:
+                # Use the original table structure
+                cursor.execute("""
+                    SELECT 
+                        kg.name as group_name,
+                        kg.topic,
+                        a.title,
+                        a.news_source,
+                        a.uri,
+                        a.publication_date,
+                        mk.keyword as matched_keyword,
+                        ka.detected_at,
+                        ka.is_read
+                    FROM keyword_alerts ka
+                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                    JOIN keyword_groups kg ON mk.group_id = kg.id
+                    JOIN articles a ON ka.article_uri = a.uri
+                    WHERE kg.id = ? AND kg.topic = ?
+                    ORDER BY ka.detected_at DESC
+                """, (group_id, topic))
+            
+            # Write data
+            for row in cursor.fetchall():
+                writer.writerow([
+                    row[0],  # group_name
+                    row[1],  # topic
+                    row[2],  # title
+                    row[3],  # news_source
+                    row[4],  # uri
+                    row[5],  # publication_date
+                    row[6],  # matched_keywords
+                    row[7],  # detected_at
+                    'Yes' if row[8] else 'No'  # is_read
+                ])
+        
+        # Prepare the output
+        output.seek(0)
+        
+        # Create filename with topic and group info
+        safe_topic = topic.replace(' ', '_').replace('/', '_')
+        filename = f"{safe_topic}_group_{group_id}_alerts_{datetime.now().strftime('%Y-%m-%d')}.csv"
+        
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={
+                'Content-Disposition': f'attachment; filename={filename}'
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error exporting group alerts: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 async def save_keyword_alert(db: Database, article_data: dict):
     with db.get_connection() as conn:
         cursor = conn.cursor()
@@ -979,7 +1227,7 @@ async def save_keyword_alert(db: Database, article_data: dict):
         ))
 
 @router.post("/alerts/{alert_id}/unread")
-async def mark_alert_unread(alert_id: int, db: Database = Depends(get_database_instance)):
+async def mark_alert_unread(alert_id: int, db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -1025,7 +1273,8 @@ async def get_group_alerts(
     group_id: int,
     show_read: bool = False,
     skip_media_bias: bool = False,
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
 ):
     """Get alerts for a specific keyword group."""
     try:
@@ -1200,6 +1449,29 @@ async def get_group_alerts(
                     "publication_date": publication_date
                 }
                 
+                # Check for enrichment data in the articles table
+                try:
+                    cursor.execute("""
+                        SELECT category, sentiment, driver_type, time_to_impact
+                        FROM articles 
+                        WHERE uri = ?
+                    """, (article_uri,))
+                    enrichment_row = cursor.fetchone()
+                    if enrichment_row:
+                        category, sentiment, driver_type, time_to_impact = enrichment_row
+                        if category:
+                            article_data["category"] = category
+                        if sentiment:
+                            article_data["sentiment"] = sentiment
+                        if driver_type:
+                            article_data["driver_type"] = driver_type
+                        if time_to_impact:
+                            article_data["time_to_impact"] = time_to_impact
+                except Exception as e:
+                    # If enrichment columns don't exist, that's fine
+                    logger.debug(f"No enrichment data available for article {article_uri}: {e}")
+                    pass
+                
                 # Add bias data if found
                 if bias_data:
                     article_data["bias"] = bias_data.get("bias")
@@ -1209,6 +1481,8 @@ async def get_group_alerts(
                     article_data["press_freedom"] = bias_data.get("press_freedom")
                     article_data["media_type"] = bias_data.get("media_type")
                     article_data["popularity"] = bias_data.get("popularity")
+                
+
                 
                 alerts.append({
                     "id": alert_id,
@@ -1240,7 +1514,7 @@ async def get_group_alerts(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/articles/by-topic/{topic_name}")
-async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_instance)):
+async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_instance), session=Depends(verify_session)):
     """Delete all articles associated with a specific topic and their related data"""
     try:
         with db.get_connection() as conn:
@@ -1323,7 +1597,8 @@ async def get_bluesky_posts(
     query: str,
     topic: str,
     count: int = 10,
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
 ):
     """Fetch Bluesky posts for a given query and topic."""
     try:
@@ -1408,7 +1683,7 @@ async def get_bluesky_posts(
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/clean-orphaned-topics")
-async def clean_orphaned_topics(db=Depends(get_database_instance)):
+async def clean_orphaned_topics(db=Depends(get_database_instance), session=Depends(verify_session)):
     """Find and clean up orphaned topic data by comparing keyword groups against the main topics list"""
     try:
         # Get active topics list from config
@@ -1481,7 +1756,7 @@ async def clean_orphaned_topics(db=Depends(get_database_instance)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/clean-orphaned-articles")
-async def clean_orphaned_articles(db=Depends(get_database_instance)):
+async def clean_orphaned_articles(db=Depends(get_database_instance), session=Depends(verify_session)):
     """Find and clean up orphaned articles that are no longer associated with any topic"""
     try:
         try:
@@ -1674,7 +1949,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/clean-all-orphaned")
-async def clean_all_orphaned(db=Depends(get_database_instance)):
+async def clean_all_orphaned(db=Depends(get_database_instance), session=Depends(verify_session)):
     """Clean up all orphaned data - both topics and articles in one operation"""
     try:
         # First clean orphaned topics
@@ -1712,7 +1987,7 @@ async def clean_all_orphaned(db=Depends(get_database_instance)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/status")
-async def get_keyword_monitor_status(db=Depends(get_database_instance)):
+async def get_keyword_monitor_status(db=Depends(get_database_instance), session=Depends(verify_session_api)):
     """Get the status of the keyword monitoring background task"""
     try:
         # Get status from the background task
