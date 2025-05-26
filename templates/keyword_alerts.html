@@ -794,7 +794,8 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                         <tr>
                             <th>Status</th>
                             <th>Emerging Trend</th>
-                            <th>References</th>
+                            <!-- References column removed -->
+                            <th class="d-none">References</th>
                             <th style="width: 200px;">Growth</th>
                             <th>Size</th>
                             <th>Tags</th>
@@ -817,7 +818,8 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                     </div>
                                 </div>
                             </td>
-                            <td>
+                            <!-- References column removed -->
+                            <td class="d-none">
                                 <div class="d-flex gap-1">
                                     {% if group.alerts %}
                                         {% for alert in group.alerts[:3] %}
