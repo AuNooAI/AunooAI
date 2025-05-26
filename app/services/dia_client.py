@@ -8,13 +8,14 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-DIA_TTS_URL_ENV = "DIA_TTS_URL"
-DIA_API_KEY_ENV = "DIA_API_KEY"
+DIA_TTS_URL_ENV = "PROVIDER_DIA_TTS_URL"
+DIA_API_KEY_ENV = "PROVIDER_DIA_API_KEY"
 
 
 def _get_headers() -> dict[str, str]:
     headers = {"Content-Type": "application/json"}
-    api_key = os.getenv(DIA_API_KEY_ENV)
+    # Try standardized name first, then fall back to legacy for compatibility
+    api_key = os.getenv(DIA_API_KEY_ENV) or os.getenv("DIA_API_KEY")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     return headers
@@ -46,7 +47,8 @@ async def tts(
         raise ValueError("Empty text for Dia TTS")
 
     default_url = "http://localhost:8000/v1/tts"
-    endpoint = url or os.getenv(DIA_TTS_URL_ENV, default_url)
+    # Try standardized name first, then fall back to legacy for compatibility
+    endpoint = url or os.getenv(DIA_TTS_URL_ENV) or os.getenv("DIA_TTS_URL", default_url)
     payload = {"text": text, "output_format": output_format}
     if speed_factor is not None:
         payload["speed_factor"] = speed_factor

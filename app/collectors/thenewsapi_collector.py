@@ -11,7 +11,7 @@ class TheNewsAPICollector(ArticleCollector):
     """Collector for TheNewsAPI service."""
 
     def __init__(self):
-        self.api_key = os.getenv('PROVIDER_THENEWSAPI_KEY')
+        self.api_key = os.getenv('PROVIDER_THENEWSAPI_API_KEY') or os.getenv('PROVIDER_THENEWSAPI_KEY')
         if not self.api_key:
             logger.error("TheNewsAPI key not found in environment")
             raise ValueError("TheNewsAPI key not configured")

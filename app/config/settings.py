@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 load_dotenv()
 
-# Change this line to read from environment with new prefix
-NEWSAPI_KEY = os.getenv('PROVIDER_NEWSAPI_KEY')  # Changed to use PROVIDER_ prefix
+# Use standardized naming with backward compatibility
+NEWSAPI_KEY = os.getenv('PROVIDER_NEWSAPI_API_KEY') or os.getenv('PROVIDER_NEWSAPI_KEY')
 
 def init_config():
     """Initialize config.json from sample if it doesn't exist."""
@@ -52,8 +52,8 @@ config = load_config()
 # Add this line to define DATABASE_DIR
 DATABASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
 
-# Firecrawl API key with default value
-FIRECRAWL_API_KEY = os.getenv('PROVIDER_FIRECRAWL_KEY', '')
+# Firecrawl API key with standardized naming and backward compatibility
+FIRECRAWL_API_KEY = os.getenv('PROVIDER_FIRECRAWL_API_KEY') or os.getenv('PROVIDER_FIRECRAWL_KEY', '')
 
 # Ensure the directory exists
 os.makedirs(DATABASE_DIR, exist_ok=True)

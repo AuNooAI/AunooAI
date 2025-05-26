@@ -37,29 +37,50 @@ def load_environment():
 def sync_api_keys():
     """
     Ensure all API keys are properly synchronized between different naming formats.
+    Supports both legacy and new standardized naming conventions.
     """
     try:
-        # Firecrawl API key synchronization
-        firecrawl_key = os.environ.get("FIRECRAWL_API_KEY")
-        provider_firecrawl_key = os.environ.get("PROVIDER_FIRECRAWL_KEY")
+        # Define the mapping between legacy and standardized names
+        api_key_mappings = [
+            # (legacy_name, intermediate_name, standardized_name)
+            ("FIRECRAWL_API_KEY", "PROVIDER_FIRECRAWL_KEY", "PROVIDER_FIRECRAWL_API_KEY"),
+            ("NEWSAPI_KEY", "PROVIDER_NEWSAPI_KEY", "PROVIDER_NEWSAPI_API_KEY"), 
+            ("THENEWSAPI_KEY", "PROVIDER_THENEWSAPI_KEY", "PROVIDER_THENEWSAPI_API_KEY"),
+            ("ELEVENLABS_API_KEY", None, "PROVIDER_ELEVENLABS_API_KEY"),
+            ("DIA_API_KEY", None, "PROVIDER_DIA_API_KEY"),
+            ("DIA_TTS_URL", None, "PROVIDER_DIA_TTS_URL"),
+        ]
         
-        if firecrawl_key and not provider_firecrawl_key:
-            os.environ["PROVIDER_FIRECRAWL_KEY"] = firecrawl_key
-            logger.info("Synchronized FIRECRAWL_API_KEY to PROVIDER_FIRECRAWL_KEY")
-        elif provider_firecrawl_key and not firecrawl_key:
-            os.environ["FIRECRAWL_API_KEY"] = provider_firecrawl_key
-            logger.info("Synchronized PROVIDER_FIRECRAWL_KEY to FIRECRAWL_API_KEY")
+        for mapping in api_key_mappings:
+            legacy_name, intermediate_name, standard_name = mapping
             
-        # NewsAPI key synchronization
-        newsapi_key = os.environ.get("NEWSAPI_KEY")
-        provider_newsapi_key = os.environ.get("PROVIDER_NEWSAPI_KEY")
+            # Get values from all possible sources
+            legacy_value = os.environ.get(legacy_name)
+            intermediate_value = os.environ.get(intermediate_name) if intermediate_name else None
+            standard_value = os.environ.get(standard_name)
+            
+            # Determine which value to use (preference: standard > intermediate > legacy)
+            primary_value = standard_value or intermediate_value or legacy_value
+            
+            if primary_value:
+                # Set all variants to ensure compatibility
+                if legacy_name and not os.environ.get(legacy_name):
+                    os.environ[legacy_name] = primary_value
+                    logger.info(f"Synchronized {legacy_name} from {standard_name}")
+                    
+                if intermediate_name and not os.environ.get(intermediate_name):
+                    os.environ[intermediate_name] = primary_value
+                    logger.info(f"Synchronized {intermediate_name} from {standard_name}")
+                    
+                if not os.environ.get(standard_name):
+                    os.environ[standard_name] = primary_value
+                    logger.info(f"Synchronized {standard_name} from source")
         
-        if newsapi_key and not provider_newsapi_key:
-            os.environ["PROVIDER_NEWSAPI_KEY"] = newsapi_key
-            logger.info("Synchronized NEWSAPI_KEY to PROVIDER_NEWSAPI_KEY")
-        elif provider_newsapi_key and not newsapi_key:
-            os.environ["NEWSAPI_KEY"] = provider_newsapi_key
-            logger.info("Synchronized PROVIDER_NEWSAPI_KEY to NEWSAPI_KEY")
+        # Special handling for Bluesky (already uses correct naming)
+        bluesky_username = os.environ.get("PROVIDER_BLUESKY_USERNAME")
+        bluesky_password = os.environ.get("PROVIDER_BLUESKY_PASSWORD")
+        if bluesky_username and bluesky_password:
+            logger.info("Bluesky credentials configured")
             
         logger.info("API key synchronization complete")
     except Exception as e:

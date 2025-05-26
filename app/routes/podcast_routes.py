@@ -33,9 +33,9 @@ import threading
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Get API keys from environment with defaults
+# Get API keys from environment with defaults and backward compatibility
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-ELEVENLABS_API_KEY = os.getenv('ELEVENLABS_API_KEY')
+ELEVENLABS_API_KEY = os.getenv('PROVIDER_ELEVENLABS_API_KEY') or os.getenv('ELEVENLABS_API_KEY')
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel's voice ID
 
 # Default podcast script prompt template
