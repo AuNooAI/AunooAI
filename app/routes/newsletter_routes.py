@@ -6,6 +6,7 @@ import json
 import time
 from datetime import datetime
 from pathlib import Path
+from os import getenv  # local import to avoid top-level env lookups for performance
 
 from fastapi import (
     APIRouter, 
@@ -1061,5 +1062,39 @@ async def newsletter_page(
     # Create template context
     context = get_template_context(request)
     
+    # Expose whether Beehiiv integration is configured so the button can be conditionally rendered
+    context["beehiiv_enabled"] = bool(
+        getenv("BEEHIIV_API_KEY") and getenv("BEEHIIV_PUBLICATION_ID")
+    )
+    
     # Render the template
-    return templates.TemplateResponse("newsletter_compiler.html", context) 
+    return templates.TemplateResponse("newsletter_compiler.html", context)
+
+
+@router.post("/api/newsletter/publish_beehiiv")
+async def publish_beehiiv(
+    title: str = Body(..., embed=True),
+    markdown_content: str = Body(..., embed=True),
+):
+    """Publish the compiled newsletter to Beehiiv as a draft post.
+
+    Expects frontend to supply:
+    - title: Newsletter subject/title.
+    - markdown_content: Newsletter body in Markdown.
+    """
+    import markdown as _md
+    from app.integrations.beehiiv import BeehiivClient
+
+    try:
+        client = BeehiivClient()
+        result = client.publish_markdown(title=title, markdown=markdown_content)
+
+        return JSONResponse(content={"success": True, "result": result})
+
+    except RuntimeError as exc:
+        # Expected issues like authentication / validation
+        logger.warning("Beehiiv publish failed: %s", exc)
+        raise HTTPException(status_code=400, detail=f"Beehiiv publish failed: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Unexpected Beehiiv publish error: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Unexpected Beehiiv error – see server logs.") from exc 

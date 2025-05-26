@@ -38,5 +38,43 @@ class CollectorFactory:
 
     @classmethod
     def get_available_sources(cls) -> list[str]:
-        """Get list of available source names."""
-        return list(cls._collectors.keys()) 
+        """Return list of collector source names that are currently usable.
+
+        Sources which rely on provider credentials (API keys or username/password)
+        will be included only when the required environment variables are present.
+        This prevents the frontend collect page from showing sources that the
+        user has not configured yet.
+        """
+        import os
+
+        def _is_configured(source: str) -> bool:  # noqa: ANN001
+            """Return True if the given source has the credentials it needs."""
+
+            if source == "newsapi":
+                return any(
+                    os.getenv(env)
+                    for env in (
+                        "PROVIDER_NEWSAPI_API_KEY",
+                        "PROVIDER_NEWSAPI_KEY",
+                        "NEWSAPI_KEY",
+                    )
+                )
+
+            if source == "thenewsapi":
+                return any(
+                    os.getenv(env)
+                    for env in (
+                        "PROVIDER_THENEWSAPI_API_KEY",
+                        "PROVIDER_THENEWSAPI_KEY",
+                    )
+                )
+
+            if source == "bluesky":
+                return os.getenv("PROVIDER_BLUESKY_USERNAME") and os.getenv(
+                    "PROVIDER_BLUESKY_PASSWORD"
+                )
+
+            # arxiv and others do not require credentials
+            return True
+
+        return [name for name in cls._collectors.keys() if _is_configured(name)] 

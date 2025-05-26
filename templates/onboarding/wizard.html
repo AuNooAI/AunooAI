@@ -162,7 +162,7 @@
                                 <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('newsapi')">Test</button>
                             </div>
                             <div id="newsapi-status" class="api-key-status"></div>
-                            <small class="text-muted">Required for fetching news articles from various sources</small>
+                            <small class="text-muted">Required for fetching news articles from various sources. <a href="https://newsapi.org/register" target="_blank" rel="noopener">Register here</a>.</small>
                         </div>
 
                         <!-- LLM API Key -->
@@ -199,7 +199,7 @@
                                 <button class="btn btn-outline-secondary" type="button" onclick="testApiKey('firecrawl')">Test</button>
                             </div>
                             <div id="firecrawl-status" class="api-key-status"></div>
-                            <small class="text-muted">Required for web scraping and data collection</small>
+                            <small class="text-muted">Required for web scraping and data collection. <a href="https://www.firecrawl.dev/pricing" target="_blank" rel="noopener">Free plan&nbsp;↗</a>.</small>
                         </div>
                     </div>
 
@@ -208,6 +208,17 @@
                         <h4>Step 2: Set Up Your First Topic</h4>
                         <p class="text-muted">Create a topic to start monitoring</p>
                         
+                        <div class="alert alert-secondary small">
+                            <p>At the core of <strong>AuNoo AI</strong> are <strong>topics</strong>—flexible constructs that can represent markets, knowledge fields, organizations, or even specific strategic questions. For instance:</p>
+                            <ul class="mb-2">
+                                <li><strong>Markets</strong>: Cloud Service Providers, EV Battery Suppliers, or Threat Intelligence Providers.</li>
+                                <li><strong>Knowledge Fields</strong>: Neurology, AI, or Archeology.</li>
+                                <li><strong>Organizations or People</strong>: AI researchers, competitors, or even a favorite sports team.</li>
+                                <li><strong>Scenarios</strong>: Questions like "Is AI hype?" or "How strong is the Cloud Repatriation movement?"</li>
+                            </ul>
+                            <p class="mb-0" id="categories-intro" style="display:none;"><strong>Categories:</strong> Each topic is broken down into categories, making it easier to organize and analyze data. For example, a topic on AI might include sub-categories like <em>AI in Finance</em> or <em>Cloud Quarterly Earnings</em>.</p>
+                        </div>
+
                         <div class="mb-3">
                             <label for="topic-name" class="form-label">Topic Name</label>
                             <input type="text" class="form-control" id="topic-name" name="topic-name">
@@ -222,7 +233,7 @@
 
                         <div class="mb-3">
                             <button class="btn btn-outline-primary" type="button" onclick="suggestAttributes()">
-                                <i class="fas fa-magic"></i> Suggest Attributes
+                                <i class="fas fa-magic"></i> Suggest Categories
                             </button>
                         </div>
 
@@ -908,6 +919,11 @@ async function suggestAttributes() {
             document.querySelector('label[for="time-to-impact"]').parentElement.style.display = 'none';
             document.querySelector('label[for="driver-types"]').parentElement.style.display = 'none';
 
+            const categoriesIntro = document.getElementById('categories-intro');
+            if (categoriesIntro) {
+                categoriesIntro.style.display = 'block';
+            }
+
         } else {
             const error = await response.json();
             alert(`Error: ${error.detail}`);
@@ -1236,18 +1252,18 @@ function updateApiKeyGuidance() {
     const guidanceText = document.getElementById('model-key-format');
     
     if (!selectedOption || !selectedOption.value) {
-        guidanceText.textContent = "Enter API key for the selected model.";
+        guidanceText.innerHTML = "Enter API key for the selected model.";
         return;
     }
     
     const provider = selectedOption.dataset.provider;
     
     if (provider === 'openai') {
-        guidanceText.textContent = "Format must be exactly as shown in OpenAI dashboard.";
+        guidanceText.innerHTML = "Format must be exactly as shown in OpenAI dashboard. <a href=\"https://platform.openai.com/\" target=\"_blank\" rel=\"noopener\">Get an API key</a>.";
     } else if (provider === 'anthropic') {
-        guidanceText.textContent = "Enter the full Anthropic API key from your dashboard.";
+        guidanceText.innerHTML = "Enter the full Anthropic API key from your dashboard. <a href=\"https://www.anthropic.com/api\" target=\"_blank\" rel=\"noopener\">Sign up here</a>.";
     } else {
-        guidanceText.textContent = `Enter the API key for ${provider}.`;
+        guidanceText.innerHTML = `Enter the API key for ${provider}.`;
     }
 }
 

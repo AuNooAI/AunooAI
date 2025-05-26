@@ -574,6 +574,11 @@
                                 <button type="button" id="sendSlackButton" class="btn btn-pink" style="width: 120px;">
                                     SLACK
                                 </button>
+                                {% if beehiiv_enabled %}
+                                    <button type="button" id="publishBeehiivButton" class="btn btn-green ms-2" style="width: 120px;">
+                                        BEEHIIV
+                                    </button>
+                                {% endif %}
                             </div>
                             <div class="d-flex flex-wrap justify-content-end">
                                 <button type="button" id="downloadMarkdownButton" class="btn btn-blue me-2" style="width: 120px;">
@@ -3226,6 +3231,7 @@ if (editor) {
     const saveToServerButton = document.getElementById('saveToServerButton');
     const sendEmailButton = document.getElementById('sendEmailButton');
     const sendSlackButton = document.getElementById('sendSlackButton');
+    const publishBeehiivButton = document.getElementById('publishBeehiivButton');
     
     if (compileButton) compileButton.addEventListener('click', compileNewsletter);
     if (downloadMarkdownButton) downloadMarkdownButton.addEventListener('click', downloadMarkdown);
@@ -3235,6 +3241,7 @@ if (editor) {
     if (sendSlackButton) sendSlackButton.addEventListener('click', function() {
         alert('Slack integration not implemented yet.');
     });
+    if (publishBeehiivButton) publishBeehiivButton.addEventListener('click', publishBeehiivNewsletter);
     
     // Set up save newsletter modal buttons
     const closeSaveNewsletterModalBtn = document.getElementById('closeSaveNewsletterModal');
@@ -5681,6 +5688,55 @@ async function loadMoreArticles(searchParams, nextPage) {
             if (paginationContainer) {
                 paginationContainer.innerHTML = `<div class="text-danger">Error loading more articles: ${error.message}</div>`;
             }
+        }
+    }
+}
+
+// Publish newsletter to Beehiiv
+async function publishBeehiivNewsletter() {
+    try {
+        const markdownContent = getMarkdownContent();
+        if (!markdownContent.trim()) {
+            alert('No content to publish');
+            return;
+        }
+
+        const title = prompt('Enter a title for the Beehiiv post:', 'My Newsletter');
+        if (!title) return;
+
+        const button = document.getElementById('publishBeehiivButton');
+        const originalHtml = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Publishing...';
+
+        const response = await fetch('/api/newsletter/publish_beehiiv', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                title: title,
+                markdown_content: markdownContent
+            })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(errText || 'Unknown error');
+        }
+
+        const result = await response.json();
+        console.log('Beehiiv publish result:', result);
+        showToast('Newsletter published to Beehiiv successfully!', 'success');
+
+    } catch (err) {
+        console.error('Beehiiv publish error:', err);
+        showToast('Failed to publish to Beehiiv: ' + err.message, 'error');
+    } finally {
+        const button = document.getElementById('publishBeehiivButton');
+        if (button) {
+            button.disabled = false;
+            button.innerHTML = 'BEEHIIV';
         }
     }
 }

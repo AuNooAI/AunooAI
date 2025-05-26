@@ -2004,6 +2004,37 @@ class Database:
             conn.commit()
             self._debug_schema()  # Optional: logs new schema
 
+    # ------------------------------------------------------------------
+    # Podcast settings helpers – key/value access
+    # ------------------------------------------------------------------
+
+    def get_podcast_setting(self, key: str):
+        """Return the raw JSON string stored for *key* in settings_podcasts.
+        If the key is not present, return ``None``.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings_podcasts WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def set_podcast_setting(self, key: str, value: str) -> bool:
+        """Insert or update the given *key* with *value* in settings_podcasts.
+        The *value* should be a JSON-serialised string.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO settings_podcasts (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, value),
+            )
+            conn.commit()
+            return True
+
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
 

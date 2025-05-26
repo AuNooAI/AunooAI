@@ -1,6 +1,11 @@
 {% extends "base.html" %}
 
 {% block content %}
+<!-- TTS key alert (hidden by default) -->
+<div id="ttsKeyAlert" class="alert alert-warning text-center mb-0" style="display:none; border-radius:0;">
+    <i class="fas fa-exclamation-triangle me-1"></i>
+    No Text-to-Speech API keys configured. Set up <a href="/config#providers" class="alert-link">ElevenLabs</a> or <a href="/config#dia-config" class="alert-link">Dia</a> in the Configuration page.
+</div>
 <!-- Import the media bias component -->
 {% include "components/media_bias_display.html" %}
 <div class="container mt-4">
@@ -1795,6 +1800,26 @@ function getFactualClass(factual) {
     
     return '';
 }
+
+// Check if at least one TTS provider (ElevenLabs or Dia) is configured
+async function checkTtsKeysConfigured() {
+    try {
+        const [eleRes, diaRes] = await Promise.all([
+            fetch('/config/elevenlabs'),
+            fetch('/config/dia')
+        ]);
+        const eleOk = eleRes.ok && (await eleRes.json()).configured;
+        const diaOk = diaRes.ok && (await diaRes.json()).configured;
+        if (!eleOk && !diaOk) {
+            document.getElementById('ttsKeyAlert').style.display = 'block';
+        }
+    } catch (err) {
+        console.error('Error checking TTS keys', err);
+    }
+}
+
+// Run check once DOM is fully loaded
+document.addEventListener('DOMContentLoaded', checkTtsKeysConfigured);
 </script>
 
 <style>
