@@ -49,3 +49,4 @@ bertopic>=0.15.0
 sentence-transformers>=2.2.0
 hdbscan>=0.8.29
 transformers>=4.21.0
+bertopic

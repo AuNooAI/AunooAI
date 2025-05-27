@@ -1,0 +1,350 @@
+/* Floating Chat CSS */
+.floating-chat-button {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 60px;
+    height: 60px;
+    background: linear-gradient(135deg, #FF69B4, #FF1493);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(255, 105, 180, 0.4);
+    z-index: 1000;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.floating-chat-button.minimized {
+    width: 200px;
+    border-radius: 30px;
+    font-size: 14px;
+    padding: 0 20px;
+    justify-content: flex-start;
+    gap: 10px;
+}
+
+.floating-chat-button.minimized::after {
+    content: "Auspex Chat";
+    font-weight: 500;
+}
+
+.floating-chat-button.minimized i {
+    font-size: 18px;
+}
+
+.floating-chat-button:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 25px rgba(255, 105, 180, 0.6);
+}
+
+.floating-chat-button.pulse {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 4px 20px rgba(255, 105, 180, 0.4); }
+    50% { box-shadow: 0 4px 30px rgba(255, 105, 180, 0.8); }
+    100% { box-shadow: 0 4px 20px rgba(255, 105, 180, 0.4); }
+}
+
+.chat-modal .modal-dialog {
+    max-width: 90vw;
+    width: 800px;
+    height: 80vh;
+    margin: 5vh auto;
+}
+
+.chat-modal .modal-content {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.chat-modal .modal-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+}
+
+.floating-chat-header {
+    padding: 15px 20px;
+    background: linear-gradient(135deg, #FF69B4, #FF1493);
+    color: white;
+    border-radius: 0;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+.floating-chat-header h5,
+.floating-chat-header small {
+    color: white !important;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.floating-chat-header select {
+    background: rgba(255, 255, 255, 0.95) !important;
+    border: 1px solid rgba(255, 255, 255, 0.3) !important;
+    color: #333 !important;
+    font-size: 0.875rem;
+}
+
+.floating-chat-header select:focus {
+    background: white !important;
+    border-color: rgba(255, 255, 255, 0.8) !important;
+    box-shadow: 0 0 0 0.2rem rgba(255, 255, 255, 0.25) !important;
+}
+
+.floating-chat-header select option {
+    background: white !important;
+    color: #333 !important;
+}
+
+.floating-chat-controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.floating-chat-icon-btn {
+    background: rgba(255, 255, 255, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.75rem;
+}
+
+.floating-chat-icon-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: translateY(-1px);
+}
+
+.floating-message-copy {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    background: rgba(255, 255, 255, 0.9);
+    border: none;
+    border-radius: 4px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: #666;
+}
+
+.floating-message:hover .floating-message-copy {
+    opacity: 1;
+}
+
+.floating-message-copy:hover {
+    background: #FF69B4;
+    color: white;
+}
+
+.floating-message {
+    margin-bottom: 15px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    position: relative;
+}
+
+.floating-quick-queries {
+    padding: 10px 20px;
+    background: #f8f9fa;
+    border-top: 1px solid #e9ecef;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.floating-quick-queries label {
+    font-size: 0.75rem;
+    color: #666;
+    margin-right: 8px;
+    font-weight: 500;
+}
+
+.floating-quick-btn {
+    background: white;
+    border: 1px solid #FF69B4;
+    color: #FF69B4;
+    padding: 4px 12px;
+    border-radius: 15px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: all 0.2s ease;
+}
+
+.floating-quick-btn:hover {
+    background: #FF69B4;
+    color: white;
+}
+
+.floating-quick-btn.custom {
+    background: #f8f9fa;
+    border-color: #6c757d;
+    color: #6c757d;
+    position: relative;
+}
+
+.floating-quick-btn.custom:hover {
+    background: #6c757d;
+    color: white;
+}
+
+.floating-quick-btn.custom .remove-custom {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: #dc3545;
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+    display: none;
+}
+
+.floating-quick-btn.custom:hover .remove-custom {
+    display: block;
+}
+
+.floating-chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: #f8f9fa;
+    scroll-behavior: smooth;
+}
+
+.floating-chat-input {
+    padding: 15px 20px;
+    background: white;
+    border-top: 1px solid #e9ecef;
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.floating-chat-input textarea {
+    flex: 1;
+    resize: none;
+    height: 50px;
+    border-radius: 25px;
+    padding: 12px 20px;
+    border: 1px solid #ddd;
+}
+
+.floating-chat-input button {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: #FF69B4;
+    border: none;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.floating-message.user {
+    flex-direction: row-reverse;
+}
+
+.floating-message-content {
+    max-width: 70%;
+    padding: 12px 16px;
+    border-radius: 18px;
+    word-wrap: break-word;
+}
+
+.floating-message.user .floating-message-content {
+    background: #FF69B4;
+    color: white;
+}
+
+.floating-message.assistant .floating-message-content {
+    background: white;
+    border: 1px solid #e9ecef;
+    color: #333;
+}
+
+.floating-message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+
+.floating-message.user .floating-message-avatar {
+    background: #FF1493;
+    color: white;
+}
+
+.floating-message.assistant .floating-message-avatar {
+    background: #f8f9fa;
+    color: #666;
+    border: 1px solid #e9ecef;
+}
+
+.floating-chat-loading {
+    text-align: center;
+    padding: 10px;
+    color: #666;
+}
+
+.floating-chat-loading i {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .chat-modal .modal-dialog {
+        width: 95vw;
+        height: 90vh;
+        margin: 5vh auto;
+    }
+    
+    .floating-chat-button {
+        width: 50px;
+        height: 50px;
+        font-size: 20px;
+        bottom: 15px;
+        right: 15px;
+    }
+
+    .floating-chat-button.minimized {
+        width: 160px;
+        font-size: 12px;
+        padding: 0 15px;
+    }
+} 

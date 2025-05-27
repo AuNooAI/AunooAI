@@ -1,0 +1,85 @@
+{% if session.get('user') %}
+<!-- Floating Chat Button -->
+<button class="floating-chat-button" id="floatingChatBtn" type="button" data-bs-toggle="modal" data-bs-target="#floatingChatModal">
+    <i class="fas fa-robot"></i>
+</button>
+
+<!-- Floating Chat Modal -->
+<div class="modal fade chat-modal" id="floatingChatModal" tabindex="-1" aria-labelledby="floatingChatModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header floating-chat-header">
+                <div style="flex: 1;">
+                    <h5 class="modal-title mb-1" id="floatingChatModalLabel">
+                        <i class="fas fa-robot me-2"></i>Auspex AI Assistant
+                    </h5>
+                    <small class="opacity-75">Your AI-powered research companion</small>
+                </div>
+                <div class="floating-chat-controls">
+                    <select id="floatingTopicSelect" class="form-select form-select-sm" style="width: 150px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Select research topic">
+                        <option value="">Select topic...</option>
+                    </select>
+                    <select id="floatingModelSelect" class="form-select form-select-sm" style="width: 120px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Choose AI model">
+                        <option value="">Select model...</option>
+                    </select>
+                    <select id="floatingLimitSelect" class="form-select form-select-sm" style="width: 80px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Number of articles to analyze (25-75)">
+                        <option value="25">25</option>
+                        <option value="35">35</option>
+                        <option value="50" selected>50</option>
+                        <option value="65">65</option>
+                        <option value="75">75</option>
+                        <option value="85">85</option>
+                        <option value="100">100</option>
+                    </select>
+                    <button class="floating-chat-icon-btn" id="clearChatBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Clear chat history">
+                        <i class="fas fa-trash-alt"></i>
+                    </button>
+                    <button class="floating-chat-icon-btn" id="exportChatBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Export conversation">
+                        <i class="fas fa-download"></i>
+                    </button>
+                    <button class="floating-chat-icon-btn" id="minimizeChatBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Minimize chat">
+                        <i class="fas fa-window-minimize"></i>
+                    </button>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="floating-chat-messages" id="floatingChatMessages">
+                    <div class="floating-message assistant">
+                        <div class="floating-message-avatar">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <div class="floating-message-content">
+                            <strong>Welcome to Auspex!</strong><br>
+                            I'm your AI research assistant. Select a topic and model above, then ask me anything about your data.
+                        </div>
+                    </div>
+                </div>
+                <div class="floating-quick-queries" id="floatingQuickQueries">
+                    <label>Quick queries:</label>
+                    <button class="floating-quick-btn" data-query="Summarize recent trends">Recent trends</button>
+                    <button class="floating-quick-btn" data-query="What are the key insights?">Key insights</button>
+                    <button class="floating-quick-btn" data-query="Analyze sentiment patterns">Sentiment analysis</button>
+                    <button class="floating-quick-btn" data-query="Show future impact predictions">Future impact</button>
+                    <button class="floating-quick-btn" data-query="Compare categories">Compare categories</button>
+                    <button class="floating-quick-btn" data-query="Analyze potential risks and challenges">Risk analysis</button>
+                    <button class="floating-quick-btn" data-query="Provide a comprehensive summary by category">Category summary</button>
+                    <div id="customQueries" style="display: contents;"></div>
+                </div>
+                <div class="floating-chat-input">
+                    <textarea id="floatingChatInput" class="form-control" placeholder="Ask Auspex anything..." disabled></textarea>
+                    <button id="floatingChatSave" class="btn" title="Save as quick query" disabled style="margin-right: 5px;">
+                        <i class="fas fa-bookmark"></i>
+                    </button>
+                    <button id="floatingChatSend" class="btn" disabled>
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+                <div class="floating-chat-loading" id="floatingChatLoading" style="display: none;">
+                    <i class="fas fa-spinner"></i> Auspex is thinking...
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %} 
