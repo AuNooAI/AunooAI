@@ -1019,6 +1019,12 @@
                 this.elements.sendBtn.disabled = true;
 
                 try {
+                    // Prepare conversation history for the API
+                    const conversationHistory = this.conversationHistory.map(msg => ({
+                        role: msg.isUser ? "user" : "assistant",
+                        content: msg.content
+                    }));
+
                     const response = await fetch('/api/chat', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -1026,7 +1032,8 @@
                             message: message,
                             topic: this.elements.topicSelect.value,
                             model: this.elements.modelSelect.value,
-                            limit: this.elements.limitSelect.value
+                            limit: this.elements.limitSelect.value,
+                            conversation_history: conversationHistory
                         })
                     });
 

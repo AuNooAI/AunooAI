@@ -9,6 +9,7 @@ import json
 from datetime import datetime, timedelta
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
+from typing import List, Dict
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
@@ -20,6 +21,7 @@ class ChatRequest(BaseModel):
     topic: str
     model: str
     limit: int = 50  # Default to 50 if not provided
+    conversation_history: List[Dict[str, str]] = []  # Add conversation history
 
 def extract_json_from_response(response: str) -> str:
     """Extract JSON object from LLM response, handling any extra text."""
@@ -155,12 +157,12 @@ IMPORTANT: You must follow these exact steps in order:
           ]
       }}
 
-Return your search strategy in this format:""" + r"""
-{
+Return your search strategy in this format:
+{{
     "queries": [
-        {
+        {{
             "description": "Brief description of what this query searches for",
-            "params": {
+            "params": {{
                 "category": ["Exact category names"] or null,
                 "keyword": "main search term OR alternative term OR another term",
                 "sentiment": "exact sentiment" or null,
@@ -168,10 +170,10 @@ Return your search strategy in this format:""" + r"""
                 "time_to_impact": "exact impact timing" or null,
                 "tags": ["relevant", "search", "terms"],
                 "date_range": "7/30/365" or null
-            }
-        }
+            }}
+        }}
     ]
-}"""},
+}}"""},
                 {"role": "user", "content": chat_request.message}
             ]
 
@@ -335,9 +337,19 @@ Provide insights about trends, patterns, and key findings across the articles.""
             for article in articles
         ])
 
+        # Build messages array with conversation history
         messages = [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": f"""
+            {"role": "system", "content": system_message}
+        ]
+        
+        # Add conversation history if available
+        if chat_request.conversation_history:
+            messages.extend(chat_request.conversation_history)
+        
+        # Add current message with context
+        messages.append({
+            "role": "user", 
+            "content": f"""
 {search_summary}
 
 Here are the {len(articles)} most relevant articles out of {total_count} total matches:
@@ -350,8 +362,8 @@ Please provide a comprehensive analysis of these {len(articles)} articles, notin
 Start your response with a summary of how many total articles were found and their general distribution across categories, sentiments, and future signals in this sample.
 
 Please provide a clear and concise answer based on the articles provided. 
-If the user asked for specific articles, summarize the search results first."""}
-        ]
+If the user asked for specific articles, summarize the search results first."""
+        })
 
         logger.debug(f"Sending {len(articles)} articles to LLM for analysis using {search_method}")
         response = ai_model.generate_response(messages)
