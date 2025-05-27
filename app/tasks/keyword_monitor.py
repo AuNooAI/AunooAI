@@ -57,7 +57,8 @@ class KeywordMonitor:
                             page_size INTEGER NOT NULL DEFAULT 10,
                             is_enabled BOOLEAN NOT NULL DEFAULT 1,
                             daily_request_limit INTEGER NOT NULL DEFAULT 100,
-                            search_date_range INTEGER NOT NULL DEFAULT 7
+                            search_date_range INTEGER NOT NULL DEFAULT 7,
+                            provider TEXT NOT NULL DEFAULT 'newsapi'
                         )
                     """)
                     # Insert default settings
@@ -82,6 +83,11 @@ class KeywordMonitor:
                             ALTER TABLE keyword_monitor_settings 
                             ADD COLUMN search_date_range INTEGER NOT NULL DEFAULT 7
                         """)
+                    if 'provider' not in columns:
+                        cursor.execute("""
+                            ALTER TABLE keyword_monitor_settings 
+                            ADD COLUMN provider TEXT NOT NULL DEFAULT 'newsapi'
+                        """)
                     conn.commit()
                 
                 # Load settings
@@ -95,7 +101,8 @@ class KeywordMonitor:
                         page_size,
                         is_enabled,
                         daily_request_limit,
-                        search_date_range
+                        search_date_range,
+                        provider
                     FROM keyword_monitor_settings 
                     WHERE id = 1
                 """)
@@ -110,6 +117,7 @@ class KeywordMonitor:
                     self.is_enabled = settings[6]
                     self.daily_request_limit = settings[7]
                     self.search_date_range = settings[8] or 7  # Default to 7 days if not set
+                    self.provider = settings[9] or 'newsapi'  # Default to newsapi if not set
                 else:
                     # Use defaults
                     self.check_interval = 900  # 15 minutes
@@ -120,6 +128,7 @@ class KeywordMonitor:
                     self.is_enabled = True
                     self.daily_request_limit = 100
                     self.search_date_range = 7  # Default to 7 days
+                    self.provider = 'newsapi'  # Default provider
                     
         except Exception as e:
             logger.error(f"Error loading settings: {str(e)}")
@@ -132,6 +141,7 @@ class KeywordMonitor:
             self.is_enabled = True
             self.daily_request_limit = 100
             self.search_date_range = 7  # Default to 7 days
+            self.provider = 'newsapi'  # Default provider
     
     def _init_tables(self):
         """Initialize required database tables"""
@@ -196,17 +206,28 @@ class KeywordMonitor:
             raise
     
     def _init_collector(self):
-        """Initialize the NewsAPI collector with database access"""
-        if not self.collector:
-            try:
-                self.collector = NewsAPICollector(self.db)
+        """Initialize the news collector based on settings"""
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT provider FROM keyword_monitor_settings WHERE id = 1
+                """)
+                row = cursor.fetchone()
+                provider = row[0] if row else 'newsapi'
+                
+                if provider == 'thenewsapi':
+                    from app.collectors.thenewsapi_collector import TheNewsAPICollector
+                    self.collector = TheNewsAPICollector()
+                else:
+                    from app.collectors.newsapi_collector import NewsAPICollector
+                    self.collector = NewsAPICollector(self.db)
+                
                 self.last_collector_init_attempt = datetime.now()
-                return True  # Return True on successful initialization
-            except Exception as e:
-                logger.error(f"Failed to initialize collector: {str(e)}")
-                self.last_collector_init_attempt = datetime.now()
-                return False  # Return False if initialization fails
-        return True  # Return True if collector already exists
+                return True
+        except Exception as e:
+            logger.error(f"Error initializing collector: {str(e)}")
+            return False
     
     def check_and_reset_counter(self):
         """Check if the API usage counter needs to be reset for a new day"""
@@ -317,12 +338,23 @@ class KeywordMonitor:
                             try:
                                 article_url = article['url'].strip()
                                 
+                                # Log article details for debugging
+                                logger.debug(
+                                    f"Processing article: url={article_url}, "
+                                    f"title={article.get('title', '')}, "
+                                    f"source={article.get('source', '')}, "
+                                    f"published={article.get('published_date', '')}"
+                                )
+                                
                                 # First check if article exists outside transaction
                                 cursor.execute(
                                     "SELECT uri FROM articles WHERE uri = ?",
                                     (article_url,)
                                 )
                                 article_exists = cursor.fetchone()
+                                
+                                if article_exists:
+                                    logger.debug(f"Article already exists: {article_url}")
                                 
                                 # Start transaction
                                 conn.execute("BEGIN IMMEDIATE")
@@ -341,11 +373,12 @@ class KeywordMonitor:
                                             article['title'],
                                             article['source'],
                                             article['published_date'],
-                                            article['summary'],
+                                            article.get('summary', ''),  # Use get() with default
                                             topic,
                                             False  # Explicitly mark as not analyzed
                                         ))
                                         inserted_new_article = True
+                                        logger.info(f"Inserted new article: {article_url}")
                                     
                                     # Create alert
                                     cursor.execute("""

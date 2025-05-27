@@ -42,6 +42,7 @@ class KeywordMonitorSettings(BaseModel):
     sort_by: str
     page_size: int
     daily_request_limit: int = 100
+    provider: str = "newsapi"
 
 class PollingToggle(BaseModel):
     enabled: bool
@@ -713,6 +714,7 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                     s.page_size,
                     s.daily_request_limit,
                     s.is_enabled,
+                    s.provider,
                     COALESCE(kms.requests_today, 0) as requests_today,
                     kms.last_error
                 FROM keyword_monitor_settings s
@@ -737,8 +739,9 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                     "page_size": settings[5],
                     "daily_request_limit": settings[6],
                     "is_enabled": settings[7],
-                    "requests_today": settings[8] if settings[8] is not None else 0,
-                    "last_error": settings[9],
+                    "provider": settings[8],
+                    "requests_today": settings[9] if settings[9] is not None else 0,
+                    "last_error": settings[10],
                     "total_keywords": total_keywords
                 }
                 logger.debug(f"Returning response data: {response_data}")
@@ -753,6 +756,7 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                     "page_size": 10,
                     "daily_request_limit": 100,
                     "is_enabled": True,
+                    "provider": "newsapi",
                     "requests_today": 0,
                     "last_error": None,
                     "total_keywords": total_keywords
@@ -779,7 +783,8 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
                     language TEXT NOT NULL,
                     sort_by TEXT NOT NULL,
                     page_size INTEGER NOT NULL,
-                    daily_request_limit INTEGER NOT NULL
+                    daily_request_limit INTEGER NOT NULL,
+                    provider TEXT NOT NULL DEFAULT 'newsapi'
                 )
             """)
             
@@ -787,9 +792,9 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
             cursor.execute("""
                 INSERT OR REPLACE INTO keyword_monitor_settings (
                     id, check_interval, interval_unit, search_fields,
-                    language, sort_by, page_size, daily_request_limit
+                    language, sort_by, page_size, daily_request_limit, provider
                 ) VALUES (
-                    1, ?, ?, ?, ?, ?, ?, ?
+                    1, ?, ?, ?, ?, ?, ?, ?, ?
                 )
             """, (
                 settings.check_interval,
@@ -798,7 +803,8 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
                 settings.language,
                 settings.sort_by,
                 settings.page_size,
-                settings.daily_request_limit
+                settings.daily_request_limit,
+                settings.provider
             ))
             
             conn.commit()

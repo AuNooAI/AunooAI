@@ -2,8 +2,9 @@ import os
 import logging
 import aiohttp
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, date
 from .base_collector import ArticleCollector
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,25 @@ class TheNewsAPICollector(ArticleCollector):
             logger.error("TheNewsAPI key not found in environment")
             raise ValueError("TheNewsAPI key not configured")
         self.base_url = "https://api.thenewsapi.com/v1/news"
+        self.requests_today = 0
+        self.last_request_date = date.today()
+        self.daily_limit = 100  # TheNewsAPI free tier limit
+
+    def _check_rate_limit(self) -> bool:
+        """Check if we've hit the daily rate limit."""
+        current_date = date.today()
+        
+        # Reset counter if it's a new day
+        if current_date > self.last_request_date:
+            self.requests_today = 0
+            self.last_request_date = current_date
+            
+        return self.requests_today < self.daily_limit
+
+    def _increment_request_count(self):
+        """Increment the request counter."""
+        self.requests_today += 1
+        logger.debug(f"TheNewsAPI requests today: {self.requests_today}")
 
     async def search_articles(
         self,
@@ -56,6 +76,10 @@ class TheNewsAPICollector(ArticleCollector):
             search_fields: List of fields to search in
             page: Page number for pagination
         """
+        if not self._check_rate_limit():
+            logger.warning("TheNewsAPI daily rate limit reached")
+            return []
+
         try:
             # Build parameters according to TheNewsAPI documentation
             params = {
@@ -99,6 +123,7 @@ class TheNewsAPICollector(ArticleCollector):
                         logger.error(f"TheNewsAPI error: {error_data}")
                         return []
                     
+                    self._increment_request_count()
                     data = await response.json()
                     articles = data.get("data", [])
                     logger.info(f"TheNewsAPI returned {len(articles)} articles")
@@ -110,15 +135,13 @@ class TheNewsAPICollector(ArticleCollector):
             return []
 
     async def fetch_article_content(self, url: str) -> Optional[Dict]:
-        """Fetch article content using TheNewsAPI /one endpoint."""
+        """Fetch full article content from TheNewsAPI."""
         try:
-            # Search for the specific article by URL
             params = {
-                "api_token": self.api_key,
-                "search": url,  # Search by exact URL
-                "language": "en"
+                'api_token': self.api_key,
+                'url': url
             }
-
+            
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{self.base_url}/all", params=params) as response:
                     if response.status != 200:
@@ -126,18 +149,27 @@ class TheNewsAPICollector(ArticleCollector):
                     
                     data = await response.json()
                     articles = data.get("data", [])
-                    
                     if not articles:
                         return None
-
-                    article = articles[0]  # Get the first matching article
+                    
+                    article = articles[0]
+                    
+                    # Extract source name using the same logic as _format_article
+                    source = article.get('source', {})
+                    source_name = source.get('name', '') if isinstance(source, dict) else str(source)
+                    
+                    # If source_name is empty, try to extract from URL
+                    if not source_name and article.get('url'):
+                        parsed_url = urlparse(article['url'])
+                        source_name = parsed_url.netloc.replace('www.', '')
+                    
                     return {
                         'title': article['title'],
                         'content': article.get('snippet', ''),
                         'authors': [],  # TheNewsAPI doesn't provide author info
                         'published_date': article['published_at'],
                         'url': article['url'],
-                        'source': 'thenewsapi',
+                        'source': source_name,
                         'raw_data': {
                             'source': article.get('source'),
                             'image_url': article.get('image_url'),
@@ -153,19 +185,38 @@ class TheNewsAPICollector(ArticleCollector):
 
     def _format_article(self, article: Dict, topic: str) -> Dict:
         """Format TheNewsAPI article data to standard format."""
+        # Try to extract the true media source name
+        source = article.get('source', {})
+        source_name = ''
+        
+        # Log the raw source data for debugging
+        logger.debug(f"Raw source data for article '{article.get('title', '')}': {source}")
+        
+        if isinstance(source, dict):
+            source_name = source.get('name', '').strip()
+        elif isinstance(source, str):
+            source_name = source.strip()
+
+        # Fallback: extract domain from URL if source_name is empty
+        if not source_name and article.get('url'):
+            from urllib.parse import urlparse
+            parsed_url = urlparse(article['url'])
+            source_name = parsed_url.netloc.replace('www.', '')
+            
+        # Log the extracted source name
+        logger.debug(f"Extracted source name for article '{article.get('title', '')}': {source_name}")
+
         return {
             'title': article['title'],
             'summary': article.get('description', '') or article.get('snippet', ''),
             'authors': [],  # TheNewsAPI doesn't provide author info
             'published_date': article['published_at'],
             'url': article['url'],
-            'source': 'thenewsapi',
+            'source': source_name,
             'topic': topic,
             'raw_data': {
-                'source': article.get('source'),
+                'source': source,
                 'image_url': article.get('image_url'),
                 'keywords': article.get('keywords', []),
-                'categories': article.get('categories', []),
-                'locale': article.get('locale')
             }
         } 
