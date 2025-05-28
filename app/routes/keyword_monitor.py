@@ -1279,11 +1279,23 @@ async def get_group_alerts(
     group_id: int,
     show_read: bool = False,
     skip_media_bias: bool = False,
+    page: int = 1,
+    page_size: int = 50,
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
 ):
-    """Get alerts for a specific keyword group."""
+    """Get alerts for a specific keyword group with pagination."""
     try:
+        # Validate pagination parameters
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 50
+        if page_size > 200:  # Maximum page size to prevent performance issues
+            page_size = 200
+            
+        offset = (page - 1) * page_size
+        
         # Initialize media bias for article enrichment only if not skipping
         media_bias = MediaBias(db) if not skip_media_bias else None
         
@@ -1297,7 +1309,7 @@ async def get_group_alerts(
             if use_new_table:
                 read_condition = "" if show_read else "AND ka.is_read = 0"
                 
-                # Using new structure (keyword_article_matches table)
+                # Using new structure (keyword_article_matches table) with pagination
                 cursor.execute(f"""
                     SELECT 
                         ka.id, 
@@ -1315,9 +1327,10 @@ async def get_group_alerts(
                     JOIN articles a ON ka.article_uri = a.uri
                     WHERE ka.group_id = ? {read_condition}
                     ORDER BY ka.detected_at DESC
-                """, (group_id,))
+                    LIMIT ? OFFSET ?
+                """, (group_id, page_size, offset))
             else:
-                # Fallback to old structure (keyword_alerts table)
+                # Fallback to old structure (keyword_alerts table) with pagination
                 read_condition = "" if show_read else "AND ka.is_read = 0"
                 cursor.execute(f"""
                     SELECT 
@@ -1337,7 +1350,8 @@ async def get_group_alerts(
                     JOIN monitored_keywords mk ON ka.keyword_id = mk.id
                     WHERE mk.group_id = ? {read_condition}
                     ORDER BY ka.detected_at DESC
-                """, (group_id,))
+                    LIMIT ? OFFSET ?
+                """, (group_id, page_size, offset))
             
             # Store the results before doing other queries
             alert_results = cursor.fetchall()
@@ -1504,6 +1518,11 @@ async def get_group_alerts(
             group_row = cursor.fetchone()
             group_name = group_row[0] if group_row else "Unknown Group"
             
+            # Calculate pagination info
+            total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+            has_next = page < total_pages
+            has_prev = page > 1
+            
             # Return the response data
             return {
                 "topic": topic,
@@ -1511,7 +1530,14 @@ async def get_group_alerts(
                 "group_name": group_name,
                 "alerts": alerts,
                 "unread_count": unread_count,
-                "total_count": total_count
+                "total_count": total_count,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_pages": total_pages,
+                    "has_next": has_next,
+                    "has_prev": has_prev
+                }
             }
             
     except Exception as e:
