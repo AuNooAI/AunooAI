@@ -58,7 +58,8 @@ def clean_outdated_model_env_vars():
         'PALM_API_KEY_': 'palm',
         'PERPLEXITY_API_KEY_': 'perplexity',
         'GROQ_API_KEY_': 'groq',
-        'XAI_API_KEY_': 'xai'
+        'XAI_API_KEY_': 'xai',
+        'AUNOOAI_API_KEY_': 'aunooai'  # Add support for AUNOOAI provider
     }
     
     removed_vars = []
@@ -520,7 +521,8 @@ def get_available_models():
         'PALM_API_KEY_': 'palm',
         'PERPLEXITY_API_KEY_': 'perplexity',
         'GROQ_API_KEY_': 'groq',
-        'XAI_API_KEY_': 'xai'
+        'XAI_API_KEY_': 'xai',
+        'AUNOOAI_API_KEY_': 'aunooai'  # Add support for AUNOOAI provider
     }
     
     print("\nChecking environment variables for API keys:")

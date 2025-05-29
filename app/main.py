@@ -24,7 +24,7 @@ import asyncio
 import markdown
 import json
 import importlib
-from app.ai_models import get_ai_model, get_available_models as ai_get_available_models
+from app.ai_models import get_ai_model, get_available_models, ai_get_available_models
 from app.bulk_research import BulkResearch
 from app.config.config import load_config, get_topic_config, get_news_query, set_news_query, get_paper_query, set_paper_query, load_news_monitoring, save_news_monitoring
 import os
@@ -530,10 +530,11 @@ async def report_route(request: Request, session=Depends(verify_session)):
 async def config_page(request: Request, session=Depends(verify_session)):
     """Display configuration page"""
     try:
-        models = load_ai_models_config()
+        config = load_config()
+        models = config.get("ai_models", [])
         
         # Get currently configured providers
-        providers = get_providers()
+        providers = await get_providers()
         
         # Check if Bluesky is configured
         bluesky_configured = (
@@ -1224,7 +1225,7 @@ async def get_topics(session=Depends(verify_session)):
 
 @app.get("/api/ai_models")
 def get_ai_models():
-    return ai_get_available_models()  # Use the function from ai_models.py
+    return get_available_models()  # Return models with configured API keys
 
 @app.get("/api/ai_models_config")
 async def get_ai_models_config():
@@ -1235,8 +1236,8 @@ async def get_ai_models_config():
     return {"ai_models": models}
 
 @app.get("/api/available_models")
-def get_available_models():
-    return ai_get_available_models()  # Use the function from ai_models.py
+def get_available_models_endpoint():
+    return get_available_models()  # Return models with configured API keys
 
 @app.get("/api/debug_ai_config")
 async def debug_ai_config():
@@ -2662,10 +2663,10 @@ async def remove_thenewsapi_config():
 
 # Add this with the other endpoints
 @app.get("/api/models")
-async def get_available_models(session=Depends(verify_session)):
+async def get_models_endpoint(session=Depends(verify_session)):
     """Get list of available AI models."""
     try:
-        models = ai_get_available_models()
+        models = get_available_models()  # Return configured models with API keys
         return JSONResponse(content=models)
     except Exception as e:
         logger.error(f"Error getting available models: {str(e)}")
