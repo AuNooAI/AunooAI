@@ -3,30 +3,40 @@ model_list:
   - model_name: mixtral
     litellm_params:
       model: aunooai/mixtral
-      api_base: "http://5.9.100.178:4000"
+      api_base: "http://localhost:4000"
       api_key: "os.environ/AUNOOAI_API_KEY_MIXTRAL"
       custom_llm_provider: "openai"
 
   - model_name: mixtral-instruct
     litellm_params:
       model: aunooai/mixtral-instruct
-      api_base: "http://5.9.100.178:4000"
+      api_base: "http://localhost:4000"
       api_key: "os.environ/AUNOOAI_API_KEY_MIXTRAL_INSTRUCT"
       custom_llm_provider: "openai"
 
+  - model_name: qwen3-14b
+    litellm_params:
+      model: qwen2.5-coder:32b
+      api_base: "http://localhost:11434"
+      custom_llm_provider: "ollama"
+
   - model_name: qwen3:14b
     litellm_params:
-      model: aunooai/qwen3
-      api_base: "http://5.9.100.178:4000"
-      api_key: "os.environ/AUNOOAI_API_KEY_QWEN3"
-      custom_llm_provider: "openai"
+      model: qwen2.5-coder:32b
+      api_base: "http://localhost:11434"
+      custom_llm_provider: "ollama"
 
+  - model_name: gemma3-27b
+    litellm_params:
+      model: gemma3:27b
+      api_base: "http://localhost:11434"
+      custom_llm_provider: "ollama"
+      
   - model_name: gemma3:27b
     litellm_params:
-      model: aunooai/gemma3
-      api_base: "http://5.9.100.178:4000"
-      api_key: "os.environ/AUNOOAI_API_KEY_GEMMA3"
-      custom_llm_provider: "openai"
+      model: gemma3:27b
+      api_base: "http://localhost:11434"
+      custom_llm_provider: "ollama"
 
   #  - model_name: nomic-embed-text
   #    litellm_params:
@@ -93,6 +103,25 @@ model_list:
       model: google/gemini-pro
       api_key: "os.environ/GEMINI_API_KEY_GEMINI_PRO"
 
+  # Additional Ollama models
+  - model_name: phi4-reasoning
+    litellm_params:
+      model: phi4-reasoning:14b
+      api_base: "http://localhost:11434"
+      custom_llm_provider: "ollama"
+
+  - model_name: llama3.1
+    litellm_params:
+      model: llama3.1:8b
+      api_base: "http://localhost:11434"
+      custom_llm_provider: "ollama"
+
+  - model_name: mistral-small3.1
+    litellm_params:
+      model: mistral-small3.1:24b
+      api_base: "http://localhost:11434"
+      custom_llm_provider: "ollama"
+
 fallbacks:
   - gpt-3.5-turbo:
       - gpt-4o
@@ -106,6 +135,27 @@ fallbacks:
   - claude-3-5-sonnet-latest:
       - gpt-4o
       - gpt-3.5-turbo
+  - qwen3-14b:
+      - gpt-4o-mini
+      - claude-3-5-sonnet-latest
+  - gemma3-27b:
+      - gpt-4o-mini
+      - claude-3-5-sonnet-latest
+  - qwen3:14b:
+      - gpt-4o-mini
+      - claude-3-5-sonnet-latest
+  - gemma3:27b:
+      - gpt-4o-mini
+      - claude-3-5-sonnet-latest
+  - phi4-reasoning:
+      - gemma3:27b
+      - mistral-small3.1
+  - llama3.1:
+      - mistral-small3.1
+      - phi4-reasoning
+  - mistral-small3.1:
+      - phi4-reasoning
+      - gemma3:27b
 
 routing_strategy: least-busy
 
