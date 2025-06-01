@@ -91,35 +91,41 @@ def get_version() -> Optional[str]:
         if os.path.exists(version_path):
             logger.debug(f"Version file found at: {version_path}")
             # Try different encodings to handle potential encoding issues
-            encodings = ['utf-8', 'utf-16', 'ascii']
+            # Put UTF-16 first since that's what the file actually is
+            encodings = ['utf-16', 'utf-8', 'ascii', 'utf-16-le', 'utf-16-be']
+            last_error = None
             for encoding in encodings:
                 try:
                     with open(version_path, 'r', encoding=encoding) as f:
                         version = f.read().strip()
                         logger.debug(f"Read version using {encoding} encoding: {version}")
                         return version
-                except UnicodeDecodeError:
-                    logger.warning(f"Failed to read version file with {encoding} encoding")
+                except UnicodeDecodeError as e:
+                    last_error = e
+                    logger.debug(f"Failed to read version file with {encoding} encoding: {e}")
                     continue
-            logger.warning("Failed to read version file with any encoding")
+            logger.warning(f"Failed to read version file with any encoding. Last error: {last_error}")
         else:
-            logger.warning(f"Version file not found at: {version_path}")
+            logger.debug(f"Version file not found at: {version_path}")
             # Try alternate location
             alt_version_path = os.path.join(current_dir, '..', '..', 'app', 'version.txt')
             logger.debug(f"Trying alternate path: {alt_version_path}")
             if os.path.exists(alt_version_path):
                 logger.debug(f"Version file found at alternate path: {alt_version_path}")
                 # Try different encodings for alternate path too
+                encodings = ['utf-16', 'utf-8', 'ascii', 'utf-16-le', 'utf-16-be']
+                last_error = None
                 for encoding in encodings:
                     try:
                         with open(alt_version_path, 'r', encoding=encoding) as f:
                             version = f.read().strip()
                             logger.debug(f"Read version using {encoding} encoding: {version}")
                             return version
-                    except UnicodeDecodeError:
-                        logger.warning(f"Failed to read version file with {encoding} encoding")
+                    except UnicodeDecodeError as e:
+                        last_error = e
+                        logger.debug(f"Failed to read version file with {encoding} encoding: {e}")
                         continue
-                logger.warning("Failed to read version file with any encoding")
+                logger.warning(f"Failed to read version file with any encoding. Last error: {last_error}")
             
     except Exception as e:
         logger.error(f"Error reading version: {str(e)}")
