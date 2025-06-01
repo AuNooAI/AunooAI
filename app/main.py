@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 import asyncio
 import markdown
 import json
+import yaml
 import importlib
 from app.ai_models import get_ai_model, get_available_models, ai_get_available_models
 from app.bulk_research import BulkResearch
@@ -560,31 +561,43 @@ async def add_model(model_data: AddModelRequest):
     """Add a new model configuration by setting the appropriate environment variable."""
     try:
         logger.info(f"Adding model {model_data.model_name} for provider {model_data.provider}")
-        # Get the environment variable name based on the model and provider
         
-        # The format we'll use for environment variables is:
-        # PROVIDER_API_KEY_MODEL_NAME
-        # E.g., OPENAI_API_KEY_GPT_4, ANTHROPIC_API_KEY_CLAUDE_3_OPUS
+        # Load the LiteLLM config to find the correct environment variable name
+        config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
         
-        provider = model_data.provider.upper()
-        model_name = model_data.model_name
+        try:
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+        except Exception as e:
+            logger.error(f"Failed to load LiteLLM config: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to load model configuration")
         
-        # Normalize model name for the environment variable:
-        # - Convert hyphens to underscores
-        # - Usually all uppercase, but preserve dots if present
-        normalized_model = model_name.replace('-', '_').upper()
+        # Find the model in the config to get the correct environment variable name
+        env_var_name = None
+        model_found = False
         
-        # For models with dots like GPT-3.5-TURBO or CLAUDE-3.5-SONNET
-        # Properly handle the dots in the environment variable name
-        if '.' in model_name:
-            env_var_name = f"{provider}_API_KEY_{normalized_model}"
-        else:
-            env_var_name = f"{provider}_API_KEY_{normalized_model}"
+        for model_entry in config.get("model_list", []):
+            if model_entry.get("model_name") == model_data.model_name:
+                model_found = True
+                # Get the expected environment variable name from the config
+                api_key_ref = model_entry.get("litellm_params", {}).get("api_key", "")
+                if api_key_ref.startswith("os.environ/"):
+                    env_var_name = api_key_ref.split("/")[-1]
+                    logger.info(f"Found model {model_data.model_name} in config, expected env var: {env_var_name}")
+                    break
+                else:
+                    logger.warning(f"Model {model_data.model_name} doesn't use environment variable for API key")
+                    raise HTTPException(status_code=400, detail="Model doesn't require environment variable configuration")
         
-        # Support common format conversions used in the codebase
-        common_formats = [env_var_name]
+        if not model_found:
+            logger.error(f"Model {model_data.model_name} not found in LiteLLM config")
+            raise HTTPException(status_code=400, detail=f"Model {model_data.model_name} is not configured in the system")
         
-        # Save environment variable(s)
+        if not env_var_name:
+            logger.error(f"Could not determine environment variable name for {model_data.model_name}")
+            raise HTTPException(status_code=500, detail="Could not determine environment variable name")
+        
+        # Save environment variable
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
         logger.info(f"Saving to .env file at: {env_path}")
         
@@ -623,10 +636,10 @@ async def add_model(model_data: AddModelRequest):
         masked_key = model_data.api_key[:4] + "..." + model_data.api_key[-4:] if len(model_data.api_key) > 8 else "***"
         logger.info(f"Added model {model_data.model_name} with environment variable {env_var_name}={masked_key}")
         
-        # This updated model will show in the list of available models in AI Models service
-        
         return JSONResponse(content={"message": f"Model {model_data.model_name} added successfully"})
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions as-is
     except Exception as e:
         logger.error(f"Error adding model: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
