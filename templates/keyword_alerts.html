@@ -6,6 +6,8 @@
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <!-- Media bias component code directly included -->
 <script>
+console.log('Keyword alerts page loaded');
+
 // Helper functions for bias and factual class mapping
 function getBiasClass(bias) {
     if (!bias) return '';
@@ -542,6 +544,28 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
         padding-right: 10px;
     }
     
+    /* Relevance filters responsive */
+    .relevance-filters {
+        padding: 0.5rem;
+    }
+    
+    .slider-container {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+    
+    .slider-wrapper label {
+        font-size: 0.8rem;
+    }
+    
+    .relevance-value {
+        font-size: 0.7rem;
+    }
+    
+    .slider-labels {
+        font-size: 0.6rem;
+    }
+    
     /* Header adjustments */
     .d-flex.justify-content-between {
         flex-direction: column;
@@ -796,6 +820,131 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     font-weight: 500;
     min-width: 30px;
 }
+
+/* Relevance slider styling */
+.relevance-filters {
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.slider-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.slider-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.slider-wrapper label {
+    text-align: center;
+    margin-bottom: 0;
+    font-weight: 500;
+    font-size: 0.875rem;
+}
+
+.relevance-slider {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(to right, #dc3545 0%, #ffc107 33%, #28a745 66%, #007bff 100%);
+    outline: none;
+    opacity: 0.8;
+    transition: opacity 0.3s;
+}
+
+.relevance-slider:hover {
+    opacity: 1;
+}
+
+.relevance-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #007bff;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.relevance-slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #007bff;
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.slider-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.65rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
+}
+
+.relevance-value {
+    text-align: center;
+    font-weight: 600;
+    color: #007bff;
+    font-size: 0.75rem;
+    margin: 0.25rem 0;
+}
+
+/* Sortable table headers */
+.sortable-header {
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+    padding-right: 1.5rem !important;
+}
+
+.sortable-header:hover {
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+.sort-icon {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0.5;
+    transition: opacity 0.2s;
+}
+
+.sortable-header:hover .sort-icon {
+    opacity: 1;
+}
+
+.sort-icon.active {
+    opacity: 1;
+    color: var(--primary-color);
+}
+
+.filtered-out {
+    display: none !important;
+}
+
+/* Filter summary styling */
+.filter-summary {
+    font-size: 0.875rem;
+    color: #6c757d;
+    margin-top: 0.5rem;
+}
+
+.filter-summary .badge {
+    font-size: 0.75rem;
+}
 </style>
 {% endblock %}
 
@@ -899,17 +1048,17 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                     </thead>
                     <tbody>
                         {% for group in groups %}
-                        <tr data-topic="{{ group.topic }}" data-total-count="{{ group.total_count }}">
+                        <tr data-topic="{{ group.topic|default('') }}" data-total-count="{{ group.total_count|default(0) }}">
                             <td>
-                                <span class="badge bg-{{ status_colors[group.growth_status] }}">
-                                    {{ group.growth_status }}
+                                <span class="badge bg-{{ status_colors[group.growth_status]|default('secondary') }}">
+                                    {{ group.growth_status|default('No Data') }}
                                 </span>
                             </td>
                             <td>
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
-                                        <strong>{{ group.name }}</strong>
-                                        <p class="text-muted small mb-0">{{ group.topic }}</p>
+                                        <strong>{{ group.name|default('Unknown Group') }}</strong>
+                                        <p class="text-muted small mb-0">{{ group.topic|default('No Topic') }}</p>
                                     </div>
                                 </div>
                             </td>
@@ -1027,7 +1176,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                            data-topic="{{ group.topic }}"
                                            data-group-id="{{ group.id }}">
                                     <label class="form-check-label" for="showReadToggle_{{ group.id }}">
-                                        Show read articles (<span class="total-count">{{ group.total_count }}</span> total)
+                                        Show read articles (<span class="total-count">{{ group.total_count|default(0) }}</span> total)
                                     </label>
                                 </div>
                             </div>
@@ -1058,7 +1207,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                         title="Export alerts for this group">
                                     <i class="fas fa-download"></i> Export
                                 </button>
-                                <span class="badge bg-primary">{{ group.unread_count }} alerts</span>
+                                <span class="badge bg-primary">{{ group.unread_count|default(0) }} alerts</span>
                                 {% set enriched_count = group.alerts|selectattr('article.category')|list|length + group.alerts|selectattr('article.analysis_complete')|list|length %}
                                 {% if enriched_count > 0 %}
                                 <span class="badge bg-success ms-1" title="{{ enriched_count }} articles have been analyzed">
@@ -1070,6 +1219,66 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                     </div>
                     
                     {% if group.alerts %}
+                    <div class="relevance-filters">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="mb-0">
+                                <i class="fas fa-filter me-1"></i>Relevance Filters
+                            </h6>
+                            <button class="btn btn-sm btn-outline-secondary" 
+                                    onclick="resetFilters('{{ group.id }}')"
+                                    title="Reset all filters">
+                                <i class="fas fa-undo"></i> Reset
+                            </button>
+                        </div>
+                        <div class="slider-container">
+                            <div class="slider-wrapper">
+                                <label for="topicSlider_{{ group.id }}">Topic Relevance</label>
+                                <input type="range" class="relevance-slider" 
+                                       id="topicSlider_{{ group.id }}" 
+                                       min="0" max="1" step="0.01" value="0"
+                                       data-group-id="{{ group.id }}"
+                                       data-filter-type="topic"
+                                       onchange="applyRelevanceFilter('{{ group.id }}')">
+                                <span class="relevance-value" id="topicValue_{{ group.id }}">All</span>
+                                <div class="slider-labels">
+                                    <span>None</span>
+                                    <span>High</span>
+                                </div>
+                            </div>
+                            <div class="slider-wrapper">
+                                <label for="keywordSlider_{{ group.id }}">Keyword Relevance</label>
+                                <input type="range" class="relevance-slider" 
+                                       id="keywordSlider_{{ group.id }}" 
+                                       min="0" max="1" step="0.01" value="0"
+                                       data-group-id="{{ group.id }}"
+                                       data-filter-type="keyword"
+                                       onchange="applyRelevanceFilter('{{ group.id }}')">
+                                <span class="relevance-value" id="keywordValue_{{ group.id }}">All</span>
+                                <div class="slider-labels">
+                                    <span>None</span>
+                                    <span>High</span>
+                                </div>
+                            </div>
+                            <div class="slider-wrapper">
+                                <label for="confidenceSlider_{{ group.id }}">Confidence Score</label>
+                                <input type="range" class="relevance-slider" 
+                                       id="confidenceSlider_{{ group.id }}" 
+                                       min="0" max="1" step="0.01" value="0"
+                                       data-group-id="{{ group.id }}"
+                                       data-filter-type="confidence"
+                                       onchange="applyRelevanceFilter('{{ group.id }}')">
+                                <span class="relevance-value" id="confidenceValue_{{ group.id }}">All</span>
+                                <div class="slider-labels">
+                                    <span>Low</span>
+                                    <span>High</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="filter-summary" id="filterSummary_{{ group.id }}">
+                            <span class="badge bg-info">Showing all {{ group.alerts|length }} articles</span>
+                        </div>
+                    </div>
+                    
                     <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
                         <!-- Bulk actions bar -->
                         <div class="bulk-actions" id="bulkActions_{{ group.id }}" style="display: none;">
@@ -1099,19 +1308,29 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                             </div>
                         </div>
                         
-                        <table class="table table-hover align-middle mb-0">
+                        <table class="table table-hover align-middle mb-0" id="articlesTable_{{ group.id }}">
                             <thead style="position: sticky; top: 0; background: white; z-index: 10;">
                                 <tr>
                                     <th style="width: 50px; min-width: 50px;">
                                         <input type="checkbox" class="select-all-checkbox" 
                                                onchange="toggleSelectAll(this, '{{ group.id }}')">
                                     </th>
-                                    <th style="width: 80px; min-width: 60px;">Status</th>
-                                    <th style="width: 30%; min-width: 280px;">Article</th>
-                                    <th style="width: 15%; min-width: 120px;">Source</th>
-                                    <th style="width: 12%; min-width: 100px;">Detected</th>
+                                    <th style="width: 80px; min-width: 60px;" class="sortable-header" data-sort="status" data-group-id="{{ group.id }}">
+                                        Status <i class="fas fa-sort sort-icon"></i>
+                                    </th>
+                                    <th style="width: 30%; min-width: 280px;" class="sortable-header" data-sort="title" data-group-id="{{ group.id }}">
+                                        Article <i class="fas fa-sort sort-icon"></i>
+                                    </th>
+                                    <th style="width: 15%; min-width: 120px;" class="sortable-header" data-sort="source" data-group-id="{{ group.id }}">
+                                        Source <i class="fas fa-sort sort-icon"></i>
+                                    </th>
+                                    <th style="width: 12%; min-width: 100px;" class="sortable-header" data-sort="detected" data-group-id="{{ group.id }}">
+                                        Detected <i class="fas fa-sort sort-icon"></i>
+                                    </th>
                                     <th style="width: 13%; min-width: 100px;">Tags</th>
-                                    <th style="width: 12%; min-width: 100px;">Relevance</th>
+                                    <th style="width: 12%; min-width: 100px;" class="sortable-header" data-sort="relevance" data-group-id="{{ group.id }}">
+                                        Relevance <i class="fas fa-sort sort-icon"></i>
+                                    </th>
                                     <th style="width: 25%; min-width: 200px;">Actions</th>
                                 </tr>
                             </thead>
@@ -2050,6 +2269,16 @@ document.addEventListener('DOMContentLoaded', function() {
     // Check for missing relevance data and refresh if needed
     checkAndRefreshRelevanceData();
     
+    // Initialize table sorting
+    initializeTableSorting();
+    
+    // Initialize relevance filters
+    document.querySelectorAll('.relevance-slider').forEach(slider => {
+        const groupId = slider.dataset.groupId;
+        // Set initial display
+        applyRelevanceFilter(groupId);
+    });
+    
     // Then set up a MutationObserver to detect when new articles are added
     const articleContainers = document.querySelectorAll('.card-body table tbody');
     if (articleContainers.length > 0) {
@@ -2058,6 +2287,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const observer = new MutationObserver(function(mutations) {
             console.log('Detected DOM changes, enhancing media bias');
             enhanceAllArticlesWithMediaBias();
+            // Re-initialize sorting for new tables
+            initializeTableSorting();
         });
         
         // Observe each article container for child additions/removals
@@ -3004,10 +3235,9 @@ function updateGroupAlerts(card, data, groupId) {
             // If we're in a nested card structure, we might need to replace the entire nested card
             const nestedCard = alertDiv.closest('.card.mb-4');
             if (nestedCard && nestedCard !== card) {
-                // We're in a nested card, replace its content with table-responsive structure
+                // We're in a nested card, replace its content with simple table structure
                 nestedCard.innerHTML = `
                     <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                        <!-- Bulk actions bar -->
                         <div class="bulk-actions" id="bulkActions_${groupId}" style="display: none;">
                             <div class="d-flex align-items-center gap-3">
                                 <label class="form-check-label">
@@ -3018,10 +3248,6 @@ function updateGroupAlerts(card, data, groupId) {
                                 <button class="btn btn-sm btn-outline-primary" 
                                         onclick="analyzeSelectedArticles('${data.topic}', '${groupId}')">
                                     <i class="fas fa-microscope"></i> Analyze Selected
-                                </button>
-                                <button class="btn btn-sm btn-outline-info" 
-                                        onclick="analyzeRelevanceSelected('${data.topic}', '${groupId}')">
-                                    <i class="fas fa-brain"></i> Analyze Relevance
                                 </button>
                                 <button class="btn btn-sm btn-outline-success" 
                                         onclick="bulkMarkAsRead('${groupId}')">
@@ -3035,19 +3261,29 @@ function updateGroupAlerts(card, data, groupId) {
                             </div>
                         </div>
                         
-                        <table class="table table-hover align-middle mb-0">
+                        <table class="table table-hover align-middle mb-0" id="articlesTable_${groupId}">
                             <thead style="position: sticky; top: 0; background: white; z-index: 10;">
                                 <tr>
                                     <th style="width: 50px; min-width: 50px;">
                                         <input type="checkbox" class="select-all-checkbox" 
                                                onchange="toggleSelectAll(this, '${groupId}')">
                                     </th>
-                                    <th style="width: 80px; min-width: 60px;">Status</th>
-                                    <th style="width: 30%; min-width: 280px;">Article</th>
-                                    <th style="width: 15%; min-width: 120px;">Source</th>
-                                    <th style="width: 12%; min-width: 100px;">Detected</th>
+                                    <th style="width: 80px; min-width: 60px;" class="sortable-header" data-sort="status" data-group-id="${groupId}">
+                                        Status <i class="fas fa-sort sort-icon"></i>
+                                    </th>
+                                    <th style="width: 30%; min-width: 280px;" class="sortable-header" data-sort="title" data-group-id="${groupId}">
+                                        Article <i class="fas fa-sort sort-icon"></i>
+                                    </th>
+                                    <th style="width: 15%; min-width: 120px;" class="sortable-header" data-sort="source" data-group-id="${groupId}">
+                                        Source <i class="fas fa-sort sort-icon"></i>
+                                    </th>
+                                    <th style="width: 12%; min-width: 100px;" class="sortable-header" data-sort="detected" data-group-id="${groupId}">
+                                        Detected <i class="fas fa-sort sort-icon"></i>
+                                    </th>
                                     <th style="width: 13%; min-width: 100px;">Tags</th>
-                                    <th style="width: 12%; min-width: 100px;">Relevance</th>
+                                    <th style="width: 12%; min-width: 100px;" class="sortable-header" data-sort="relevance" data-group-id="${groupId}">
+                                        Relevance <i class="fas fa-sort sort-icon"></i>
+                                    </th>
                                     <th style="width: 25%; min-width: 200px;">Actions</th>
                                 </tr>
                             </thead>
@@ -3061,10 +3297,9 @@ function updateGroupAlerts(card, data, groupId) {
                 tableBody = nestedCard.querySelector('tbody');
                 contentArea = nestedCard;
             } else if (contentArea) {
-                // Replace content in the card body
+                // Replace content in the card body with simple table structure
                 contentArea.innerHTML = `
                     <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                        <!-- Bulk actions bar -->
                         <div class="bulk-actions" id="bulkActions_${groupId}" style="display: none;">
                             <div class="d-flex align-items-center gap-3">
                                 <label class="form-check-label">
@@ -3088,19 +3323,29 @@ function updateGroupAlerts(card, data, groupId) {
                             </div>
                         </div>
                         
-                        <table class="table table-hover align-middle mb-0">
+                        <table class="table table-hover align-middle mb-0" id="articlesTable_${groupId}">
                             <thead style="position: sticky; top: 0; background: white; z-index: 10;">
                                 <tr>
                                     <th style="width: 50px; min-width: 50px;">
                                         <input type="checkbox" class="select-all-checkbox" 
                                                onchange="toggleSelectAll(this, '${groupId}')">
                                     </th>
-                                    <th style="width: 80px; min-width: 60px;">Status</th>
-                                    <th style="width: 30%; min-width: 280px;">Article</th>
-                                    <th style="width: 15%; min-width: 120px;">Source</th>
-                                    <th style="width: 12%; min-width: 100px;">Detected</th>
+                                    <th style="width: 80px; min-width: 60px;" class="sortable-header" data-sort="status" data-group-id="${groupId}">
+                                        Status <i class="fas fa-sort sort-icon"></i>
+                                    </th>
+                                    <th style="width: 30%; min-width: 280px;" class="sortable-header" data-sort="title" data-group-id="${groupId}">
+                                        Article <i class="fas fa-sort sort-icon"></i>
+                                    </th>
+                                    <th style="width: 15%; min-width: 120px;" class="sortable-header" data-sort="source" data-group-id="${groupId}">
+                                        Source <i class="fas fa-sort sort-icon"></i>
+                                    </th>
+                                    <th style="width: 12%; min-width: 100px;" class="sortable-header" data-sort="detected" data-group-id="${groupId}">
+                                        Detected <i class="fas fa-sort sort-icon"></i>
+                                    </th>
                                     <th style="width: 13%; min-width: 100px;">Tags</th>
-                                    <th style="width: 12%; min-width: 100px;">Relevance</th>
+                                    <th style="width: 12%; min-width: 100px;" class="sortable-header" data-sort="relevance" data-group-id="${groupId}">
+                                        Relevance <i class="fas fa-sort sort-icon"></i>
+                                    </th>
                                     <th style="width: 25%; min-width: 200px;">Actions</th>
                                 </tr>
                             </thead>
@@ -3762,5 +4007,253 @@ document.addEventListener('DOMContentLoaded', function() {
     // Enhanced tooltip system for better multi-screen support
     // initializeTooltips();  // Commented out - using native tooltips
 });
+
+// Add custom date formatting
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+}
+
+// Relevance filtering functions
+function getRelevanceLabel(value) {
+    if (value <= 0.01) return 'All';
+    if (value <= 0.25) return 'No relevance';
+    if (value <= 0.5) return 'Adjacent';
+    if (value <= 0.75) return 'Somewhat related';
+    return 'Strongly related';
+}
+
+function getRelevanceColor(value) {
+    if (value <= 0.25) return '#dc3545'; // Red
+    if (value <= 0.5) return '#ffc107';  // Yellow
+    if (value <= 0.75) return '#28a745'; // Green
+    return '#007bff'; // Blue
+}
+
+function applyRelevanceFilter(groupId) {
+    const topicSlider = document.getElementById(`topicSlider_${groupId}`);
+    const keywordSlider = document.getElementById(`keywordSlider_${groupId}`);
+    const confidenceSlider = document.getElementById(`confidenceSlider_${groupId}`);
+    const topicValue = document.getElementById(`topicValue_${groupId}`);
+    const keywordValue = document.getElementById(`keywordValue_${groupId}`);
+    const confidenceValue = document.getElementById(`confidenceValue_${groupId}`);
+    const filterSummary = document.getElementById(`filterSummary_${groupId}`);
+    
+    const topicThreshold = parseFloat(topicSlider.value);
+    const keywordThreshold = parseFloat(keywordSlider.value);
+    const confidenceThreshold = parseFloat(confidenceSlider.value);
+    
+    // Update value displays
+    topicValue.textContent = getRelevanceLabel(topicThreshold);
+    topicValue.style.color = getRelevanceColor(topicThreshold);
+    keywordValue.textContent = getRelevanceLabel(keywordThreshold);
+    keywordValue.style.color = getRelevanceColor(keywordThreshold);
+    confidenceValue.textContent = getRelevanceLabel(confidenceThreshold);
+    confidenceValue.style.color = getRelevanceColor(confidenceThreshold);
+    
+    // Get all rows in this group's table
+    const table = document.getElementById(`articlesTable_${groupId}`);
+    if (!table) return;
+    
+    const rows = table.querySelectorAll('tbody tr[data-alert-id]');
+    let visibleCount = 0;
+    let totalCount = rows.length;
+    
+    rows.forEach(row => {
+        const relevanceColumn = row.querySelector('.relevance-column');
+        let showRow = true;
+        
+        if (relevanceColumn) {
+            const scoreItems = relevanceColumn.querySelectorAll('.score-item span');
+            
+            if (scoreItems.length >= 2) {
+                const topicScore = parseFloat(scoreItems[0].textContent) || 0;
+                const keywordScore = parseFloat(scoreItems[1].textContent) || 0;
+                const confidenceScore = scoreItems.length >= 3 ? parseFloat(scoreItems[2].textContent) || 0 : 0;
+                
+                // Apply filters (articles must meet ALL active criteria)
+                if (topicThreshold > 0.01 && topicScore < topicThreshold) {
+                    showRow = false;
+                }
+                if (keywordThreshold > 0.01 && keywordScore < keywordThreshold) {
+                    showRow = false;
+                }
+                if (confidenceThreshold > 0.01 && confidenceScore < confidenceThreshold) {
+                    showRow = false;
+                }
+            } else if (topicThreshold > 0.01 || keywordThreshold > 0.01 || confidenceThreshold > 0.01) {
+                // If no relevance scores available and filters are active, hide the row
+                showRow = false;
+            }
+        } else if (topicThreshold > 0.01 || keywordThreshold > 0.01 || confidenceThreshold > 0.01) {
+            // If no relevance column and filters are active, hide the row
+            showRow = false;
+        }
+        
+        if (showRow) {
+            row.classList.remove('filtered-out');
+            visibleCount++;
+        } else {
+            row.classList.add('filtered-out');
+        }
+    });
+    
+    // Update filter summary
+    if (filterSummary) {
+        if (visibleCount === totalCount) {
+            filterSummary.innerHTML = `<span class="badge bg-info">Showing all ${totalCount} articles</span>`;
+        } else {
+            const activeFilters = [];
+            if (topicThreshold > 0.01) activeFilters.push('Topic');
+            if (keywordThreshold > 0.01) activeFilters.push('Keyword');
+            if (confidenceThreshold > 0.01) activeFilters.push('Confidence');
+            
+            filterSummary.innerHTML = `
+                <span class="badge bg-warning">Showing ${visibleCount} of ${totalCount} articles</span>
+                <span class="badge bg-secondary ms-1">${totalCount - visibleCount} filtered out</span>
+                <span class="badge bg-info ms-1">Filters: ${activeFilters.join(', ')}</span>
+            `;
+        }
+    }
+    
+    // Update bulk actions visibility
+    updateBulkActions(groupId);
+}
+
+function resetFilters(groupId) {
+    const topicSlider = document.getElementById(`topicSlider_${groupId}`);
+    const keywordSlider = document.getElementById(`keywordSlider_${groupId}`);
+    const confidenceSlider = document.getElementById(`confidenceSlider_${groupId}`);
+    
+    if (topicSlider) topicSlider.value = 0;
+    if (keywordSlider) keywordSlider.value = 0;
+    if (confidenceSlider) confidenceSlider.value = 0;
+    
+    applyRelevanceFilter(groupId);
+}
+
+// Table sorting functions
+let sortStates = {}; // Track sort state for each column
+
+function initializeTableSorting() {
+    document.querySelectorAll('.sortable-header').forEach(header => {
+        header.addEventListener('click', function() {
+            const sortColumn = this.dataset.sort;
+            const groupId = this.dataset.groupId;
+            const table = document.getElementById(`articlesTable_${groupId}`);
+            
+            if (!table) return;
+            
+            // Toggle sort direction
+            const currentState = sortStates[`${groupId}_${sortColumn}`] || 'none';
+            let newState;
+            
+            if (currentState === 'none' || currentState === 'desc') {
+                newState = 'asc';
+            } else {
+                newState = 'desc';
+            }
+            
+            sortStates[`${groupId}_${sortColumn}`] = newState;
+            
+            // Update sort icons
+            const allHeaders = table.querySelectorAll('.sortable-header');
+            allHeaders.forEach(h => {
+                const icon = h.querySelector('.sort-icon');
+                if (h === this) {
+                    icon.classList.remove('fas', 'fa-sort', 'fa-sort-up', 'fa-sort-down');
+                    icon.classList.add('fas', newState === 'asc' ? 'fa-sort-up' : 'fa-sort-down', 'active');
+                } else {
+                    icon.classList.remove('fas', 'fa-sort-up', 'fa-sort-down', 'active');
+                    icon.classList.add('fas', 'fa-sort');
+                }
+            });
+            
+            // Sort the table
+            sortTable(table, sortColumn, newState);
+        });
+    });
+}
+
+function sortTable(table, column, direction) {
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr[data-alert-id]'));
+    
+    rows.sort((a, b) => {
+        let aVal, bVal;
+        
+        switch (column) {
+            case 'status':
+                aVal = a.querySelector('.badge').textContent.trim();
+                bVal = b.querySelector('.badge').textContent.trim();
+                // Custom order for status: New > Added > Read
+                const statusOrder = { 'New': 3, 'Added': 2, 'Read': 1 };
+                aVal = statusOrder[aVal] || 0;
+                bVal = statusOrder[bVal] || 0;
+                break;
+                
+            case 'title':
+                aVal = a.querySelector('.article-title').textContent.trim().toLowerCase();
+                bVal = b.querySelector('.article-title').textContent.trim().toLowerCase();
+                break;
+                
+            case 'source':
+                aVal = a.querySelector('.source-name').textContent.trim().toLowerCase();
+                bVal = b.querySelector('.source-name').textContent.trim().toLowerCase();
+                break;
+                
+            case 'detected':
+                // Use the "Detected" timestamp (second date in the cell)
+                const aDetectedDivs = a.querySelectorAll('td:nth-child(5) .small div:first-child');
+                const bDetectedDivs = b.querySelectorAll('td:nth-child(5) .small div:first-child');
+                aVal = aDetectedDivs.length > 1 ? new Date(aDetectedDivs[1].textContent.trim()) : new Date(0);
+                bVal = bDetectedDivs.length > 1 ? new Date(bDetectedDivs[1].textContent.trim()) : new Date(0);
+                break;
+                
+            case 'relevance':
+                // Sort by topic alignment score (first score)
+                const aRelevance = a.querySelector('.relevance-scores .score-item span');
+                const bRelevance = b.querySelector('.relevance-scores .score-item span');
+                aVal = aRelevance ? parseFloat(aRelevance.textContent) || 0 : -1;
+                bVal = bRelevance ? parseFloat(bRelevance.textContent) || 0 : -1;
+                break;
+                
+            default:
+                return 0;
+        }
+        
+        // Handle different data types
+        if (typeof aVal === 'string' && typeof bVal === 'string') {
+            return direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        } else {
+            if (direction === 'asc') {
+                return aVal - bVal;
+            } else {
+                return bVal - aVal;
+            }
+        }
+    });
+    
+    // Clear and re-append sorted rows
+    tbody.innerHTML = '';
+    rows.forEach(row => tbody.appendChild(row));
+}
+
+// Initialize sorting when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // ... existing initialization code ...
+    
+    // Initialize table sorting
+    initializeTableSorting();
+    
+    // Initialize relevance filters
+    document.querySelectorAll('.relevance-slider').forEach(slider => {
+        const groupId = slider.dataset.groupId;
+        // Set initial display
+        applyRelevanceFilter(groupId);
+    });
+});
+
+// ... existing code ...
 </script>
 {% endblock %} 

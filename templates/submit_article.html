@@ -336,7 +336,7 @@
                             <!-- URL input form (formerly Bulk URL form) -->
                             <form id="urlForm" class="submit-form mt-3" onsubmit="handleBulkSubmit(event)">
                                 <div class="mb-3">
-                                    <label for="bulkUrlList" class="form-label">Enter one or more URLs (one per line, maximum 20)</label>
+                                    <label for="bulkUrlList" class="form-label">Enter one or more URLs (one per line, maximum 50)</label>
                                     <textarea class="form-control" id="bulkUrlList" rows="5" placeholder="https://example.com/article1&#10;https://example.com/article2&#10;https://example.com/article3"></textarea>
                                     <div id="urlCountWarning" class="text-danger mt-1" style="display: none;">
                                         Maximum 20 URLs allowed. Please reduce the number of URLs.
@@ -998,10 +998,10 @@ async function handleBulkSubmit(event) {
             throw new Error('Please enter at least one URL');
         }
         
-        if (urls.length > 20) {
+        if (urls.length > 50) {
             document.getElementById('urlCountWarning').style.display = 'block';
             removeProcessingIndicator('bulkProcessingIndicator');
-            throw new Error('Too many URLs. Maximum 20 URLs allowed.');
+            throw new Error('Too many URLs. Maximum 50 URLs allowed.');
         }
         
         // Set up the request data

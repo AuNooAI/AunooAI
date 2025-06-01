@@ -152,10 +152,12 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
         # Strip whitespace and ensure it's not empty
         cleaned = text.strip()
         if cleaned:  # Only add non-empty strings
-            # Truncate very long texts (OpenAI has an 8191 token limit for text-embedding-3-small)
-            # Roughly 4 chars per token, so limit to ~30000 chars to be safe
-            if len(cleaned) > 30000:
-                cleaned = cleaned[:30000]
+            # Truncate very long texts to be well under the 8192 token limit
+            # Conservative estimate: ~3 chars per token for most text
+            # Use 20000 chars max (roughly 6600 tokens) to stay well under 8192 limit
+            if len(cleaned) > 20000:
+                cleaned = cleaned[:20000]
+                logger.debug("Truncated long text from %d to 20000 characters", len(text))
             cleaned_texts.append(cleaned)
     
     # Handle empty texts list
@@ -168,9 +170,9 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
     if api_key and openai:
         try:
             # Log the texts being embedded for debugging
-            logger.debug("Embedding %d texts, first text (truncated): %s", 
+            logger.debug("Embedding %d texts, first text length: %d chars", 
                         len(cleaned_texts), 
-                        cleaned_texts[0][:50] if cleaned_texts else "")
+                        len(cleaned_texts[0]) if cleaned_texts else 0)
             
             if hasattr(openai, "OpenAI"):  # Official >=1.0 client
                 client = openai.OpenAI(api_key=api_key)  # type: ignore
@@ -199,10 +201,58 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
 
             return embeddings_list
         except Exception as exc:
-            logger.warning(
-                "OpenAI embedding failed, falling back to random. Error: %s",
-                exc,
-            )
+            # Check if it's a token limit error and try to truncate more aggressively
+            if "maximum context length" in str(exc) or "tokens" in str(exc):
+                logger.warning(
+                    "OpenAI embedding failed due to token limit. Trying with shorter texts. Error: %s",
+                    exc,
+                )
+                
+                # Try again with much more aggressive truncation
+                try:
+                    very_short_texts = []
+                    for text in cleaned_texts:
+                        # Super aggressive truncation: ~2000 chars (roughly 500-700 tokens)
+                        if len(text) > 2000:
+                            truncated = text[:2000]
+                            logger.debug("Aggressively truncated text from %d to 2000 characters", len(text))
+                            very_short_texts.append(truncated)
+                        else:
+                            very_short_texts.append(text)
+                    
+                    if hasattr(openai, "OpenAI"):  # Official >=1.0 client
+                        client = openai.OpenAI(api_key=api_key)  # type: ignore
+                        resp = client.embeddings.create(
+                            model="text-embedding-3-small",
+                            input=very_short_texts,
+                        )
+                        data = resp.data  # type: ignore[attr-defined]
+                    else:  # Legacy 0.x SDK
+                        resp = getattr(openai, "Embedding").create(  # type: ignore[attr-defined]
+                            model="text-embedding-3-small",
+                            input=very_short_texts,
+                        )
+                        data = resp["data"]
+                    
+                    embeddings_list = []
+                    for it in sorted(data, key=_get_idx):
+                        emb = it["embedding"] if isinstance(it, dict) else it.embedding  # type: ignore[attr-defined]
+                        embeddings_list.append(emb)
+                    
+                    logger.info("Successfully embedded texts after aggressive truncation")
+                    return embeddings_list
+                    
+                except Exception as retry_exc:
+                    logger.warning(
+                        "OpenAI embedding failed even with aggressive truncation: %s. Falling back to random vectors.",
+                        retry_exc,
+                    )
+            else:
+                logger.warning(
+                    "OpenAI embedding failed, falling back to random. Error: %s",
+                    exc,
+                )
+    
     # Fallback – random vectors (fixed dimensionality of 1536 for compatibility)
     import numpy as np  # Lazy import to avoid dependency if not needed.
 
@@ -391,8 +441,18 @@ def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
         "uri": article.get("uri"),
         "driver_type": article.get("driver_type"),
     }
-    # Remove keys whose value is ``None`` – Chroma only accepts str, int, float bool.
-    return {k: v for k, v in meta.items() if v is not None}
+    
+    # Clean up metadata for Chroma compatibility
+    cleaned_meta = {}
+    for k, v in meta.items():
+        if v is not None:
+            # Convert lists to comma-separated strings (Chroma only accepts scalar values)
+            if isinstance(v, list):
+                cleaned_meta[k] = ', '.join(str(item) for item in v if item)
+            else:
+                cleaned_meta[k] = v
+    
+    return cleaned_meta
 
 
 def search_articles(
