@@ -1,12 +1,18 @@
-import uvicorn
-import os
-from dotenv import load_dotenv
 import sys
+import os
+
+# Add the parent directory to the Python path FIRST
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Configure logging BEFORE any other imports
+from app.core.logging_config import configure_logging
+configure_logging()
+
+# Now import everything else
+import uvicorn
+from dotenv import load_dotenv
 import ssl
 from fastapi.middleware.cors import CORSMiddleware
-
-# Add the parent directory to the Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Load environment variables
 load_dotenv()
@@ -49,7 +55,8 @@ if __name__ == "__main__":
             "main:app",
             host="0.0.0.0",
             port=PORT,
-            reload=True if ENVIRONMENT == 'development' else False
+            reload=True if ENVIRONMENT == 'development' else False,
+            log_level="warning"  # Add log level control
         )
     else:
         # Regular mode with SSL
@@ -64,7 +71,8 @@ if __name__ == "__main__":
                 port=PORT,
                 ssl_keyfile=KEY_PATH,
                 ssl_certfile=CERT_PATH,
-                reload=True if ENVIRONMENT == 'development' else False
+                reload=True if ENVIRONMENT == 'development' else False,
+                log_level="warning"  # Add log level control
             )
         except FileNotFoundError:
             print(f"WARNING: SSL certificate files not found. Falling back to non-SSL mode.")
@@ -72,5 +80,6 @@ if __name__ == "__main__":
                 "main:app",
                 host="0.0.0.0",
                 port=PORT,
-                reload=True if ENVIRONMENT == 'development' else False
+                reload=True if ENVIRONMENT == 'development' else False,
+                log_level="warning"  # Add log level control
             )

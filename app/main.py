@@ -1100,8 +1100,19 @@ async def startup_event():
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         )
         
+        # Set specific log levels for different modules
         logger = logging.getLogger('main')
         logger.setLevel(logging.INFO)
+        
+        # Set higher log levels for noisy modules
+        logging.getLogger('numba').setLevel(logging.ERROR)  # Changed from WARNING to ERROR
+        logging.getLogger('httpx').setLevel(logging.WARNING)
+        logging.getLogger('httpcore').setLevel(logging.WARNING)
+        logging.getLogger('litellm').setLevel(logging.WARNING)
+        logging.getLogger('app.analyzers.prompt_manager').setLevel(logging.WARNING)
+        logging.getLogger('app.routes.prompt_routes').setLevel(logging.WARNING)
+        logging.getLogger('app.env_loader').setLevel(logging.WARNING)
+        logging.getLogger('app.relevance').setLevel(logging.WARNING)
         
         # Initialize the application
         success = initialize_application()

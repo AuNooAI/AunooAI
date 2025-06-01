@@ -12,11 +12,14 @@ logger = logging.getLogger(__name__)
 
 # Suppress LiteLLM logs
 litellm_logger = logging.getLogger('litellm')
-litellm_logger.setLevel(logging.CRITICAL)  # Only show CRITICAL messages
+litellm_logger.setLevel(logging.ERROR)  # Changed from CRITICAL to ERROR for consistency
 
 # Remove all handlers from the LiteLLM logger
 for handler in litellm_logger.handlers[:]:
     litellm_logger.removeHandler(handler)
+
+# Add a null handler to prevent propagation
+litellm_logger.addHandler(logging.NullHandler())
 
 # Load environment variables and ensure they're properly set for models
 ensure_model_env_vars()
@@ -37,8 +40,7 @@ def clean_outdated_model_env_vars():
         if "model_name" in model:
             configured_models.add(model["model_name"])
     
-    print(f"\n[DEBUG] Models in config: {configured_models}")
-    
+    logger.debug(f"Models in config: {configured_models}")    
     # Define provider prefixes for environment variables
     provider_prefixes = {
         'OPENAI_API_KEY_': 'openai',
@@ -80,9 +82,9 @@ def clean_outdated_model_env_vars():
                     del os.environ[env_var]
     
     if removed_vars:
-        print("\n[INFO] Removed environment variables for models not in config:")
+        logger.info("Removed environment variables for models not in config:")
         for var, model, provider in removed_vars:
-            print(f"  - {var} ({model}, {provider})")
+            logger.info(f"  - {var} ({model}, {provider})")
 
 # Clean up outdated model environment variables at startup
 clean_outdated_model_env_vars()
@@ -255,6 +257,7 @@ class LiteLLMModel(AIModel):
     _current_model = None  # Track the currently active model
 
     def __init__(self, model_name):
+        logger.info(f"🚀 Initializing LiteLLMModel with model: {model_name}")
         self.model_name = model_name
         # Create a basic config dictionary that AIModel expects
         model_config = {
@@ -263,74 +266,140 @@ class LiteLLMModel(AIModel):
             "temperature": 0.7
         }
         super().__init__(model_config)
-        print(f"\n[DEBUG] Entering class LiteLLMModel with model: {model_name}")
+        logger.debug(f"✅ AIModel base class initialized for {model_name}")
         self.router = None
-        self.init_router()
+        self.model_name_to_path = {}  # Map model names to their full paths
+        
+        # Initialize router with detailed logging
+        try:
+            self.init_router()
+            logger.info(f"🎯 LiteLLMModel successfully initialized for {model_name}")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize LiteLLMModel for {model_name}: {str(e)}")
+            raise
         
         # Store this instance and set as current
         LiteLLMModel._instances[model_name] = self
         LiteLLMModel._current_model = model_name
+        logger.debug(f"📝 Stored instance for {model_name}, current instances: {list(LiteLLMModel._instances.keys())}")
 
     @classmethod
     def get_instance(cls, model_name):
         """Get or create an instance for the given model name"""
+        logger.debug(f"🔍 Requesting instance for model: {model_name}")
         if model_name not in cls._instances:
+            logger.info(f"🆕 Creating new instance for {model_name}")
             instance = cls(model_name)
         else:
+            logger.debug(f"♻️ Reusing existing instance for {model_name}")
             instance = cls._instances[model_name]
             # Update current model
             cls._current_model = model_name
         return instance
 
     def init_router(self):
-        print(f"\n[DEBUG] Starting init_router with model: {self.model_name}")  # Debug line
+        logger.info(f"🔧 Starting router initialization for model: {self.model_name}")
         
         # Ensure router is cleared before reinitializing
         self.router = None
         
         config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
-        with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
+        logger.debug(f"📖 Loading config from: {config_path}")
+        
+        try:
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            logger.debug(f"✅ Config loaded successfully, found {len(config.get('model_list', []))} models in config")
+        except Exception as e:
+            logger.error(f"❌ Failed to load config file: {str(e)}")
+            raise
         
         # Get currently configured models with their API keys
         configured_models = get_available_models()
+        logger.info(f"🔑 Found {len(configured_models)} configured models with API keys")
         
         # Verify the model is configured
+        configured_model_names = [cm['name'] for cm in configured_models]
         if not any(cm['name'] == self.model_name for cm in configured_models):
-            raise ValueError(f"Model {self.model_name} is not in configured models: {[cm['name'] for cm in configured_models]}")
+            logger.error(f"❌ Model {self.model_name} is not in configured models: {configured_model_names}")
+            raise ValueError(f"Model {self.model_name} is not in configured models: {configured_model_names}")
+        
+        logger.info(f"✅ Model {self.model_name} is properly configured")
         
         # Include all models in the router to support fallbacks
         filtered_model_list = []
+        processed_models = []
+        
         for model in config["model_list"]:
+            model_name = model.get('model_name', 'unknown')
+            logger.debug(f"🔍 Processing model {model_name} from config")
+            
             # Check if model requires an API key
             if 'api_key' in model['litellm_params']:
                 env_key = model['litellm_params']['api_key'].split('/')[-1]
+                logger.debug(f"🔑 Model {model_name} requires API key: {env_key}")
+                
                 if env_key not in os.environ:
+                    logger.warning(f"⚠️ API key {env_key} not found in environment for model {model_name}, skipping")
                     continue
+                    
+                logger.debug(f"✅ API key found for {model_name}")
                 model_copy = model.copy()
+                model_copy['litellm_params'] = model_copy['litellm_params'].copy()
                 model_copy['litellm_params']['api_key'] = os.environ[env_key]
+                
+                # For custom OpenAI providers, use just the model name without the provider prefix
+                if (model_copy['litellm_params'].get('custom_llm_provider') == 'openai' and 
+                    model_copy['litellm_params'].get('api_base')):
+                    original_model = model_copy['litellm_params']['model']
+                    # Extract just the model name (e.g., "mixtral" from "aunooai/mixtral")
+                    model_name_only = original_model.split('/')[-1] if '/' in original_model else original_model
+                    model_copy['litellm_params']['model'] = model_name_only
+                    logger.info(f"🔄 Custom OpenAI provider detected - changed model path from '{original_model}' to '{model_name_only}' for {model_name}")
+                
             else:
                 # For models without API key (like local Ollama - testing)
+                logger.debug(f"🏠 Model {model_name} does not require API key (local model)")
                 model_copy = model.copy()
             
             filtered_model_list.append(model_copy)
-            print(f"[DEBUG] Added model to router: {model['model_name']}")
+            processed_models.append(model_name)
+            
+            # Store the mapping from model name to full model path
+            self.model_name_to_path[model['model_name']] = model['litellm_params']['model']
+            logger.debug(f"📝 Mapped {model['model_name']} -> {model['litellm_params']['model']}")
         
         if not filtered_model_list:
+            logger.error("❌ No properly configured models found in config")
             raise ValueError(f"No properly configured models found in config")
         
-        print(f"[DEBUG] Creating router with models: {[m['model_name'] for m in filtered_model_list]}")
+        logger.info(f"🎯 Creating router with {len(filtered_model_list)} models: {processed_models}")
+        
+        # Log router configuration details
+        routing_strategy = config.get("routing_strategy", "simple-shuffle")
+        max_retries = config.get("max_retries", 0)
+        timeout = config.get("timeout", 30)
+        fallbacks = config.get("fallbacks", [])
+        
+        logger.debug(f"⚙️ Router settings - Strategy: {routing_strategy}, Retries: {max_retries}, Timeout: {timeout}s")
+        if fallbacks:
+            logger.info(f"🔄 Fallback configuration found: {fallbacks}")
         
         # Create new router instance with all available models
-        self.router = Router(
-            model_list=filtered_model_list,
-            cache_responses=False,
-            routing_strategy=config.get("routing_strategy", "simple-shuffle"),
-            set_verbose=False,
-            num_retries=config.get("max_retries", 0),
-            default_litellm_params={"timeout": config.get("timeout", 30)},
-            fallbacks=config.get("fallbacks", [])
-        )
+        try:
+            self.router = Router(
+                model_list=filtered_model_list,
+                cache_responses=False,
+                routing_strategy=routing_strategy,
+                set_verbose=False,
+                num_retries=max_retries,
+                default_litellm_params={"timeout": timeout},
+                fallbacks=fallbacks
+            )
+            logger.info(f"✅ Router successfully created for {self.model_name}")
+        except Exception as e:
+            logger.error(f"❌ Failed to create router: {str(e)}")
+            raise
 
     def generate_response(self, messages, _is_fallback=False, _attempted_models=None):
         """
@@ -351,33 +420,50 @@ class LiteLLMModel(AIModel):
         # Add current model to attempted models
         _attempted_models.add(self.model_name)
         
+        logger.info(f"🤖 Starting response generation with {self.model_name} (fallback: {_is_fallback})")
+        logger.debug(f"📊 Request details - Messages: {len(messages)}, Attempted models: {list(_attempted_models)}")
+        
+        # Log message details (be careful with sensitive content)
+        for i, msg in enumerate(messages):
+            content_preview = (msg.get('content', '')[:100] + '...') if len(msg.get('content', '')) > 100 else msg.get('content', '')
+            logger.debug(f"📝 Message {i+1} ({msg.get('role', 'unknown')}): {content_preview}")
+        
         try:
             # Always use the current model instance
             if LiteLLMModel._current_model != self.model_name and not _is_fallback:
-                print(f"[DEBUG] Model mismatch - Instance: {self.model_name}, Current: {LiteLLMModel._current_model}")
+                logger.debug(f"🔄 Model mismatch detected - Instance: {self.model_name}, Current: {LiteLLMModel._current_model}")
+                logger.info(f"↩️ Delegating to current model instance: {LiteLLMModel._current_model}")
                 return LiteLLMModel._instances[LiteLLMModel._current_model].generate_response(messages)
 
-            print(f"\n[DEBUG] Using model: {self.model_name} (fallback: {_is_fallback})")
-            print(f"[DEBUG] Router config: {self.router.model_list}\n")
+            logger.debug(f"🎯 Using router with model: {self.model_name}")
+            logger.debug(f"📋 Router model list: {[m.get('model_name', 'unknown') for m in self.router.model_list]}")
             
             # Let LiteLLM handle fallbacks automatically
+            # The router already has the correct model names from init_router
+            logger.info(f"🚀 Sending request to LiteLLM router for {self.model_name}")
+            
             response = self.router.completion(
-                model=self.model_name,
+                model=self.model_name,  # Use the model name directly - router has correct config
                 messages=messages,
                 metadata={"model_name": self.model_name},
                 caching=False
             )
+            
+            logger.info(f"✅ Received response from {self.model_name}")
+            logger.debug(f"📦 Response type: {type(response)}")
             
             # Extract content from response - handle different model formats
             try:
                 # Standard format
                 if hasattr(response, 'choices') and len(response.choices) > 0:
                     if hasattr(response.choices[0], 'message') and hasattr(response.choices[0].message, 'content'):
-                        return response.choices[0].message.content
+                        content = response.choices[0].message.content
+                        logger.info(f"✅ Successfully extracted content from {self.model_name} (length: {len(content) if content else 0})")
+                        return content
                 
                 # If we couldn't extract content using the expected structure, try to get the raw response
                 # This is needed because different models might return different response structures
-                print(f"[DEBUG] Using alternative content extraction for {self.model_name}")
+                logger.warning(f"⚠️ Using alternative content extraction for {self.model_name}")
                 
                 # Try to access the raw response content
                 if hasattr(response, 'model_dump'):
@@ -385,7 +471,9 @@ class LiteLLMModel(AIModel):
                     dump = response.model_dump()
                     if 'choices' in dump and dump['choices'] and 'message' in dump['choices'][0]:
                         if 'content' in dump['choices'][0]['message']:
-                            return dump['choices'][0]['message']['content']
+                            content = dump['choices'][0]['message']['content']
+                            logger.debug(f"✅ Extracted content via model_dump for {self.model_name}")
+                            return content
                 
                 # Last resort: convert to string and extract the content
                 response_str = str(response)
@@ -394,25 +482,33 @@ class LiteLLMModel(AIModel):
                     content_start = response_str.find("content='") + 9
                     content_end = response_str.find("'", content_start)
                     if content_start > 9 and content_end > content_start:
-                        return response_str[content_start:content_end]
+                        content = response_str[content_start:content_end]
+                        logger.debug(f"✅ Extracted content via string parsing for {self.model_name}")
+                        return content
                 
                 # If all else fails, return the string representation
+                logger.warning(f"⚠️ Falling back to string representation for {self.model_name}")
                 return str(response)
                 
             except Exception as extract_error:
-                print(f"[WARNING] Error extracting content from response: {str(extract_error)}")
+                logger.error(f"❌ Error extracting content from {self.model_name} response: {str(extract_error)}")
                 # Return the string representation as a last resort
                 return str(response)
             
         except Exception as e:
             error_message = str(e)
-            print(f"Error generating response with {self.model_name}: {error_message}")
+            logger.error(f"❌ Error generating response with {self.model_name}: {error_message}")
             
             # Check if this is a context window error
             is_context_window_error = "context length" in error_message.lower() and "tokens" in error_message.lower()
             
+            if is_context_window_error:
+                logger.warning(f"📏 Context window exceeded for {self.model_name}")
+            
             # Try to find a fallback model if this isn't already a fallback call
             if not _is_fallback:
+                logger.info(f"🔄 Attempting fallback for {self.model_name}")
+                
                 # Get fallbacks configuration
                 config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
                 with open(config_path, 'r') as f:
@@ -424,35 +520,44 @@ class LiteLLMModel(AIModel):
                 for fallback_dict in fallbacks_config:
                     if self.model_name in fallback_dict:
                         fallback_models = fallback_dict[self.model_name]
-                        print(f"[DEBUG] Found fallbacks for {self.model_name}: {fallback_models}")
+                        logger.info(f"🎯 Found {len(fallback_models)} fallback models for {self.model_name}: {fallback_models}")
                         
                         # Try each fallback model that hasn't been attempted yet
                         for fallback_model_name in fallback_models:
                             if fallback_model_name in _attempted_models:
-                                print(f"[DEBUG] Skipping already attempted fallback model: {fallback_model_name}")
+                                logger.debug(f"⏭️ Skipping already attempted fallback model: {fallback_model_name}")
                                 continue
                                 
-                            print(f"[DEBUG] Attempting fallback to {fallback_model_name}")
+                            logger.info(f"🔄 Attempting fallback to {fallback_model_name}")
                             try:
                                 # Get or create the fallback model instance
                                 fallback_model = LiteLLMModel.get_instance(fallback_model_name)
                                 # Call generate_response on the fallback model with fallback flag
-                                return fallback_model.generate_response(
+                                result = fallback_model.generate_response(
                                     messages, 
                                     _is_fallback=True,
                                     _attempted_models=_attempted_models
                                 )
+                                logger.info(f"✅ Fallback to {fallback_model_name} succeeded")
+                                return result
                             except Exception as fallback_error:
-                                print(f"[DEBUG] Fallback to {fallback_model_name} failed: {str(fallback_error)}")
+                                logger.warning(f"❌ Fallback to {fallback_model_name} failed: {str(fallback_error)}")
                                 continue
+                
+                logger.warning(f"⚠️ All fallback options exhausted for {self.model_name}")
+            else:
+                logger.debug(f"🔄 This is already a fallback call for {self.model_name}, not attempting further fallbacks")
             
             # If we've reached here, either there are no fallbacks or all fallbacks failed
             # Extract useful information from the error
             user_message = self._extract_user_friendly_error(error_message, self.model_name)
+            logger.error(f"💬 Returning user-friendly error: {user_message}")
             return user_message
 
     def _extract_user_friendly_error(self, error_message, model_name):
         """Extract user-friendly error messages from common errors."""
+        logger.debug(f"🔍 Extracting user-friendly error from: {error_message[:200]}...")
+        
         # Context length exceeded error
         if "context length" in error_message and "tokens" in error_message:
             import re
@@ -463,20 +568,24 @@ class LiteLLMModel(AIModel):
             if max_tokens_match and actual_tokens_match:
                 max_tokens = max_tokens_match.group(1)
                 actual_tokens = actual_tokens_match.group(1)
+                logger.info(f"📏 Context length error details - Max: {max_tokens}, Actual: {actual_tokens}")
                 return f"⚠️ Your request exceeds the maximum context length for {model_name}. " \
                        f"The model can handle {max_tokens} tokens, but your input has {actual_tokens} tokens. " \
                        f"Please reduce the length of your input or try a model with a larger context window."
             else:
+                logger.warning(f"📏 Context length error but couldn't extract token details")
                 return f"⚠️ Your request exceeds the maximum context length for {model_name}. " \
                        f"Please reduce the length of your input or try a model with a larger context window."
         
         # API key errors
         elif "api key" in error_message.lower() or "apikey" in error_message.lower():
+            logger.warning(f"🔑 API key error for {model_name}")
             return f"⚠️ There was an issue with the API key for {model_name}. " \
                    f"Please check your API key configuration."
         
         # Rate limit errors
         elif "rate limit" in error_message.lower() or "ratelimit" in error_message.lower():
+            logger.warning(f"🚦 Rate limit error for {model_name}")
             return f"⚠️ Rate limit exceeded for {model_name}. " \
                    f"Please try again later or use a different model."
         
@@ -484,21 +593,26 @@ class LiteLLMModel(AIModel):
         elif "model" in error_message.lower() and ("not found" in error_message.lower() or 
                                                  "unavailable" in error_message.lower() or
                                                  "not available" in error_message.lower()):
+            logger.warning(f"🚫 Model unavailable error for {model_name}")
             return f"⚠️ The model {model_name} is currently unavailable. " \
                    f"Please try a different model."
         
         # Connection errors
         elif "connection" in error_message.lower() or "timeout" in error_message.lower():
+            logger.warning(f"🔌 Connection error for {model_name}")
             return f"⚠️ Connection error while accessing {model_name}. " \
                    f"Please check your internet connection and try again."
         
         # Fallback for other errors
         else:
+            logger.warning(f"❓ Unknown error type for {model_name}")
             return f"⚠️ An error occurred while using {model_name}. " \
                    f"Please try again or select a different model. Error details: {error_message}"
 
 def get_available_models():
     """Get models that have API keys configured in the environment."""
+    logger.debug("🔍 Scanning environment variables for configured API keys...")
+    
     models = []
     seen = set()  # Track unique model names
     
@@ -525,7 +639,6 @@ def get_available_models():
         'AUNOOAI_API_KEY_': 'aunooai'  # Add support for AUNOOAI provider
     }
     
-    print("\nChecking environment variables for API keys:")
     for key in os.environ:
         for prefix, provider in provider_prefixes.items():
             if key.startswith(prefix):
@@ -545,12 +658,12 @@ def get_available_models():
                             "name": model_name,
                             "provider": provider
                         })
-                        print(f"Added model: {model_name} ({provider}, {key})")
+                        logger.debug(f"✅ Found configured model: {model_name} ({provider})")
     
     if not models:
-        print("No configured models found. Please check your environment variables.")
+        logger.warning("⚠️ No configured models found. Please check your environment variables.")
     else:
-        print(f"\nFinal configured models: {models}")
+        logger.info(f"🎯 Found {len(models)} configured models: {[m['name'] for m in models]}")
     
     return models
 
@@ -566,7 +679,7 @@ def ai_get_available_models():
             - provider: The provider name (e.g., 'openai', 'anthropic')
     """
     config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
-    print(f"Looking for config file at: {config_path}")
+    logger.debug(f"Looking for config file at: {config_path}")
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
@@ -589,8 +702,8 @@ def ai_get_available_models():
                 seen.add(model_key)
                 unique_models.append(model)
         
-        print(f"Available unique models from config: {unique_models}")
+        logger.debug(f"Available unique models from config: {unique_models}")
         return unique_models
     except Exception as e:
-        print(f"Error reading config file: {str(e)}")
+        logger.error(f"Error reading config file: {str(e)}")
         return []

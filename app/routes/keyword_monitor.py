@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timedelta
 from app.database import Database, get_database_instance
 from app.tasks.keyword_monitor import KeywordMonitor, get_task_status
 from app.security.session import verify_session, verify_session_api
@@ -9,7 +9,7 @@ from app.models.media_bias import MediaBias
 import logging
 import json
 import traceback
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 import io
 import csv
@@ -17,6 +17,7 @@ from pathlib import Path
 import sqlite3
 from fastapi.responses import JSONResponse
 from app.config.config import load_config
+from app.relevance import RelevanceCalculator, RelevanceCalculatorError
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -339,14 +340,21 @@ async def get_alerts(
                 # Check for enrichment data in the articles table
                 try:
                     cursor.execute("""
-                        SELECT category, sentiment
+                        SELECT category, sentiment, driver_type, time_to_impact,
+                               topic_alignment_score, keyword_relevance_score, 
+                               confidence_score, overall_match_explanation,
+                               extracted_article_topics, extracted_article_keywords
                         FROM articles 
                         WHERE uri = ?
                     """, (article_data["uri"],))
                     enrichment_row = cursor.fetchone()
                     if enrichment_row:
-                        category, sentiment = enrichment_row
-                        logger.info(f"API ENRICHMENT FOUND for {article_data['uri']}: category={category}, sentiment={sentiment}")
+                        (category, sentiment, driver_type, time_to_impact,
+                         topic_alignment_score, keyword_relevance_score,
+                         confidence_score, overall_match_explanation,
+                         extracted_article_topics, extracted_article_keywords) = enrichment_row
+                        
+                        logger.info(f"API ENRICHMENT FOUND for {article_data['uri']}: category={category}, sentiment={sentiment}, driver_type={driver_type}, time_to_impact={time_to_impact}")
                         if category:
                             article_data["category"] = category
                             logger.info(f"API CATEGORY ADDED to article_data: {category}")
@@ -358,6 +366,36 @@ async def get_alerts(
                                 logger.info(f"STARGATE ARTICLE DEBUG: Article data after adding category: {article_data}")
                         if sentiment:
                             article_data["sentiment"] = sentiment
+                        if driver_type:
+                            article_data["driver_type"] = driver_type
+                        if time_to_impact:
+                            article_data["time_to_impact"] = time_to_impact
+                        
+                        # Add relevance data if available
+                        if topic_alignment_score is not None:
+                            article_data["topic_alignment_score"] = topic_alignment_score
+                            logger.debug(f"Added topic_alignment_score: {topic_alignment_score} for {article_data['uri']}")
+                        if keyword_relevance_score is not None:
+                            article_data["keyword_relevance_score"] = keyword_relevance_score
+                            logger.debug(f"Added keyword_relevance_score: {keyword_relevance_score} for {article_data['uri']}")
+                        if confidence_score is not None:
+                            article_data["confidence_score"] = confidence_score
+                        if overall_match_explanation:
+                            article_data["overall_match_explanation"] = overall_match_explanation
+                        if extracted_article_topics:
+                            try:
+                                article_data["extracted_article_topics"] = json.loads(extracted_article_topics)
+                            except:
+                                article_data["extracted_article_topics"] = []
+                        if extracted_article_keywords:
+                            try:
+                                article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
+                            except:
+                                article_data["extracted_article_keywords"] = []
+                        
+                        # Debug log to verify enrichment is in article_data
+                        if "Uncertainty" in article_data["title"]:
+                            logger.info(f"TEMPLATE DEBUG - AI Uncertainty article data after enrichment: {article_data}")
                     else:
                         logger.info(f"API NO ENRICHMENT DATA for {article_data['uri']}")
                         
@@ -368,24 +406,24 @@ async def get_alerts(
                     # If enrichment columns don't exist, that's fine
                     logger.debug(f"No enrichment data available for article {article_data['uri']}: {e}")
                     pass
-                
-                # Add bias data if found
-                if bias_data:
-                    article_data["bias"] = bias_data.get("bias")
-                    article_data["factual_reporting"] = bias_data.get("factual_reporting")
-                    article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
-                    article_data["bias_country"] = bias_data.get("country")
-                    article_data["press_freedom"] = bias_data.get("press_freedom")
-                    article_data["media_type"] = bias_data.get("media_type")
-                    article_data["popularity"] = bias_data.get("popularity")
-                
-                alerts.append({
-                    'id': alert_data.get("id", ""),
-                    'is_read': bool(alert_data.get("is_read", 0)),
-                    'detected_at': alert_data.get("detected_at", ""),
-                    'article': article_data,
-                    'matched_keyword': alert_data.get("matched_keyword", "")
-                })
+                    
+                    # Add bias data if found
+                    if bias_data:
+                        article_data["bias"] = bias_data.get("bias")
+                        article_data["factual_reporting"] = bias_data.get("factual_reporting")
+                        article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
+                        article_data["bias_country"] = bias_data.get("country")
+                        article_data["press_freedom"] = bias_data.get("press_freedom")
+                        article_data["media_type"] = bias_data.get("media_type")
+                        article_data["popularity"] = bias_data.get("popularity")
+                    
+                    alerts.append({
+                        'id': alert_data.get("id", ""),
+                        'is_read': bool(alert_data.get("is_read", 0)),
+                        'detected_at': alert_data.get("detected_at", ""),
+                        'article': article_data,
+                        'matched_keyword': alert_data.get("matched_keyword", "")
+                    })
             
             return {
                 "alerts": alerts
@@ -468,7 +506,13 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                         a.summary,
                         a.uri,
                         a.news_source,
-                        a.publication_date
+                        a.publication_date,
+                        a.topic_alignment_score,
+                        a.keyword_relevance_score,
+                        a.confidence_score,
+                        a.overall_match_explanation,
+                        a.extracted_article_topics,
+                        a.extracted_article_keywords
                     FROM keyword_article_matches ka
                     JOIN articles a ON ka.article_uri = a.uri
                     WHERE ka.group_id = ? AND ka.is_read = 0
@@ -481,7 +525,10 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     (
                         alert_id, article_uri, keyword_ids, matched_keyword, 
                         is_read, detected_at, title, summary, uri,
-                        news_source, publication_date
+                        news_source, publication_date,
+                        topic_alignment_score, keyword_relevance_score,
+                        confidence_score, overall_match_explanation,
+                        extracted_article_topics, extracted_article_keywords
                     ) = alert
                     
                     # Get all matched keywords for this article and group
@@ -532,13 +579,20 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     # Check for enrichment data in the articles table
                     try:
                         cursor.execute("""
-                            SELECT category, sentiment, driver_type, time_to_impact
+                            SELECT category, sentiment, driver_type, time_to_impact,
+                                   topic_alignment_score, keyword_relevance_score, 
+                                   confidence_score, overall_match_explanation,
+                                   extracted_article_topics, extracted_article_keywords
                             FROM articles 
                             WHERE uri = ?
                         """, (article_uri,))
                         enrichment_row = cursor.fetchone()
                         if enrichment_row:
-                            category, sentiment, driver_type, time_to_impact = enrichment_row
+                            (category, sentiment, driver_type, time_to_impact,
+                             topic_alignment_score, keyword_relevance_score,
+                             confidence_score, overall_match_explanation,
+                             extracted_article_topics, extracted_article_keywords) = enrichment_row
+                            
                             logger.info(f"API ENRICHMENT FOUND for {article_uri}: category={category}, sentiment={sentiment}, driver_type={driver_type}, time_to_impact={time_to_impact}")
                             if category:
                                 article_data["category"] = category
@@ -556,8 +610,30 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                             if time_to_impact:
                                 article_data["time_to_impact"] = time_to_impact
                             
+                            # Add relevance data if available
+                            if topic_alignment_score is not None:
+                                article_data["topic_alignment_score"] = topic_alignment_score
+                                logger.debug(f"Added topic_alignment_score: {topic_alignment_score} for {article_uri}")
+                            if keyword_relevance_score is not None:
+                                article_data["keyword_relevance_score"] = keyword_relevance_score
+                                logger.debug(f"Added keyword_relevance_score: {keyword_relevance_score} for {article_uri}")
+                            if confidence_score is not None:
+                                article_data["confidence_score"] = confidence_score
+                            if overall_match_explanation:
+                                article_data["overall_match_explanation"] = overall_match_explanation
+                            if extracted_article_topics:
+                                try:
+                                    article_data["extracted_article_topics"] = json.loads(extracted_article_topics)
+                                except:
+                                    article_data["extracted_article_topics"] = []
+                            if extracted_article_keywords:
+                                try:
+                                    article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
+                                except:
+                                    article_data["extracted_article_keywords"] = []
+                            
                             # Debug log to verify enrichment is in article_data
-                            if "Uncertainty" in title:
+                            if "Uncertainty" in article_data["title"]:
                                 logger.info(f"TEMPLATE DEBUG - AI Uncertainty article data after enrichment: {article_data}")
                         else:
                             logger.info(f"API NO ENRICHMENT DATA for {article_uri}")
@@ -1322,7 +1398,13 @@ async def get_group_alerts(
                         a.summary,
                         a.uri,
                         a.news_source,
-                        a.publication_date
+                        a.publication_date,
+                        a.topic_alignment_score,
+                        a.keyword_relevance_score,
+                        a.confidence_score,
+                        a.overall_match_explanation,
+                        a.extracted_article_topics,
+                        a.extracted_article_keywords
                     FROM keyword_article_matches ka
                     JOIN articles a ON ka.article_uri = a.uri
                     WHERE ka.group_id = ? {read_condition}
@@ -1392,7 +1474,7 @@ async def get_group_alerts(
             
             alerts = []
             for alert in alert_results:
-                alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date = alert
+                alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords = alert
                 
                 # Get all matched keywords for this article and group
                 if use_new_table:
@@ -1466,31 +1548,35 @@ async def get_group_alerts(
                     "title": title,
                     "summary": summary,
                     "source": news_source,
-                    "publication_date": publication_date
+                    "publication_date": publication_date,
+                    "topic_alignment_score": topic_alignment_score,
+                    "keyword_relevance_score": keyword_relevance_score,
+                    "confidence_score": confidence_score,
+                    "overall_match_explanation": overall_match_explanation,
+                    "extracted_article_topics": extracted_article_topics,
+                    "extracted_article_keywords": extracted_article_keywords
                 }
                 
-                # Check for enrichment data in the articles table
-                try:
-                    cursor.execute("""
-                        SELECT category, sentiment, driver_type, time_to_impact
-                        FROM articles 
-                        WHERE uri = ?
-                    """, (article_uri,))
-                    enrichment_row = cursor.fetchone()
-                    if enrichment_row:
-                        category, sentiment, driver_type, time_to_impact = enrichment_row
-                        if category:
-                            article_data["category"] = category
-                        if sentiment:
-                            article_data["sentiment"] = sentiment
-                        if driver_type:
-                            article_data["driver_type"] = driver_type
-                        if time_to_impact:
-                            article_data["time_to_impact"] = time_to_impact
-                except Exception as e:
-                    # If enrichment columns don't exist, that's fine
-                    logger.debug(f"No enrichment data available for article {article_uri}: {e}")
-                    pass
+                # Parse JSON fields for extracted topics and keywords
+                if extracted_article_topics:
+                    try:
+                        article_data["extracted_article_topics"] = json.loads(extracted_article_topics)
+                    except:
+                        article_data["extracted_article_topics"] = []
+                else:
+                    article_data["extracted_article_topics"] = []
+                    
+                if extracted_article_keywords:
+                    try:
+                        article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
+                    except:
+                        article_data["extracted_article_keywords"] = []
+                else:
+                    article_data["extracted_article_keywords"] = []
+                
+                # Log relevance data if available
+                if topic_alignment_score is not None or keyword_relevance_score is not None:
+                    logger.debug(f"Relevance data for {article_uri}: Topic: {topic_alignment_score}, Keywords: {keyword_relevance_score}")
                 
                 # Add bias data if found
                 if bias_data:
@@ -1501,8 +1587,6 @@ async def get_group_alerts(
                     article_data["press_freedom"] = bias_data.get("press_freedom")
                     article_data["media_type"] = bias_data.get("media_type")
                     article_data["popularity"] = bias_data.get("popularity")
-                
-
                 
                 alerts.append({
                     "id": alert_id,
@@ -2095,4 +2179,155 @@ def format_interval(seconds):
         return f"{hours} hour{'s' if hours != 1 else ''}"
     else:
         days = seconds // 86400
-        return f"{days} day{'s' if days != 1 else ''}" 
+        return f"{days} day{'s' if days != 1 else ''}"
+
+class RelevanceAnalysisRequest(BaseModel):
+    article_uris: List[str]
+    model_name: str
+    topic: str
+    group_id: Optional[int] = None  # Add group_id to get keywords
+
+@router.post("/analyze-relevance")
+async def analyze_relevance(
+    request: RelevanceAnalysisRequest,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """Analyze relevance for selected articles using the specified LLM model."""
+    try:
+        logger.info(f"Starting relevance analysis for {len(request.article_uris)} articles using model: {request.model_name}")
+        
+        # Get monitoring keywords from the group if group_id is provided
+        keywords_str = ""
+        if request.group_id:
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT keyword FROM monitored_keywords 
+                    WHERE group_id = ?
+                    ORDER BY keyword
+                """, (request.group_id,))
+                keywords = [row[0] for row in cursor.fetchall()]
+                keywords_str = ", ".join(keywords)
+                logger.info(f"Found {len(keywords)} monitoring keywords for group {request.group_id}: {keywords_str}")
+        
+        # Initialize the relevance calculator with the specified model
+        try:
+            relevance_calculator = RelevanceCalculator(request.model_name)
+        except RelevanceCalculatorError as e:
+            logger.error(f"Failed to initialize relevance calculator: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Failed to initialize AI model: {str(e)}")
+        
+        # Fetch articles from database
+        articles = []
+        with db.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            for uri in request.article_uris:
+                cursor.execute("SELECT * FROM articles WHERE uri = ?", (uri,))
+                article_row = cursor.fetchone()
+                
+                if not article_row:
+                    logger.warning(f"Article not found in database: {uri}")
+                    continue
+                
+                article = dict(article_row)
+                
+                # Try to get raw content if available
+                cursor.execute("SELECT raw_markdown FROM raw_articles WHERE uri = ?", (uri,))
+                raw_row = cursor.fetchone()
+                
+                # Use raw content if available, otherwise fall back to summary
+                content = ""
+                if raw_row and raw_row[0]:
+                    content = raw_row[0]
+                elif article.get('summary'):
+                    content = article['summary']
+                elif article.get('title'):
+                    content = article['title']
+                
+                articles.append({
+                    'uri': article['uri'],
+                    'title': article.get('title', ''),
+                    'source': article.get('news_source', ''),
+                    'content': content
+                })
+        
+        if not articles:
+            raise HTTPException(status_code=404, detail="No articles found for the provided URIs")
+        
+        # Perform relevance analysis
+        try:
+            analyzed_articles = relevance_calculator.analyze_articles_batch(
+                articles=articles,
+                topic=request.topic,
+                keywords=keywords_str
+            )
+        except RelevanceCalculatorError as e:
+            logger.error(f"Relevance analysis failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Relevance analysis failed: {str(e)}")
+        
+        # Save results to database
+        updated_count = 0
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            for analyzed_article in analyzed_articles:
+                try:
+                    # Convert lists to JSON strings for storage
+                    extracted_topics = json.dumps(analyzed_article.get('extracted_article_topics', []))
+                    extracted_keywords = json.dumps(analyzed_article.get('extracted_article_keywords', []))
+                    
+                    cursor.execute("""
+                        UPDATE articles 
+                        SET topic_alignment_score = ?,
+                            keyword_relevance_score = ?,
+                            confidence_score = ?,
+                            overall_match_explanation = ?,
+                            extracted_article_topics = ?,
+                            extracted_article_keywords = ?
+                        WHERE uri = ?
+                    """, (
+                        analyzed_article.get('topic_alignment_score', 0.0),
+                        analyzed_article.get('keyword_relevance_score', 0.0),
+                        analyzed_article.get('confidence_score', 0.0),
+                        analyzed_article.get('overall_match_explanation', ''),
+                        extracted_topics,
+                        extracted_keywords,
+                        analyzed_article['uri']
+                    ))
+                    
+                    if cursor.rowcount > 0:
+                        updated_count += 1
+                        logger.info(f"✅ Successfully updated article '{analyzed_article.get('title', 'Unknown')[:50]}...' - "
+                                   f"Topic: {analyzed_article.get('topic_alignment_score', 0.0):.2f}, "
+                                   f"Keywords: {analyzed_article.get('keyword_relevance_score', 0.0):.2f}, "
+                                   f"Confidence: {analyzed_article.get('confidence_score', 0.0):.2f}")
+                    else:
+                        logger.warning(f"⚠️ No rows updated for article {analyzed_article['uri']}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to save relevance data for article {analyzed_article['uri']}: {str(e)}")
+                    continue
+            
+            conn.commit()
+        
+        logger.info(f"✅ Relevance analysis completed successfully! "
+                   f"Analyzed: {len(analyzed_articles)} articles, "
+                   f"Updated: {updated_count} records in database.")
+        
+        return {
+            "success": True,
+            "analyzed_count": len(analyzed_articles),
+            "updated_count": updated_count,
+            "message": f"Successfully analyzed {len(analyzed_articles)} articles and updated {updated_count} records."
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Error in relevance analysis: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

@@ -1073,4 +1073,19 @@ async def get_available_models():
         return JSONResponse(content={"models": models})
     except Exception as e:
         logger.error(f"Error getting available models: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/onboarding/configured-models")
+async def get_configured_models():
+    """Get list of AI models that have API keys configured."""
+    try:
+        # Import get_available_models which returns only configured models
+        from app.ai_models import get_available_models
+        models = get_available_models()
+        logger.info(f"Retrieved {len(models)} configured models")
+        
+        # Return flat list of models
+        return JSONResponse(content={"models": models})
+    except Exception as e:
+        logger.error(f"Error getting configured models: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

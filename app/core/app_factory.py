@@ -10,6 +10,7 @@ from app.core.templates import setup_templates
 from app.core.routers import register_routers
 from app.database import Database
 from app.startup import initialize_application
+from app.core.logging_config import configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +18,8 @@ logger = logging.getLogger(__name__)
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
     
-    # Set up logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
+    # Ensure logging is configured (in case app is created without run.py)
+    configure_logging()
     
     # Initialize FastAPI app
     app = FastAPI(title="AuNoo AI")

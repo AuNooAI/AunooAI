@@ -205,7 +205,8 @@ class Database:
                     ("ensure_podcasts_table_schema", self._ensure_podcasts_table_schema),
                     ("ensure_settings_podcasts_table", self._ensure_settings_podcasts_table),
                     ("add_metadata_column_to_podcasts", self._add_metadata_column_to_podcasts),
-                    ("create_newsletter_prompts_table", self._create_newsletter_prompts_table)
+                    ("create_newsletter_prompts_table", self._create_newsletter_prompts_table),
+                    ("add_relevance_columns_to_articles", self._add_relevance_columns_to_articles)
                 ]
                 
                 # Apply migrations that haven't been applied yet
@@ -960,7 +961,11 @@ class Database:
                 # Media bias fields
                 'bias', 'factual_reporting', 'mbfc_credibility_rating',
                 'bias_source', 'bias_country', 'press_freedom', 
-                'media_type', 'popularity'
+                'media_type', 'popularity',
+                # Relevance score fields
+                'topic_alignment_score', 'keyword_relevance_score', 
+                'confidence_score', 'overall_match_explanation',
+                'extracted_article_topics', 'extracted_article_keywords'
             ]
 
             # Filter fields that exist in the article_data
@@ -2034,6 +2039,53 @@ class Database:
             )
             conn.commit()
             return True
+
+    def _add_relevance_columns_to_articles(self, cursor):
+        """Add relevance score columns to the articles table."""
+        # Check if articles table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles'")
+        if cursor.fetchone():
+            # Check which columns already exist
+            cursor.execute("PRAGMA table_info(articles)")
+            columns = {row[1] for row in cursor.fetchall()}
+            
+            relevance_columns = {
+                "topic_alignment_score": "REAL",
+                "keyword_relevance_score": "REAL",
+                "confidence_score": "REAL",
+                "overall_match_explanation": "TEXT",
+                "extracted_article_topics": "TEXT",
+                "extracted_article_keywords": "TEXT"
+            }
+            
+            for col_name, col_type in relevance_columns.items():
+                if col_name not in columns:
+                    logger.info(f"Adding column '{col_name}' to articles table")
+                    cursor.execute(f"ALTER TABLE articles ADD COLUMN {col_name} {col_type}")
+        else:
+            # This case should ideally be handled by create_articles_table
+            logger.warning("articles table does not exist while trying to add relevance columns.")
+
+    def get_podcast_settings(self):
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM settings_podcasts LIMIT 1")
+            settings = cursor.fetchone()
+            
+            if settings:
+                columns = [col[0] for col in cursor.description]
+                return dict(zip(columns, settings))
+            else:
+                # Default settings if none exist
+                return {
+                    "id": 1,
+                    "podcast_enabled": 0,
+                    "transcribe_enabled": 1,
+                    "openai_model": "whisper-1",
+                    "transcript_format": "text",
+                    "uploads_folder": "podcast_uploads",
+                    "output_folder": "podcasts"
+                }
 
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"

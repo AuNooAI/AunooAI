@@ -111,6 +111,38 @@ Article text:
 {content}
 
 Respond with only the date in YYYY-MM-DD format, nothing else."""
+        },
+        "relevance_analysis": {
+            "version": "1.0.0",
+            "system_prompt": "You are an expert news analyst AI. Your primary function is to meticulously evaluate news articles against specified monitoring criteria (a target topic and target keywords). Provide scores and brief, clear justifications for your assessment. Output ONLY a valid JSON object with the requested fields.",
+            "user_prompt": """You are an AI assistant evaluating a news article's relevance to a specific topic and set of keywords.
+
+Article Information:
+- Title: {title}
+- Source: {source}
+- Content: {content}
+
+Monitoring Criteria:
+- Target Topic: {topic}
+- Target Keywords: {keywords}
+
+Evaluation Tasks:
+1.  **Topic Alignment:** Assess how closely the article's main subject aligns with the Target Topic ("{topic}"). Provide a score from 0.0 (no alignment) to 1.0 (perfect alignment).
+2.  **Keyword Presence & Relevance:** Determine if the Target Keywords ("{keywords}") are present in the article, and how relevant they are to the article's core message. Provide a score from 0.0 (keywords not present or irrelevant) to 1.0 (keywords present and highly relevant).
+3.  **Overall Match Explanation:** Briefly explain your reasoning for the topic alignment and keyword relevance scores. Specifically highlight how the article content supports your assessment.
+4.  **Confidence Score:** Rate your confidence in this overall evaluation (0.0 to 1.0).
+5.  **Extracted Article Topics:** Identify the 1-3 main topics actually discussed in the article.
+6.  **Extracted Article Keywords:** Extract 3-5 keywords that best represent the article's content.
+
+Output Format (JSON Object):
+{{
+    "topic_alignment_score": <float, 0.0-1.0, for Target Topic>,
+    "keyword_relevance_score": <float, 0.0-1.0, for Target Keywords>,
+    "overall_match_explanation": "<string, your reasoning>",
+    "confidence_score": <float, 0.0-1.0>,
+    "extracted_article_topics": ["<string>", "<string>", ...],
+    "extracted_article_keywords": ["<string>", "<string>", ...]
+}}"""
         }
     }
 
@@ -244,5 +276,19 @@ Respond with only the date in YYYY-MM-DD format, nothing else."""
             {"role": "system", "content": template["system_prompt"]},
             {"role": "user", "content": template["user_prompt"].format(
                 content=content[:10000]  # First 10000 chars for date extraction
+            )}
+        ]
+
+    def format_relevance_analysis_prompt(self, title: str, source: str, content: str, topic: str, keywords: str) -> List[Dict[str, str]]:
+        """Format relevance analysis prompt for evaluating article relevance."""
+        template = self.get_template("relevance_analysis")
+        return [
+            {"role": "system", "content": template["system_prompt"]},
+            {"role": "user", "content": template["user_prompt"].format(
+                title=title,
+                source=source,
+                content=content[:8000],  # Limit content to avoid token limits
+                topic=topic,
+                keywords=keywords
             )}
         ] 

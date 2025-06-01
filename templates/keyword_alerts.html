@@ -764,6 +764,38 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     visibility: visible;
     opacity: 1;
 }
+
+/* Relevance column styling */
+.relevance-column {
+    max-width: 120px;
+    overflow: hidden;
+    position: relative;
+    font-size: 0.75rem;
+}
+
+.relevance-scores {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    cursor: help;
+}
+
+.score-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.score-item i {
+    width: 12px;
+    font-size: 0.7rem;
+}
+
+.score-item span {
+    font-weight: 500;
+    min-width: 30px;
+}
 </style>
 {% endblock %}
 
@@ -795,13 +827,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                         {% if not is_enabled %}
                             Polling disabled
                         {% elif next_check_time %}
-                            {% set next_check = next_check_time|datetime %}
-                            {% set current_time = now|datetime %}
-                            {% if next_check <= current_time %}
-                                Checking soon...
-                            {% else %}
-                                Next check: Coming up soon
-                            {% endif %}
+                            Next check: {{ next_check_time }}
                         {% else %}
                             Checking soon...
                         {% endif %}
@@ -865,7 +891,10 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                             <th style="width: 200px;">Growth</th>
                             <th>Size</th>
                             <th>Tags</th>
-                            <th>Actions</th>
+                            <th style="width: 12%; min-width: 100px;">Detected</th>
+                            <th style="width: 13%; min-width: 100px;">Tags</th>
+                            <th style="width: 12%; min-width: 100px;">Relevance</th>
+                            <th style="width: 25%; min-width: 200px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -938,6 +967,22 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                     <i class="fas fa-tag me-1"></i>{{ keyword|truncate(10, True, '...') }}
                                 </span>
                                 {% endfor %}
+                            </td>
+                            <td>
+                                <div class="small">
+                                    {% if group.alerts %}
+                                        {% set latest_alert = group.alerts|first %}
+                                        <div>{{ latest_alert.detected_at }}</div>
+                                        <div class="text-muted">Latest detection</div>
+                                    {% else %}
+                                        <div class="text-muted">No alerts</div>
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="tags-column">
+                                    <!-- Empty tags column for summary table -->
+                                </div>
                             </td>
                             <td>
                                 <a href="/keyword-monitor#group-{{ group.id }}" class="btn btn-sm btn-outline-primary trend-link" title="Manage this keyword group">
@@ -1038,6 +1083,10 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                         onclick="analyzeSelectedArticles('{{ group.topic }}', '{{ group.id }}')">
                                     <i class="fas fa-microscope"></i> Analyze Selected
                                 </button>
+                                <button class="btn btn-sm btn-outline-info" 
+                                        onclick="analyzeRelevanceSelected('{{ group.topic }}', '{{ group.id }}')">
+                                    <i class="fas fa-brain"></i> Analyze Relevance
+                                </button>
                                 <button class="btn btn-sm btn-outline-success" 
                                         onclick="bulkMarkAsRead('{{ group.id }}')">
                                     <i class="fas fa-check"></i> Mark Selected as Read
@@ -1062,6 +1111,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                     <th style="width: 15%; min-width: 120px;">Source</th>
                                     <th style="width: 12%; min-width: 100px;">Detected</th>
                                     <th style="width: 13%; min-width: 100px;">Tags</th>
+                                    <th style="width: 12%; min-width: 100px;">Relevance</th>
                                     <th style="width: 25%; min-width: 200px;">Actions</th>
                                 </tr>
                             </thead>
@@ -1104,16 +1154,18 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                         <div class="source-info small">
                                             <div class="source-name">{{ alert.article.source }}</div>
                                             <div class="text-muted">
-                                                {{ alert.article.publication_date|datetime }}
+                                                {{ alert.article.publication_date or 'Unknown' }}
                                             </div>
                                         </div>
                                     </td>
-                                    <td>
+                                    <td style="width: 15%; min-width: 120px;">
                                         <div class="small">
-                                            <div>{{ alert.detected_at|timeago }}</div>
-                                            <div class="text-muted">
-                                                {{ alert.detected_at|datetime }}
-                                            </div>
+                                            <div>{{ alert.article.publication_date or 'Unknown' }}</div>
+                                            <div class="text-muted">Published</div>
+                                        </div>
+                                        <div class="small mt-1">
+                                            <div>{{ alert.detected_at or 'Unknown' }}</div>
+                                            <div class="text-muted">Detected</div>
                                         </div>
                                     </td>
                                     <td>
@@ -1131,6 +1183,31 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                                     </span>
                                                     {% endif %}
                                                 {% endfor %}
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="relevance-column" data-article-uri="{{ alert.article.url }}">
+                                            {% if alert.article.topic_alignment_score is not none and alert.article.topic_alignment_score is defined %}
+                                            <div class="relevance-scores" 
+                                                 title="Topic: {{ '%.2f'|format(alert.article.topic_alignment_score) }} | Keywords: {{ '%.2f'|format(alert.article.keyword_relevance_score|default(0, true)) }} | Confidence: {{ '%.2f'|format(alert.article.confidence_score|default(0, true)) }}{% if alert.article.overall_match_explanation %} | {{ alert.article.overall_match_explanation }}{% endif %}">
+                                                <div class="score-item">
+                                                    <i class="fas fa-bullseye" style="color: #0dcaf0;"></i>
+                                                    <span>{{ '%.2f'|format(alert.article.topic_alignment_score) }}</span>
+                                                </div>
+                                                <div class="score-item">
+                                                    <i class="fas fa-key" style="color: #198754;"></i>
+                                                    <span>{{ '%.2f'|format(alert.article.keyword_relevance_score|default(0, true)) }}</span>
+                                                </div>
+                                                {% if alert.article.confidence_score is not none and alert.article.confidence_score is defined %}
+                                                <div class="score-item">
+                                                    <i class="fas fa-chart-line" style="color: #fd7e14;"></i>
+                                                    <span>{{ '%.2f'|format(alert.article.confidence_score) }}</span>
+                                                </div>
+                                                {% endif %}
+                                            </div>
+                                            {% else %}
+                                            <span class="text-muted small">Not analyzed</span>
                                             {% endif %}
                                         </div>
                                     </td>
@@ -1196,6 +1273,40 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 <div id="alertMessage" class="alert alert-danger alert-dismissible fade" role="alert" style="display: none;">
     <span id="alertText"></span>
     <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+
+<!-- Model Selection Modal for Relevance Analysis -->
+<div class="modal fade" id="modelSelectionModal" tabindex="-1" aria-labelledby="modelSelectionModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modelSelectionModalLabel">Select AI Model for Relevance Analysis</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="modelSelect" class="form-label">Choose an AI model:</label>
+                    <select class="form-select" id="modelSelect">
+                        <option value="">Loading models...</option>
+                    </select>
+                    <div class="form-text">
+                        Select the AI model to use for analyzing relevance of selected articles.
+                    </div>
+                </div>
+                <div id="analysisProgress" class="progress" style="display: none;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%"></div>
+                </div>
+                <div id="analysisStatus" class="text-muted small" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="startAnalysisBtn" onclick="startRelevanceAnalysis()">
+                    <i class="fas fa-brain"></i> Start Analysis
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -1485,11 +1596,223 @@ const selectedArticles = {
 // Add pagination state tracking
 const paginationState = {};
 
+// Relevance analysis state
+let currentRelevanceData = {
+    topic: null,
+    groupId: null,
+    articleUris: [],
+    keywords: []
+};
+
+// Available AI models cache
+let availableModels = [];
+
 function generateTopicId(topic) {
     return `bulkAnalyzeBtn_${topic.replace(/[^a-zA-Z0-9]/g, '_')}`;
 }
 
 let selectedArticlesByTopic = {};
+
+// Load available AI models
+async function loadAvailableModels() {
+    try {
+        const response = await fetch('/api/onboarding/configured-models', {
+            credentials: 'same-origin'
+        });
+        if (!response.ok) throw new Error('Failed to fetch models');
+        
+        const data = await response.json();
+        const models = data.models || [];
+        availableModels = models;
+        
+        const modelSelect = document.getElementById('modelSelect');
+        if (modelSelect) {
+            modelSelect.innerHTML = '<option value="">Select a model...</option>';
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name || model.id || model;
+                // Handle different model response formats
+                if (typeof model === 'string') {
+                    option.textContent = model;
+                } else {
+                    option.textContent = `${model.display_name || model.name || model.id} (${model.provider || ''})`.trim();
+                }
+                modelSelect.appendChild(option);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading models:', error);
+        const modelSelect = document.getElementById('modelSelect');
+        if (modelSelect) {
+            modelSelect.innerHTML = '<option value="">Error loading models</option>';
+        }
+    }
+}
+
+// Analyze relevance for selected articles
+async function analyzeRelevanceSelected(topic, groupId) {
+    const checkedBoxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox:checked`);
+    
+    if (checkedBoxes.length === 0) {
+        showAlert('No articles selected for relevance analysis', 'warning');
+        return;
+    }
+    
+    // Get article URIs from selected checkboxes
+    const articleUris = Array.from(checkedBoxes).map(cb => {
+        const row = cb.closest('tr');
+        const articleLink = row.querySelector('.article-title');
+        return articleLink ? articleLink.href : null;
+    }).filter(uri => uri);
+    
+    if (articleUris.length === 0) {
+        showAlert('No valid article URLs found for selected articles', 'warning');
+        return;
+    }
+    
+    // Store current analysis data
+    currentRelevanceData = {
+        topic: topic,
+        groupId: groupId,
+        articleUris: articleUris,
+        keywords: [] // Will be populated from backend
+    };
+    
+    // Load models if not already loaded
+    if (availableModels.length === 0) {
+        loadAvailableModels();
+    }
+    
+    // Show the model selection modal
+    const modal = new bootstrap.Modal(document.getElementById('modelSelectionModal'));
+    modal.show();
+    
+    // Update modal title
+    document.getElementById('modelSelectionModalLabel').textContent = 
+        `Select AI Model for Relevance Analysis (${articleUris.length} articles)`;
+}
+
+// Start relevance analysis with selected model
+async function startRelevanceAnalysis() {
+    const modelSelect = document.getElementById('modelSelect');
+    const progressBar = document.getElementById('analysisProgress');
+    const statusDiv = document.getElementById('analysisStatus');
+    const startBtn = document.getElementById('startAnalysisBtn');
+    
+    const selectedModel = modelSelect.value;
+    if (!selectedModel) {
+        showAlert('Please select an AI model', 'warning');
+        return;
+    }
+    
+    // Show progress
+    progressBar.style.display = 'block';
+    statusDiv.style.display = 'block';
+    startBtn.disabled = true;
+    
+    statusDiv.textContent = `Starting relevance analysis for ${currentRelevanceData.articleUris.length} articles...`;
+    
+    try {
+        const response = await fetch('/api/keyword-monitor/analyze-relevance', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                article_uris: currentRelevanceData.articleUris,
+                model_name: selectedModel,
+                topic: currentRelevanceData.topic,
+                group_id: currentRelevanceData.groupId
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Analysis failed');
+        }
+        
+        const result = await response.json();
+        
+        // Update progress to 100%
+        const progressBarElement = progressBar.querySelector('.progress-bar');
+        progressBarElement.style.width = '100%';
+        statusDiv.textContent = `Analysis complete! Updated ${result.updated_count} articles.`;
+        
+        // Hide modal after a delay
+        setTimeout(() => {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('modelSelectionModal'));
+            modal.hide();
+            
+            // Reset modal state
+            progressBar.style.display = 'none';
+            statusDiv.style.display = 'none';
+            startBtn.disabled = false;
+            progressBarElement.style.width = '0%';
+            statusDiv.textContent = '';
+            
+            // Refresh the group to show updated relevance scores
+            const toggle = document.querySelector(`#showReadToggle_${currentRelevanceData.groupId}`);
+            if (toggle) {
+                refreshGroupArticles(currentRelevanceData.topic, currentRelevanceData.groupId, toggle.checked);
+            } else {
+                // If we can't refresh the group, just reload the page
+                setTimeout(() => window.location.reload(), 1000);
+            }
+        }, 2000);
+        
+        showAlert(`Relevance analysis completed for ${result.updated_count} articles using ${selectedModel}`, 'success');
+        
+    } catch (error) {
+        console.error('Error during relevance analysis:', error);
+        statusDiv.textContent = `Error: ${error.message}`;
+        startBtn.disabled = false;
+        showAlert(`Relevance analysis failed: ${error.message}`, 'danger');
+    }
+}
+
+// Update relevance display after analysis
+function updateRelevanceDisplay(articleUri, relevanceData) {
+    const relevanceColumn = document.querySelector(`[data-article-uri="${articleUri}"] .relevance-column`);
+    if (!relevanceColumn) return;
+    
+    // Check if the article has been analyzed
+    if (relevanceData.topic_alignment_score === null || relevanceData.topic_alignment_score === undefined) {
+        relevanceColumn.innerHTML = '<span class="text-muted small">Not analyzed</span>';
+        return;
+    }
+    
+    const topicScore = relevanceData.topic_alignment_score;
+    const keywordScore = relevanceData.keyword_relevance_score || 0;
+    const confidence = relevanceData.confidence_score || 0;
+    const explanation = relevanceData.overall_match_explanation || '';
+    
+    const tooltipText = `Topic: ${topicScore.toFixed(2)} | Keywords: ${keywordScore.toFixed(2)} | Confidence: ${confidence.toFixed(2)}${explanation ? ' | ' + explanation : ''}`;
+    
+    relevanceColumn.innerHTML = `
+        <div class="relevance-scores" title="${tooltipText}">
+            <div class="score-item">
+                <i class="fas fa-bullseye" style="color: #0dcaf0;"></i>
+                <span>${topicScore.toFixed(2)}</span>
+            </div>
+            <div class="score-item">
+                <i class="fas fa-key" style="color: #198754;"></i>
+                <span>${keywordScore.toFixed(2)}</span>
+            </div>
+            <div class="score-item">
+                <i class="fas fa-chart-line" style="color: #fd7e14;"></i>
+                <span>${confidence.toFixed(2)}</span>
+            </div>
+        </div>
+    `;
+}
+
+// Load models when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    loadTrendChart();
+    loadAvailableModels();
+    setInterval(loadTrendChart, 5 * 60 * 1000);
+});
 
 async function loadTrendChart() {
     try {
@@ -1513,12 +1836,6 @@ async function loadTrendChart() {
         console.error('Error loading trend charts:', error);
     }
 }
-
-// Load charts when page loads and refresh every 5 minutes
-document.addEventListener('DOMContentLoaded', () => {
-    loadTrendChart();
-    setInterval(loadTrendChart, 5 * 60 * 1000);
-});
 
 async function markAsRead(alertId) {
     try {
@@ -1730,6 +2047,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // First call the enhanced media bias function for initial page load
     enhanceAllArticlesWithMediaBias();
     
+    // Check for missing relevance data and refresh if needed
+    checkAndRefreshRelevanceData();
+    
     // Then set up a MutationObserver to detect when new articles are added
     const articleContainers = document.querySelectorAll('.card-body table tbody');
     if (articleContainers.length > 0) {
@@ -1746,6 +2066,61 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 });
+
+// Function to check for missing relevance data and refresh if needed
+function checkAndRefreshRelevanceData() {
+    console.log('Checking for missing relevance data on page load...');
+    
+    // Find all groups that have articles but missing relevance data
+    const groupsNeedingRefresh = [];
+    
+    document.querySelectorAll('.show-read-toggle').forEach(toggle => {
+        const groupId = toggle.dataset.groupId;
+        const topic = toggle.dataset.topic;
+        
+        if (!groupId || !topic) return;
+        
+        // Check if this group has articles
+        const groupCard = document.querySelector(`#group-${groupId}`);
+        if (!groupCard) return;
+        
+        const articleRows = groupCard.querySelectorAll('tbody tr[data-alert-id]');
+        if (articleRows.length === 0) return;
+        
+        // Check how many articles are missing relevance data
+        let missingRelevanceCount = 0;
+        articleRows.forEach(row => {
+            const relevanceColumn = row.querySelector('.relevance-column');
+            if (relevanceColumn) {
+                const hasRelevanceScores = relevanceColumn.querySelector('.relevance-scores');
+                const hasNotAnalyzedText = relevanceColumn.textContent.includes('Not analyzed');
+                
+                // If it shows "Not analyzed" but the article might actually be analyzed
+                if (hasNotAnalyzedText || !hasRelevanceScores) {
+                    missingRelevanceCount++;
+                }
+            }
+        });
+        
+        // If more than half the articles are missing relevance data, refresh this group
+        if (missingRelevanceCount > articleRows.length * 0.5) {
+            console.log(`Group ${groupId} (${topic}) has ${missingRelevanceCount}/${articleRows.length} articles missing relevance data - scheduling refresh`);
+            groupsNeedingRefresh.push({ topic, groupId, toggle });
+        }
+    });
+    
+    // Refresh groups that need it (with a small delay to avoid overwhelming the server)
+    if (groupsNeedingRefresh.length > 0) {
+        console.log(`Refreshing ${groupsNeedingRefresh.length} groups with missing relevance data`);
+        
+        groupsNeedingRefresh.forEach((group, index) => {
+            setTimeout(async () => {
+                console.log(`Refreshing relevance data for group ${group.groupId} (${group.topic})`);
+                await refreshGroupArticles(group.topic, group.groupId, group.toggle.checked, true);
+            }, index * 1000); // Stagger refreshes by 1 second each
+        });
+    }
+}
 
 // Helper function for normalizing domains (matches Python normalize_domain)
 function normalizeDomain(url) {
@@ -2644,6 +3019,10 @@ function updateGroupAlerts(card, data, groupId) {
                                         onclick="analyzeSelectedArticles('${data.topic}', '${groupId}')">
                                     <i class="fas fa-microscope"></i> Analyze Selected
                                 </button>
+                                <button class="btn btn-sm btn-outline-info" 
+                                        onclick="analyzeRelevanceSelected('${data.topic}', '${groupId}')">
+                                    <i class="fas fa-brain"></i> Analyze Relevance
+                                </button>
                                 <button class="btn btn-sm btn-outline-success" 
                                         onclick="bulkMarkAsRead('${groupId}')">
                                     <i class="fas fa-check"></i> Mark Selected as Read
@@ -2668,6 +3047,7 @@ function updateGroupAlerts(card, data, groupId) {
                                     <th style="width: 15%; min-width: 120px;">Source</th>
                                     <th style="width: 12%; min-width: 100px;">Detected</th>
                                     <th style="width: 13%; min-width: 100px;">Tags</th>
+                                    <th style="width: 12%; min-width: 100px;">Relevance</th>
                                     <th style="width: 25%; min-width: 200px;">Actions</th>
                                 </tr>
                             </thead>
@@ -2720,6 +3100,7 @@ function updateGroupAlerts(card, data, groupId) {
                                     <th style="width: 15%; min-width: 120px;">Source</th>
                                     <th style="width: 12%; min-width: 100px;">Detected</th>
                                     <th style="width: 13%; min-width: 100px;">Tags</th>
+                                    <th style="width: 12%; min-width: 100px;">Relevance</th>
                                     <th style="width: 25%; min-width: 200px;">Actions</th>
                                 </tr>
                             </thead>
@@ -2898,17 +3279,58 @@ function updateGroupAlerts(card, data, groupId) {
                         ${mediaBiasHtml}
                     </div>
                 </td>
-                <td>
+                <td style="width: 15%; min-width: 120px;">
                     <div class="small">
-                        <div>${timeAgo(alert.detected_at)}</div>
-                        <div class="text-muted">
-                            ${new Date(alert.detected_at).toLocaleString()}
-                        </div>
+                        <div>${alert.article.publication_date || 'Unknown'}</div>
+                        <div class="text-muted">Published</div>
+                    </div>
+                    <div class="small mt-1">
+                        <div>${new Date(alert.detected_at).toLocaleString()}</div>
+                        <div class="text-muted">Detected</div>
                     </div>
                 </td>
                 <td>
                     <div class="tags-column">
                         ${keywordBadges}
+                    </div>
+                </td>
+                <td>
+                    <div class="relevance-column" data-article-uri="${alert.article.url}">
+                        ${(() => {
+                            if (alert.article.topic_alignment_score !== null && alert.article.topic_alignment_score !== undefined) {
+                                const topicScore = alert.article.topic_alignment_score.toFixed(2);
+                                const keywordScore = (alert.article.keyword_relevance_score || 0).toFixed(2);
+                                const confidenceScore = (alert.article.confidence_score || 0).toFixed(2);
+                                const explanation = alert.article.overall_match_explanation || '';
+                                
+                                let title = `Topic: ${topicScore} | Keywords: ${keywordScore} | Confidence: ${confidenceScore}`;
+                                if (explanation) {
+                                    title += ` | ${explanation}`;
+                                }
+                                
+                                let html = `<div class="relevance-scores" title="${title}">
+                                    <div class="score-item">
+                                        <i class="fas fa-bullseye" style="color: #0dcaf0;"></i>
+                                        <span>${topicScore}</span>
+                                    </div>
+                                    <div class="score-item">
+                                        <i class="fas fa-key" style="color: #198754;"></i>
+                                        <span>${keywordScore}</span>
+                                    </div>`;
+                                
+                                if (alert.article.confidence_score !== null && alert.article.confidence_score !== undefined) {
+                                    html += `<div class="score-item">
+                                        <i class="fas fa-chart-line" style="color: #fd7e14;"></i>
+                                        <span>${confidenceScore}</span>
+                                    </div>`;
+                                }
+                                
+                                html += '</div>';
+                                return html;
+                            } else {
+                                return '<span class="text-muted small">Not analyzed</span>';
+                            }
+                        })()}
                     </div>
                 </td>
                 <td>
@@ -3327,121 +3749,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Initialize enhanced tooltip system
 function initializeTooltips() {
-    // Create a tooltip container
-    const tooltipContainer = document.createElement('div');
-    tooltipContainer.id = 'tooltip-container';
-    tooltipContainer.style.cssText = `
-        position: fixed;
-        z-index: 10000;
-        background: rgba(0, 0, 0, 0.9);
-        color: white;
-        padding: 8px 12px;
-        border-radius: 6px;
-        font-size: 0.8rem;
-        max-width: 300px;
-        word-wrap: break-word;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        pointer-events: none;
-        opacity: 0;
-        transition: opacity 0.2s;
-        display: none;
-    `;
-    document.body.appendChild(tooltipContainer);
+    // Disabled - using native browser tooltips for reliability
+    return;
     
-    // Add event listeners to all elements with title attributes
-    document.addEventListener('mouseover', function(e) {
-        const element = e.target.closest('[title]');
-        if (element && element.title) {
-            showTooltip(element, element.title, e);
-        }
-    });
-    
-    document.addEventListener('mouseout', function(e) {
-        const element = e.target.closest('[title]');
-        if (element) {
-            hideTooltip();
-        }
-    });
-    
-    document.addEventListener('mousemove', function(e) {
-        const tooltip = document.getElementById('tooltip-container');
-        if (tooltip.style.display === 'block') {
-            positionTooltip(tooltip, e);
-        }
-    });
+    // ... existing tooltip code (keep but disabled) ...
 }
 
-function showTooltip(element, text, event) {
-    const tooltip = document.getElementById('tooltip-container');
-    tooltip.textContent = text;
-    tooltip.style.display = 'block';
-    positionTooltip(tooltip, event);
-    setTimeout(() => {
-        tooltip.style.opacity = '1';
-    }, 10);
-}
-
-function hideTooltip() {
-    const tooltip = document.getElementById('tooltip-container');
-    tooltip.style.opacity = '0';
-    setTimeout(() => {
-        tooltip.style.display = 'none';
-    }, 200);
-}
-
-function positionTooltip(tooltip, event) {
-    const rect = tooltip.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
+// Comment out the tooltip initialization in DOMContentLoaded
+document.addEventListener('DOMContentLoaded', function() {
+    // ... existing code ...
     
-    let x = event.clientX + 10;
-    let y = event.clientY - rect.height - 10;
-    
-    // Adjust if tooltip would go off-screen horizontally
-    if (x + rect.width > viewportWidth) {
-        x = event.clientX - rect.width - 10;
-    }
-    
-    // Adjust if tooltip would go off-screen vertically
-    if (y < 0) {
-        y = event.clientY + 10;
-    }
-    
-    // Ensure tooltip stays within viewport bounds
-    x = Math.max(10, Math.min(x, viewportWidth - rect.width - 10));
-    y = Math.max(10, Math.min(y, viewportHeight - rect.height - 10));
-    
-    tooltip.style.left = x + 'px';
-    tooltip.style.top = y + 'px';
-}
-
-// After initializing reset timer and media bias enhancement
-// Automatically refresh each group once to ensure status badges are correct on first load
-async function initialRefreshGroups() {
-    const toggles = document.querySelectorAll('.show-read-toggle');
-    for (const toggle of toggles) {
-        const topic = toggle.dataset.topic;
-        const groupId = toggle.dataset.groupId;
-        if (!topic || !groupId) continue;
-        try {
-            // Check if the group has any alerts before refreshing
-            const groupCard = document.querySelector(`#group-${groupId}`);
-            if (groupCard) {
-                // Check if it has the "no alerts" message
-                const hasNoAlerts = groupCard.querySelector('.alert.alert-info');
-                if (hasNoAlerts && hasNoAlerts.textContent.includes('No new alerts')) {
-                    console.log(`Group ${groupId} has no alerts, skipping initial refresh`);
-                    continue;
-                }
-            }
-            await refreshGroupArticles(topic, groupId, toggle.checked, true);
-        } catch (err) {
-            console.error('Initial refresh error for group', groupId, err);
-        }
-    }
-}
-// Give the page a short moment to render, then trigger the refresh
-setTimeout(initialRefreshGroups, 100);
+    // Enhanced tooltip system for better multi-screen support
+    // initializeTooltips();  // Commented out - using native tooltips
+});
 </script>
 {% endblock %} 
