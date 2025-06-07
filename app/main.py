@@ -376,30 +376,56 @@ async def research_post(
     summaryType: str = Form(...),
     selectedTopic: str = Form(...),
     modelName: str = Form(...),
+    preservedMetadata: Optional[str] = Form(None),
     research: Research = Depends(get_research)
 ):
     try:
+        # Parse preserved metadata if available
+        preserved_data = {}
+        if preservedMetadata:
+            try:
+                preserved_data = json.loads(preservedMetadata)
+                logger.info(f"Using preserved metadata: {preserved_data}")
+            except json.JSONDecodeError:
+                logger.warning("Failed to parse preserved metadata, proceeding with full analysis")
+        
         if not modelName:
             # If no model is available, return basic article information without analysis
             article_info = await research.fetch_article_content(articleUrl)
             return JSONResponse(content={
-                "title": "Article title not available",
-                "news_source": article_info.get("source", "Unknown"),
+                "title": preserved_data.get('title') or "Article title not available",
+                "news_source": preserved_data.get('source') or article_info.get("source", "Unknown"),
                 "uri": articleUrl,
-                "publication_date": article_info.get("publication_date", "Unknown"),
+                "publication_date": preserved_data.get('publication_date') or article_info.get("publication_date", "Unknown"),
                 "summary": "Analysis not available. No AI model selected.",
                 "topic": selectedTopic
             })
         
-        result = await research.analyze_article(
-            uri=articleUrl,
-            article_text=articleContent,
-            summary_length=summaryLength,
-            summary_voice=summaryVoice,
-            summary_type=summaryType,
-            topic=selectedTopic,
-            model_name=modelName
-        )
+        # Perform analysis with preserved metadata consideration
+        if preserved_data:
+            result = await analyze_with_preserved_metadata(
+                research=research,
+                url=articleUrl,
+                content=articleContent,
+                topic=selectedTopic,
+                model_name=modelName,
+                summary_type=summaryType,
+                summary_voice=summaryVoice,
+                summary_length=summaryLength,
+                preserved_data=preserved_data
+            )
+        else:
+            # Full analysis including metadata extraction
+            result = await research.analyze_article(
+                uri=articleUrl,
+                article_text=articleContent,
+                summary_length=summaryLength,
+                summary_voice=summaryVoice,
+                summary_type=summaryType,
+                topic=selectedTopic,
+                model_name=modelName
+            )
+        
         return JSONResponse(content=result)
     except ValueError as e:
         logger.error(f"Error in research_post: {str(e)}", exc_info=True)
@@ -407,6 +433,81 @@ async def research_post(
     except Exception as e:
         logger.error(f"Error in research_post: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+async def analyze_with_preserved_metadata(research, url, content, topic, model_name, summary_type, summary_voice, summary_length, preserved_data):
+    """Analyze article using preserved metadata, only extracting missing fields"""
+    
+    # Start with preserved metadata
+    result = {
+        'uri': url,
+        'title': preserved_data.get('title'),
+        'news_source': preserved_data.get('source'),
+        'publication_date': preserved_data.get('publication_date'),
+        'bias': preserved_data.get('bias'),
+        'factual_reporting': preserved_data.get('factual_reporting'),
+        'mbfc_credibility_rating': preserved_data.get('mbfc_credibility_rating'),
+        'bias_country': preserved_data.get('bias_country'),
+        'media_type': preserved_data.get('media_type'),
+        'popularity': preserved_data.get('popularity')
+    }
+    
+    # Only extract metadata that's missing
+    if not result['title'] or not result['news_source']:
+        logger.info("Some metadata missing, extracting with LLM...")
+        full_analysis = await research.analyze_article(
+            uri=url,
+            article_text=content,
+            summary_length=summary_length,
+            summary_voice=summary_voice,
+            summary_type=summary_type,
+            topic=topic,
+            model_name=model_name
+        )
+        
+        # Only use extracted values if preserved values are missing
+        if not result['title']:
+            result['title'] = full_analysis.get('title')
+        if not result['news_source']:
+            result['news_source'] = full_analysis.get('news_source')
+        if not result['publication_date']:
+            result['publication_date'] = full_analysis.get('publication_date')
+        
+        # Always get content analysis from full analysis
+        content_fields = [
+            'summary', 'category', 'sentiment', 'sentiment_explanation',
+            'future_signal', 'future_signal_explanation', 'driver_type',
+            'driver_type_explanation', 'time_to_impact', 'time_to_impact_explanation',
+            'tags'
+        ]
+        
+        for field in content_fields:
+            if field in full_analysis:
+                result[field] = full_analysis[field]
+    else:
+        # We have all metadata, just do content analysis
+        content_analysis = await research.analyze_article(
+            uri=url,
+            article_text=content,
+            summary_length=summary_length,
+            summary_voice=summary_voice,
+            summary_type=summary_type,
+            topic=topic,
+            model_name=model_name
+        )
+        
+        # Extract only content analysis fields
+        content_fields = [
+            'summary', 'category', 'sentiment', 'sentiment_explanation',
+            'future_signal', 'future_signal_explanation', 'driver_type',
+            'driver_type_explanation', 'time_to_impact', 'time_to_impact_explanation',
+            'tags'
+        ]
+        
+        for field in content_fields:
+            if field in content_analysis:
+                result[field] = content_analysis[field]
+    
+    return result
     
 @app.get("/bulk-research", response_class=HTMLResponse)
 async def bulk_research_get(
@@ -3534,6 +3635,15 @@ async def bulk_research_stream(
         except ValueError:
             summary_length = 50
 
+        # Get preserved metadata if available
+        preserved_metadata = data.get("preservedMetadata", [])
+        
+        # Create lookup for preserved metadata
+        metadata_lookup = {}
+        for meta in preserved_metadata:
+            if meta.get('url'):
+                metadata_lookup[meta['url']] = meta
+
         bulk_research = BulkResearch(db, research=research)
 
         async def result_generator():
@@ -3544,7 +3654,21 @@ async def bulk_research_stream(
                 summary_length=summary_length,
                 summary_voice=data.get("summary_voice", "neutral"),
                 topic=topic,
+                preserved_metadata=metadata_lookup,
             ):
+                # Apply preserved metadata if available
+                if item.get('uri') in metadata_lookup:
+                    preserved_data = metadata_lookup[item['uri']]
+                    logger.info(f"Using preserved metadata for {item['uri']}: {preserved_data}")
+                    
+                    # Override with preserved metadata
+                    if preserved_data.get('title'):
+                        item['title'] = preserved_data['title']
+                    if preserved_data.get('source'):
+                        item['news_source'] = preserved_data['source']
+                    if preserved_data.get('publication_date'):
+                        item['publication_date'] = preserved_data['publication_date']
+                
                 yield (json.dumps(item) + "\n").encode("utf-8")
                 # Give the event loop a chance to send the chunk immediately
                 await asyncio.sleep(0)

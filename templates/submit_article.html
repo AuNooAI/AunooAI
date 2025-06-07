@@ -366,6 +366,10 @@
                                     <input type="text" class="form-control" id="articleSource" name="articleSource" required placeholder="e.g., The New York Times, TechCrunch">
                                 </div>
                                 <div class="mb-3">
+                                    <label for="publicationDate" class="form-label">Publication Date</label>
+                                    <input type="date" class="form-control" id="publicationDate" name="publicationDate" placeholder="Publication date">
+                                </div>
+                                <div class="mb-3">
                                     <label for="sourceUrl" class="form-label">Source URL</label>
                                     <input type="url" class="form-control" id="sourceUrl" name="sourceUrl" required placeholder="https://example.com/article">
                                 </div>
@@ -494,6 +498,7 @@ async function handlePasteSubmit(event) {
     const articleTitle = document.getElementById('articleTitle').value;
     const articleSource = document.getElementById('articleSource').value;
     const sourceUrl = document.getElementById('sourceUrl').value;
+    const publicationDate = document.getElementById('publicationDate').value;
     const pasteContent = document.getElementById('pasteContent').value;
     const topic = document.getElementById('topicSelect').value;
     const modelName = document.getElementById('modelName').value;
@@ -502,8 +507,20 @@ async function handlePasteSubmit(event) {
     const summaryLength = getSummaryLength();
 
     try {
-        // Set a default URL if none provided
         const articleUrl = sourceUrl || `https://aunoo.ai/manual-entry/${Date.now()}`;
+        
+        // Prepare preserved metadata
+        const preservedData = {
+            title: articleTitle || window.preservedMetadata?.title,
+            source: articleSource || window.preservedMetadata?.source,
+            publication_date: publicationDate || window.preservedMetadata?.publication_date,
+            bias: window.preservedMetadata?.bias,
+            factual_reporting: window.preservedMetadata?.factual_reporting,
+            mbfc_credibility_rating: window.preservedMetadata?.mbfc_credibility_rating,
+            bias_country: window.preservedMetadata?.bias_country,
+            media_type: window.preservedMetadata?.media_type,
+            popularity: window.preservedMetadata?.popularity
+        };
         
         // Analyze the article
         const formData = new FormData();
@@ -514,6 +531,7 @@ async function handlePasteSubmit(event) {
         formData.append('summaryType', summaryType);
         formData.append('summaryVoice', summaryVoice);
         formData.append('summaryLength', summaryLength);
+        formData.append('preservedMetadata', JSON.stringify(preservedData));
         
         const response = await fetch('/research', {
             method: 'POST',
@@ -527,9 +545,18 @@ async function handlePasteSubmit(event) {
 
         const result = await response.json();
         
-        // Add the title and source from the form
-        result.title = articleTitle;
-        result.news_source = articleSource;
+        // Use preserved metadata instead of extracted values
+        result.title = preservedData.title || result.title;
+        result.news_source = preservedData.source || result.news_source;
+        result.publication_date = preservedData.publication_date || result.publication_date;
+        
+        // Preserve media bias data
+        if (preservedData.bias) result.bias = preservedData.bias;
+        if (preservedData.factual_reporting) result.factual_reporting = preservedData.factual_reporting;
+        if (preservedData.mbfc_credibility_rating) result.mbfc_credibility_rating = preservedData.mbfc_credibility_rating;
+        if (preservedData.bias_country) result.bias_country = preservedData.bias_country;
+        if (preservedData.media_type) result.media_type = preservedData.media_type;
+        if (preservedData.popularity) result.popularity = preservedData.popularity;
         
         displayAnalysisResult(result);
     } catch (error) {
@@ -868,18 +895,30 @@ function loadAvailableModels() {
             const modelSelect = document.getElementById('modelName');
             
             if (modelSelect) {
-                modelSelect.innerHTML = '';
-                models.forEach(model => {
-                    const option = document.createElement('option');
-                    option.value = model.name;
-                    option.textContent = `${model.name} (${model.provider})`;
-                    modelSelect.appendChild(option);
-                });
+                if (models.length === 0) {
+                    modelSelect.innerHTML = '<option value="">No models configured</option>';
+                    console.warn('No AI models found with valid API keys');
+                } else {
+                    modelSelect.innerHTML = '<option value="">Select a model...</option>';
+                    models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.name;
+                        option.textContent = `${model.name} (${model.provider})`;
+                        modelSelect.appendChild(option);
+                    });
+                    console.log(`Loaded ${models.length} configured models:`, models.map(m => m.name));
+                }
             } else {
                 console.error('Model select element not found');
             }
         })
-        .catch(error => console.error('Error loading available models:', error));
+        .catch(error => {
+            console.error('Error loading available models:', error);
+            const modelSelect = document.getElementById('modelName');
+            if (modelSelect) {
+                modelSelect.innerHTML = '<option value="">Error loading models</option>';
+            }
+        });
 }
 
 // Set up custom field visibility toggling
@@ -919,22 +958,138 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load recently enriched articles
     loadRecentEnrichedArticles();
     
-    // Set up URL parameters (if any)
+    // Enhanced URL parameter handling
     const urlParams = new URLSearchParams(window.location.search);
-    const urlParam = urlParams.get('url');
-    const topicParam = urlParams.get('topic');
     
-    if (urlParam) {
-        document.getElementById('bulkUrlList').value = urlParam;
+    if (urlParams.get('url')) {
+        document.getElementById('bulkUrlList').value = urlParams.get('url');
     }
     
-    if (topicParam) {
-        // Wait for topics to load, then set selected topic
+    if (urlParams.get('topic')) {
         setTimeout(() => {
-            document.getElementById('topicSelect').value = topicParam;
+            document.getElementById('topicSelect').value = urlParams.get('topic');
         }, 500);
     }
+    
+    // Pre-populate metadata fields
+    if (urlParams.get('title')) {
+        const titleField = document.getElementById('articleTitle');
+        if (titleField) titleField.value = decodeURIComponent(urlParams.get('title'));
+    }
+    
+    if (urlParams.get('source')) {
+        const sourceField = document.getElementById('articleSource');
+        if (sourceField) sourceField.value = decodeURIComponent(urlParams.get('source'));
+    }
+    
+    if (urlParams.get('publication_date')) {
+        const pubDateField = document.getElementById('publicationDate');
+        if (pubDateField) {
+            const dateStr = urlParams.get('publication_date');
+            // Clean the date string first to extract only the date portion
+            const cleanedDate = cleanPublicationDate(dateStr);
+            if (cleanedDate) {
+                pubDateField.value = cleanedDate;
+            }
+        }
+    }
+    
+    // Store preserved metadata globally for use in analysis
+    window.preservedMetadata = {
+        title: urlParams.get('title'),
+        source: urlParams.get('source'),
+        publication_date: urlParams.get('publication_date'),
+        summary: urlParams.get('summary'),
+        bias: urlParams.get('bias'),
+        factual_reporting: urlParams.get('factual_reporting'),
+        mbfc_credibility_rating: urlParams.get('mbfc_credibility_rating'),
+        bias_country: urlParams.get('bias_country'),
+        media_type: urlParams.get('media_type'),
+        popularity: urlParams.get('popularity')
+    };
+    
+    // Handle bulk metadata if present
+    if (urlParams.get('bulk_metadata')) {
+        handleBulkMetadata(urlParams.get('bulk_metadata'));
+    }
+    
+    console.log('Preserved metadata:', window.preservedMetadata);
 });
+
+// Clean publication date by extracting only the date portion
+function cleanPublicationDate(dateStr) {
+    if (!dateStr) return "";
+    
+    // If it's already a clean date format, return as is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim())) {
+        return dateStr.trim();
+    }
+    
+    // Extract ISO date format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+    const isoMatch = dateStr.match(/(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)?/);
+    if (isoMatch) {
+        return isoMatch[1];
+    }
+    
+    // Extract DD/MM/YYYY format
+    const dateMatch = dateStr.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+    if (dateMatch) {
+        // Convert DD/MM/YYYY to YYYY-MM-DD
+        const dateParts = dateMatch[1].split('/');
+        if (dateParts.length === 3) {
+            const [day, month, year] = dateParts;
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+    }
+    
+    // Extract MM-DD-YYYY or MM/DD/YYYY format
+    const usDateMatch = dateStr.match(/(\d{1,2}[-\/]\d{1,2}[-\/]\d{4})/);
+    if (usDateMatch) {
+        const dateParts = usDateMatch[1].split(/[-\/]/);
+        if (dateParts.length === 3) {
+            const [month, day, year] = dateParts;
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+    }
+    
+    // If we can't parse it cleanly, return empty string
+    return "";
+}
+
+function handleBulkMetadata(bulkMetadataString) {
+    try {
+        const metadataLines = bulkMetadataString.split('\n');
+        const urlsWithMetadata = [];
+        
+        metadataLines.forEach(line => {
+            if (line.trim()) {
+                const params = new URLSearchParams(line);
+                const url = params.get('url');
+                const title = params.get('title');
+                const source = params.get('source');
+                
+                if (url) {
+                    urlsWithMetadata.push({
+                        url: url,
+                        title: title || '',
+                        source: source || ''
+                    });
+                }
+            }
+        });
+        
+        // Store bulk metadata for use during analysis
+        window.bulkPreservedMetadata = urlsWithMetadata;
+        
+        // Populate URL list with just URLs
+        const urlList = urlsWithMetadata.map(item => item.url).join('\n');
+        document.getElementById('bulkUrlList').value = urlList;
+        
+        console.log('Bulk preserved metadata:', window.bulkPreservedMetadata);
+    } catch (error) {
+        console.error('Error parsing bulk metadata:', error);
+    }
+}
 
 // Function to populate dropdown options
 function populateDropdownOptions(elementId, apiUrl, selectedValue) {
@@ -1042,6 +1197,12 @@ async function handleBulkSubmit(event) {
 async function analyzeBulkUrls(requestData) {
     const results = [];
     let firstChunkReceived = false;
+    
+    // Add preserved metadata to request if available
+    if (window.bulkPreservedMetadata) {
+        requestData.preservedMetadata = window.bulkPreservedMetadata;
+    }
+    
     const response = await fetch('/api/bulk-research-stream', {
         method: 'POST',
         headers: {
@@ -1069,8 +1230,18 @@ async function analyzeBulkUrls(requestData) {
             if (!line.trim()) continue;
             try {
                 const obj = JSON.parse(line);
+                
+                // Apply preserved metadata if available
+                if (window.bulkPreservedMetadata) {
+                    const preserved = window.bulkPreservedMetadata.find(meta => meta.url === obj.uri);
+                    if (preserved) {
+                        obj.title = preserved.title || obj.title;
+                        obj.news_source = preserved.source || obj.news_source;
+                        console.log(`Applied preserved metadata for ${obj.uri}:`, preserved);
+                    }
+                }
+                
                 results.push(obj);
-                // Incrementally render row in table
                 displayBulkResultRow(obj);
 
                 if (!firstChunkReceived) {
@@ -1090,6 +1261,16 @@ async function analyzeBulkUrls(requestData) {
     if (buffer.trim()) {
         try {
             const obj = JSON.parse(buffer);
+            
+            // Apply preserved metadata if available
+            if (window.bulkPreservedMetadata) {
+                const preserved = window.bulkPreservedMetadata.find(meta => meta.url === obj.uri);
+                if (preserved) {
+                    obj.title = preserved.title || obj.title;
+                    obj.news_source = preserved.source || obj.news_source;
+                }
+            }
+            
             results.push(obj);
             displayBulkResultRow(obj);
         } catch (e) {

@@ -549,6 +549,15 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
         padding: 0.5rem;
     }
     
+    .main-slider-container {
+        padding: 0.75rem;
+    }
+    
+    .advanced-filters {
+        padding: 0.75rem;
+        margin-top: 0.75rem;
+    }
+    
     .slider-container {
         grid-template-columns: 1fr;
         gap: 1rem;
@@ -564,6 +573,11 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     
     .slider-labels {
         font-size: 0.6rem;
+    }
+    
+    /* Hide advanced toggle text on mobile */
+    [id^="advancedToggle_"] .btn-text {
+        display: none;
     }
     
     /* Header adjustments */
@@ -830,6 +844,22 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     margin-bottom: 1rem;
 }
 
+.main-slider-container {
+    background-color: #fff;
+    border: 1px solid #e3e6ea;
+    border-radius: 0.375rem;
+    padding: 1rem;
+}
+
+.advanced-filters {
+    background-color: #f7f8fc;
+    border: 1px solid #d6d8db;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    margin-top: 1rem;
+    transition: all 0.3s ease;
+}
+
 .slider-container {
     display: grid;
     grid-template-columns: 1fr 1fr 1fr;
@@ -945,6 +975,241 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 .filter-summary .badge {
     font-size: 0.75rem;
 }
+
+/* Article Analysis Modal Styles */
+.modal-xl {
+    max-width: 90%;
+}
+
+.analysis-config {
+    background-color: #f8f9fa;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    border: 1px solid #dee2e6;
+}
+
+.selected-articles-preview {
+    background-color: #fff;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    border: 1px solid #dee2e6;
+}
+
+.selected-articles-preview h6 {
+    color: var(--primary-color);
+    margin-bottom: 0.75rem;
+}
+
+.processing-options {
+    background-color: #f8f9fa;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    border: 1px solid #dee2e6;
+}
+
+.processing-options h6 {
+    color: var(--primary-color);
+    margin-bottom: 0.75rem;
+}
+
+#selectedArticlesList {
+    border: 1px solid #dee2e6;
+    border-radius: 0.375rem;
+}
+
+#selectedArticlesList .list-group-item {
+    border-left: none;
+    border-right: none;
+    border-top: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#selectedArticlesList .list-group-item:first-child {
+    border-top: none;
+    border-top-left-radius: 0.375rem;
+    border-top-right-radius: 0.375rem;
+}
+
+#selectedArticlesList .list-group-item:last-child {
+    border-bottom-left-radius: 0.375rem;
+    border-bottom-right-radius: 0.375rem;
+}
+
+.article-item-content {
+    flex-grow: 1;
+    margin-right: 10px;
+}
+
+.article-item-actions {
+    flex-shrink: 0;
+}
+
+.article-item-actions .btn {
+    padding: 0.25rem 0.4rem;
+    font-size: 0.75rem;
+    margin-left: 0.25rem;
+}
+
+#analysisProgressContainer {
+    background-color: #f8f9fa;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    border: 1px solid #dee2e6;
+}
+
+#analysisResults {
+    background-color: #fff;
+    border-radius: 0.375rem;
+    padding: 1rem;
+    border: 1px solid #dee2e6;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.article-analysis-result {
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.article-analysis-result:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.result-item-actions {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.article-analysis-result:hover .result-item-actions {
+    opacity: 1;
+}
+
+.result-item-actions .btn {
+    padding: 0.25rem 0.4rem;
+    font-size: 0.7rem;
+    margin-left: 0.25rem;
+}
+
+.review-status {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    z-index: 20;
+    pointer-events: none;
+}
+
+.review-status .badge {
+    font-size: 0.65rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+}
+
+/* Clickable review badge styles */
+.clickable-badge {
+    transition: all 0.2s ease;
+    position: relative;
+    cursor: pointer !important;
+    user-select: none;
+}
+
+.clickable-badge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    filter: brightness(1.1);
+}
+
+.clickable-badge:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+/* Ensure all child elements of clickable badges are also clickable */
+.clickable-badge * {
+    cursor: pointer !important;
+    pointer-events: auto;
+}
+
+/* Specific styling for the clickable icon */
+.clickable-icon {
+    transition: all 0.2s ease;
+    cursor: pointer !important;
+}
+
+.clickable-badge:hover .clickable-icon {
+    opacity: 1 !important;
+    transform: scale(1.1);
+}
+
+/* Add a subtle animation to show the badge is interactive */
+.clickable-badge::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(45deg, transparent 45%, rgba(255,255,255,0.1) 50%, transparent 55%);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    border-radius: inherit;
+}
+
+.clickable-badge:hover::before {
+    opacity: 1;
+}
+
+/* Review details modal specific styles */
+#reviewDetailsModal .badge {
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+}
+
+#reviewDetailsModal .display-6 {
+    font-weight: bold;
+    font-family: 'Arial', monospace;
+}
+
+.review-results-section .card {
+    transition: transform 0.2s ease;
+}
+
+.review-results-section .card:hover {
+    transform: translateY(-2px);
+}
+
+/* Issues list styling */
+#reviewIssuesList ul {
+    padding-left: 1.5rem;
+}
+
+#reviewIssuesList li {
+    margin-bottom: 0.5rem;
+    color: #856404;
+    font-weight: 500;
+}
+
+/* Content type badges */
+#reviewContentType {
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Override button styling */
+#reviewOverrideBtn {
+    position: relative;
+    overflow: hidden;
+}
+
+#reviewOverrideBtn:hover {
+    background-color: var(--primary-dark);
+    border-color: var(--primary-dark);
+}
 </style>
 {% endblock %}
 
@@ -1039,18 +1304,16 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                             <th class="d-none">References</th>
                             <th style="width: 200px;">Growth</th>
                             <th>Size</th>
-                            <th>Tags</th>
+                            <th style="width: 20%; min-width: 150px;">Tags & Enrichment</th>
                             <th style="width: 12%; min-width: 100px;">Detected</th>
-                            <th style="width: 13%; min-width: 100px;">Tags</th>
-                            <th style="width: 12%; min-width: 100px;">Relevance</th>
-                            <th style="width: 25%; min-width: 200px;">Actions</th>
+                            <th style="width: 30%; min-width: 200px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for group in groups %}
                         <tr data-topic="{{ group.topic|default('') }}" data-total-count="{{ group.total_count|default(0) }}">
                             <td>
-                                <span class="badge bg-{{ status_colors[group.growth_status]|default('secondary') }}">
+                                <span class="badge bg-primary">
                                     {{ group.growth_status|default('No Data') }}
                                 </span>
                             </td>
@@ -1111,11 +1374,23 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                 <span class="badge bg-primary">{{ group.unread_count }} alerts</span>
                             </td>
                             <td>
-                                {% for keyword in group.keywords[:3] %}
-                                <span class="badge bg-info" title="{{ keyword }}">
-                                    <i class="fas fa-tag me-1"></i>{{ keyword|truncate(10, True, '...') }}
-                                </span>
-                                {% endfor %}
+                                <div class="d-flex flex-wrap gap-1 align-items-center">
+                                    {% for keyword in group.keywords[:3] %}
+                                    <span class="badge bg-info" title="{{ keyword }}">
+                                        <i class="fas fa-tag me-1"></i>{{ keyword|truncate(10, True, '...') }}
+                                    </span>
+                                    {% endfor %}
+                                    {% if group.keywords|length > 3 %}
+                                    <span class="badge bg-light text-dark border" title="{{ group.keywords[3:]|join(', ') }}">+{{ group.keywords|length - 3 }} more</span>
+                                    {% endif %}
+                                    <div class="ms-2">
+                                        {% if group.total_count and group.total_count > group.unread_count %}
+                                        <span class="badge bg-info" title="Total articles in group">
+                                            <i class="fas fa-newspaper me-1"></i>{{ group.total_count }} Total
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                </div>
                             </td>
                             <td>
                                 <div class="small">
@@ -1129,14 +1404,25 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                 </div>
                             </td>
                             <td>
-                                <div class="tags-column">
-                                    <!-- Empty tags column for summary table -->
+                                <div class="d-flex gap-2 flex-wrap">
+                                    <a href="/keyword-monitor#group-{{ group.id }}" 
+                                       class="btn btn-sm btn-outline-primary trend-link" 
+                                       title="Manage this keyword group">
+                                        <i class="fas fa-cog"></i> Manage
+                                    </a>
+                                    <button class="btn btn-sm btn-outline-secondary update-group-btn" 
+                                            data-topic="{{ group.topic }}" 
+                                            data-group-id="{{ group.id }}"
+                                            title="Update this group now">
+                                        <i class="fas fa-sync"></i> Update
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-info export-group-btn" 
+                                            data-topic="{{ group.topic }}" 
+                                            data-group-id="{{ group.id }}"
+                                            title="Export group alerts">
+                                        <i class="fas fa-download"></i> Export
+                                    </button>
                                 </div>
-                            </td>
-                            <td>
-                                <a href="/keyword-monitor#group-{{ group.id }}" class="btn btn-sm btn-outline-primary trend-link" title="Manage this keyword group">
-                                    <i class="fas fa-cog"></i> Manage
-                                </a>
                             </td>
                         </tr>
                         {% endfor %}
@@ -1224,56 +1510,91 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                             <h6 class="mb-0">
                                 <i class="fas fa-filter me-1"></i>Relevance Filters
                             </h6>
-                            <button class="btn btn-sm btn-outline-secondary" 
-                                    onclick="resetFilters('{{ group.id }}')"
-                                    title="Reset all filters">
-                                <i class="fas fa-undo"></i> Reset
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-outline-info" 
+                                        onclick="toggleAdvancedFilters('{{ group.id }}')"
+                                        id="advancedToggle_{{ group.id }}"
+                                        title="Show advanced filters">
+                                    <i class="fas fa-cog"></i> Advanced
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" 
+                                        onclick="resetFilters('{{ group.id }}')"
+                                        title="Reset all filters">
+                                    <i class="fas fa-undo"></i> Reset
+                                </button>
+                            </div>
                         </div>
-                        <div class="slider-container">
+                        
+                        <!-- Main combined slider -->
+                        <div class="main-slider-container mb-3">
                             <div class="slider-wrapper">
-                                <label for="topicSlider_{{ group.id }}">Topic Relevance</label>
+                                <label for="mainRelevanceSlider_{{ group.id }}">Overall Relevance</label>
                                 <input type="range" class="relevance-slider" 
-                                       id="topicSlider_{{ group.id }}" 
+                                       id="mainRelevanceSlider_{{ group.id }}" 
                                        min="0" max="1" step="0.01" value="0"
                                        data-group-id="{{ group.id }}"
-                                       data-filter-type="topic"
-                                       onchange="applyRelevanceFilter('{{ group.id }}')">
-                                <span class="relevance-value" id="topicValue_{{ group.id }}">All</span>
+                                       data-filter-type="main"
+                                       onchange="applyMainRelevanceFilter('{{ group.id }}')">
+                                <span class="relevance-value" id="mainRelevanceValue_{{ group.id }}">All</span>
                                 <div class="slider-labels">
-                                    <span>None</span>
-                                    <span>High</span>
-                                </div>
-                            </div>
-                            <div class="slider-wrapper">
-                                <label for="keywordSlider_{{ group.id }}">Keyword Relevance</label>
-                                <input type="range" class="relevance-slider" 
-                                       id="keywordSlider_{{ group.id }}" 
-                                       min="0" max="1" step="0.01" value="0"
-                                       data-group-id="{{ group.id }}"
-                                       data-filter-type="keyword"
-                                       onchange="applyRelevanceFilter('{{ group.id }}')">
-                                <span class="relevance-value" id="keywordValue_{{ group.id }}">All</span>
-                                <div class="slider-labels">
-                                    <span>None</span>
-                                    <span>High</span>
-                                </div>
-                            </div>
-                            <div class="slider-wrapper">
-                                <label for="confidenceSlider_{{ group.id }}">Confidence Score</label>
-                                <input type="range" class="relevance-slider" 
-                                       id="confidenceSlider_{{ group.id }}" 
-                                       min="0" max="1" step="0.01" value="0"
-                                       data-group-id="{{ group.id }}"
-                                       data-filter-type="confidence"
-                                       onchange="applyRelevanceFilter('{{ group.id }}')">
-                                <span class="relevance-value" id="confidenceValue_{{ group.id }}">All</span>
-                                <div class="slider-labels">
-                                    <span>Low</span>
-                                    <span>High</span>
+                                    <span>All Articles</span>
+                                    <span>Highly Relevant Only</span>
                                 </div>
                             </div>
                         </div>
+                        
+                        <!-- Advanced individual sliders (initially hidden) -->
+                        <div class="advanced-filters" id="advancedFilters_{{ group.id }}" style="display: none;">
+                            <div class="alert alert-info small mb-3">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Advanced mode: Set individual thresholds for each relevance metric
+                            </div>
+                            <div class="slider-container">
+                                <div class="slider-wrapper">
+                                    <label for="topicSlider_{{ group.id }}">Topic Relevance</label>
+                                    <input type="range" class="relevance-slider" 
+                                           id="topicSlider_{{ group.id }}" 
+                                           min="0" max="1" step="0.01" value="0"
+                                           data-group-id="{{ group.id }}"
+                                           data-filter-type="topic"
+                                           onchange="applyRelevanceFilter('{{ group.id }}')">
+                                    <span class="relevance-value" id="topicValue_{{ group.id }}">All</span>
+                                    <div class="slider-labels">
+                                        <span>None</span>
+                                        <span>High</span>
+                                    </div>
+                                </div>
+                                <div class="slider-wrapper">
+                                    <label for="keywordSlider_{{ group.id }}">Keyword Relevance</label>
+                                    <input type="range" class="relevance-slider" 
+                                           id="keywordSlider_{{ group.id }}" 
+                                           min="0" max="1" step="0.01" value="0"
+                                           data-group-id="{{ group.id }}"
+                                           data-filter-type="keyword"
+                                           onchange="applyRelevanceFilter('{{ group.id }}')">
+                                    <span class="relevance-value" id="keywordValue_{{ group.id }}">All</span>
+                                    <div class="slider-labels">
+                                        <span>None</span>
+                                        <span>High</span>
+                                    </div>
+                                </div>
+                                <div class="slider-wrapper">
+                                    <label for="confidenceSlider_{{ group.id }}">Confidence Score</label>
+                                    <input type="range" class="relevance-slider" 
+                                           id="confidenceSlider_{{ group.id }}" 
+                                           min="0" max="1" step="0.01" value="0"
+                                           data-group-id="{{ group.id }}"
+                                           data-filter-type="confidence"
+                                           onchange="applyRelevanceFilter('{{ group.id }}')">
+                                    <span class="relevance-value" id="confidenceValue_{{ group.id }}">All</span>
+                                    <div class="slider-labels">
+                                        <span>Low</span>
+                                        <span>High</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div class="filter-summary" id="filterSummary_{{ group.id }}">
                             <span class="badge bg-info">Showing all {{ group.alerts|length }} articles</span>
                         </div>
@@ -1349,13 +1670,22 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                     </td>
                                     <td>
                                         <div class="d-flex align-items-center">
-                                            {% set has_enrichment = (alert.article.category and alert.article.category|trim) or (alert.article.sentiment and alert.article.sentiment|trim) or (alert.article.driver_type and alert.article.driver_type|trim) or (alert.article.time_to_impact and alert.article.time_to_impact|trim) %}
+                                            {% set has_enrichment = alert.article.category and alert.article.category|trim %}
+                                            <!-- DEBUG: {{ alert.article.category }}|{{ alert.article.sentiment }}|{{ alert.article.driver_type }}|{{ alert.article.time_to_impact }}|{{ has_enrichment }} -->
                                             {% if has_enrichment %}
-                                            <span class="badge bg-success">Added</span>
+                                            <span class="badge bg-success" title="Article has been analyzed">
+                                                <i class="fas fa-check-circle me-1"></i>Added
+                                            </span>
                                             {% else %}
-                                            <span class="badge bg-primary">New</span>
+                                            <span class="badge bg-warning text-dark" title="Article needs analysis">
+                                                <i class="fas fa-exclamation-circle me-1"></i>New
+                                            </span>
                                             {% endif %}
-                                            <!-- DEBUG: {{ alert.article.category }}|{{ alert.article.sentiment }}|{{ alert.article.driver_type }}|{{ alert.article.time_to_impact }} -->
+                                            {% if alert.article.bias or alert.article.factual_reporting %}
+                                            <span class="badge bg-info ms-1" title="Has media bias data">
+                                                <i class="fas fa-shield-alt me-1"></i>Bias
+                                            </span>
+                                            {% endif %}
                                         </div>
                                     </td>
                                     <td>
@@ -1375,6 +1705,25 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                             <div class="text-muted">
                                                 {{ alert.article.publication_date or 'Unknown' }}
                                             </div>
+                                            {% if alert.article.bias or alert.article.factual_reporting %}
+                                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                                {% if alert.article.bias %}
+                                                <span class="bias-badge bias-{{ alert.article.bias|lower|replace(' ', '-') }}" title="Media Bias: {{ alert.article.bias }}">
+                                                    {{ alert.article.bias }}
+                                                </span>
+                                                {% endif %}
+                                                {% if alert.article.factual_reporting %}
+                                                <span class="bias-badge factual-{{ alert.article.factual_reporting|lower|replace(' ', '-') }}" title="Factual Reporting: {{ alert.article.factual_reporting }}">
+                                                    {{ alert.article.factual_reporting }}
+                                                </span>
+                                                {% endif %}
+                                                {% if alert.article.bias_country %}
+                                                <span class="badge bg-light text-dark border" title="Country: {{ alert.article.bias_country }}">
+                                                    {{ alert.article.bias_country }}
+                                                </span>
+                                                {% endif %}
+                                            </div>
+                                            {% endif %}
                                         </div>
                                     </td>
                                     <td style="width: 15%; min-width: 120px;">
@@ -1440,11 +1789,15 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                                         title="Mark as read">
                                                     <i class="fas fa-check"></i>
                                                 </button>
-                                                <a href="/submit-article?url={{ alert.article.url|urlencode }}&topic={{ group.topic|urlencode }}" 
-                                                   class="btn btn-sm btn-outline-primary"
-                                                   title="Analyze article">
+                                                <button class="btn btn-sm btn-outline-primary analyze-single-article-btn" 
+                                                        data-article-url="{{ alert.article.url }}"
+                                                        data-article-title="{{ alert.article.title }}"
+                                                        data-article-source="{{ alert.article.source }}"
+                                                        data-article-topic="{{ group.topic }}"
+                                                        data-article-summary="{{ alert.article.summary }}"
+                                                        title="Analyze article">
                                                     <i class="fas fa-microscope"></i>
-                                                </a>
+                                                </button>
                                             </div>
                                             <div class="d-flex gap-1">
                                                 <a href="https://12ft.io/{{ alert.article.url }}" 
@@ -1499,7 +1852,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="modelSelectionModalLabel">Select AI Model for Relevance Analysis</h5>
+                <h5 class="modal-title" id="modelSelectionModalLabel">Start Background Relevance Analysis</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -1509,8 +1862,13 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                         <option value="">Loading models...</option>
                     </select>
                     <div class="form-text">
-                        Select the AI model to use for analyzing relevance of selected articles.
+                        The analysis will run in the background. You'll receive notifications when it starts and completes.
                     </div>
+                </div>
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    <strong>Background Processing:</strong> The analysis will start immediately and run in the background. 
+                    You can continue using the interface while it processes. Results will be automatically refreshed when complete.
                 </div>
                 <div id="analysisProgress" class="progress" style="display: none;">
                     <div class="progress-bar progress-bar-striped progress-bar-animated" 
@@ -1521,7 +1879,243 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary" id="startAnalysisBtn" onclick="startRelevanceAnalysis()">
-                    <i class="fas fa-brain"></i> Start Analysis
+                    <i class="fas fa-rocket"></i> Start Background Analysis
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- LLM Review Details Modal -->
+<div class="modal fade" id="reviewDetailsModal" tabindex="-1" aria-labelledby="reviewDetailsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="reviewDetailsModalLabel">
+                    <i class="fas fa-search-alt me-2"></i>LLM Content Review Details
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Article Info -->
+                <div class="article-info-section mb-4">
+                    <h6 class="text-primary">
+                        <i class="fas fa-newspaper me-2"></i>Article Information
+                    </h6>
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <h6 id="reviewArticleTitle" class="card-title mb-2">Article Title</h6>
+                            <p id="reviewArticleSource" class="text-muted small mb-2">
+                                <i class="fas fa-globe me-1"></i>Source
+                            </p>
+                            <p id="reviewArticleSummary" class="card-text">Article summary...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Review Results -->
+                <div class="review-results-section mb-4">
+                    <h6 class="text-success">
+                        <i class="fas fa-robot me-2"></i>LLM Analysis Results
+                    </h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card border-primary">
+                                <div class="card-body text-center">
+                                    <h4 id="reviewQualityScore" class="display-6 text-primary">0.85</h4>
+                                    <p class="text-muted mb-0">Quality Score</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <span id="reviewRecommendationBadge" class="badge bg-success fs-6">APPROVE</span>
+                                    <p class="text-muted mb-0 mt-2">LLM Recommendation</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Content Classification -->
+                <div class="content-type-section mb-4">
+                    <h6 class="text-info">
+                        <i class="fas fa-tags me-2"></i>Content Classification
+                    </h6>
+                    <span id="reviewContentType" class="badge bg-info fs-6">article</span>
+                    <span id="reviewModelUsed" class="badge bg-secondary ms-2 fs-6">gpt-4o-mini</span>
+                </div>
+
+                <!-- Issues Detected -->
+                <div class="issues-section mb-4" id="reviewIssuesSection">
+                    <h6 class="text-warning">
+                        <i class="fas fa-exclamation-triangle me-2"></i>Issues Detected
+                    </h6>
+                    <div id="reviewIssuesList" class="alert alert-warning">
+                        <ul class="mb-0" id="reviewIssuesItems">
+                            <!-- Issues will be populated here -->
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- LLM Explanation -->
+                <div class="explanation-section">
+                    <h6 class="text-dark">
+                        <i class="fas fa-comment-alt me-2"></i>LLM Explanation
+                    </h6>
+                    <div class="alert alert-info">
+                        <p id="reviewExplanation" class="mb-0">
+                            The LLM's detailed explanation will appear here...
+                        </p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i>Close
+                </button>
+                <button type="button" class="btn btn-primary" id="reviewOverrideBtn" onclick="overrideReviewDecision()">
+                    <i class="fas fa-edit me-1"></i>Override Decision
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Article Analysis Modal -->
+<div class="modal fade" id="articleAnalysisModal" tabindex="-1" aria-labelledby="articleAnalysisModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="articleAnalysisModalLabel">Analyze Selected Articles</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Analysis Configuration -->
+                <div class="analysis-config mb-4">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="analysisModelSelect" class="form-label">AI Model</label>
+                                <select class="form-select" id="analysisModelSelect" required>
+                                    <option value="">Loading models...</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="analysisSummaryLength" class="form-label">Summary Length</label>
+                                <select class="form-select" id="analysisSummaryLength">
+                                    <option value="40">40 words</option>
+                                    <option value="50" selected>50 words</option>
+                                    <option value="75">75 words</option>
+                                    <option value="100">100 words</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="analysisSummaryVoice" class="form-label">Summary Voice</label>
+                                <select class="form-select" id="analysisSummaryVoice">
+                                    <option value="business_analyst">Business Analyst</option>
+                                    <option value="industry_analyst">Industry Analyst</option>
+                                    <option value="tech_journalist">Tech Journalist</option>
+                                    <option value="investment_advisor">Investment Advisor</option>
+                                    <option value="principal_security_engineer">Principal Security Engineer</option>
+                                    <option value="ciso">CISO</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="analysisTopicSelect" class="form-label">Topic</label>
+                                <select class="form-select" id="analysisTopicSelect" required>
+                                    <option value="">Select a topic</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Selected Articles Preview -->
+                <div class="selected-articles-preview mb-4">
+                    <h6>Selected Articles (<span id="selectedArticlesCount">0</span>)</h6>
+                    <div id="selectedArticlesList" class="list-group" style="max-height: 300px; overflow-y: auto;">
+                        <!-- Selected articles will be listed here -->
+                    </div>
+                </div>
+
+                <!-- Processing Options -->
+                <div class="processing-options mb-4">
+                    <h6><i class="fas fa-cogs me-2"></i>Processing Options</h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="backgroundProcessing" checked>
+                                <label class="form-check-label" for="backgroundProcessing">
+                                    <i class="fas fa-play-circle me-1"></i>Run in background
+                                </label>
+                                <div class="form-text">Continue using the interface while processing</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="autoSave" checked>
+                                <label class="form-check-label" for="autoSave">
+                                    <i class="fas fa-save me-1"></i>Auto-save results
+                                </label>
+                                <div class="form-text">Automatically save to database when complete</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="llmReview" checked>
+                                <label class="form-check-label" for="llmReview">
+                                    <i class="fas fa-search me-1"></i>LLM Quality Review
+                                </label>
+                                <div class="form-text">Review analysis quality and completeness</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="closeOnComplete">
+                                <label class="form-check-label" for="closeOnComplete">
+                                    <i class="fas fa-times-circle me-1"></i>Close modal when done
+                                </label>
+                                <div class="form-text">Auto-close modal after processing</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Progress and Status -->
+                <div id="analysisProgressContainer" style="display: none;">
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <strong>Processing Articles:</strong> <span id="analysisProgressText">Initializing...</span>
+                    </div>
+                    <div class="progress mb-3">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                             id="analysisProgressBar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                                    <div id="analysisResults" class="mt-3" style="display: none;">
+                    <h6>Analysis Results <span id="reviewStatusCount" class="badge bg-info ms-2" style="display: none;"></span></h6>
+                    <div id="analysisResultsList"></div>
+                </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="startArticleAnalysisBtn" onclick="startArticleAnalysis()">
+                    <i class="fas fa-microscope"></i> Start Analysis
+                </button>
+                <button type="button" class="btn btn-success" id="saveAnalysisResultsBtn" style="display: none;" onclick="saveAnalysisResults()">
+                    <i class="fas fa-save"></i> Save All Articles
                 </button>
             </div>
         </div>
@@ -1544,11 +2138,38 @@ document.addEventListener('DOMContentLoaded', function() {
         // Check if this is a Jinja-rendered row that should show enrichment
         const hasEnrichmentBadge = row.querySelector('.badge.bg-success')?.textContent === 'Added';
         
-        console.log(`Initial row ${index}:`, {
+        // Check data attributes that JavaScript would read
+        const dataCategory = row.dataset.articleCategory;
+        const dataSentiment = row.dataset.articleSentiment;
+        const dataDriverType = row.dataset.articleDriverType;
+        const dataTimeToImpact = row.dataset.articleTimeToImpact;
+        
+        // Look for DEBUG comment in HTML  
+        const debugMatch = row.innerHTML.includes('<!-- DEBUG:') ? 
+            row.innerHTML.substring(
+                row.innerHTML.indexOf('<!-- DEBUG:') + 11, 
+                row.innerHTML.indexOf('-->', row.innerHTML.indexOf('<!-- DEBUG:'))
+            ).trim() : null;
+        const serverSideDebug = debugMatch || 'No debug info';
+        
+        console.log('Initial row ' + index + ':', {
             title: title.substring(0, 50) + '...',
             statusBadge: statusBadge,
             hasEnrichmentBadge: hasEnrichmentBadge,
-            alertId: row.dataset.alertId
+            alertId: row.dataset.alertId,
+            dataAttributes: {
+                category: '"' + dataCategory + '"',
+                sentiment: '"' + dataSentiment + '"',
+                driver_type: '"' + dataDriverType + '"',
+                time_to_impact: '"' + dataTimeToImpact + '"'
+            },
+            serverSideDebug: serverSideDebug,
+            jsEnrichmentCheck: isArticleEnriched({
+                category: dataCategory,
+                sentiment: dataSentiment,
+                driver_type: dataDriverType,
+                time_to_impact: dataTimeToImpact
+            })
         });
     });
 });
@@ -1834,33 +2455,49 @@ let selectedArticlesByTopic = {};
 
 // Load available AI models
 async function loadAvailableModels() {
+    console.log('🔧 loadAvailableModels called');
     try {
-        const response = await fetch('/api/onboarding/configured-models', {
-            credentials: 'same-origin'
-        });
-        if (!response.ok) throw new Error('Failed to fetch models');
+        console.log('📡 Fetching models from /api/available_models');
+        const response = await fetch('/api/available_models');
         
-        const data = await response.json();
-        const models = data.models || [];
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const models = await response.json();
+        console.log('📦 Models received:', models);
         availableModels = models;
         
         const modelSelect = document.getElementById('modelSelect');
+        console.log('🎯 Model select element:', modelSelect);
+        
         if (modelSelect) {
-            modelSelect.innerHTML = '<option value="">Select a model...</option>';
-            models.forEach(model => {
-                const option = document.createElement('option');
-                option.value = model.name || model.id || model;
-                // Handle different model response formats
-                if (typeof model === 'string') {
-                    option.textContent = model;
-                } else {
-                    option.textContent = `${model.display_name || model.name || model.id} (${model.provider || ''})`.trim();
-                }
-                modelSelect.appendChild(option);
-            });
+            if (models.length === 0) {
+                console.warn('⚠️ No models found');
+                modelSelect.innerHTML = '<option value="">No models configured</option>';
+            } else {
+                console.log(`✅ Loading ${models.length} models into dropdown`);
+                modelSelect.innerHTML = '<option value="">Select a model...</option>';
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = `${model.name} (${model.provider})`;
+                    
+                    // Add data attributes for additional info
+                    if (model.provider) {
+                        option.dataset.provider = model.provider;
+                    }
+                    
+                    modelSelect.appendChild(option);
+                    console.log(`➕ Added model: ${model.name} (${model.provider})`);
+                });
+                console.log('🎉 Successfully loaded models into dropdown');
+            }
+        } else {
+            console.error('❌ modelSelect element not found in DOM');
         }
     } catch (error) {
-        console.error('Error loading models:', error);
+        console.error('❌ Error loading available models:', error);
         const modelSelect = document.getElementById('modelSelect');
         if (modelSelect) {
             modelSelect.innerHTML = '<option value="">Error loading models</option>';
@@ -1911,12 +2548,9 @@ async function analyzeRelevanceSelected(topic, groupId) {
         `Select AI Model for Relevance Analysis (${articleUris.length} articles)`;
 }
 
-// Start relevance analysis with selected model
+// Start relevance analysis with selected model (background processing)
 async function startRelevanceAnalysis() {
     const modelSelect = document.getElementById('modelSelect');
-    const progressBar = document.getElementById('analysisProgress');
-    const statusDiv = document.getElementById('analysisStatus');
-    const startBtn = document.getElementById('startAnalysisBtn');
     
     const selectedModel = modelSelect.value;
     if (!selectedModel) {
@@ -1924,12 +2558,23 @@ async function startRelevanceAnalysis() {
         return;
     }
     
-    // Show progress
-    progressBar.style.display = 'block';
-    statusDiv.style.display = 'block';
-    startBtn.disabled = true;
+    // Immediately close the modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById('modelSelectionModal'));
+    modal.hide();
     
-    statusDiv.textContent = `Starting relevance analysis for ${currentRelevanceData.articleUris.length} articles...`;
+    // Reset modal state for next use
+    const progressBar = document.getElementById('analysisProgress');
+    const statusDiv = document.getElementById('analysisStatus');
+    const startBtn = document.getElementById('startAnalysisBtn');
+    progressBar.style.display = 'none';
+    statusDiv.style.display = 'none';
+    startBtn.disabled = false;
+    const progressBarElement = progressBar.querySelector('.progress-bar');
+    progressBarElement.style.width = '0%';
+    statusDiv.textContent = '';
+    
+    // Show start notification
+    showAlert(`Starting relevance analysis for ${currentRelevanceData.articleUris.length} articles using ${selectedModel}...`, 'info');
     
     try {
         const response = await fetch('/api/keyword-monitor/analyze-relevance', {
@@ -1953,40 +2598,24 @@ async function startRelevanceAnalysis() {
         
         const result = await response.json();
         
-        // Update progress to 100%
-        const progressBarElement = progressBar.querySelector('.progress-bar');
-        progressBarElement.style.width = '100%';
-        statusDiv.textContent = `Analysis complete! Updated ${result.updated_count} articles.`;
+        // Show completion notification
+        showAlert(`✅ Relevance analysis completed! Updated ${result.updated_count} articles using ${selectedModel}. Refreshing data...`, 'success');
         
-        // Hide modal after a delay
-        setTimeout(() => {
-            const modal = bootstrap.Modal.getInstance(document.getElementById('modelSelectionModal'));
-            modal.hide();
-            
-            // Reset modal state
-            progressBar.style.display = 'none';
-            statusDiv.style.display = 'none';
-            startBtn.disabled = false;
-            progressBarElement.style.width = '0%';
-            statusDiv.textContent = '';
-            
-            // Refresh the group to show updated relevance scores
+        // Refresh the group to show updated relevance scores
+        setTimeout(async () => {
             const toggle = document.querySelector(`#showReadToggle_${currentRelevanceData.groupId}`);
             if (toggle) {
-                refreshGroupArticles(currentRelevanceData.topic, currentRelevanceData.groupId, toggle.checked);
+                await refreshGroupArticles(currentRelevanceData.topic, currentRelevanceData.groupId, toggle.checked);
+                showAlert(`📊 Relevance scores updated for ${currentRelevanceData.topic} group`, 'success');
             } else {
                 // If we can't refresh the group, just reload the page
                 setTimeout(() => window.location.reload(), 1000);
             }
-        }, 2000);
-        
-        showAlert(`Relevance analysis completed for ${result.updated_count} articles using ${selectedModel}`, 'success');
+        }, 1500);
         
     } catch (error) {
         console.error('Error during relevance analysis:', error);
-        statusDiv.textContent = `Error: ${error.message}`;
-        startBtn.disabled = false;
-        showAlert(`Relevance analysis failed: ${error.message}`, 'danger');
+        showAlert(`❌ Relevance analysis failed: ${error.message}`, 'danger');
     }
 }
 
@@ -2026,12 +2655,7 @@ function updateRelevanceDisplay(articleUri, relevanceData) {
     `;
 }
 
-// Load models when page loads
-document.addEventListener('DOMContentLoaded', () => {
-    loadTrendChart();
-    loadAvailableModels();
-    setInterval(loadTrendChart, 5 * 60 * 1000);
-});
+// NOTE: Consolidated with main DOMContentLoaded listener below
 
 async function loadTrendChart() {
     try {
@@ -2236,6 +2860,14 @@ async function checkKeywords() {
 
 // Update the DOMContentLoaded event listener to be simpler
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('🚀 DOMContentLoaded event fired');
+    
+    // Load models and trend chart
+    console.log('📊 Loading charts and models...');
+    loadTrendChart();
+    loadAvailableModels();
+    setInterval(loadTrendChart, 5 * 60 * 1000);
+    
     // Initialize toggles
     document.querySelectorAll('.show-read-toggle').forEach(toggle => {
         const topic = toggle.dataset.topic;
@@ -2272,11 +2904,21 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize table sorting
     initializeTableSorting();
     
-    // Initialize relevance filters
-    document.querySelectorAll('.relevance-slider').forEach(slider => {
+    // Initialize relevance filters - prioritize main slider
+    document.querySelectorAll('[id^="mainRelevanceSlider_"]').forEach(mainSlider => {
+        const groupId = mainSlider.dataset.groupId;
+        // Set initial display for main slider
+        applyMainRelevanceFilter(groupId);
+    });
+    
+    // Initialize any remaining advanced sliders that might be visible
+    document.querySelectorAll('.relevance-slider:not([id^="mainRelevanceSlider_"])').forEach(slider => {
         const groupId = slider.dataset.groupId;
-        // Set initial display
-        applyRelevanceFilter(groupId);
+        const advancedFilters = document.getElementById(`advancedFilters_${groupId}`);
+        // Only apply if advanced filters are visible
+        if (advancedFilters && advancedFilters.style.display !== 'none') {
+            applyRelevanceFilter(groupId);
+        }
     });
     
     // Then set up a MutationObserver to detect when new articles are added
@@ -2409,88 +3051,121 @@ function domainsMatch(sourceDomain, targetDomain) {
     return false;
 }
 
-// Function for adding media bias badges to all articles
+// Function for adding media bias badges to dynamically loaded articles
 function enhanceAllArticlesWithMediaBias() {
-    console.log('Enhancing all articles with media bias data');
+    console.log('Enhancing all articles with media bias data and enrichment status');
     
-    // Look for all table rows that might contain articles
-    const allRows = document.querySelectorAll('tr');
-    console.log(`Found ${allRows.length} table rows to check for media bias`);
+    // Target article detail tables (not the overview table)
+    const articleTables = document.querySelectorAll('table[id^="articlesTable_"]');
+    console.log(`Found ${articleTables.length} article tables to process`);
     
-    // Process each row
-    allRows.forEach((row, index) => {
-        // Look for source information
-        const sourceCell = row.querySelector('td div.small .fw-bold');
-        if (!sourceCell) return;
+    articleTables.forEach((table, tableIndex) => {
+        const rows = table.querySelectorAll('tbody tr[data-alert-id]');
+        console.log(`Processing table ${tableIndex} with ${rows.length} article rows`);
         
-        const sourceName = sourceCell.textContent.trim();
-        console.log(`Row ${index}: Found source: ${sourceName}`);
-        
-        // Check common sources that should have media bias data
-        const knownSources = {
-            'vanity fair': { bias: 'Left', factual: 'Mixed', country: 'USA' },
-            'cnn': { bias: 'Left', factual: 'Mostly Factual', country: 'USA' },
-            'forbes': { bias: 'Least Biased', factual: 'Mostly Factual', country: 'USA' },
-            'yahoo': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' },
-            'theverge': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' },
-            'the verge': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' }
-        };
-        
-        let matchedSource = null;
-        const normalizedSource = normalizeDomain(sourceName);
-        
-        // Check for match with any known source
-        for (const [source, data] of Object.entries(knownSources)) {
-            if (domainsMatch(source, normalizedSource) || 
-                sourceName.toLowerCase().includes(source.toLowerCase()) ||
-                normalizedSource.includes(normalizeDomain(source))) {
-                console.log(`Source ${sourceName} matches known source: ${source}`);
-                matchedSource = { source: source, ...data };
-                break;
-            }
-        }
-        
-        // If we have a match and media bias isn't already displayed, add it
-        if (matchedSource) {
-            const sourceContainer = sourceCell.closest('div.small');
-            if (!sourceContainer) return;
+        rows.forEach((row, rowIndex) => {
+            // Look for source info - should be in 4th column
+            const sourceCell = row.querySelector('td:nth-child(4) .source-info');
+            if (!sourceCell) return;
             
-            // Check if media bias is already displayed
-            if (sourceContainer.querySelector('.source-metadata')) {
-                console.log('Media bias already displayed for this source');
+            const sourceNameElement = sourceCell.querySelector('.source-name');
+            if (!sourceNameElement) return;
+            
+            const sourceName = sourceNameElement.textContent.trim();
+            if (!sourceName) return;
+            
+            // Check if already enhanced
+            if (sourceCell.querySelector('.bias-badge') || sourceCell.classList.contains('media-bias-enhanced')) {
                 return;
             }
             
-            console.log(`Adding media bias display for ${sourceName} (matched: ${matchedSource.source})`);
+            console.log(`Processing article ${rowIndex}: ${sourceName}`);
             
-            // Get bias and factual classes
-            const biasClass = getBiasClass(matchedSource.bias);
-            const factualClass = getFactualClass(matchedSource.factual);
-            
-            // Create article object for createMediaBiasDisplay
-            const articleData = {
-                source: sourceName,
-                bias: matchedSource.bias,
-                factual_reporting: matchedSource.factual,
-                bias_country: matchedSource.country
+            // Enhanced known sources database
+            const knownSources = {
+                'vanity fair': { bias: 'Left', factual: 'Mixed', country: 'USA' },
+                'cnn': { bias: 'Left', factual: 'Mostly Factual', country: 'USA' },
+                'forbes': { bias: 'Least Biased', factual: 'Mostly Factual', country: 'USA' },
+                'yahoo': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' },
+                'yahoo finance': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' },
+                'the verge': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' },
+                'techcrunch': { bias: 'Least Biased', factual: 'High', country: 'USA' },
+                'reuters': { bias: 'Least Biased', factual: 'Very High', country: 'UK' },
+                'bbc': { bias: 'Left-Center', factual: 'High', country: 'UK' },
+                'associated press': { bias: 'Least Biased', factual: 'Very High', country: 'USA' },
+                'wall street journal': { bias: 'Right-Center', factual: 'High', country: 'USA' },
+                'new york times': { bias: 'Left-Center', factual: 'High', country: 'USA' },
+                'washington post': { bias: 'Left-Center', factual: 'High', country: 'USA' },
+                'usa today': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' },
+                'fox news': { bias: 'Right', factual: 'Mixed', country: 'USA' },
+                'cnet': { bias: 'Least Biased', factual: 'Mostly Factual', country: 'USA' },
+                'wired': { bias: 'Left-Center', factual: 'High', country: 'USA' },
+                'ars technica': { bias: 'Left-Center', factual: 'High', country: 'USA' },
+                'engadget': { bias: 'Left-Center', factual: 'Mostly Factual', country: 'USA' }
             };
             
-            // Generate HTML using our reusable function
-            const biasHtml = createMediaBiasDisplay(articleData);
+            let matchedSource = null;
+            const sourceNameLower = sourceName.toLowerCase();
             
-            // Add the HTML after the publication date
-            const publicationDateDiv = sourceContainer.querySelector('.text-muted');
-            if (publicationDateDiv) {
-                console.log('Adding media bias HTML after publication date');
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = biasHtml;
-                publicationDateDiv.insertAdjacentElement('afterend', tempDiv.firstElementChild);
-            } else {
-                console.log('No publication date div found, adding at the end of container');
-                sourceContainer.insertAdjacentHTML('beforeend', biasHtml);
+            // Check for match with any known source
+            for (const [source, data] of Object.entries(knownSources)) {
+                if (sourceNameLower.includes(source.toLowerCase()) || 
+                    domainsMatch(source, sourceName)) {
+                    console.log(`Source ${sourceName} matches known source: ${source}`);
+                    matchedSource = { source: source, ...data };
+                    break;
+                }
             }
-        }
+            
+            // Add media bias display if we have a match
+            if (matchedSource) {
+                console.log(`Adding media bias display for ${sourceName}`);
+                
+                const biasClass = getBiasClass(matchedSource.bias);
+                const factualClass = getFactualClass(matchedSource.factual);
+                
+                const biasHtml = `
+                    <div class="d-flex flex-wrap gap-1 mt-1">
+                        <span class="bias-badge ${biasClass}" title="Media Bias: ${matchedSource.bias}">
+                            ${matchedSource.bias}
+                        </span>
+                        <span class="bias-badge ${factualClass}" title="Factual Reporting: ${matchedSource.factual}">
+                            ${matchedSource.factual}
+                        </span>
+                        ${matchedSource.country ? `<span class="badge bg-light text-dark border" title="Country: ${matchedSource.country}">${matchedSource.country}</span>` : ''}
+                    </div>
+                `;
+                
+                sourceCell.insertAdjacentHTML('beforeend', biasHtml);
+                sourceCell.classList.add('media-bias-enhanced');
+            }
+            
+                         // Skip status badge updates for initial page load - let template handle it
+             // Only update status badges for truly dynamically loaded content
+             if (sourceCell.closest('table').dataset.dynamicallyLoaded === 'true') {
+                 const statusCell = row.querySelector('td:nth-child(2)');
+                 if (statusCell) {
+                     const statusBadge = statusCell.querySelector('.badge');
+                     if (statusBadge) {
+                         // Check only category field to determine enrichment status
+                         const hasCategory = !!(row.dataset.articleCategory && row.dataset.articleCategory.trim() !== '');
+                         
+                         if (hasCategory && !statusBadge.classList.contains('bg-success')) {
+                             statusBadge.className = 'badge bg-success';
+                             statusBadge.innerHTML = '<i class="fas fa-check-circle me-1"></i>Added';
+                             statusBadge.title = 'Article has been analyzed';
+                         } else if (!hasCategory && !statusBadge.classList.contains('bg-warning')) {
+                             statusBadge.className = 'badge bg-warning text-dark';
+                             statusBadge.innerHTML = '<i class="fas fa-exclamation-circle me-1"></i>New';
+                             statusBadge.title = 'Article needs analysis';
+                         }
+                     }
+                 }
+             }
+        });
     });
+    
+    console.log('Media bias enhancement complete');
 }
 
 // Backward compatibility: keep the old function name but use the new implementation
@@ -2808,16 +3483,11 @@ function analyzeBulkArticles(topic, groupId) {
     const articles = selectedArticles.byGroup[groupId] || [];
     if (articles.length === 0) {
         showAlert('No articles selected for analysis', 'warning');
-            return;
-        }
+        return;
+    }
     
-    const urls = articles.map(article => article.url).join('\n');
-    const params = new URLSearchParams({
-        url: urls,
-        topic: topic
-    });
-    
-    window.location.href = `/submit-article?${params.toString()}`;
+    // Prepare articles for modal
+    openArticleAnalysisModal(articles, topic, groupId);
 }
 
 // Function to analyze selected articles using checkboxes
@@ -2829,65 +3499,84 @@ function analyzeSelectedArticles(topic, groupId) {
         return;
     }
     
-    // Extract URLs from the checked articles
-    const urls = Array.from(checkedBoxes).map(checkbox => {
+    // Extract article data with metadata preservation
+    const articles = Array.from(checkedBoxes).map(checkbox => {
         const row = checkbox.closest('tr');
         const articleLink = row.querySelector('.article-title');
-        return articleLink ? articleLink.href : null;
-    }).filter(url => url).join('\n');
+        const sourceCell = row.querySelector('.source-name');
+        const titleText = articleLink ? articleLink.textContent.trim() : '';
+        const sourceText = sourceCell ? sourceCell.textContent.trim() : '';
+        const url = articleLink ? articleLink.href : null;
+        
+        if (!url) return null;
+        
+        // Extract publication date if available
+        let publicationDate = '';
+        const dateCell = row.querySelector('td:nth-child(5)'); // Detected column
+        if (dateCell) {
+            const dateText = dateCell.textContent.trim();
+            if (dateText && dateText !== '-') {
+                const cleanedDate = cleanPublicationDate(dateText);
+                if (cleanedDate) {
+                    publicationDate = cleanedDate;
+                }
+            }
+        }
+        
+        return {
+            url: url,
+            title: titleText,
+            source: sourceText,
+            publication_date: publicationDate,
+            summary: row.querySelector('.article-summary')?.textContent?.trim() || ''
+        };
+    }).filter(article => article);
     
-    if (!urls) {
-        showAlert('No valid URLs found in selected articles', 'warning');
+    if (articles.length === 0) {
+        showAlert('No valid articles found for analysis', 'warning');
         return;
     }
     
-    // Redirect to submit-article page with the URLs
-    const params = new URLSearchParams({
-        url: urls,
-        topic: topic
-    });
-    
-    window.location.href = `/submit-article?${params.toString()}`;
+    // Open analysis modal
+    openArticleAnalysisModal(articles, topic, groupId);
 }
 
-// Function to check if an article has been enriched (has categories, etc.)
+// Function to check if an article has been enriched (has category field populated)
 function isArticleEnriched(article) {
-    // Check if article has been enriched - check for any enrichment fields
-    const hasCategory = !!(article.category && article.category.trim() !== '');
-    const hasSentiment = !!(article.sentiment && article.sentiment.trim() !== '');
-    const hasDriverType = !!(article.driver_type && article.driver_type.trim() !== '');
-    const hasTimeToImpact = !!(article.time_to_impact && article.time_to_impact.trim() !== '');
+    if (!article) return false;
     
-    const isEnriched = hasCategory || hasSentiment || hasDriverType || hasTimeToImpact;
+    // Article is considered enriched if it has a populated category field
+    const hasCategory = !!(article.category && article.category.trim() !== '');
     
     // Debug logging for specific articles
-    if (article.uri && (article.uri.includes('tomshardware') || article.uri.includes('yahoo') || article.uri.includes('forbes'))) {
-        console.log('isArticleEnriched check:', {
+    if (article.uri && (article.uri.includes('tomshardware') || article.uri.includes('yahoo') || article.uri.includes('forbes') || article.title?.includes('AI Uncertainty'))) {
+        console.log('isArticleEnriched check for:', article.title?.substring(0, 50) + '...', {
             uri: article.uri,
-            category: article.category,
-            sentiment: article.sentiment,
-            driver_type: article.driver_type,
-            time_to_impact: article.time_to_impact,
+            category: `"${article.category}"`,
             hasCategory: hasCategory,
-            hasSentiment: hasSentiment,
-            hasDriverType: hasDriverType,
-            hasTimeToImpact: hasTimeToImpact,
-            isEnriched: isEnriched,
-            articleKeys: Object.keys(article)
+            isEnriched: hasCategory
         });
     }
     
-    return isEnriched;
+    return hasCategory;
 }
 
 // Function to create enrichment status badge
 function createEnrichmentBadge(article) {
-    if (isArticleEnriched(article)) {
-        return `<span class="badge bg-info ms-1" title="Article has been analyzed">
-            <i class="fas fa-check-circle me-1"></i>Analyzed
+    if (!article) return '';
+    
+    // Only check category field for enrichment status
+    const hasCategory = !!(article.category && article.category.trim() !== '');
+    
+    if (hasCategory) {
+        return `<span class="badge bg-success ms-1" title="Article has been analyzed">
+            <i class="fas fa-check-circle me-1"></i>Added
         </span>`;
     }
-    return '';
+    
+    return `<span class="badge bg-warning text-dark ms-1" title="Article needs analysis">
+        <i class="fas fa-exclamation-circle me-1"></i>New
+    </span>`;
 }
 
 
@@ -3261,7 +3950,7 @@ function updateGroupAlerts(card, data, groupId) {
                             </div>
                         </div>
                         
-                        <table class="table table-hover align-middle mb-0" id="articlesTable_${groupId}">
+                        <table class="table table-hover align-middle mb-0" id="articlesTable_${groupId}" data-dynamically-loaded="true">
                             <thead style="position: sticky; top: 0; background: white; z-index: 10;">
                                 <tr>
                                     <th style="width: 50px; min-width: 50px;">
@@ -3323,7 +4012,7 @@ function updateGroupAlerts(card, data, groupId) {
                             </div>
                         </div>
                         
-                        <table class="table table-hover align-middle mb-0" id="articlesTable_${groupId}">
+                        <table class="table table-hover align-middle mb-0" id="articlesTable_${groupId}" data-dynamically-loaded="true">
                             <thead style="position: sticky; top: 0; background: white; z-index: 10;">
                                 <tr>
                                     <th style="width: 50px; min-width: 50px;">
@@ -3498,8 +4187,16 @@ function updateGroupAlerts(card, data, groupId) {
                             if (alert.is_read) {
                                 return '<span class="badge bg-secondary">Read</span>';
                             } else if (isArticleEnriched(alert.article)) {
+                                console.log('updateGroupAlerts: Setting badge to Added for:', alert.article.title?.substring(0, 50) + '...', {
+                                    category: alert.article.category,
+                                    isEnriched: isArticleEnriched(alert.article)
+                                });
                                 return '<span class="badge bg-success">Added</span>';
                             } else {
+                                console.log('updateGroupAlerts: Setting badge to New for:', alert.article.title?.substring(0, 50) + '...', {
+                                    category: alert.article.category,
+                                    isEnriched: isArticleEnriched(alert.article)
+                                });
                                 return '<span class="badge bg-primary">New</span>';
                             }
                         })()}
@@ -3594,11 +4291,15 @@ function updateGroupAlerts(card, data, groupId) {
                                          title="Mark as unread">
                                     <i class="fas fa-undo"></i>
                                 </button>`}
-                            <a href="/submit-article?url=${encodeURIComponent(alert.article.url)}&topic=${encodeURIComponent(data.topic)}" 
-                               class="btn btn-sm btn-outline-primary"
-                               title="Analyze article">
+                            <button class="btn btn-sm btn-outline-primary analyze-single-article-btn" 
+                                    data-article-url="${alert.article.url}"
+                                    data-article-title="${alert.article.title || ''}"
+                                    data-article-source="${alert.article.source || ''}"
+                                    data-article-topic="${data.topic}"
+                                    data-article-summary="${alert.article.summary || ''}"
+                                    title="Analyze article">
                                 <i class="fas fa-microscope"></i>
-                            </a>
+                            </button>
                         </div>
                         <div class="d-flex gap-1">
                             <a href="https://12ft.io/${alert.article.url}" 
@@ -3646,6 +4347,12 @@ function updateGroupAlerts(card, data, groupId) {
         }
     } else {
         tableBody.innerHTML = html;
+        
+        // Mark this table as dynamically loaded so media bias enhancement knows to update status badges
+        const table = tableBody.closest('table');
+        if (table) {
+            table.dataset.dynamicallyLoaded = 'true';
+        }
         
         // Add pagination controls if we have pagination data
         if (data.pagination && data.pagination.total_pages > 1) {
@@ -3746,8 +4453,70 @@ $(document).ready(function() {
     // Set interval to refresh status every 30 seconds
     setInterval(fetchMonitorStatus, 30000);
     
+    // Initialize table sorting
+    initializeTableSorting();
+    
+    // Enhance articles with media bias on initial load - but don't override template status badges
+    // Only enhance media bias info, not status badges
+    setTimeout(() => {
+        console.log('Running media bias enhancement on initial page load...');
+        enhanceAllArticlesWithMediaBias();
+    }, 1000);
+    
+    // Set up event listeners for show/hide read toggles
+    document.querySelectorAll('.show-read-toggle').forEach(toggle => {
+        toggle.addEventListener('change', function() {
+            const topic = this.dataset.topic;
+            const groupId = this.dataset.groupId;
+            const showRead = this.checked;
+            
+            // Refresh group articles and enhance with media bias
+            refreshGroupArticles(topic, groupId, showRead).then(() => {
+                setTimeout(enhanceAllArticlesWithMediaBias, 500);
+            });
+        });
+    });
+    
+    // Set up event listener for single article analysis buttons
+    document.addEventListener('click', function(event) {
+        if (event.target.closest('.analyze-single-article-btn')) {
+            const button = event.target.closest('.analyze-single-article-btn');
+            const article = {
+                url: button.dataset.articleUrl,
+                title: button.dataset.articleTitle,
+                source: button.dataset.articleSource,
+                summary: button.dataset.articleSummary
+            };
+            const topic = button.dataset.articleTopic;
+            
+            analyzeSingleArticle(article, topic);
+        }
+        
+        // Handle update group buttons
+        if (event.target.closest('.update-group-btn')) {
+            const button = event.target.closest('.update-group-btn');
+            const topic = button.dataset.topic;
+            const groupId = button.dataset.groupId;
+            updateGroupNow(topic, groupId);
+        }
+        
+        // Handle export group buttons
+        if (event.target.closest('.export-group-btn')) {
+            const button = event.target.closest('.export-group-btn');
+            const topic = button.dataset.topic;
+            const groupId = button.dataset.groupId;
+            exportGroupAlerts(topic, groupId);
+        }
+    });
+    
     // Initialize other components here...
 });
+
+// Function to analyze a single article
+function analyzeSingleArticle(article, topic) {
+    const articles = [article];
+    openArticleAnalysisModal(articles, topic, null);
+}
 
 function fetchMonitorStatus() {
     fetch('/api/keyword-monitor/status', {
@@ -4014,6 +4783,46 @@ function formatDate(dateStr) {
     return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 }
 
+// Clean publication date by extracting only the date portion
+function cleanPublicationDate(dateStr) {
+    if (!dateStr) return "";
+    
+    // If it's already a clean date format, return as is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr.trim())) {
+        return dateStr.trim();
+    }
+    
+    // Extract ISO date format (YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+    const isoMatch = dateStr.match(/(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?)?/);
+    if (isoMatch) {
+        return isoMatch[1];
+    }
+    
+    // Extract DD/MM/YYYY format
+    const dateMatch = dateStr.match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+    if (dateMatch) {
+        // Convert DD/MM/YYYY to YYYY-MM-DD
+        const dateParts = dateMatch[1].split('/');
+        if (dateParts.length === 3) {
+            const [day, month, year] = dateParts;
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+    }
+    
+    // Extract MM-DD-YYYY or MM/DD/YYYY format
+    const usDateMatch = dateStr.match(/(\d{1,2}[-\/]\d{1,2}[-\/]\d{4})/);
+    if (usDateMatch) {
+        const dateParts = usDateMatch[1].split(/[-\/]/);
+        if (dateParts.length === 3) {
+            const [month, day, year] = dateParts;
+            return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        }
+    }
+    
+    // If we can't parse it cleanly, return empty string
+    return "";
+}
+
 // Relevance filtering functions
 function getRelevanceLabel(value) {
     if (value <= 0.01) return 'All';
@@ -4023,11 +4832,136 @@ function getRelevanceLabel(value) {
     return 'Strongly related';
 }
 
+function getMainRelevanceLabel(value) {
+    if (value <= 0.01) return 'All';
+    if (value <= 0.3) return 'Low relevance';
+    if (value <= 0.6) return 'Medium relevance';
+    return 'High relevance';
+}
+
 function getRelevanceColor(value) {
     if (value <= 0.25) return '#dc3545'; // Red
     if (value <= 0.5) return '#ffc107';  // Yellow
     if (value <= 0.75) return '#28a745'; // Green
     return '#007bff'; // Blue
+}
+
+// Toggle advanced filters visibility
+function toggleAdvancedFilters(groupId) {
+    const advancedFilters = document.getElementById(`advancedFilters_${groupId}`);
+    const toggleButton = document.getElementById(`advancedToggle_${groupId}`);
+    
+    if (advancedFilters.style.display === 'none') {
+        advancedFilters.style.display = 'block';
+        toggleButton.innerHTML = '<i class="fas fa-eye-slash"></i> Simple';
+        toggleButton.title = 'Hide advanced filters';
+        
+        // Disable main slider when advanced mode is active
+        const mainSlider = document.getElementById(`mainRelevanceSlider_${groupId}`);
+        if (mainSlider) {
+            mainSlider.disabled = true;
+            mainSlider.style.opacity = '0.5';
+        }
+    } else {
+        advancedFilters.style.display = 'none';
+        toggleButton.innerHTML = '<i class="fas fa-cog"></i> Advanced';
+        toggleButton.title = 'Show advanced filters';
+        
+        // Re-enable main slider
+        const mainSlider = document.getElementById(`mainRelevanceSlider_${groupId}`);
+        if (mainSlider) {
+            mainSlider.disabled = false;
+            mainSlider.style.opacity = '1';
+        }
+        
+        // Reset advanced sliders and apply main filter
+        resetAdvancedSliders(groupId);
+        applyMainRelevanceFilter(groupId);
+    }
+}
+
+// Apply main relevance filter (simplified combined filter)
+function applyMainRelevanceFilter(groupId) {
+    const mainSlider = document.getElementById(`mainRelevanceSlider_${groupId}`);
+    const mainValue = document.getElementById(`mainRelevanceValue_${groupId}`);
+    const filterSummary = document.getElementById(`filterSummary_${groupId}`);
+    
+    if (!mainSlider || !mainValue) return;
+    
+    const threshold = parseFloat(mainSlider.value);
+    
+    // Update value display
+    mainValue.textContent = getMainRelevanceLabel(threshold);
+    mainValue.style.color = getRelevanceColor(threshold);
+    
+    // Get all rows in this group's table
+    const table = document.getElementById(`articlesTable_${groupId}`);
+    if (!table) return;
+    
+    const rows = table.querySelectorAll('tbody tr[data-alert-id]');
+    let visibleCount = 0;
+    let totalCount = rows.length;
+    
+    rows.forEach(row => {
+        const relevanceColumn = row.querySelector('.relevance-column');
+        let showRow = true;
+        
+        if (threshold > 0.01 && relevanceColumn) {
+            const scoreItems = relevanceColumn.querySelectorAll('.score-item span');
+            
+            if (scoreItems.length >= 2) {
+                const topicScore = parseFloat(scoreItems[0].textContent) || 0;
+                const keywordScore = parseFloat(scoreItems[1].textContent) || 0;
+                
+                // Combined relevance calculation (weighted average)
+                const combinedScore = (topicScore * 0.6) + (keywordScore * 0.4);
+                
+                if (combinedScore < threshold) {
+                    showRow = false;
+                }
+            } else {
+                // If no relevance scores available and filter is active, hide the row
+                showRow = false;
+            }
+        } else if (threshold > 0.01 && !relevanceColumn) {
+            // If no relevance column and filter is active, hide the row
+            showRow = false;
+        }
+        
+        if (showRow) {
+            row.classList.remove('filtered-out');
+            visibleCount++;
+        } else {
+            row.classList.add('filtered-out');
+        }
+    });
+    
+    // Update filter summary
+    if (filterSummary) {
+        if (visibleCount === totalCount) {
+            filterSummary.innerHTML = `<span class="badge bg-info">Showing all ${totalCount} articles</span>`;
+        } else {
+            filterSummary.innerHTML = `
+                <span class="badge bg-warning">Showing ${visibleCount} of ${totalCount} articles</span>
+                <span class="badge bg-secondary ms-1">${totalCount - visibleCount} filtered out</span>
+                <span class="badge bg-info ms-1">Main filter: ${getMainRelevanceLabel(threshold)}</span>
+            `;
+        }
+    }
+    
+    // Update bulk actions visibility
+    updateBulkActions(groupId);
+}
+
+// Reset advanced sliders only
+function resetAdvancedSliders(groupId) {
+    const topicSlider = document.getElementById(`topicSlider_${groupId}`);
+    const keywordSlider = document.getElementById(`keywordSlider_${groupId}`);
+    const confidenceSlider = document.getElementById(`confidenceSlider_${groupId}`);
+    
+    if (topicSlider) topicSlider.value = 0;
+    if (keywordSlider) keywordSlider.value = 0;
+    if (confidenceSlider) confidenceSlider.value = 0;
 }
 
 function applyRelevanceFilter(groupId) {
@@ -4121,15 +5055,26 @@ function applyRelevanceFilter(groupId) {
 }
 
 function resetFilters(groupId) {
+    const mainSlider = document.getElementById(`mainRelevanceSlider_${groupId}`);
     const topicSlider = document.getElementById(`topicSlider_${groupId}`);
     const keywordSlider = document.getElementById(`keywordSlider_${groupId}`);
     const confidenceSlider = document.getElementById(`confidenceSlider_${groupId}`);
     
+    // Reset main slider
+    if (mainSlider) mainSlider.value = 0;
+    
+    // Reset advanced sliders
     if (topicSlider) topicSlider.value = 0;
     if (keywordSlider) keywordSlider.value = 0;
     if (confidenceSlider) confidenceSlider.value = 0;
     
-    applyRelevanceFilter(groupId);
+    // Check if we're in advanced mode
+    const advancedFilters = document.getElementById(`advancedFilters_${groupId}`);
+    if (advancedFilters && advancedFilters.style.display !== 'none') {
+        applyRelevanceFilter(groupId);
+    } else {
+        applyMainRelevanceFilter(groupId);
+    }
 }
 
 // Table sorting functions
@@ -4246,14 +5191,1009 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize table sorting
     initializeTableSorting();
     
-    // Initialize relevance filters
-    document.querySelectorAll('.relevance-slider').forEach(slider => {
-        const groupId = slider.dataset.groupId;
-        // Set initial display
-        applyRelevanceFilter(groupId);
+    // Initialize relevance filters with main slider
+    document.querySelectorAll('[id^="mainRelevanceSlider_"]').forEach(mainSlider => {
+        const groupId = mainSlider.dataset.groupId;
+        // Set initial display for main slider
+        applyMainRelevanceFilter(groupId);
     });
 });
 
-// ... existing code ...
+// Global variable to store articles being analyzed
+let currentAnalysisArticles = [];
+let currentAnalysisResults = [];
+
+// Function to open the article analysis modal
+function openArticleAnalysisModal(articles, topic, groupId) {
+    currentAnalysisArticles = articles;
+    
+    // Load topics and models for the modal
+    loadModalTopics(topic);
+    loadModalModels();
+    
+    // Populate selected articles list
+    populateSelectedArticlesList(articles);
+    
+    // Set the topic
+    setTimeout(() => {
+        document.getElementById('analysisTopicSelect').value = topic;
+    }, 500);
+    
+    // Reset modal state
+    resetModalState();
+    
+    // Show the modal
+    const modal = new bootstrap.Modal(document.getElementById('articleAnalysisModal'));
+    modal.show();
+}
+
+// Function to populate the selected articles list in the modal
+function populateSelectedArticlesList(articles) {
+    const listContainer = document.getElementById('selectedArticlesList');
+    const countElement = document.getElementById('selectedArticlesCount');
+    
+    countElement.textContent = articles.length;
+    listContainer.innerHTML = '';
+    
+    articles.forEach((article, index) => {
+        const listItem = document.createElement('div');
+        listItem.className = 'list-group-item';
+        listItem.dataset.articleIndex = index;
+        listItem.innerHTML = `
+            <div class="article-item-content">
+                <h6 class="mb-1">${article.title || 'Untitled'}</h6>
+                <p class="mb-1 small text-muted">${article.source || 'Unknown Source'}</p>
+                <small class="text-muted">${article.url}</small>
+            </div>
+            <div class="article-item-actions">
+                <span class="badge bg-primary me-2">#${index + 1}</span>
+                <button class="btn btn-outline-danger btn-sm" onclick="removeSelectedArticle(${index})" title="Remove article">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        `;
+        listContainer.appendChild(listItem);
+    });
+}
+
+// Function to load topics for the modal
+async function loadModalTopics(selectedTopic = '') {
+    try {
+        const response = await fetch('/api/topics');
+        const topics = await response.json();
+        const topicSelect = document.getElementById('analysisTopicSelect');
+        
+        topicSelect.innerHTML = '<option value="">Select a topic</option>';
+        topics.forEach(topic => {
+            const option = document.createElement('option');
+            option.value = topic.name;
+            option.textContent = topic.name;
+            if (topic.name === selectedTopic) {
+                option.selected = true;
+            }
+            topicSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading topics for modal:', error);
+    }
+}
+
+// Function to load models for the modal
+async function loadModalModels() {
+    console.log('🔧 loadModalModels called');
+    try {
+        console.log('📡 Fetching models for modal from /api/available_models');
+        const response = await fetch('/api/available_models');
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const models = await response.json();
+        console.log('📦 Modal models received:', models);
+        const modelSelect = document.getElementById('analysisModelSelect');
+        console.log('🎯 Analysis model select element:', modelSelect);
+        
+        if (modelSelect) {
+            if (models.length === 0) {
+                console.warn('⚠️ No models found for modal');
+                modelSelect.innerHTML = '<option value="">No models configured</option>';
+            } else {
+                console.log(`✅ Loading ${models.length} models into analysis modal dropdown`);
+                modelSelect.innerHTML = '<option value="">Select a model...</option>';
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = `${model.name} (${model.provider})`;
+                    
+                    // Add data attributes for additional info
+                    if (model.provider) {
+                        option.dataset.provider = model.provider;
+                    }
+                    
+                    modelSelect.appendChild(option);
+                    console.log(`➕ Added modal model: ${model.name} (${model.provider})`);
+                });
+                console.log('🎉 Successfully loaded models into analysis modal dropdown');
+            }
+        } else {
+            console.error('❌ analysisModelSelect element not found in DOM');
+        }
+    } catch (error) {
+        console.error('❌ Error loading models for modal:', error);
+        const modelSelect = document.getElementById('analysisModelSelect');
+        if (modelSelect) {
+            modelSelect.innerHTML = '<option value="">Error loading models</option>';
+        }
+    }
+}
+
+// Function to reset modal state
+function resetModalState() {
+    currentAnalysisResults = [];
+    
+    // Hide progress and results
+    document.getElementById('analysisProgressContainer').style.display = 'none';
+    document.getElementById('analysisResults').style.display = 'none';
+    document.getElementById('saveAnalysisResultsBtn').style.display = 'none';
+    
+    // Reset progress bar
+    const progressBar = document.getElementById('analysisProgressBar');
+    progressBar.style.width = '0%';
+    progressBar.setAttribute('aria-valuenow', '0');
+    
+    // Reset processing options to defaults
+    document.getElementById('backgroundProcessing').checked = true;
+    document.getElementById('autoSave').checked = true;
+    document.getElementById('llmReview').checked = true;
+    document.getElementById('closeOnComplete').checked = false;
+    
+    // Enable start button
+    const startBtn = document.getElementById('startArticleAnalysisBtn');
+    startBtn.disabled = currentAnalysisArticles.length === 0;
+    startBtn.style.display = 'inline-block';
+}
+
+// Function to start article analysis
+async function startArticleAnalysis() {
+    const startBtn = document.getElementById('startArticleAnalysisBtn');
+    const progressContainer = document.getElementById('analysisProgressContainer');
+    const progressText = document.getElementById('analysisProgressText');
+    const progressBar = document.getElementById('analysisProgressBar');
+    
+    // Validate inputs
+    const topic = document.getElementById('analysisTopicSelect').value;
+    const model = document.getElementById('analysisModelSelect').value;
+    
+    if (!topic || !model) {
+        showAlert('Please select both a topic and AI model', 'warning');
+        return;
+    }
+    
+    // Get processing options
+    const backgroundProcessing = document.getElementById('backgroundProcessing').checked;
+    const autoSave = document.getElementById('autoSave').checked;
+    const llmReview = document.getElementById('llmReview').checked;
+    const closeOnComplete = document.getElementById('closeOnComplete').checked;
+    
+    try {
+        // Disable start button and show progress
+        startBtn.disabled = true;
+        startBtn.style.display = 'none';
+        progressContainer.style.display = 'block';
+        
+        // Update progress text based on processing options
+        let statusText = 'Starting analysis...';
+        if (backgroundProcessing) statusText += ' (Background mode)';
+        if (autoSave) statusText += ' (Auto-save enabled)';
+        if (llmReview) statusText += ' (Quality review enabled)';
+        
+        progressText.textContent = statusText;
+        
+        // Prepare request data
+        const requestData = {
+            urls: currentAnalysisArticles.map(article => article.url),
+            summaryType: "curious_ai_long",
+            modelName: model,
+            summaryLength: document.getElementById('analysisSummaryLength').value,
+            summaryVoice: document.getElementById('analysisSummaryVoice').value,
+            topic: topic,
+            preservedMetadata: currentAnalysisArticles,
+            options: {
+                backgroundProcessing: backgroundProcessing,
+                autoSave: autoSave,
+                llmReview: llmReview,
+                closeOnComplete: closeOnComplete
+            }
+        };
+        
+        // If background processing is enabled, allow user to continue using the interface
+        if (backgroundProcessing) {
+            showAlert(`Analysis started in background for ${currentAnalysisArticles.length} articles. You can continue using the interface.`, 'info');
+        }
+        
+        // Start streaming analysis
+        await performStreamingAnalysis(requestData);
+        
+    } catch (error) {
+        console.error('Error during analysis:', error);
+        showAlert(`Analysis failed: ${error.message}`, 'danger');
+        resetModalState();
+    }
+}
+
+// Function to perform streaming analysis
+async function performStreamingAnalysis(requestData) {
+    const progressText = document.getElementById('analysisProgressText');
+    const progressBar = document.getElementById('analysisProgressBar');
+    const resultsContainer = document.getElementById('analysisResults');
+    const resultsList = document.getElementById('analysisResultsList');
+    
+    let processedCount = 0;
+    const totalCount = requestData.urls.length;
+    
+    const response = await fetch('/api/bulk-research-stream', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/x-ndjson'
+        },
+        body: JSON.stringify(requestData)
+    });
+
+    if (!response.ok || !response.body) {
+        throw new Error(`Server error: ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    // Show results container
+    resultsContainer.style.display = 'block';
+    resultsList.innerHTML = '';
+
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete line
+        
+        for (const line of lines) {
+            if (!line.trim()) continue;
+            
+            try {
+                const result = JSON.parse(line);
+                
+                // Apply preserved metadata
+                const preserved = requestData.preservedMetadata.find(meta => meta.url === result.uri);
+                if (preserved) {
+                    result.title = preserved.title || result.title;
+                    result.news_source = preserved.source || result.news_source;
+                    result.publication_date = preserved.publication_date || result.publication_date;
+                    result.summary = preserved.summary || result.summary;
+                }
+                
+                currentAnalysisResults.push(result);
+                processedCount++;
+                
+                // Update progress
+                const percentage = (processedCount / totalCount) * 100;
+                progressBar.style.width = `${percentage}%`;
+                progressBar.setAttribute('aria-valuenow', percentage);
+                progressText.textContent = `Processed ${processedCount} of ${totalCount} articles...`;
+                
+                // Add result to list
+                addAnalysisResultToList(result, processedCount);
+                
+            } catch (e) {
+                console.error('Failed to parse NDJSON line', line, e);
+            }
+        }
+    }
+
+    // Parse any remaining buffer
+    if (buffer.trim()) {
+        try {
+            const result = JSON.parse(buffer);
+            const preserved = requestData.preservedMetadata.find(meta => meta.url === result.uri);
+            if (preserved) {
+                result.title = preserved.title || result.title;
+                result.news_source = preserved.source || result.news_source;
+                result.publication_date = preserved.publication_date || result.publication_date;
+                result.summary = preserved.summary || result.summary;
+            }
+            currentAnalysisResults.push(result);
+            addAnalysisResultToList(result, currentAnalysisResults.length);
+        } catch (e) {
+            console.error('Failed to parse last NDJSON fragment', buffer, e);
+        }
+    }
+    
+    // Analysis complete
+    progressText.textContent = `Analysis complete! Processed ${currentAnalysisResults.length} articles.`;
+    
+    // Stop progress bar animation
+    const analysisProgressBar = document.getElementById('analysisProgressBar');
+    analysisProgressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+    analysisProgressBar.style.width = '100%';
+    analysisProgressBar.setAttribute('aria-valuenow', '100');
+    
+    document.getElementById('saveAnalysisResultsBtn').style.display = 'inline-block';
+    
+    // Auto-save if enabled
+    const autoSave = document.getElementById('autoSave').checked;
+    if (autoSave && currentAnalysisResults.length > 0) {
+        showAlert('Auto-saving analysis results...', 'info');
+        setTimeout(() => {
+            saveAnalysisResults();
+        }, 2000);
+    }
+}
+
+// Function to add analysis result to the list
+function addAnalysisResultToList(result, index) {
+    const resultsList = document.getElementById('analysisResultsList');
+    
+    const resultItem = document.createElement('div');
+    resultItem.className = 'article-analysis-result border rounded p-3 mb-2 bg-light';
+    resultItem.dataset.resultIndex = index - 1; // Adjust for 0-based indexing
+    resultItem.dataset.resultUri = result.uri;
+    
+    resultItem.innerHTML = `
+        <div class="review-status">
+            <span class="badge bg-info review-badge" id="reviewBadge_${index}">
+                <i class="fas fa-hourglass-half"></i> Queued
+            </span>
+        </div>
+        <div class="result-item-actions">
+            <button class="btn btn-outline-primary btn-sm" onclick="editAnalysisResult(${index - 1})" title="Edit result">
+                <i class="fas fa-edit"></i>
+            </button>
+            <button class="btn btn-outline-danger btn-sm" onclick="removeAnalysisResult(${index - 1})" title="Remove result">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+        <div class="d-flex justify-content-between align-items-start">
+            <div class="flex-grow-1 pe-5 pt-2">
+                <h6 class="mb-1">${result.title || 'Untitled'}</h6>
+                <p class="mb-1 small">${result.summary || 'No summary available'}</p>
+                <div class="d-flex flex-wrap gap-1 mt-2">
+                    ${result.category ? `<span class="badge bg-info">${result.category}</span>` : ''}
+                    ${result.sentiment ? `<span class="badge bg-secondary">${result.sentiment}</span>` : ''}
+                    ${result.future_signal ? `<span class="badge bg-warning text-dark">${result.future_signal}</span>` : ''}
+                    ${result.time_to_impact ? `<span class="badge bg-success">${result.time_to_impact}</span>` : ''}
+                    ${result.driver_type ? `<span class="badge bg-dark">${result.driver_type}</span>` : ''}
+                </div>
+                <small class="text-muted">${result.news_source || 'Unknown Source'}</small>
+            </div>
+            <span class="badge bg-primary mt-4">#${index}</span>
+        </div>
+    `;
+    
+    resultsList.appendChild(resultItem);
+    
+    // Trigger LLM review if enabled
+    const llmReviewEnabled = document.getElementById('llmReview').checked;
+    if (llmReviewEnabled) {
+        // Small delay to show queued status, then start review
+        setTimeout(() => {
+            updateReviewStatus(index, 'reviewing', 'Reviewing...');
+            setTimeout(() => performLLMReview(result, index), 300);
+        }, 800);
+    } else {
+        // Mark as ready if no review needed
+        setTimeout(() => updateReviewStatus(index, 'ready', 'Ready'), 500);
+    }
+    
+    // Scroll to bottom to show latest result
+    resultsList.scrollTop = resultsList.scrollHeight;
+}
+
+// Function to remove selected article
+function removeSelectedArticle(index) {
+    if (confirm('Remove this article from the analysis queue?')) {
+        currentAnalysisArticles.splice(index, 1);
+        populateSelectedArticlesList(currentAnalysisArticles);
+        
+        // Update count and check if we need to disable start button
+        if (currentAnalysisArticles.length === 0) {
+            document.getElementById('startArticleAnalysisBtn').disabled = true;
+        }
+    }
+}
+
+
+
+// Function to edit analysis result
+function editAnalysisResult(index) {
+    const result = currentAnalysisResults[index];
+    if (!result) return;
+    
+    // Create a simple edit dialog
+    const editModal = document.createElement('div');
+    editModal.className = 'modal fade';
+    editModal.innerHTML = `
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Analysis Result</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Title</label>
+                        <input type="text" class="form-control" id="editResultTitle" value="${result.title || ''}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Summary</label>
+                        <textarea class="form-control" id="editResultSummary" rows="3">${result.summary || ''}</textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Category</label>
+                                <input type="text" class="form-control" id="editResultCategory" value="${result.category || ''}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Sentiment</label>
+                                <select class="form-control" id="editResultSentiment">
+                                    <option value="Positive" ${result.sentiment === 'Positive' ? 'selected' : ''}>Positive</option>
+                                    <option value="Negative" ${result.sentiment === 'Negative' ? 'selected' : ''}>Negative</option>
+                                    <option value="Neutral" ${result.sentiment === 'Neutral' ? 'selected' : ''}>Neutral</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveEditedResult(${index})">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(editModal);
+    const modal = new bootstrap.Modal(editModal);
+    modal.show();
+    
+    // Remove modal from DOM when hidden
+    editModal.addEventListener('hidden.bs.modal', () => {
+        editModal.remove();
+    });
+}
+
+// Function to save edited result
+function saveEditedResult(index) {
+    const result = currentAnalysisResults[index];
+    result.title = document.getElementById('editResultTitle').value;
+    result.summary = document.getElementById('editResultSummary').value;
+    result.category = document.getElementById('editResultCategory').value;
+    result.sentiment = document.getElementById('editResultSentiment').value;
+    
+    // Update the display
+    updateAnalysisResultDisplay(index);
+    
+    // Close the edit modal
+    const modal = bootstrap.Modal.getInstance(document.querySelector('.modal.show'));
+    if (modal) modal.hide();
+    
+    showAlert('Analysis result updated successfully!', 'success');
+}
+
+// Function to remove analysis result
+function removeAnalysisResult(index) {
+    if (confirm('Remove this analysis result?')) {
+        const resultElement = document.querySelector(`[data-result-index="${index}"]`);
+        if (resultElement) {
+            resultElement.remove();
+        }
+        
+        currentAnalysisResults.splice(index, 1);
+        
+        // Re-index remaining results
+        currentAnalysisResults.forEach((result, newIndex) => {
+            const element = document.querySelector(`[data-result-uri="${result.uri}"]`);
+            if (element) {
+                element.dataset.resultIndex = newIndex;
+                const badge = element.querySelector('.badge.bg-primary');
+                if (badge) badge.textContent = `#${newIndex + 1}`;
+            }
+        });
+        
+        showAlert('Analysis result removed', 'info');
+    }
+}
+
+// Function to update analysis result display
+function updateAnalysisResultDisplay(index) {
+    const result = currentAnalysisResults[index];
+    const resultElement = document.querySelector(`[data-result-index="${index}"]`);
+    
+    if (resultElement && result) {
+        const titleElement = resultElement.querySelector('h6');
+        const summaryElement = resultElement.querySelector('p.small');
+        const badgesContainer = resultElement.querySelector('.d-flex.flex-wrap');
+        
+        if (titleElement) titleElement.textContent = result.title;
+        if (summaryElement) summaryElement.textContent = result.summary;
+        if (badgesContainer) {
+            badgesContainer.innerHTML = `
+                ${result.category ? `<span class="badge bg-info">${result.category}</span>` : ''}
+                ${result.sentiment ? `<span class="badge bg-secondary">${result.sentiment}</span>` : ''}
+                ${result.future_signal ? `<span class="badge bg-warning text-dark">${result.future_signal}</span>` : ''}
+                ${result.time_to_impact ? `<span class="badge bg-success">${result.time_to_impact}</span>` : ''}
+                ${result.driver_type ? `<span class="badge bg-dark">${result.driver_type}</span>` : ''}
+            `;
+        }
+    }
+}
+
+// Function to perform LLM review using actual AI models to detect unwanted content
+async function performLLMReview(result, index) {
+    // Status is already set to 'reviewing' before this function is called
+    // This function now calls a real LLM to detect cookie notices, paywalls, and other unwanted content
+    
+    try {
+        console.log('Starting LLM-based content review for article:', result.title?.substring(0, 50) + '...');
+        
+        // Get the selected model for analysis (from the analysis modal)
+        const modelSelect = document.getElementById('analysisModelSelect');
+        let selectedModel = modelSelect ? modelSelect.value : '';
+        
+        // Fallback to a default model if none selected
+        if (!selectedModel) {
+            selectedModel = 'gpt-4o-mini'; // Use a fast, cost-effective model for review
+        }
+        
+        // Prepare the review request
+        const reviewRequest = {
+            article_title: result.title || 'No title',
+            article_summary: result.summary || 'No summary available',
+            article_source: result.news_source || 'Unknown source',
+            model_name: selectedModel,
+            article_url: result.uri
+        };
+        
+        console.log('Sending content review request to LLM API...');
+        
+        // Call the LLM review API
+        const response = await fetch('/api/keyword-monitor/review-content', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify(reviewRequest)
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || `HTTP ${response.status}: Review API error`);
+        }
+        
+        const reviewResult = await response.json();
+        console.log('LLM review response received:', reviewResult);
+        
+        if (reviewResult.success && reviewResult.review) {
+            const review = reviewResult.review;
+            
+            // Store review data in the result
+            result.review_score = review.quality_score;
+            result.review_notes = review.explanation;
+            result.issues_detected = review.issues_detected;
+            result.content_type = review.content_type;
+            result.review_recommendation = review.recommendation;
+            result.model_used = reviewResult.model_used;
+            
+            console.log(`LLM Review completed - Score: ${review.quality_score.toFixed(2)}, Recommendation: ${review.recommendation}`);
+            
+            // Update status based on LLM recommendation and quality score
+            const scorePercent = Math.round(review.quality_score * 100);
+            
+            if (review.recommendation === 'approve' && review.quality_score >= 0.8) {
+                updateReviewStatus(index, 'approved', `LLM Approved (${scorePercent}%)`, 
+                    `${review.explanation}${review.issues_detected.length > 0 ? ' | Issues: ' + review.issues_detected.join(', ') : ''}`);
+            } else if (review.recommendation === 'reject' || review.quality_score < 0.3) {
+                updateReviewStatus(index, 'rejected', `LLM Rejected (${scorePercent}%)`, 
+                    `${review.explanation}${review.issues_detected.length > 0 ? ' | Issues: ' + review.issues_detected.join(', ') : ''}`);
+        } else {
+                // review or mixed quality
+                updateReviewStatus(index, 'warning', `LLM Flagged (${scorePercent}%)`, 
+                    `${review.explanation}${review.issues_detected.length > 0 ? ' | Issues: ' + review.issues_detected.join(', ') : ''}`);
+            }
+            
+        } else {
+            // Handle API error but still got a response
+            console.error('LLM review API returned error:', reviewResult.error);
+            
+            if (reviewResult.review) {
+                // Use the fallback review data
+                result.review_score = reviewResult.review.quality_score;
+                result.review_notes = reviewResult.review.explanation;
+                updateReviewStatus(index, 'warning', 'Review Issues', reviewResult.review.explanation);
+            } else {
+                throw new Error(reviewResult.error || 'Unknown API error');
+            }
+        }
+        
+    } catch (error) {
+        console.error('LLM Review error:', error);
+        
+        // Store error information
+        result.review_score = 0.5; // Neutral score on error
+        result.review_notes = `Review failed: ${error.message}`;
+        
+        updateReviewStatus(index, 'error', 'Review Failed', error.message);
+        
+        // Fallback to ready status after a delay
+        setTimeout(() => {
+            updateReviewStatus(index, 'ready', 'Review Unavailable');
+            result.review_score = 0.6; // Default to acceptable quality for safety
+        }, 2000);
+    }
+}
+
+// Function to update review status
+function updateReviewStatus(index, status, text, reviewNotes = '') {
+    const badge = document.getElementById(`reviewBadge_${index}`);
+    if (!badge) return;
+    
+    // Remove existing classes
+    badge.className = 'badge review-badge';
+    
+    // Store the result index for click handling
+    badge.setAttribute('data-result-index', index);
+    
+    // Create tooltip text with review explanation
+    let tooltipText = text;
+    if (reviewNotes && reviewNotes.trim()) {
+        tooltipText += ` - ${reviewNotes}`;
+    }
+    
+    // Add tooltip
+    badge.setAttribute('title', tooltipText);
+    badge.setAttribute('data-bs-toggle', 'tooltip');
+    badge.setAttribute('data-bs-placement', 'top');
+    
+    // Add appropriate class and icon based on status
+    switch (status) {
+        case 'approved':
+            badge.className += ' bg-success clickable-badge';
+            badge.innerHTML = `<i class="fas fa-check"></i> ${text}`;
+            break;
+        case 'warning':
+            badge.className += ' bg-warning text-dark clickable-badge';
+            badge.innerHTML = `<i class="fas fa-exclamation-triangle"></i> ${text}`;
+            break;
+        case 'rejected':
+            badge.className += ' bg-danger clickable-badge';
+            badge.innerHTML = `<i class="fas fa-times"></i> ${text}`;
+            break;
+        case 'error':
+            badge.className += ' bg-danger clickable-badge';
+            badge.innerHTML = `<i class="fas fa-exclamation-circle"></i> ${text}`;
+            break;
+        case 'reviewing':
+            badge.className += ' bg-info';
+            badge.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${text}`;
+            break;
+        case 'ready':
+            badge.className += ' bg-primary clickable-badge';
+            badge.innerHTML = `<i class="fas fa-check-circle"></i> ${text}`;
+            break;
+        default:
+            badge.className += ' bg-secondary';
+            badge.innerHTML = `<i class="fas fa-clock"></i> ${text}`;
+    }
+    
+    // Add click handler for completed reviews (not for reviewing status)
+    if (status !== 'reviewing') {
+        badge.style.cursor = 'pointer';
+        badge.onclick = (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            showReviewDetails(index);
+        };
+        
+        // Add a small visual indicator that it's clickable
+        if (badge.classList.contains('clickable-badge')) {
+            badge.innerHTML += ' <i class="fas fa-info-circle ms-1 clickable-icon" style="font-size: 0.7em; opacity: 0.8; cursor: pointer; pointer-events: auto;"></i>';
+        }
+    } else {
+        badge.style.cursor = 'default';
+        badge.onclick = null;
+    }
+    
+    // Initialize Bootstrap tooltip
+    if (window.bootstrap && bootstrap.Tooltip) {
+        // Remove existing tooltip instance if any
+        const existingTooltip = bootstrap.Tooltip.getInstance(badge);
+        if (existingTooltip) {
+            existingTooltip.dispose();
+        }
+        // Create new tooltip
+        new bootstrap.Tooltip(badge);
+    }
+    
+    // Update review status count
+    updateReviewStatusCount();
+}
+
+// Function to update review status count display
+function updateReviewStatusCount() {
+    const statusCount = document.getElementById('reviewStatusCount');
+    if (!statusCount) return;
+    
+    const allBadges = document.querySelectorAll('.review-badge');
+    let reviewing = 0;
+    let approved = 0;
+    let warning = 0;
+    let rejected = 0;
+    
+    allBadges.forEach(badge => {
+        if (badge.classList.contains('bg-info') && badge.innerHTML.includes('spinner')) {
+            reviewing++;
+        } else if (badge.classList.contains('bg-success')) {
+            approved++;
+        } else if (badge.classList.contains('bg-warning')) {
+            warning++;
+        } else if (badge.classList.contains('bg-danger')) {
+            rejected++;
+        }
+    });
+    
+    if (reviewing > 0) {
+        statusCount.innerHTML = `${reviewing} reviewing...`;
+        statusCount.className = 'badge bg-info ms-2';
+        statusCount.style.display = 'inline';
+    } else if (allBadges.length > 0) {
+        statusCount.innerHTML = `${approved} approved, ${warning} need review, ${rejected} rejected`;
+        statusCount.className = 'badge bg-secondary ms-2';
+        statusCount.style.display = 'inline';
+    } else {
+        statusCount.style.display = 'none';
+    }
+}
+
+// Function to show review details modal
+function showReviewDetails(resultIndex) {
+    console.log('Showing review details for result index:', resultIndex);
+    
+    // Get the analysis result
+    const result = currentAnalysisResults[resultIndex];
+    if (!result) {
+        console.error('No analysis result found for index:', resultIndex);
+        showAlert('Review details not available', 'warning');
+        return;
+    }
+    
+    console.log('Analysis result found:', result);
+    
+    // Populate article information
+    document.getElementById('reviewArticleTitle').textContent = result.title || 'No title available';
+    document.getElementById('reviewArticleSource').innerHTML = `<i class="fas fa-globe me-1"></i>${result.news_source || 'Unknown source'}`;
+    document.getElementById('reviewArticleSummary').textContent = result.summary || 'No summary available';
+    
+    // Populate review results
+    const qualityScore = result.review_score || 0;
+    document.getElementById('reviewQualityScore').textContent = qualityScore.toFixed(2);
+    
+    // Set quality score color based on value
+    const scoreElement = document.getElementById('reviewQualityScore');
+    if (qualityScore >= 0.8) {
+        scoreElement.className = 'display-6 text-success';
+    } else if (qualityScore >= 0.6) {
+        scoreElement.className = 'display-6 text-warning';
+    } else {
+        scoreElement.className = 'display-6 text-danger';
+    }
+    
+    // Populate recommendation badge
+    const recommendation = result.review_recommendation || 'unknown';
+    const recommendationBadge = document.getElementById('reviewRecommendationBadge');
+    
+    switch (recommendation) {
+        case 'approve':
+            recommendationBadge.className = 'badge bg-success fs-6';
+            recommendationBadge.innerHTML = '<i class="fas fa-check me-1"></i>APPROVE';
+            break;
+        case 'review':
+            recommendationBadge.className = 'badge bg-warning text-dark fs-6';
+            recommendationBadge.innerHTML = '<i class="fas fa-exclamation-triangle me-1"></i>REVIEW';
+            break;
+        case 'reject':
+            recommendationBadge.className = 'badge bg-danger fs-6';
+            recommendationBadge.innerHTML = '<i class="fas fa-times me-1"></i>REJECT';
+            break;
+        default:
+            recommendationBadge.className = 'badge bg-secondary fs-6';
+            recommendationBadge.innerHTML = '<i class="fas fa-question me-1"></i>UNKNOWN';
+    }
+    
+    // Populate content type and model
+    document.getElementById('reviewContentType').textContent = result.content_type || 'unknown';
+    document.getElementById('reviewModelUsed').textContent = result.model_used || 'Unknown model';
+    
+    // Populate issues detected
+    const issuesSection = document.getElementById('reviewIssuesSection');
+    const issuesList = document.getElementById('reviewIssuesItems');
+    const issues = result.issues_detected || [];
+    
+    if (issues.length > 0) {
+        issuesSection.style.display = 'block';
+        issuesList.innerHTML = '';
+        issues.forEach(issue => {
+            const li = document.createElement('li');
+            li.textContent = issue;
+            issuesList.appendChild(li);
+        });
+    } else {
+        issuesSection.style.display = 'none';
+    }
+    
+    // Populate explanation
+    document.getElementById('reviewExplanation').textContent = result.review_notes || 'No explanation available';
+    
+    // Store result index for potential override action
+    document.getElementById('reviewOverrideBtn').setAttribute('data-result-index', resultIndex);
+    
+    // Show the modal
+    const modal = new bootstrap.Modal(document.getElementById('reviewDetailsModal'));
+    modal.show();
+}
+
+// Function to override review decision (placeholder for future implementation)
+function overrideReviewDecision() {
+    const resultIndex = document.getElementById('reviewOverrideBtn').getAttribute('data-result-index');
+    const result = currentAnalysisResults[resultIndex];
+    
+    if (!result) {
+        showAlert('Cannot override - result not found', 'warning');
+        return;
+    }
+    
+    // Simple implementation: toggle between approve and review
+    const currentRecommendation = result.review_recommendation || 'review';
+    let newRecommendation, newScore, newText;
+    
+    if (currentRecommendation === 'reject') {
+        newRecommendation = 'review';
+        newScore = 0.6;
+        newText = 'Manual Override (Review)';
+    } else if (currentRecommendation === 'review') {
+        newRecommendation = 'approve';
+        newScore = 0.85;
+        newText = 'Manual Override (Approved)';
+    } else {
+        newRecommendation = 'review';
+        newScore = 0.6;
+        newText = 'Manual Override (Review)';
+    }
+    
+    // Update the result
+    result.review_recommendation = newRecommendation;
+    result.review_score = newScore;
+    result.review_notes = `${result.review_notes || ''}\n\n[Manual Override: Changed to ${newRecommendation}]`;
+    
+    // Update the badge
+    const badgeIndex = parseInt(resultIndex) + 1; // Badge IDs are 1-based
+    updateReviewStatus(badgeIndex, newRecommendation === 'approve' ? 'approved' : 'warning', newText, `Manually overridden to ${newRecommendation}`);
+    
+    // Close the modal
+    const modal = bootstrap.Modal.getInstance(document.getElementById('reviewDetailsModal'));
+    if (modal) modal.hide();
+    
+    showAlert(`Review decision overridden to: ${newRecommendation}`, 'info');
+}
+
+// Function to save analysis results
+async function saveAnalysisResults() {
+    const saveBtn = document.getElementById('saveAnalysisResultsBtn');
+    const topic = document.getElementById('analysisTopicSelect').value;
+    const autoSave = document.getElementById('autoSave').checked;
+    const closeOnComplete = document.getElementById('closeOnComplete').checked;
+    
+    if (currentAnalysisResults.length === 0) {
+        showAlert('No analysis results to save', 'warning');
+        return;
+    }
+    
+    try {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        // Filter out rejected results if LLM review is enabled
+        const llmReviewEnabled = document.getElementById('llmReview').checked;
+        let articlesToSave = currentAnalysisResults;
+        
+        if (llmReviewEnabled) {
+            articlesToSave = currentAnalysisResults.filter(result => {
+                // Use LLM recommendation if available, otherwise fall back to score
+                if (result.review_recommendation) {
+                    return result.review_recommendation !== 'reject';
+                }
+                // Fallback to score-based filtering
+                return !result.review_score || result.review_score >= 0.6;
+            });
+            
+            if (articlesToSave.length < currentAnalysisResults.length) {
+                const rejectedCount = currentAnalysisResults.length - articlesToSave.length;
+                const rejectedReasons = currentAnalysisResults
+                    .filter(result => !articlesToSave.includes(result))
+                    .map(result => result.review_recommendation === 'reject' ? 'LLM rejected' : 'Low quality score')
+                    .reduce((acc, reason) => {
+                        acc[reason] = (acc[reason] || 0) + 1;
+                        return acc;
+                    }, {});
+                
+                const reasonText = Object.entries(rejectedReasons)
+                    .map(([reason, count]) => `${count} ${reason}`)
+                    .join(', ');
+                
+                showAlert(`${rejectedCount} articles excluded from saving (${reasonText})`, 'info');
+            }
+        }
+        
+        // Prepare articles for saving
+        const articles = articlesToSave.map(result => ({
+            ...result,
+            topic: topic,
+            tags: Array.isArray(result.tags) ? result.tags : (result.tags ? result.tags.split(',').map(tag => tag.trim()) : []),
+            submission_date: new Date().toISOString(),
+            analyzed: true,
+            review_score: result.review_score || null,
+            review_notes: result.review_notes || null
+        }));
+        
+        const response = await fetch('/api/save-bulk-articles', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ articles }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.success && result.success.length > 0) {
+            showAlert(`${result.success.length} articles saved successfully!`, 'success');
+            
+            // Handle modal closing based on user preference
+            if (closeOnComplete) {
+                setTimeout(() => {
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('articleAnalysisModal'));
+                    if (modal) modal.hide();
+                    setTimeout(() => window.location.reload(), 1000);
+                }, 1500);
+            } else {
+                // Just refresh the page data without closing modal
+                setTimeout(() => window.location.reload(), 2000);
+            }
+        }
+        
+        if (result.errors && result.errors.length > 0) {
+            const errorMessage = result.errors.map(error => `${error.uri}: ${error.error}`).join('\n');
+            showAlert(`Some articles could not be saved:\n${errorMessage}`, 'warning');
+        }
+        
+    } catch (error) {
+        console.error('Error saving articles:', error);
+        showAlert(`Error saving articles: ${error.message}`, 'danger');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="fas fa-save"></i> Save All Articles';
+    }
+}
+
 </script>
 {% endblock %} 

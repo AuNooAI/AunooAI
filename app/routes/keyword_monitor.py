@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Request, Response
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from app.database import Database, get_database_instance
@@ -18,9 +18,44 @@ import sqlite3
 from fastapi.responses import JSONResponse
 from app.config.config import load_config
 from app.relevance import RelevanceCalculator, RelevanceCalculatorError
+from urllib.parse import urlencode
+from app.ai_models import LiteLLMModel
 
 # Set up logger
 logger = logging.getLogger(__name__)
+
+def build_analysis_url(article, topic):
+    """Build URL with all available article metadata for analysis page"""
+    params = {
+        'url': getattr(article, 'url', '') or getattr(article, 'uri', ''),
+        'topic': topic
+    }
+    
+    # Add metadata if available
+    if hasattr(article, 'title') and article.title:
+        params['title'] = article.title
+    if hasattr(article, 'source') and article.source:
+        params['source'] = article.source
+    if hasattr(article, 'publication_date') and article.publication_date:
+        params['publication_date'] = article.publication_date
+    if hasattr(article, 'summary') and article.summary:
+        params['summary'] = article.summary
+        
+    # Add media bias data if available
+    if hasattr(article, 'bias') and article.bias:
+        params['bias'] = article.bias
+    if hasattr(article, 'factual_reporting') and article.factual_reporting:
+        params['factual_reporting'] = article.factual_reporting
+    if hasattr(article, 'mbfc_credibility_rating') and article.mbfc_credibility_rating:
+        params['mbfc_credibility_rating'] = article.mbfc_credibility_rating
+    if hasattr(article, 'bias_country') and article.bias_country:
+        params['bias_country'] = article.bias_country
+    if hasattr(article, 'media_type') and article.media_type:
+        params['media_type'] = article.media_type
+    if hasattr(article, 'popularity') and article.popularity:
+        params['popularity'] = article.popularity
+    
+    return urlencode(params)
 
 router = APIRouter(prefix="/api/keyword-monitor")
 
@@ -442,49 +477,99 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
             # Initialize media bias for article enrichment
             media_bias = MediaBias(db)
             
-            # Get all groups with their alerts and status
-            cursor.execute("""
-                WITH alert_counts AS (
+            # Check which table structure to use
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='keyword_article_matches'")
+            use_new_table = cursor.fetchone() is not None
+            
+            if use_new_table:
+                # Get all groups with their alerts and status using new table structure
+                cursor.execute("""
+                    WITH alert_counts AS (
+                        SELECT 
+                            kg.id as group_id,
+                            COUNT(DISTINCT CASE WHEN ka.is_read = 0 AND a.uri IS NOT NULL THEN ka.id END) as unread_count,
+                            COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) as total_count
+                        FROM keyword_groups kg
+                        LEFT JOIN keyword_article_matches ka ON kg.id = ka.group_id
+                        LEFT JOIN articles a ON ka.article_uri = a.uri
+                        GROUP BY kg.id
+                    ),
+                    growth_data AS (
+                        SELECT 
+                            kg.id as group_id,
+                            CASE 
+                                WHEN COUNT(CASE WHEN a.uri IS NOT NULL THEN ka.id END) = 0 THEN 'No data'
+                                WHEN MAX(ka.detected_at) < date('now', '-7 days') THEN 'Inactive' 
+                                WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 20 THEN 'High growth'
+                                WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 10 THEN 'Growing'
+                                ELSE 'Stable'
+                            END as growth_status
+                        FROM keyword_groups kg
+                        LEFT JOIN keyword_article_matches ka ON kg.id = ka.group_id
+                        LEFT JOIN articles a ON ka.article_uri = a.uri
+                        GROUP BY kg.id
+                    )
                     SELECT 
-                        kg.id as group_id,
-                        COUNT(DISTINCT CASE WHEN ka.is_read = 0 THEN ka.id END) as unread_count,
-                        COUNT(DISTINCT ka.id) as total_count
+                        kg.id, 
+                        kg.name, 
+                        kg.topic,
+                        COALESCE(ac.unread_count, 0) as unread_count,
+                        COALESCE(ac.total_count, 0) as total_count,
+                        COALESCE(gd.growth_status, 'No data') as growth_status
                     FROM keyword_groups kg
-                    LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
-                    LEFT JOIN keyword_article_matches ka ON mk.id = ka.keyword_id
-                    GROUP BY kg.id
-                ),
-                growth_data AS (
+                    LEFT JOIN alert_counts ac ON kg.id = ac.group_id
+                    LEFT JOIN growth_data gd ON kg.id = gd.group_id
+                    ORDER BY ac.unread_count DESC, kg.name
+                """)
+            else:
+                # Fallback to old table structure
+                cursor.execute("""
+                    WITH alert_counts AS (
+                        SELECT 
+                            kg.id as group_id,
+                            COUNT(DISTINCT CASE WHEN ka.read = 0 AND a.uri IS NOT NULL THEN ka.id END) as unread_count,
+                            COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) as total_count
+                        FROM keyword_groups kg
+                        LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                        LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id
+                        LEFT JOIN articles a ON ka.article_uri = a.uri
+                        GROUP BY kg.id
+                    ),
+                    growth_data AS (
+                        SELECT 
+                            kg.id as group_id,
+                            CASE 
+                                WHEN COUNT(CASE WHEN a.uri IS NOT NULL THEN ka.id END) = 0 THEN 'No data'
+                                WHEN MAX(ka.detected_at) < date('now', '-7 days') THEN 'Inactive' 
+                                WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 20 THEN 'High growth'
+                                WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 10 THEN 'Growing'
+                                ELSE 'Stable'
+                            END as growth_status
+                        FROM keyword_groups kg
+                        LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                        LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id
+                        LEFT JOIN articles a ON ka.article_uri = a.uri
+                        GROUP BY kg.id
+                    )
                     SELECT 
-                        kg.id as group_id,
-                        CASE 
-                            WHEN COUNT(ka.id) = 0 THEN 'No data'
-                            WHEN MAX(ka.detected_at) < date('now', '-7 days') THEN 'Inactive' 
-                            WHEN COUNT(DISTINCT ka.id) > 20 THEN 'High growth'
-                            WHEN COUNT(DISTINCT ka.id) > 10 THEN 'Growing'
-                            ELSE 'Stable'
-                        END as growth_status
+                        kg.id, 
+                        kg.name, 
+                        kg.topic,
+                        COALESCE(ac.unread_count, 0) as unread_count,
+                        COALESCE(ac.total_count, 0) as total_count,
+                        COALESCE(gd.growth_status, 'No data') as growth_status
                     FROM keyword_groups kg
-                    LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
-                    LEFT JOIN keyword_article_matches ka ON mk.id = ka.keyword_id
-                    GROUP BY kg.id
-                )
-                SELECT 
-                    kg.id, 
-                    kg.name, 
-                    kg.topic,
-                    COALESCE(ac.unread_count, 0) as unread_count,
-                    COALESCE(ac.total_count, 0) as total_count,
-                    COALESCE(gd.growth_status, 'No data') as growth_status
-                FROM keyword_groups kg
-                LEFT JOIN alert_counts ac ON kg.id = ac.group_id
-                LEFT JOIN growth_data gd ON kg.id = gd.group_id
-                ORDER BY ac.unread_count DESC, kg.name
-            """)
+                    LEFT JOIN alert_counts ac ON kg.id = ac.group_id
+                    LEFT JOIN growth_data gd ON kg.id = gd.group_id
+                    ORDER BY ac.unread_count DESC, kg.name
+                """)
             
             groups = []
             for row in cursor.fetchall():
                 group_id, name, topic, unread_count, total_count, growth_status = row
+                
+                # Debug logging for the discrepancy
+                logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): unread_count={unread_count}, total_count={total_count}")
                 
                 # Get keywords for this group
                 cursor.execute(
@@ -494,34 +579,87 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                 keywords = [keyword[0] for keyword in cursor.fetchall()]
                 
                 # Get the most recent unread alerts for this group
-                cursor.execute("""
-                    SELECT 
-                        ka.id, 
-                        ka.article_uri,
-                        ka.keyword_ids,
-                        NULL as matched_keyword,
-                        ka.is_read,
-                        ka.detected_at,
-                        a.title,
-                        a.summary,
-                        a.uri,
-                        a.news_source,
-                        a.publication_date,
-                        a.topic_alignment_score,
-                        a.keyword_relevance_score,
-                        a.confidence_score,
-                        a.overall_match_explanation,
-                        a.extracted_article_topics,
-                        a.extracted_article_keywords
-                    FROM keyword_article_matches ka
-                    JOIN articles a ON ka.article_uri = a.uri
-                    WHERE ka.group_id = ? AND ka.is_read = 0
-                    ORDER BY ka.detected_at DESC
-                    LIMIT 25
-                """, (group_id,))
+                if use_new_table:
+                    cursor.execute("""
+                        SELECT 
+                            ka.id, 
+                            ka.article_uri,
+                            ka.keyword_ids,
+                            NULL as matched_keyword,
+                            ka.is_read,
+                            ka.detected_at,
+                            a.title,
+                            a.summary,
+                            a.uri,
+                            a.news_source,
+                            a.publication_date,
+                            a.topic_alignment_score,
+                            a.keyword_relevance_score,
+                            a.confidence_score,
+                            a.overall_match_explanation,
+                            a.extracted_article_topics,
+                            a.extracted_article_keywords
+                        FROM keyword_article_matches ka
+                        JOIN articles a ON ka.article_uri = a.uri
+                        WHERE ka.group_id = ? AND ka.is_read = 0
+                        ORDER BY ka.detected_at DESC
+                        LIMIT 25
+                    """, (group_id,))
+                else:
+                    cursor.execute("""
+                        SELECT 
+                            ka.id, 
+                            ka.article_uri,
+                            ka.keyword_id,
+                            mk.keyword as matched_keyword,
+                            ka.read as is_read,
+                            ka.detected_at,
+                            a.title,
+                            a.summary,
+                            a.uri,
+                            a.source as news_source,
+                            a.publication_date,
+                            a.topic_alignment_score,
+                            a.keyword_relevance_score,
+                            a.confidence_score,
+                            a.overall_match_explanation,
+                            a.extracted_article_topics,
+                            a.extracted_article_keywords
+                        FROM keyword_alerts ka
+                        JOIN articles a ON ka.article_uri = a.uri
+                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                        WHERE mk.group_id = ? AND ka.read = 0
+                        ORDER BY ka.detected_at DESC
+                        LIMIT 25
+                    """, (group_id,))
                 
                 alerts = []
-                for alert in cursor.fetchall():
+                fetched_articles = cursor.fetchall()
+                
+                # Debug logging for actual articles fetched
+                logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): fetched {len(fetched_articles)} articles (with LIMIT 25)")
+                
+                # Let's also count total unread articles without the limit to see the real count
+                if use_new_table:
+                    cursor.execute("""
+                        SELECT COUNT(*)
+                        FROM keyword_article_matches ka
+                        JOIN articles a ON ka.article_uri = a.uri
+                        WHERE ka.group_id = ? AND ka.is_read = 0
+                    """, (group_id,))
+                else:
+                    cursor.execute("""
+                        SELECT COUNT(*)
+                        FROM keyword_alerts ka
+                        JOIN articles a ON ka.article_uri = a.uri
+                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                        WHERE mk.group_id = ? AND ka.read = 0
+                    """, (group_id,))
+                
+                actual_unread_count = cursor.fetchone()[0]
+                logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): actual unread count without limit = {actual_unread_count}")
+                
+                for alert in fetched_articles:
                     (
                         alert_id, article_uri, keyword_ids, matched_keyword, 
                         is_read, detected_at, title, summary, uri,
@@ -675,6 +813,16 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     "alerts": alerts,
                     "growth_status": growth_status
                 })
+                
+                # Final debug log for this group
+                logger.info(f"GROUP FINAL - Group {group_id} '{name}' ({topic}): "
+                          f"unread_count={unread_count}, total_count={total_count}, "
+                          f"alerts_added={len(alerts)}, actual_unread={actual_unread_count}")
+                
+            # Debug: Log all groups being sent to template
+            logger.info(f"TEMPLATE DATA - Sending {len(groups)} groups to template:")
+            for i, group in enumerate(groups):
+                logger.info(f"  Group {i+1}: {group['topic']} - unread_count={group['unread_count']}, alerts={len(group['alerts'])}")
                 
             # Define status colors
             status_colors = {
@@ -1404,7 +1552,19 @@ async def get_group_alerts(
                         a.confidence_score,
                         a.overall_match_explanation,
                         a.extracted_article_topics,
-                        a.extracted_article_keywords
+                        a.extracted_article_keywords,
+                        a.category,
+                        a.sentiment,
+                        a.driver_type,
+                        a.time_to_impact,
+                        a.future_signal,
+                        a.bias,
+                        a.factual_reporting,
+                        a.mbfc_credibility_rating,
+                        a.bias_country,
+                        a.press_freedom,
+                        a.media_type,
+                        a.popularity
                     FROM keyword_article_matches ka
                     JOIN articles a ON ka.article_uri = a.uri
                     WHERE ka.group_id = ? {read_condition}
@@ -1426,7 +1586,25 @@ async def get_group_alerts(
                         a.summary,
                         a.uri,
                         a.news_source,
-                        a.publication_date
+                        a.publication_date,
+                        a.topic_alignment_score,
+                        a.keyword_relevance_score,
+                        a.confidence_score,
+                        a.overall_match_explanation,
+                        a.extracted_article_topics,
+                        a.extracted_article_keywords,
+                        a.category,
+                        a.sentiment,
+                        a.driver_type,
+                        a.time_to_impact,
+                        a.future_signal,
+                        a.bias,
+                        a.factual_reporting,
+                        a.mbfc_credibility_rating,
+                        a.bias_country,
+                        a.press_freedom,
+                        a.media_type,
+                        a.popularity
                     FROM keyword_alerts ka
                     JOIN articles a ON ka.article_uri = a.uri
                     JOIN monitored_keywords mk ON ka.keyword_id = mk.id
@@ -1474,7 +1652,10 @@ async def get_group_alerts(
             
             alerts = []
             for alert in alert_results:
-                alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords = alert
+                if use_new_table:
+                    alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity = alert
+                else:
+                    alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity = alert
                 
                 # Get all matched keywords for this article and group
                 if use_new_table:
@@ -1502,10 +1683,13 @@ async def get_group_alerts(
                     """, (article_uri, group_id))
                     matched_keywords = [kw[0] for kw in cursor.fetchall()]
                 
-                # Try to get media bias data only if not skipping
+                # Check if we already have media bias data from the database
+                has_db_bias_data = bias or factual_reporting or mbfc_credibility_rating or bias_country
+                
+                # Try to get media bias data only if not skipping and not already in database
                 bias_data = None
                 
-                if media_bias and news_source:
+                if not skip_media_bias and media_bias and news_source and not has_db_bias_data:
                     # First try with the original source name
                     bias_data = media_bias.get_bias_for_source(news_source)
                     
@@ -1523,24 +1707,24 @@ async def get_group_alerts(
                             if bias_data:
                                 break
                 
-                # If no match with source variations, try with the URL
-                if media_bias and not bias_data and uri:
-                    bias_data = media_bias.get_bias_for_source(uri)
+                    # If no match with source variations, try with the URL
+                    if not bias_data and uri:
+                        bias_data = media_bias.get_bias_for_source(uri)
                 
-                # If we found bias data, ensure the source is enabled
-                if bias_data and 'enabled' in bias_data and bias_data['enabled'] == 0:
-                    try:
-                        with db.get_connection() as conn:
-                            cursor = conn.cursor()
-                            cursor.execute(
-                                "UPDATE mediabias SET enabled = 1 WHERE source = ?",
-                                (bias_data.get('source'),)
-                            )
-                            conn.commit()
-                            # Update the bias data to show it's now enabled
-                            bias_data['enabled'] = 1
-                    except Exception as e:
-                        logger.error(f"Error enabling media bias source {bias_data.get('source')}: {e}")
+                    # If we found bias data, ensure the source is enabled
+                    if bias_data and 'enabled' in bias_data and bias_data['enabled'] == 0:
+                        try:
+                            with db.get_connection() as conn:
+                                cursor = conn.cursor()
+                                cursor.execute(
+                                    "UPDATE mediabias SET enabled = 1 WHERE source = ?",
+                                    (bias_data.get('source'),)
+                                )
+                                conn.commit()
+                                # Update the bias data to show it's now enabled
+                                bias_data['enabled'] = 1
+                        except Exception as e:
+                            logger.error(f"Error enabling media bias source {bias_data.get('source')}: {e}")
                 
                 article_data = {
                     "url": uri,
@@ -1554,7 +1738,19 @@ async def get_group_alerts(
                     "confidence_score": confidence_score,
                     "overall_match_explanation": overall_match_explanation,
                     "extracted_article_topics": extracted_article_topics,
-                    "extracted_article_keywords": extracted_article_keywords
+                    "extracted_article_keywords": extracted_article_keywords,
+                    "category": category,
+                    "sentiment": sentiment,
+                    "driver_type": driver_type,
+                    "time_to_impact": time_to_impact,
+                    "future_signal": future_signal,
+                    "bias": bias,
+                    "factual_reporting": factual_reporting,
+                    "mbfc_credibility_rating": mbfc_credibility_rating,
+                    "bias_country": bias_country,
+                    "press_freedom": press_freedom,
+                    "media_type": media_type,
+                    "popularity": popularity
                 }
                 
                 # Parse JSON fields for extracted topics and keywords
@@ -1578,8 +1774,8 @@ async def get_group_alerts(
                 if topic_alignment_score is not None or keyword_relevance_score is not None:
                     logger.debug(f"Relevance data for {article_uri}: Topic: {topic_alignment_score}, Keywords: {keyword_relevance_score}")
                 
-                # Add bias data if found
-                if bias_data:
+                # Override with dynamic bias data if found and database doesn't have it
+                if bias_data and not has_db_bias_data:
                     article_data["bias"] = bias_data.get("bias")
                     article_data["factual_reporting"] = bias_data.get("factual_reporting")
                     article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
@@ -2329,5 +2525,154 @@ async def analyze_relevance(
         raise
     except Exception as e:
         logger.error(f"Error in relevance analysis: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+class ContentReviewRequest(BaseModel):
+    article_title: str
+    article_summary: str
+    article_source: str
+    model_name: str
+    article_url: Optional[str] = None
+
+@router.post("/review-content")
+async def review_content(
+    request: ContentReviewRequest,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """Review article content for quality issues using LLM to detect unwanted content like cookie notices, paywalls, etc."""
+    try:
+        logger.info(f"Starting LLM content review for article: {request.article_title[:50]}... using model: {request.model_name}")
+        
+        # Initialize the AI model
+        try:
+            ai_model = LiteLLMModel.get_instance(request.model_name)
+        except Exception as e:
+            logger.error(f"Failed to initialize AI model {request.model_name}: {str(e)}")
+            raise HTTPException(status_code=400, detail=f"Failed to initialize AI model: {str(e)}")
+        
+        # Create the prompt for content quality review
+        system_prompt = """You are a content quality reviewer. Your job is to analyze scraped article content and identify potential issues that would make the content unsuitable for automatic database insertion.
+
+Key issues to detect:
+1. Cookie consent notices (e.g., "This site uses cookies", "Accept cookies", "Cookie policy")
+2. Paywall content (e.g., "Subscribe to continue reading", "Premium content", "Sign up for full access")
+3. Navigation/menu content (e.g., "Home | About | Contact", navigation menus)
+4. Error pages (e.g., "Page not found", "403 Forbidden", "Server error")
+5. Incomplete/truncated content (e.g., content ending mid-sentence, "..." at the end)
+6. Placeholder text (e.g., "Lorem ipsum", placeholder content)
+7. GDPR/privacy notices (e.g., "We value your privacy", "Privacy policy")
+8. Social media sharing buttons/text (e.g., "Share on Facebook", "Follow us")
+9. Advertisement content (e.g., "Advertisement", "Sponsored content")
+10. Subscription prompts (e.g., "Join our newsletter", "Get our app")
+
+Respond with a JSON object containing:
+{
+    "quality_score": float (0.0-1.0, where 1.0 is high quality, 0.0 is poor quality),
+    "issues_detected": ["list of specific issues found"],
+    "recommendation": "approve" | "review" | "reject",
+    "explanation": "Brief explanation of the decision",
+    "content_type": "article" | "cookie_notice" | "paywall" | "error_page" | "navigation" | "other"
+}
+
+Quality scoring guidelines:
+- 0.9-1.0: High quality article content, no significant issues
+- 0.7-0.8: Good content with minor issues (some promotional text, but mostly article)
+- 0.5-0.6: Mixed content with significant issues (partial paywall, heavy promotional content)
+- 0.3-0.4: Poor content with major issues (mostly unwanted content, some article text)
+- 0.0-0.2: Very poor content (cookie notices, error pages, navigation only)
+
+Be strict about quality - it's better to flag questionable content for review than to let poor content through."""
+
+        user_prompt = f"""Please review this scraped article content for quality issues:
+
+Title: {request.article_title}
+Source: {request.article_source}
+Summary/Content: {request.article_summary}
+
+Analyze this content and provide your assessment."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        # Get response from AI model
+        try:
+            response_text = ai_model.generate_response(messages)
+            logger.debug(f"LLM response received: {response_text[:200]}...")
+        except Exception as e:
+            logger.error(f"Error getting response from AI model: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"AI model error: {str(e)}")
+        
+        # Parse the JSON response
+        try:
+            # Clean the response text to extract JSON
+            response_text = response_text.strip()
+            
+            # Find JSON object in the response
+            start_idx = response_text.find('{')
+            end_idx = response_text.rfind('}') + 1
+            
+            if start_idx == -1 or end_idx == 0:
+                raise ValueError("No JSON object found in response")
+            
+            json_str = response_text[start_idx:end_idx]
+            result = json.loads(json_str)
+            
+            # Validate and provide defaults
+            review_result = {
+                "quality_score": float(result.get("quality_score", 0.5)),
+                "issues_detected": result.get("issues_detected", []),
+                "recommendation": result.get("recommendation", "review"),
+                "explanation": result.get("explanation", "No explanation provided"),
+                "content_type": result.get("content_type", "other")
+            }
+            
+            # Ensure quality score is within valid range
+            review_result["quality_score"] = max(0.0, min(1.0, review_result["quality_score"]))
+            
+            # Ensure recommendation is valid
+            if review_result["recommendation"] not in ["approve", "review", "reject"]:
+                review_result["recommendation"] = "review"
+            
+            # Ensure issues_detected is a list
+            if not isinstance(review_result["issues_detected"], list):
+                review_result["issues_detected"] = []
+            
+            logger.info(f"Content review completed - Score: {review_result['quality_score']:.2f}, "
+                       f"Recommendation: {review_result['recommendation']}, "
+                       f"Issues: {len(review_result['issues_detected'])}")
+            
+            return {
+                "success": True,
+                "review": review_result,
+                "model_used": request.model_name
+            }
+            
+        except (json.JSONDecodeError, ValueError, KeyError) as parse_error:
+            logger.error(f"Failed to parse LLM response as JSON: {str(parse_error)}")
+            logger.error(f"Raw response: {response_text}")
+            
+            # Return conservative default if parsing fails
+            return {
+                "success": False,
+                "error": f"Failed to parse AI response: {str(parse_error)}",
+                "review": {
+                    "quality_score": 0.3,  # Conservative score when uncertain
+                    "issues_detected": ["AI response parsing failed"],
+                    "recommendation": "review",
+                    "explanation": f"Unable to parse AI model response: {str(parse_error)}",
+                    "content_type": "other"
+                },
+                "model_used": request.model_name
+            }
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Error in content review: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

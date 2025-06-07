@@ -509,6 +509,7 @@ class BulkResearch:
         summary_length: int,
         summary_voice: str,
         topic: str,
+        preserved_metadata: dict = None,
     ):
         """Yield analysis results one-by-one so the caller can stream them."""
         # Re-use the existing setup logic from analyze_bulk_urls -----------------
@@ -585,22 +586,32 @@ class BulkResearch:
                 ):
                     raise ValueError(f"Invalid or empty content for URL: {url}")
 
-                # Title & publication date ---------------------------------------
+                # Title & publication date with preserved metadata override -------
+                preserved_data = preserved_metadata.get(url, {}) if preserved_metadata else {}
+                
                 title = (
-                    article_content.get("title")
-                    or self.article_analyzer.extract_title(article_content["content"])
+                    preserved_data.get("title") or
+                    article_content.get("title") or
+                    self.article_analyzer.extract_title(article_content["content"])
                 )
                 publication_date = (
-                    article_content.get("publication_date")
-                    or self.article_analyzer.extract_publication_date(
+                    preserved_data.get("publication_date") or
+                    article_content.get("publication_date") or
+                    self.article_analyzer.extract_publication_date(
                         article_content["content"],
                     )
+                )
+                
+                # Use preserved source if available
+                source = (
+                    preserved_data.get("source") or 
+                    article_content.get("source", self.extract_source(url))
                 )
 
                 result = self.article_analyzer.analyze_content(
                     article_text=article_content["content"],
                     title=title,
-                    source=article_content.get("source", self.extract_source(url)),
+                    source=source,
                     uri=url,
                     summary_length=summary_length,
                     summary_voice=summary_voice,
@@ -612,12 +623,28 @@ class BulkResearch:
                     driver_types=self.research.DRIVER_TYPES,
                 )
                 result.update({
-                    "news_source": article_content.get("source", self.extract_source(url)),
+                    "news_source": source,
                     "publication_date": publication_date,
                     "submission_date": datetime.datetime.now().date().isoformat(),
                     "uri": url,
                     "analyzed": True,
                 })
+                
+                # Apply any additional preserved metadata
+                if preserved_data:
+                    logger.info(f"[stream] Using preserved metadata for {url}: {preserved_data}")
+                    if preserved_data.get('bias'):
+                        result['bias'] = preserved_data['bias']
+                    if preserved_data.get('factual_reporting'):
+                        result['factual_reporting'] = preserved_data['factual_reporting']
+                    if preserved_data.get('mbfc_credibility_rating'):
+                        result['mbfc_credibility_rating'] = preserved_data['mbfc_credibility_rating']
+                    if preserved_data.get('bias_country'):
+                        result['bias_country'] = preserved_data['bias_country']
+                    if preserved_data.get('media_type'):
+                        result['media_type'] = preserved_data['media_type']
+                    if preserved_data.get('popularity'):
+                        result['popularity'] = preserved_data['popularity']
                 
                 # Add media bias data if not already present
                 try:

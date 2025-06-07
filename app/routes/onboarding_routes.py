@@ -7,6 +7,7 @@ import aiohttp
 import logging
 from typing import Dict
 import json
+import yaml
 from dotenv import load_dotenv, set_key
 from litellm import completion
 from app.ai_models import ai_get_available_models  # Add this import at the top
@@ -1064,28 +1065,94 @@ async def reset_onboarding(
 
 @router.get("/api/onboarding/available-models")
 async def get_available_models():
-    """Get list of available AI models for onboarding."""
+    """Get list of all available AI models from litellm_config.yaml (regardless of API key configuration)."""
     try:
-        models = ai_get_available_models()
-        logger.info(f"Retrieved {len(models)} available models")
+        # Read the litellm config file
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'litellm_config.yaml')
+        
+        if not os.path.exists(config_path):
+            logger.error(f"LiteLLM config file not found at: {config_path}")
+            return JSONResponse(content={"models": []})
+        
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        available_models = []
+        
+        # Get all models from the config (regardless of API key configuration)
+        for model_config in config.get('model_list', []):
+            model_name = model_config.get('model_name')
+            litellm_params = model_config.get('litellm_params', {})
+            
+            if model_name:
+                # Extract provider from the litellm model path
+                litellm_model = litellm_params.get('model', '')
+                provider = litellm_model.split('/')[0] if '/' in litellm_model else 'unknown'
+                
+                available_models.append({
+                    "name": model_name,
+                    "provider": provider,
+                    "display_name": f"{model_name} ({provider})",
+                    "id": model_name
+                })
+        
+        logger.info(f"Retrieved {len(available_models)} available models from litellm_config.yaml")
         
         # Return flat list of models
-        return JSONResponse(content={"models": models})
+        return JSONResponse(content={"models": available_models})
     except Exception as e:
-        logger.error(f"Error getting available models: {str(e)}")
+        logger.error(f"Error getting available models from litellm config: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/onboarding/configured-models")
 async def get_configured_models():
-    """Get list of AI models that have API keys configured."""
+    """Get list of AI models that have API keys configured from litellm_config.yaml."""
     try:
-        # Import get_available_models which returns only configured models
-        from app.ai_models import get_available_models
-        models = get_available_models()
-        logger.info(f"Retrieved {len(models)} configured models")
+        # Read the litellm config file
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'litellm_config.yaml')
+        
+        if not os.path.exists(config_path):
+            logger.error(f"LiteLLM config file not found at: {config_path}")
+            return JSONResponse(content={"models": []})
+        
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        configured_models = []
+        
+        # Check each model in the config to see if it has a valid API key
+        for model_config in config.get('model_list', []):
+            model_name = model_config.get('model_name')
+            litellm_params = model_config.get('litellm_params', {})
+            api_key_ref = litellm_params.get('api_key', '')
+            
+            # Extract environment variable name from the api_key reference
+            if api_key_ref.startswith('os.environ/'):
+                env_var_name = api_key_ref.replace('os.environ/', '')
+                api_key_value = os.getenv(env_var_name)
+                
+                # Only include models that have actual API keys configured
+                if api_key_value and api_key_value.strip():
+                    # Extract provider from the litellm model path
+                    litellm_model = litellm_params.get('model', '')
+                    provider = litellm_model.split('/')[0] if '/' in litellm_model else 'unknown'
+                    
+                    configured_models.append({
+                        "name": model_name,
+                        "provider": provider,
+                        "display_name": f"{model_name} ({provider})",
+                        "id": model_name
+                    })
+                    logger.debug(f"✅ Found configured model: {model_name} ({provider})")
+                else:
+                    logger.debug(f"⚠️ Model {model_name} defined but no API key found for {env_var_name}")
+            else:
+                logger.debug(f"⚠️ Model {model_name} has invalid API key reference: {api_key_ref}")
+        
+        logger.info(f"Retrieved {len(configured_models)} configured models from litellm_config.yaml")
         
         # Return flat list of models
-        return JSONResponse(content={"models": models})
+        return JSONResponse(content={"models": configured_models})
     except Exception as e:
-        logger.error(f"Error getting configured models: {str(e)}")
+        logger.error(f"Error getting configured models from litellm config: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

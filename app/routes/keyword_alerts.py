@@ -16,11 +16,12 @@ logger = logging.getLogger(__name__)
 # Set up templates
 templates = Jinja2Templates(directory="templates")
 
-@router.get("/keyword-alerts", response_class=HTMLResponse)
-async def keyword_alerts_page(
+@router.get("/keyword-alerts-old", response_class=HTMLResponse)
+async def keyword_alerts_page_old(
     request: Request, 
     session: Dict = Depends(verify_session)
 ) -> HTMLResponse:
+    """Legacy route - replaced by keyword_monitor.py implementation"""
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
@@ -66,7 +67,19 @@ def get_unread_alerts(cursor) -> List[Dict]:
             a.url,
             a.source,
             a.publication_date,
-            a.summary
+            a.summary,
+            a.category,
+            a.sentiment,
+            a.driver_type,
+            a.time_to_impact,
+            a.future_signal,
+            a.bias,
+            a.factual_reporting,
+            a.mbfc_credibility_rating,
+            a.bias_country,
+            a.press_freedom,
+            a.media_type,
+            a.popularity
         FROM keyword_alerts ka
         JOIN articles a ON ka.article_uri = a.uri
         WHERE ka.read = 0
@@ -86,7 +99,19 @@ def get_unread_alerts(cursor) -> List[Dict]:
                 'url': row[6],
                 'source': row[7],
                 'publication_date': row[8],
-                'summary': row[9]
+                'summary': row[9],
+                'category': row[10],
+                'sentiment': row[11],
+                'driver_type': row[12],
+                'time_to_impact': row[13],
+                'future_signal': row[14],
+                'bias': row[15],
+                'factual_reporting': row[16],
+                'mbfc_credibility_rating': row[17],
+                'bias_country': row[18],
+                'press_freedom': row[19],
+                'media_type': row[20],
+                'popularity': row[21]
             }
         }
         for row in alerts_data
