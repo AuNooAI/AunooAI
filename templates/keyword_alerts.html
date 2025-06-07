@@ -546,13 +546,70 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     
     /* Relevance filters responsive */
     .relevance-filters {
-        padding: 0.5rem;
-    }
-    
-    .main-slider-container {
         padding: 0.75rem;
     }
     
+    /* Stack filter row on mobile */
+    .filter-row {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 1rem;
+    }
+    
+    .status-section,
+    .relevance-section,
+    .controls-section {
+        justify-content: center;
+        text-align: center;
+    }
+    
+    .relevance-section {
+        margin: 0 !important;
+    }
+    
+    /* Status filter mobile adjustments */
+    .status-btn {
+        padding: 0.4rem 0.75rem;
+        font-size: 0.8rem;
+    }
+    
+    /* Detoxify button mobile */
+    .detoxify-section {
+        margin-top: 0.5rem;
+    }
+    
+    .detoxify-btn {
+        padding: 0.4rem 0.75rem;
+        font-size: 0.8rem;
+    }
+    
+    /* Relevance slider mobile */
+    .slider-wrapper-modern {
+        margin: 0.5rem 0;
+    }
+    
+    .relevance-value-modern {
+        min-width: 50px;
+        font-size: 0.8rem;
+        padding: 0.2rem 0.4rem;
+    }
+    
+    .track-label {
+        font-size: 0.65rem;
+    }
+    
+    /* Control buttons mobile */
+    .btn-control {
+        padding: 0.4rem 0.6rem;
+        font-size: 0.85rem;
+    }
+    
+    .filter-summary .badge {
+        font-size: 0.75rem;
+        padding: 0.4rem 0.6rem;
+    }
+    
+    /* Advanced filters mobile */
     .advanced-filters {
         padding: 0.75rem;
         margin-top: 0.75rem;
@@ -573,11 +630,6 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     
     .slider-labels {
         font-size: 0.6rem;
-    }
-    
-    /* Hide advanced toggle text on mobile */
-    [id^="advancedToggle_"] .btn-text {
-        display: none;
     }
     
     /* Header adjustments */
@@ -837,19 +889,252 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 
 /* Relevance slider styling */
 .relevance-filters {
-    background-color: #f8f9fa;
-    border: 1px solid #dee2e6;
-    border-radius: 0.375rem;
+    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+    border: 1px solid #e3e6ea;
+    border-radius: 0.5rem;
     padding: 1rem;
     margin-bottom: 1rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
-.main-slider-container {
-    background-color: #fff;
-    border: 1px solid #e3e6ea;
-    border-radius: 0.375rem;
-    padding: 1rem;
+/* Modern filter row layout */
+.filter-row {
+    min-height: 44px;
 }
+
+.filter-label {
+    font-weight: 600;
+    color: #495057;
+    font-size: 0.875rem;
+    white-space: nowrap;
+}
+
+/* Status filter section */
+.status-section {
+    flex-shrink: 0;
+}
+
+.status-filter-group {
+    display: flex;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+}
+
+.status-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0 !important;
+    border-right: none;
+    transition: all 0.2s ease;
+    position: relative;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    color: #495057;
+}
+
+.status-btn:last-child {
+    border-right: 1px solid #dee2e6;
+}
+
+.status-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+    z-index: 2;
+    background-color: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.status-filter-group input[type="radio"]:checked + .status-btn {
+    transform: none;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+    font-weight: 600;
+    background-color: #ffffff;
+    border-color: #0d6efd;
+    color: #0d6efd;
+}
+
+.status-filter-group input[type="radio"]:checked + .btn-outline-primary {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+    color: #ffffff;
+}
+
+.status-filter-group input[type="radio"]:checked + .btn-outline-warning {
+    background-color: #ffc107;
+    border-color: #ffc107;
+    color: #000000;
+}
+
+.status-filter-group input[type="radio"]:checked + .btn-outline-success {
+    background-color: #198754;
+    border-color: #198754;
+    color: #ffffff;
+}
+
+/* Detoxify button styling */
+.detoxify-section {
+    flex-shrink: 0;
+}
+
+.detoxify-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.375rem !important;
+    transition: all 0.2s ease;
+    background-color: #f8f9fa;
+    border: 1px solid #dc3545;
+    color: #dc3545;
+}
+
+.detoxify-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(220, 53, 69, 0.2);
+    background-color: #f5c2c7;
+    border-color: #bb2d3b;
+    color: #bb2d3b;
+}
+
+input[type="checkbox"]:checked + .detoxify-btn {
+    background-color: #dc3545;
+    border-color: #dc3545;
+    color: #ffffff;
+    font-weight: 600;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
+    transform: none;
+}
+
+input[type="checkbox"]:checked + .detoxify-btn:hover {
+    background-color: #bb2d3b;
+    border-color: #bb2d3b;
+}
+
+/* Relevance section */
+.relevance-section {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.slider-container-modern {
+    width: 100%;
+}
+
+.slider-wrapper-modern {
+    position: relative;
+    margin: 0 0.5rem;
+}
+
+.relevance-slider-modern {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(to right, #dc3545 0%, #ffc107 33%, #28a745 66%, #007bff 100%);
+    outline: none;
+    opacity: 0.9;
+    transition: opacity 0.3s;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.relevance-slider-modern:hover {
+    opacity: 1;
+}
+
+.relevance-slider-modern::-webkit-slider-thumb {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 3px solid #007bff;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+    transition: all 0.2s ease;
+}
+
+.relevance-slider-modern::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+}
+
+.relevance-slider-modern::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 3px solid #007bff;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+
+.slider-track-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: #6c757d;
+    margin-top: 0.25rem;
+    padding: 0 0.5rem;
+}
+
+.track-label {
+    white-space: nowrap;
+}
+
+.relevance-value-modern {
+    min-width: 60px;
+    text-align: center;
+    font-weight: 600;
+    color: #007bff;
+    font-size: 0.875rem;
+    padding: 0.25rem 0.5rem;
+    background-color: rgba(0,123,255,0.1);
+    border-radius: 0.25rem;
+}
+
+/* Controls section */
+.controls-section {
+    flex-shrink: 0;
+}
+
+.control-buttons {
+    border-radius: 0.375rem;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+}
+
+.btn-control {
+    padding: 0.5rem 0.75rem;
+    border-radius: 0 !important;
+    border-right: none;
+    transition: all 0.2s ease;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    color: #495057;
+}
+
+.btn-control:last-child {
+    border-right: 1px solid #dee2e6;
+}
+
+.btn-control:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+    z-index: 2;
+    background-color: #e9ecef;
+    border-color: #adb5bd;
+}
+
+/* Filter summary styling */
+.filter-summary .badge {
+    font-size: 0.8rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.375rem;
+}
+
+/* Legacy slider container - now handled by modern design */
 
 .advanced-filters {
     background-color: #f7f8fc;
@@ -1506,39 +1791,77 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                     
                     {% if group.alerts %}
                     <div class="relevance-filters">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h6 class="mb-0">
-                                <i class="fas fa-filter me-1"></i>Relevance Filters
-                            </h6>
-                            <div class="d-flex gap-2">
-                                <button class="btn btn-sm btn-outline-info" 
-                                        onclick="toggleAdvancedFilters('{{ group.id }}')"
-                                        id="advancedToggle_{{ group.id }}"
-                                        title="Show advanced filters">
-                                    <i class="fas fa-cog"></i> Advanced
-                                </button>
-                                <button class="btn btn-sm btn-outline-secondary" 
-                                        onclick="resetFilters('{{ group.id }}')"
-                                        title="Reset all filters">
-                                    <i class="fas fa-undo"></i> Reset
-                                </button>
+                        <!-- Modern single-row filter layout -->
+                        <div class="filter-row d-flex align-items-center justify-content-between mb-3">
+                            <!-- Left: Status Filter -->
+                            <div class="status-section d-flex align-items-center">
+                                <span class="filter-label me-3">Show:</span>
+                                <div class="status-filter-group" data-group-id="{{ group.id }}">
+                                    <input type="radio" class="btn-check" name="statusFilter_{{ group.id }}" id="statusAll_{{ group.id }}" value="all" checked>
+                                    <label class="btn btn-outline-primary status-btn" for="statusAll_{{ group.id }}" title="Show all articles">
+                                        <i class="fas fa-list me-1"></i>All
+                                    </label>
+                                    
+                                    <input type="radio" class="btn-check" name="statusFilter_{{ group.id }}" id="statusNew_{{ group.id }}" value="new">
+                                    <label class="btn btn-outline-warning status-btn" for="statusNew_{{ group.id }}" title="Show only new articles">
+                                        <i class="fas fa-plus-circle me-1"></i>New
+                                    </label>
+                                    
+                                    <input type="radio" class="btn-check" name="statusFilter_{{ group.id }}" id="statusAdded_{{ group.id }}" value="added">
+                                    <label class="btn btn-outline-success status-btn" for="statusAdded_{{ group.id }}" title="Show only analyzed articles">
+                                        <i class="fas fa-check-circle me-1"></i>Added
+                                    </label>
+                                </div>
+                                
+                                <!-- Detoxify Toggle -->
+                                <div class="detoxify-section ms-3">
+                                    <input type="checkbox" class="btn-check" id="detoxifyToggle_{{ group.id }}" data-group-id="{{ group.id }}">
+                                    <label class="btn btn-outline-danger detoxify-btn" for="detoxifyToggle_{{ group.id }}" 
+                                           title="Filter out low credibility sources, conspiracy theories, pseudoscience, and poor factual reporting">
+                                        <i class="fas fa-shield-virus me-1"></i>Detoxify
+                                    </label>
+                                </div>
                             </div>
-                        </div>
-                        
-                        <!-- Main combined slider -->
-                        <div class="main-slider-container mb-3">
-                            <div class="slider-wrapper">
-                                <label for="mainRelevanceSlider_{{ group.id }}">Overall Relevance</label>
-                                <input type="range" class="relevance-slider" 
-                                       id="mainRelevanceSlider_{{ group.id }}" 
-                                       min="0" max="1" step="0.01" value="0"
-                                       data-group-id="{{ group.id }}"
-                                       data-filter-type="main"
-                                       onchange="applyMainRelevanceFilter('{{ group.id }}')">
-                                <span class="relevance-value" id="mainRelevanceValue_{{ group.id }}">All</span>
-                                <div class="slider-labels">
-                                    <span>All Articles</span>
-                                    <span>Highly Relevant Only</span>
+                            
+                            <!-- Center: Relevance Slider -->
+                            <div class="relevance-section flex-grow-1 mx-4">
+                                <div class="slider-container-modern">
+                                    <div class="d-flex align-items-center">
+                                        <span class="filter-label me-2">Relevance:</span>
+                                        <div class="slider-wrapper-modern flex-grow-1">
+                                            <input type="range" class="relevance-slider-modern" 
+                                                   id="mainRelevanceSlider_{{ group.id }}" 
+                                                   min="0" max="1" step="0.01" value="0"
+                                                   data-group-id="{{ group.id }}"
+                                                   data-filter-type="main"
+                                                   onchange="applyMainRelevanceFilter('{{ group.id }}')">
+                                            <div class="slider-track-labels">
+                                                <span class="track-label start">All</span>
+                                                <span class="track-label end">High Only</span>
+                                            </div>
+                                        </div>
+                                        <span class="relevance-value-modern ms-2" id="mainRelevanceValue_{{ group.id }}">All</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Right: Controls and Summary -->
+                            <div class="controls-section d-flex align-items-center">
+                                <div class="filter-summary me-3" id="filterSummary_{{ group.id }}">
+                                    <span class="badge bg-info">{{ group.alerts|length }} articles</span>
+                                </div>
+                                <div class="btn-group control-buttons">
+                                    <button class="btn btn-outline-info btn-control" 
+                                            onclick="toggleAdvancedFilters('{{ group.id }}')"
+                                            id="advancedToggle_{{ group.id }}"
+                                            title="Advanced filters">
+                                        <i class="fas fa-cog"></i>
+                                    </button>
+                                    <button class="btn btn-outline-secondary btn-control" 
+                                            onclick="resetFilters('{{ group.id }}')"
+                                            title="Reset filters">
+                                        <i class="fas fa-undo"></i>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -1593,10 +1916,6 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
                                     </div>
                                 </div>
                             </div>
-                        </div>
-                        
-                        <div class="filter-summary" id="filterSummary_{{ group.id }}">
-                            <span class="badge bg-info">Showing all {{ group.alerts|length }} articles</span>
                         </div>
                     </div>
                     
@@ -2297,31 +2616,51 @@ function drawSparkline(canvas, data) {
 
 // Checkbox and bulk action functionality
 function toggleSelectAll(checkbox, groupId) {
+    // Only select checkboxes from rows that are not filtered out
     const checkboxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox`);
     checkboxes.forEach(cb => {
-        cb.checked = checkbox.checked;
+        const row = cb.closest('tr');
+        // Only toggle if the row is not filtered out (visible)
+        if (!row || !row.classList.contains('filtered-out')) {
+            cb.checked = checkbox.checked;
+        }
     });
     updateBulkActions(groupId);
 }
 
 function updateBulkActions(groupId) {
-    const checkboxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox`);
-    const checkedBoxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox:checked`);
+    const allCheckboxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox`);
+    const allCheckedBoxes = document.querySelectorAll(`[data-group-id="${groupId}"] .article-checkbox:checked`);
+    
+    // Only count visible (non-filtered) checkboxes for select-all state
+    const visibleCheckboxes = Array.from(allCheckboxes).filter(cb => {
+        const row = cb.closest('tr');
+        return !row || !row.classList.contains('filtered-out');
+    });
+    
+    const visibleCheckedBoxes = Array.from(allCheckedBoxes).filter(cb => {
+        const row = cb.closest('tr');
+        return !row || !row.classList.contains('filtered-out');
+    });
+    
     const bulkActions = document.getElementById(`bulkActions_${groupId}`);
     const selectedInfo = document.getElementById(`selectedInfo_${groupId}`);
     
-    if (checkedBoxes.length > 0) {
+    if (visibleCheckedBoxes.length > 0) {
         bulkActions.style.display = 'block';
-        selectedInfo.textContent = `${checkedBoxes.length} selected`;
+        selectedInfo.textContent = `${visibleCheckedBoxes.length} selected`;
     } else {
         bulkActions.style.display = 'none';
     }
     
-    // Update select all checkbox state
+    // Update select all checkbox state based on visible checkboxes only
     const selectAllCheckboxes = document.querySelectorAll(`[data-group-id="${groupId}"] .select-all-checkbox`);
     selectAllCheckboxes.forEach(cb => {
-        cb.indeterminate = checkedBoxes.length > 0 && checkedBoxes.length < checkboxes.length;
-        cb.checked = checkedBoxes.length === checkboxes.length && checkboxes.length > 0;
+        const visibleCount = visibleCheckboxes.length;
+        const visibleCheckedCount = visibleCheckedBoxes.length;
+        
+        cb.indeterminate = visibleCheckedCount > 0 && visibleCheckedCount < visibleCount;
+        cb.checked = visibleCheckedCount === visibleCount && visibleCount > 0;
     });
 }
 
@@ -4884,7 +5223,6 @@ function toggleAdvancedFilters(groupId) {
 function applyMainRelevanceFilter(groupId) {
     const mainSlider = document.getElementById(`mainRelevanceSlider_${groupId}`);
     const mainValue = document.getElementById(`mainRelevanceValue_${groupId}`);
-    const filterSummary = document.getElementById(`filterSummary_${groupId}`);
     
     if (!mainSlider || !mainValue) return;
     
@@ -4894,63 +5232,8 @@ function applyMainRelevanceFilter(groupId) {
     mainValue.textContent = getMainRelevanceLabel(threshold);
     mainValue.style.color = getRelevanceColor(threshold);
     
-    // Get all rows in this group's table
-    const table = document.getElementById(`articlesTable_${groupId}`);
-    if (!table) return;
-    
-    const rows = table.querySelectorAll('tbody tr[data-alert-id]');
-    let visibleCount = 0;
-    let totalCount = rows.length;
-    
-    rows.forEach(row => {
-        const relevanceColumn = row.querySelector('.relevance-column');
-        let showRow = true;
-        
-        if (threshold > 0.01 && relevanceColumn) {
-            const scoreItems = relevanceColumn.querySelectorAll('.score-item span');
-            
-            if (scoreItems.length >= 2) {
-                const topicScore = parseFloat(scoreItems[0].textContent) || 0;
-                const keywordScore = parseFloat(scoreItems[1].textContent) || 0;
-                
-                // Combined relevance calculation (weighted average)
-                const combinedScore = (topicScore * 0.6) + (keywordScore * 0.4);
-                
-                if (combinedScore < threshold) {
-                    showRow = false;
-                }
-            } else {
-                // If no relevance scores available and filter is active, hide the row
-                showRow = false;
-            }
-        } else if (threshold > 0.01 && !relevanceColumn) {
-            // If no relevance column and filter is active, hide the row
-            showRow = false;
-        }
-        
-        if (showRow) {
-            row.classList.remove('filtered-out');
-            visibleCount++;
-        } else {
-            row.classList.add('filtered-out');
-        }
-    });
-    
-    // Update filter summary
-    if (filterSummary) {
-        if (visibleCount === totalCount) {
-            filterSummary.innerHTML = `<span class="badge bg-info">Showing all ${totalCount} articles</span>`;
-        } else {
-            filterSummary.innerHTML = `
-                <span class="badge bg-warning">Showing ${visibleCount} of ${totalCount} articles</span>
-                <span class="badge bg-secondary ms-1">${totalCount - visibleCount} filtered out</span>
-                <span class="badge bg-info ms-1">Main filter: ${getMainRelevanceLabel(threshold)}</span>
-            `;
-        }
-    }
-    
-    // Update bulk actions visibility
-    updateBulkActions(groupId);
+    // Use unified filter function
+    applyAllFilters(groupId);
 }
 
 // Reset advanced sliders only
@@ -4971,7 +5254,6 @@ function applyRelevanceFilter(groupId) {
     const topicValue = document.getElementById(`topicValue_${groupId}`);
     const keywordValue = document.getElementById(`keywordValue_${groupId}`);
     const confidenceValue = document.getElementById(`confidenceValue_${groupId}`);
-    const filterSummary = document.getElementById(`filterSummary_${groupId}`);
     
     const topicThreshold = parseFloat(topicSlider.value);
     const keywordThreshold = parseFloat(keywordSlider.value);
@@ -4985,73 +5267,8 @@ function applyRelevanceFilter(groupId) {
     confidenceValue.textContent = getRelevanceLabel(confidenceThreshold);
     confidenceValue.style.color = getRelevanceColor(confidenceThreshold);
     
-    // Get all rows in this group's table
-    const table = document.getElementById(`articlesTable_${groupId}`);
-    if (!table) return;
-    
-    const rows = table.querySelectorAll('tbody tr[data-alert-id]');
-    let visibleCount = 0;
-    let totalCount = rows.length;
-    
-    rows.forEach(row => {
-        const relevanceColumn = row.querySelector('.relevance-column');
-        let showRow = true;
-        
-        if (relevanceColumn) {
-            const scoreItems = relevanceColumn.querySelectorAll('.score-item span');
-            
-            if (scoreItems.length >= 2) {
-                const topicScore = parseFloat(scoreItems[0].textContent) || 0;
-                const keywordScore = parseFloat(scoreItems[1].textContent) || 0;
-                const confidenceScore = scoreItems.length >= 3 ? parseFloat(scoreItems[2].textContent) || 0 : 0;
-                
-                // Apply filters (articles must meet ALL active criteria)
-                if (topicThreshold > 0.01 && topicScore < topicThreshold) {
-                    showRow = false;
-                }
-                if (keywordThreshold > 0.01 && keywordScore < keywordThreshold) {
-                    showRow = false;
-                }
-                if (confidenceThreshold > 0.01 && confidenceScore < confidenceThreshold) {
-                    showRow = false;
-                }
-            } else if (topicThreshold > 0.01 || keywordThreshold > 0.01 || confidenceThreshold > 0.01) {
-                // If no relevance scores available and filters are active, hide the row
-                showRow = false;
-            }
-        } else if (topicThreshold > 0.01 || keywordThreshold > 0.01 || confidenceThreshold > 0.01) {
-            // If no relevance column and filters are active, hide the row
-            showRow = false;
-        }
-        
-        if (showRow) {
-            row.classList.remove('filtered-out');
-            visibleCount++;
-        } else {
-            row.classList.add('filtered-out');
-        }
-    });
-    
-    // Update filter summary
-    if (filterSummary) {
-        if (visibleCount === totalCount) {
-            filterSummary.innerHTML = `<span class="badge bg-info">Showing all ${totalCount} articles</span>`;
-        } else {
-            const activeFilters = [];
-            if (topicThreshold > 0.01) activeFilters.push('Topic');
-            if (keywordThreshold > 0.01) activeFilters.push('Keyword');
-            if (confidenceThreshold > 0.01) activeFilters.push('Confidence');
-            
-            filterSummary.innerHTML = `
-                <span class="badge bg-warning">Showing ${visibleCount} of ${totalCount} articles</span>
-                <span class="badge bg-secondary ms-1">${totalCount - visibleCount} filtered out</span>
-                <span class="badge bg-info ms-1">Filters: ${activeFilters.join(', ')}</span>
-            `;
-        }
-    }
-    
-    // Update bulk actions visibility
-    updateBulkActions(groupId);
+    // Use unified filter function
+    applyAllFilters(groupId);
 }
 
 function resetFilters(groupId) {
@@ -5068,13 +5285,216 @@ function resetFilters(groupId) {
     if (keywordSlider) keywordSlider.value = 0;
     if (confidenceSlider) confidenceSlider.value = 0;
     
-    // Check if we're in advanced mode
+    // Reset status filter
+    const statusAllRadio = document.getElementById(`statusAll_${groupId}`);
+    if (statusAllRadio) statusAllRadio.checked = true;
+    
+    // Reset detoxify filter
+    const detoxifyToggle = document.getElementById(`detoxifyToggle_${groupId}`);
+    if (detoxifyToggle) detoxifyToggle.checked = false;
+    
+    // Apply filters
+    applyAllFilters(groupId);
+}
+
+// Apply status filter
+function applyStatusFilter(groupId) {
+    applyAllFilters(groupId);
+}
+
+// Combined function to apply all filters (relevance + status + detoxify)
+function applyAllFilters(groupId) {
+    // Get status filter value
+    const statusFilter = document.querySelector(`input[name="statusFilter_${groupId}"]:checked`)?.value || 'all';
+    
+    // Get detoxify filter value
+    const detoxifyEnabled = document.getElementById(`detoxifyToggle_${groupId}`)?.checked || false;
+    
+    // Get relevance filter values
     const advancedFilters = document.getElementById(`advancedFilters_${groupId}`);
-    if (advancedFilters && advancedFilters.style.display !== 'none') {
-        applyRelevanceFilter(groupId);
+    const isAdvancedMode = advancedFilters && advancedFilters.style.display !== 'none';
+    
+    let relevanceThreshold = 0;
+    let topicThreshold = 0;
+    let keywordThreshold = 0;
+    let confidenceThreshold = 0;
+    
+    if (isAdvancedMode) {
+        topicThreshold = parseFloat(document.getElementById(`topicSlider_${groupId}`)?.value || 0);
+        keywordThreshold = parseFloat(document.getElementById(`keywordSlider_${groupId}`)?.value || 0);
+        confidenceThreshold = parseFloat(document.getElementById(`confidenceSlider_${groupId}`)?.value || 0);
     } else {
-        applyMainRelevanceFilter(groupId);
+        relevanceThreshold = parseFloat(document.getElementById(`mainRelevanceSlider_${groupId}`)?.value || 0);
     }
+    
+    // Get all rows in this group's table
+    const table = document.getElementById(`articlesTable_${groupId}`);
+    if (!table) return;
+    
+    const rows = table.querySelectorAll('tbody tr[data-alert-id]');
+    let visibleCount = 0;
+    let totalCount = rows.length;
+    
+    rows.forEach(row => {
+        let showRow = true;
+        
+        // Apply status filter
+        if (statusFilter !== 'all') {
+            const statusBadge = row.querySelector('.badge');
+            const statusText = statusBadge ? statusBadge.textContent.trim().toLowerCase() : '';
+            
+            if (statusFilter === 'new' && !statusText.includes('new')) {
+                showRow = false;
+            } else if (statusFilter === 'added' && !statusText.includes('added')) {
+                showRow = false;
+            }
+        }
+        
+        // Apply detoxify filter (only if status filter passes)
+        if (showRow && detoxifyEnabled) {
+            const shouldDetoxify = isLowQualitySource(row);
+            if (shouldDetoxify) {
+                showRow = false;
+            }
+        }
+        
+        // Apply relevance filter (only if status filter passes)
+        if (showRow && (relevanceThreshold > 0.01 || topicThreshold > 0.01 || keywordThreshold > 0.01 || confidenceThreshold > 0.01)) {
+            const relevanceColumn = row.querySelector('.relevance-column');
+            
+            if (relevanceColumn) {
+                const scoreItems = relevanceColumn.querySelectorAll('.score-item span');
+                
+                if (scoreItems.length >= 2) {
+                    const topicScore = parseFloat(scoreItems[0].textContent) || 0;
+                    const keywordScore = parseFloat(scoreItems[1].textContent) || 0;
+                    const confidenceScore = scoreItems.length >= 3 ? parseFloat(scoreItems[2].textContent) || 0 : 0;
+                    
+                    if (isAdvancedMode) {
+                        // Advanced mode: apply individual thresholds
+                        if (topicThreshold > 0.01 && topicScore < topicThreshold) showRow = false;
+                        if (keywordThreshold > 0.01 && keywordScore < keywordThreshold) showRow = false;
+                        if (confidenceThreshold > 0.01 && confidenceScore < confidenceThreshold) showRow = false;
+                    } else {
+                        // Main mode: apply combined relevance
+                        const combinedScore = (topicScore * 0.6) + (keywordScore * 0.4);
+                        if (combinedScore < relevanceThreshold) showRow = false;
+                    }
+                } else if (relevanceThreshold > 0.01 || topicThreshold > 0.01 || keywordThreshold > 0.01 || confidenceThreshold > 0.01) {
+                    showRow = false;
+                }
+            } else if (relevanceThreshold > 0.01 || topicThreshold > 0.01 || keywordThreshold > 0.01 || confidenceThreshold > 0.01) {
+                showRow = false;
+            }
+        }
+        
+        if (showRow) {
+            row.classList.remove('filtered-out');
+            visibleCount++;
+        } else {
+            row.classList.add('filtered-out');
+        }
+    });
+    
+    // Update filter summary
+    updateFilterSummary(groupId, visibleCount, totalCount, statusFilter, detoxifyEnabled, isAdvancedMode, relevanceThreshold, topicThreshold, keywordThreshold, confidenceThreshold);
+    
+    // Update bulk actions visibility
+    updateBulkActions(groupId);
+}
+
+// Update filter summary with status, detoxify, and relevance info
+function updateFilterSummary(groupId, visibleCount, totalCount, statusFilter, detoxifyEnabled, isAdvancedMode, relevanceThreshold, topicThreshold, keywordThreshold, confidenceThreshold) {
+    const filterSummary = document.getElementById(`filterSummary_${groupId}`);
+    if (!filterSummary) return;
+    
+    const activeFilters = [];
+    
+    // Add status filter info
+    if (statusFilter === 'new') {
+        activeFilters.push('New only');
+    } else if (statusFilter === 'added') {
+        activeFilters.push('Analyzed only');
+    }
+    
+    // Add detoxify filter info
+    if (detoxifyEnabled) {
+        activeFilters.push('Detoxified');
+    }
+    
+    // Add relevance filter info
+    if (isAdvancedMode) {
+        if (topicThreshold > 0.01) activeFilters.push('Topic');
+        if (keywordThreshold > 0.01) activeFilters.push('Keyword');
+        if (confidenceThreshold > 0.01) activeFilters.push('Confidence');
+    } else if (relevanceThreshold > 0.01) {
+        activeFilters.push(getMainRelevanceLabel(relevanceThreshold));
+    }
+    
+    if (visibleCount === totalCount) {
+        filterSummary.innerHTML = `<span class="badge bg-info small">${totalCount} articles</span>`;
+    } else {
+        let badgeHtml = `<span class="badge bg-warning small">${visibleCount} of ${totalCount} articles</span>`;
+        badgeHtml += `<span class="badge bg-secondary ms-1 small">${totalCount - visibleCount} filtered out</span>`;
+        
+        if (activeFilters.length > 0) {
+            badgeHtml += `<span class="badge bg-info ms-1 small">${activeFilters.join(', ')}</span>`;
+        }
+        
+        filterSummary.innerHTML = badgeHtml;
+    }
+}
+
+// Function to check if a source should be filtered out by detoxify
+function isLowQualitySource(row) {
+    // Check data attributes for bias and factual reporting info
+    const bias = row.dataset.bias?.toLowerCase() || '';
+    const factualReporting = row.dataset.factualReporting?.toLowerCase() || '';
+    const credibilityRating = row.dataset.credibilityRating?.toLowerCase() || '';
+    
+    // Also check for bias badges in the source cell
+    const sourceCell = row.querySelector('.source-info');
+    const biasBadges = sourceCell ? sourceCell.querySelectorAll('.bias-badge') : [];
+    
+    let foundLowQuality = false;
+    
+    // Check bias for conspiracy theories and pseudoscience
+    if (bias.includes('conspiracy') || bias.includes('pseudoscience') || 
+        bias.includes('quackery') || bias.includes('junk news')) {
+        foundLowQuality = true;
+    }
+    
+    // Check factual reporting for low quality
+    if (factualReporting.includes('low') || factualReporting.includes('very low') || 
+        factualReporting.includes('mixed')) {
+        foundLowQuality = true;
+    }
+    
+    // Check credibility rating
+    if (credibilityRating.includes('low')) {
+        foundLowQuality = true;
+    }
+    
+    // Check bias badges for low quality indicators
+    biasBadges.forEach(badge => {
+        const badgeText = badge.textContent.toLowerCase();
+        const badgeClasses = badge.className;
+        
+        if (badgeClasses.includes('bias-conspiracy') || 
+            badgeClasses.includes('bias-pseudoscience') ||
+            badgeClasses.includes('bias-questionable') ||
+            badgeClasses.includes('factual-low') ||
+            badgeClasses.includes('factual-very-low') ||
+            badgeClasses.includes('factual-mixed') ||
+            badgeText.includes('conspiracy') ||
+            badgeText.includes('pseudoscience') ||
+            badgeText.includes('low') ||
+            badgeText.includes('mixed')) {
+            foundLowQuality = true;
+        }
+    });
+    
+    return foundLowQuality;
 }
 
 // Table sorting functions
@@ -5196,6 +5616,24 @@ document.addEventListener('DOMContentLoaded', function() {
         const groupId = mainSlider.dataset.groupId;
         // Set initial display for main slider
         applyMainRelevanceFilter(groupId);
+    });
+    
+    // Initialize status filter event listeners
+    document.querySelectorAll('.status-filter-group input[type="radio"]').forEach(radio => {
+        radio.addEventListener('change', function() {
+            if (this.checked) {
+                const groupId = this.closest('.status-filter-group').dataset.groupId;
+                applyStatusFilter(groupId);
+            }
+        });
+    });
+    
+    // Initialize detoxify filter event listeners
+    document.querySelectorAll('input[id^="detoxifyToggle_"]').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const groupId = this.dataset.groupId;
+            applyAllFilters(groupId);
+        });
     });
 });
 
