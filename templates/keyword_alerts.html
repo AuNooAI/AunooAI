@@ -1011,6 +1011,32 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     border-color: #bb2d3b;
 }
 
+/* Analysis modal summary styling */
+.summary-section {
+    border: 1px solid #e9ecef;
+    border-radius: 0.375rem;
+    padding: 0.75rem;
+    background-color: #f8f9fa;
+}
+
+.summary-badge {
+    font-size: 0.7rem;
+    padding: 0.2rem 0.4rem;
+    align-self: flex-start;
+    flex-shrink: 0;
+    min-width: 32px;
+    text-align: center;
+}
+
+.ai-summary {
+    font-weight: 500;
+    color: #212529;
+}
+
+.original-summary {
+    font-style: italic;
+}
+
 /* Relevance section */
 .relevance-section {
     display: flex;
@@ -2211,7 +2237,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="reviewDetailsModalLabel">
-                    <i class="fas fa-search-alt me-2"></i>LLM Content Review Details
+                    <i class="fas fa-shield-check me-2"></i>Quality Control Details
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -2235,7 +2261,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                 <!-- Review Results -->
                 <div class="review-results-section mb-4">
                     <h6 class="text-success">
-                        <i class="fas fa-robot me-2"></i>LLM Analysis Results
+                        <i class="fas fa-robot me-2"></i>Quality Control Results
                     </h6>
                     <div class="row">
                         <div class="col-md-6">
@@ -2250,7 +2276,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                             <div class="card">
                                 <div class="card-body text-center">
                                     <span id="reviewRecommendationBadge" class="badge bg-success fs-6">APPROVE</span>
-                                    <p class="text-muted mb-0 mt-2">LLM Recommendation</p>
+                                    <p class="text-muted mb-0 mt-2">Quality Control Recommendation</p>
                                 </div>
                             </div>
                         </div>
@@ -2278,14 +2304,14 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                     </div>
                 </div>
 
-                <!-- LLM Explanation -->
+                <!-- Quality Control Explanation -->
                 <div class="explanation-section">
                     <h6 class="text-dark">
-                        <i class="fas fa-comment-alt me-2"></i>LLM Explanation
+                        <i class="fas fa-comment-alt me-2"></i>Quality Control Explanation
                     </h6>
                     <div class="alert alert-info">
                         <p id="reviewExplanation" class="mb-0">
-                            The LLM's detailed explanation will appear here...
+                            The quality control system's detailed explanation will appear here...
                         </p>
                     </div>
                 </div>
@@ -2375,29 +2401,29 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" id="backgroundProcessing" checked>
                                 <label class="form-check-label" for="backgroundProcessing">
-                                    <i class="fas fa-play-circle me-1"></i>Run in background
+                                    <i class="fas fa-rocket me-1"></i>Background Processing & Auto-Save
                                 </label>
-                                <div class="form-text">Continue using the interface while processing</div>
+                                <div class="form-text">Process in background and automatically save results</div>
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="autoSave" checked>
-                                <label class="form-check-label" for="autoSave">
-                                    <i class="fas fa-save me-1"></i>Auto-save results
+                                <input class="form-check-input" type="checkbox" id="qualityControl" checked>
+                                <label class="form-check-label" for="qualityControl">
+                                    <i class="fas fa-shield-check me-1"></i>Quality Control
                                 </label>
-                                <div class="form-text">Automatically save to database when complete</div>
+                                <div class="form-text">AI-powered quality review and filtering</div>
                             </div>
                         </div>
                     </div>
                     <div class="row mt-2">
                         <div class="col-md-6">
                             <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="llmReview" checked>
-                                <label class="form-check-label" for="llmReview">
-                                    <i class="fas fa-search me-1"></i>LLM Quality Review
+                                <input class="form-check-input" type="checkbox" id="saveApprovedOnly">
+                                <label class="form-check-label" for="saveApprovedOnly">
+                                    <i class="fas fa-filter me-1"></i>Save Approved Only
                                 </label>
-                                <div class="form-text">Review analysis quality and completeness</div>
+                                <div class="form-text">Only auto-save articles that pass quality control</div>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -5343,9 +5369,12 @@ function applyAllFilters(groupId) {
             const statusBadge = row.querySelector('.badge');
             const statusText = statusBadge ? statusBadge.textContent.trim().toLowerCase() : '';
             
+            // Debug logging for status filtering
             if (statusFilter === 'new' && !statusText.includes('new')) {
+                console.log('Filtering out article - status:', statusText, 'looking for: new');
                 showRow = false;
             } else if (statusFilter === 'added' && !statusText.includes('added')) {
+                console.log('Filtering out article - status:', statusText, 'looking for: added');
                 showRow = false;
             }
         }
@@ -5611,11 +5640,30 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize table sorting
     initializeTableSorting();
     
-    // Initialize relevance filters with main slider
+    // Initialize relevance filters with main slider - just update display, don't apply filters
     document.querySelectorAll('[id^="mainRelevanceSlider_"]').forEach(mainSlider => {
         const groupId = mainSlider.dataset.groupId;
-        // Set initial display for main slider
-        applyMainRelevanceFilter(groupId);
+        // Just update the display value, don't apply filters on page load
+        const mainValue = document.getElementById(`mainRelevanceValue_${groupId}`);
+        if (mainValue) {
+            mainValue.textContent = getMainRelevanceLabel(0);
+            mainValue.style.color = getRelevanceColor(0);
+        }
+        
+        // Initialize filter summary without applying filters
+        const filterSummary = document.getElementById(`filterSummary_${groupId}`);
+        if (filterSummary) {
+            const table = document.getElementById(`articlesTable_${groupId}`);
+            if (table) {
+                // Ensure all articles are visible on page load (remove any filtered-out classes)
+                const allRows = table.querySelectorAll('tbody tr[data-alert-id]');
+                allRows.forEach(row => row.classList.remove('filtered-out'));
+                
+                const totalRows = allRows.length;
+                filterSummary.innerHTML = `<span class="badge bg-info">${totalRows} articles</span>`;
+                console.log(`Initialized group ${groupId} with ${totalRows} articles - all visible`);
+            }
+        }
     });
     
     // Initialize status filter event listeners
@@ -5782,8 +5830,8 @@ function resetModalState() {
     
     // Reset processing options to defaults
     document.getElementById('backgroundProcessing').checked = true;
-    document.getElementById('autoSave').checked = true;
-    document.getElementById('llmReview').checked = true;
+    document.getElementById('qualityControl').checked = true;
+    document.getElementById('saveApprovedOnly').checked = false;
     document.getElementById('closeOnComplete').checked = false;
     
     // Enable start button
@@ -5810,8 +5858,8 @@ async function startArticleAnalysis() {
     
     // Get processing options
     const backgroundProcessing = document.getElementById('backgroundProcessing').checked;
-    const autoSave = document.getElementById('autoSave').checked;
-    const llmReview = document.getElementById('llmReview').checked;
+    const qualityControl = document.getElementById('qualityControl').checked;
+    const saveApprovedOnly = document.getElementById('saveApprovedOnly').checked;
     const closeOnComplete = document.getElementById('closeOnComplete').checked;
     
     try {
@@ -5822,9 +5870,9 @@ async function startArticleAnalysis() {
         
         // Update progress text based on processing options
         let statusText = 'Starting analysis...';
-        if (backgroundProcessing) statusText += ' (Background mode)';
-        if (autoSave) statusText += ' (Auto-save enabled)';
-        if (llmReview) statusText += ' (Quality review enabled)';
+        if (backgroundProcessing) statusText += ' (Background & Auto-Save)';
+        if (qualityControl) statusText += ' (Quality Control)';
+        if (saveApprovedOnly) statusText += ' (Approved Only)';
         
         progressText.textContent = statusText;
         
@@ -5839,8 +5887,8 @@ async function startArticleAnalysis() {
             preservedMetadata: currentAnalysisArticles,
             options: {
                 backgroundProcessing: backgroundProcessing,
-                autoSave: autoSave,
-                llmReview: llmReview,
+                qualityControl: qualityControl,
+                saveApprovedOnly: saveApprovedOnly,
                 closeOnComplete: closeOnComplete
             }
         };
@@ -5905,13 +5953,18 @@ async function performStreamingAnalysis(requestData) {
             try {
                 const result = JSON.parse(line);
                 
-                // Apply preserved metadata
+                // Apply preserved metadata (but preserve AI-generated summary)
                 const preserved = requestData.preservedMetadata.find(meta => meta.url === result.uri);
                 if (preserved) {
                     result.title = preserved.title || result.title;
                     result.news_source = preserved.source || result.news_source;
                     result.publication_date = preserved.publication_date || result.publication_date;
-                    result.summary = preserved.summary || result.summary;
+                    // Store original summary separately, keep AI-generated summary as primary
+                    result.original_summary = preserved.summary;
+                    // Only use preserved summary as fallback if AI didn't generate one
+                    if (!result.summary || result.summary.trim() === '') {
+                        result.summary = preserved.summary;
+                    }
                 }
                 
                 currentAnalysisResults.push(result);
@@ -5941,7 +5994,12 @@ async function performStreamingAnalysis(requestData) {
                 result.title = preserved.title || result.title;
                 result.news_source = preserved.source || result.news_source;
                 result.publication_date = preserved.publication_date || result.publication_date;
-                result.summary = preserved.summary || result.summary;
+                // Store original summary separately, keep AI-generated summary as primary
+                result.original_summary = preserved.summary;
+                // Only use preserved summary as fallback if AI didn't generate one
+                if (!result.summary || result.summary.trim() === '') {
+                    result.summary = preserved.summary;
+                }
             }
             currentAnalysisResults.push(result);
             addAnalysisResultToList(result, currentAnalysisResults.length);
@@ -5961,9 +6019,9 @@ async function performStreamingAnalysis(requestData) {
     
     document.getElementById('saveAnalysisResultsBtn').style.display = 'inline-block';
     
-    // Auto-save if enabled
-    const autoSave = document.getElementById('autoSave').checked;
-    if (autoSave && currentAnalysisResults.length > 0) {
+    // Auto-save if background processing is enabled
+    const backgroundProcessing = document.getElementById('backgroundProcessing').checked;
+    if (backgroundProcessing && currentAnalysisResults.length > 0) {
         showAlert('Auto-saving analysis results...', 'info');
         setTimeout(() => {
             saveAnalysisResults();
@@ -5997,7 +6055,17 @@ function addAnalysisResultToList(result, index) {
         <div class="d-flex justify-content-between align-items-start">
             <div class="flex-grow-1 pe-5 pt-2">
                 <h6 class="mb-1">${result.title || 'Untitled'}</h6>
-                <p class="mb-1 small">${result.summary || 'No summary available'}</p>
+                <div class="summary-section mb-2">
+                    <div class="d-flex align-items-start">
+                        <span class="badge bg-success me-2 summary-badge" title="AI-generated summary">AI</span>
+                        <p class="mb-0 small ai-summary">${result.summary || 'No AI summary available'}</p>
+                    </div>
+                    ${result.original_summary && result.original_summary !== result.summary ? 
+                        `<div class="d-flex align-items-start mt-1">
+                            <span class="badge bg-secondary me-2 summary-badge" title="Original newsfeed summary">Orig</span>
+                            <p class="mb-0 small text-muted original-summary">${result.original_summary}</p>
+                        </div>` : ''}
+                </div>
                 <div class="d-flex flex-wrap gap-1 mt-2">
                     ${result.category ? `<span class="badge bg-info">${result.category}</span>` : ''}
                     ${result.sentiment ? `<span class="badge bg-secondary">${result.sentiment}</span>` : ''}
@@ -6013,13 +6081,13 @@ function addAnalysisResultToList(result, index) {
     
     resultsList.appendChild(resultItem);
     
-    // Trigger LLM review if enabled
-    const llmReviewEnabled = document.getElementById('llmReview').checked;
-    if (llmReviewEnabled) {
+    // Trigger quality control if enabled
+    const qualityControlEnabled = document.getElementById('qualityControl').checked;
+    if (qualityControlEnabled) {
         // Small delay to show queued status, then start review
         setTimeout(() => {
-            updateReviewStatus(index, 'reviewing', 'Reviewing...');
-            setTimeout(() => performLLMReview(result, index), 300);
+            updateReviewStatus(index, 'reviewing', 'Quality Check...');
+            setTimeout(() => performQualityControl(result, index), 300);
         }, 800);
     } else {
         // Mark as ready if no review needed
@@ -6066,8 +6134,13 @@ function editAnalysisResult(index) {
                         <input type="text" class="form-control" id="editResultTitle" value="${result.title || ''}">
                     </div>
                     <div class="mb-3">
-                        <label class="form-label">Summary</label>
+                        <label class="form-label">AI-Generated Summary</label>
                         <textarea class="form-control" id="editResultSummary" rows="3">${result.summary || ''}</textarea>
+                        <div class="form-text">This is the AI-generated summary that will be saved to the database.</div>
+                        ${result.original_summary && result.original_summary !== result.summary ? 
+                            `<div class="mt-2">
+                                <small class="text-muted"><strong>Original:</strong> ${result.original_summary}</small>
+                            </div>` : ''}
                     </div>
                     <div class="row">
                         <div class="col-md-6">
@@ -6172,13 +6245,13 @@ function updateAnalysisResultDisplay(index) {
     }
 }
 
-// Function to perform LLM review using actual AI models to detect unwanted content
-async function performLLMReview(result, index) {
+// Function to perform quality control using actual AI models to detect unwanted content
+async function performQualityControl(result, index) {
     // Status is already set to 'reviewing' before this function is called
     // This function now calls a real LLM to detect cookie notices, paywalls, and other unwanted content
     
     try {
-        console.log('Starting LLM-based content review for article:', result.title?.substring(0, 50) + '...');
+        console.log('Starting AI-based quality control for article:', result.title?.substring(0, 50) + '...');
         
         // Get the selected model for analysis (from the analysis modal)
         const modelSelect = document.getElementById('analysisModelSelect');
@@ -6198,7 +6271,7 @@ async function performLLMReview(result, index) {
             article_url: result.uri
         };
         
-        console.log('Sending content review request to LLM API...');
+        console.log('Sending quality control request to AI API...');
         
         // Call the LLM review API
         const response = await fetch('/api/keyword-monitor/review-content', {
@@ -6216,7 +6289,7 @@ async function performLLMReview(result, index) {
         }
         
         const reviewResult = await response.json();
-        console.log('LLM review response received:', reviewResult);
+        console.log('Quality control response received:', reviewResult);
         
         if (reviewResult.success && reviewResult.review) {
             const review = reviewResult.review;
@@ -6229,26 +6302,26 @@ async function performLLMReview(result, index) {
             result.review_recommendation = review.recommendation;
             result.model_used = reviewResult.model_used;
             
-            console.log(`LLM Review completed - Score: ${review.quality_score.toFixed(2)}, Recommendation: ${review.recommendation}`);
+            console.log(`Quality Control completed - Score: ${review.quality_score.toFixed(2)}, Recommendation: ${review.recommendation}`);
             
             // Update status based on LLM recommendation and quality score
             const scorePercent = Math.round(review.quality_score * 100);
             
             if (review.recommendation === 'approve' && review.quality_score >= 0.8) {
-                updateReviewStatus(index, 'approved', `LLM Approved (${scorePercent}%)`, 
+                updateReviewStatus(index, 'approved', `Approved (${scorePercent}%)`, 
                     `${review.explanation}${review.issues_detected.length > 0 ? ' | Issues: ' + review.issues_detected.join(', ') : ''}`);
             } else if (review.recommendation === 'reject' || review.quality_score < 0.3) {
-                updateReviewStatus(index, 'rejected', `LLM Rejected (${scorePercent}%)`, 
+                updateReviewStatus(index, 'rejected', `Rejected (${scorePercent}%)`, 
                     `${review.explanation}${review.issues_detected.length > 0 ? ' | Issues: ' + review.issues_detected.join(', ') : ''}`);
         } else {
                 // review or mixed quality
-                updateReviewStatus(index, 'warning', `LLM Flagged (${scorePercent}%)`, 
+                updateReviewStatus(index, 'warning', `Flagged (${scorePercent}%)`, 
                     `${review.explanation}${review.issues_detected.length > 0 ? ' | Issues: ' + review.issues_detected.join(', ') : ''}`);
             }
             
         } else {
             // Handle API error but still got a response
-            console.error('LLM review API returned error:', reviewResult.error);
+            console.error('Quality control API returned error:', reviewResult.error);
             
             if (reviewResult.review) {
                 // Use the fallback review data
@@ -6261,7 +6334,7 @@ async function performLLMReview(result, index) {
         }
         
     } catch (error) {
-        console.error('LLM Review error:', error);
+        console.error('Quality Control error:', error);
         
         // Store error information
         result.review_score = 0.5; // Neutral score on error
@@ -6534,7 +6607,7 @@ function overrideReviewDecision() {
 async function saveAnalysisResults() {
     const saveBtn = document.getElementById('saveAnalysisResultsBtn');
     const topic = document.getElementById('analysisTopicSelect').value;
-    const autoSave = document.getElementById('autoSave').checked;
+    const backgroundProcessing = document.getElementById('backgroundProcessing').checked;
     const closeOnComplete = document.getElementById('closeOnComplete').checked;
     
     if (currentAnalysisResults.length === 0) {
@@ -6546,13 +6619,44 @@ async function saveAnalysisResults() {
         saveBtn.disabled = true;
         saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
         
-        // Filter out rejected results if LLM review is enabled
-        const llmReviewEnabled = document.getElementById('llmReview').checked;
+        // Filter articles based on quality control settings
+        const qualityControlEnabled = document.getElementById('qualityControl').checked;
+        const saveApprovedOnly = document.getElementById('saveApprovedOnly').checked;
         let articlesToSave = currentAnalysisResults;
         
-        if (llmReviewEnabled) {
+        if (qualityControlEnabled && saveApprovedOnly) {
             articlesToSave = currentAnalysisResults.filter(result => {
-                // Use LLM recommendation if available, otherwise fall back to score
+                // Only save articles that were explicitly approved
+                if (result.review_recommendation) {
+                    return result.review_recommendation === 'approve';
+                }
+                // Fallback to high quality score for approval
+                return result.review_score && result.review_score >= 0.8;
+            });
+            
+            if (articlesToSave.length < currentAnalysisResults.length) {
+                const excludedCount = currentAnalysisResults.length - articlesToSave.length;
+                const excludedReasons = currentAnalysisResults
+                    .filter(result => !articlesToSave.includes(result))
+                    .map(result => {
+                        if (result.review_recommendation === 'reject') return 'Rejected';
+                        if (result.review_recommendation === 'review') return 'Flagged';
+                        return 'Not approved';
+                    })
+                    .reduce((acc, reason) => {
+                        acc[reason] = (acc[reason] || 0) + 1;
+                        return acc;
+                    }, {});
+                
+                const reasonText = Object.entries(excludedReasons)
+                    .map(([reason, count]) => `${count} ${reason}`)
+                    .join(', ');
+                
+                showAlert(`${excludedCount} articles excluded from auto-save (${reasonText})`, 'info');
+            }
+        } else if (qualityControlEnabled) {
+            // Quality control enabled but not restricted to approved only - exclude rejected
+            articlesToSave = currentAnalysisResults.filter(result => {
                 if (result.review_recommendation) {
                     return result.review_recommendation !== 'reject';
                 }
@@ -6562,19 +6666,7 @@ async function saveAnalysisResults() {
             
             if (articlesToSave.length < currentAnalysisResults.length) {
                 const rejectedCount = currentAnalysisResults.length - articlesToSave.length;
-                const rejectedReasons = currentAnalysisResults
-                    .filter(result => !articlesToSave.includes(result))
-                    .map(result => result.review_recommendation === 'reject' ? 'LLM rejected' : 'Low quality score')
-                    .reduce((acc, reason) => {
-                        acc[reason] = (acc[reason] || 0) + 1;
-                        return acc;
-                    }, {});
-                
-                const reasonText = Object.entries(rejectedReasons)
-                    .map(([reason, count]) => `${count} ${reason}`)
-                    .join(', ');
-                
-                showAlert(`${rejectedCount} articles excluded from saving (${reasonText})`, 'info');
+                showAlert(`${rejectedCount} rejected articles excluded from saving`, 'info');
             }
         }
         
