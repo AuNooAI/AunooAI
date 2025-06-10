@@ -1,0 +1,228 @@
+{
+  "timestamp": "2025-06-09T14:00:41.073524",
+  "base_url": "http://localhost:10000",
+  "results": [
+    {
+      "test": "patterns",
+      "query": "*",
+      "top_k": 200,
+      "success": false,
+      "total_time": 2.1169862747192383,
+      "backend_time": 0,
+      "processed": 0
+    },
+    {
+      "test": "patterns",
+      "query": "*",
+      "top_k": 500,
+      "success": false,
+      "total_time": 2.0857834815979004,
+      "backend_time": 0,
+      "processed": 0
+    },
+    {
+      "test": "patterns",
+      "query": "*",
+      "top_k": 1000,
+      "success": false,
+      "total_time": 2.0919992923736572,
+      "backend_time": 0,
+      "processed": 0
+    },
+    {
+      "test": "patterns",
+      "query": "AI machine learning",
+      "top_k": 200,
+      "success": false,
+      "total_time": 2.064389705657959,
+      "backend_time": 0,
+      "processed": 0
+    },
+    {
+      "test": "patterns",
+      "query": "AI machine learning",
+      "top_k": 500,
+      "success": false,
+      "total_time": 2.096754789352417,
+      "backend_time": 0,
+      "processed": 0
+    },
+    {
+      "test": "patterns",
+      "query": "AI machine learning",
+      "top_k": 1000,
+      "success": false,
+      "total_time": 2.091813087463379,
+      "backend_time": 0,
+      "processed": 0
+    },
+    {
+      "test": "clustering",
+      "query": "*",
+      "config": {
+        "method": "umap",
+        "dims": 2,
+        "top_k": 500,
+        "n_clusters": 30
+      },
+      "success": false,
+      "total_time": 2.100602149963379,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "AI artificial intelligence",
+      "config": {
+        "method": "umap",
+        "dims": 2,
+        "top_k": 500,
+        "n_clusters": 30
+      },
+      "success": false,
+      "total_time": 2.102832555770874,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "machine learning ML",
+      "config": {
+        "method": "umap",
+        "dims": 2,
+        "top_k": 500,
+        "n_clusters": 30
+      },
+      "success": false,
+      "total_time": 2.1014909744262695,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "*",
+      "config": {
+        "method": "umap",
+        "dims": 2,
+        "top_k": 800,
+        "n_clusters": 40
+      },
+      "success": false,
+      "total_time": 2.097853183746338,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "AI artificial intelligence",
+      "config": {
+        "method": "umap",
+        "dims": 2,
+        "top_k": 800,
+        "n_clusters": 40
+      },
+      "success": false,
+      "total_time": 2.110377550125122,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "machine learning ML",
+      "config": {
+        "method": "umap",
+        "dims": 2,
+        "top_k": 800,
+        "n_clusters": 40
+      },
+      "success": false,
+      "total_time": 2.096769094467163,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "*",
+      "config": {
+        "method": "umap",
+        "dims": 2,
+        "top_k": 1500,
+        "n_clusters": 50
+      },
+      "success": false,
+      "total_time": 2.097461700439453,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "AI artificial intelligence",
+      "config": {
+        "method": "umap",
+        "dims": 2,
+        "top_k": 1500,
+        "n_clusters": 50
+      },
+      "success": false,
+      "total_time": 2.0578906536102295,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "machine learning ML",
+      "config": {
+        "method": "umap",
+        "dims": 2,
+        "top_k": 1500,
+        "n_clusters": 50
+      },
+      "success": false,
+      "total_time": 2.1151833534240723,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "*",
+      "config": {
+        "method": "pca",
+        "dims": 2,
+        "top_k": 800,
+        "n_clusters": 30
+      },
+      "success": false,
+      "total_time": 2.076080560684204,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "AI artificial intelligence",
+      "config": {
+        "method": "pca",
+        "dims": 2,
+        "top_k": 800,
+        "n_clusters": 30
+      },
+      "success": false,
+      "total_time": 2.0934998989105225,
+      "backend_time": 0,
+      "points": 0
+    },
+    {
+      "test": "clustering",
+      "query": "machine learning ML",
+      "config": {
+        "method": "pca",
+        "dims": 2,
+        "top_k": 800,
+        "n_clusters": 30
+      },
+      "success": false,
+      "total_time": 2.0620346069335938,
+      "backend_time": 0,
+      "points": 0
+    }
+  ]
+}

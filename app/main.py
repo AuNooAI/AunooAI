@@ -1205,6 +1205,9 @@ async def startup_event():
         logger = logging.getLogger('main')
         logger.setLevel(logging.INFO)
         
+        # EXPLICITLY ENABLE vector routes logging 
+        logging.getLogger('app.routes.vector_routes').setLevel(logging.INFO)
+        
         # Set higher log levels for noisy modules
         logging.getLogger('numba').setLevel(logging.ERROR)  # Changed from WARNING to ERROR
         logging.getLogger('httpx').setLevel(logging.WARNING)
