@@ -242,9 +242,10 @@ def embedding_projection(
     containing ``id``, ``x``, ``y``, ``cluster`` and a couple of handy
     metadata fields (currently ``title``).
     """
+    # Set up logging outside try block to ensure it's always available
+    logger = logging.getLogger(__name__)
+    
     try:
-        # Set up logging
-        logger = logging.getLogger(__name__)
         logger.info(f"Embedding projection called with query: {q or 'None'}")
         
         # Build metadata filter 
@@ -293,9 +294,32 @@ def embedding_projection(
         fetch_limit = min(max(top_k * 2, 5000), 10000)
 
         vecs, metas, ids = _fetch_vectors(limit=fetch_limit, where=where)
+        logger.info(f"📦 Fetched {len(vecs) if vecs.size > 0 else 0} vectors from database")
         
         if vecs.size == 0:
+            logger.warning("⚠️ No vectors found!")
             return {"points": [], "explain": {}, "centroids": {}}
+        
+        # Log data characteristics
+        logger.info(f"📊 Processing {len(vecs)} vectors with shape {vecs.shape}")
+        logger.info(f"💾 Memory usage: {vecs.nbytes / 1024 / 1024:.1f} MB")
+        
+        # Auto-downsample large datasets for performance
+        MAX_UMAP_SIZE = 5000  # UMAP becomes very slow above this
+        if len(vecs) > MAX_UMAP_SIZE and method == "umap":
+            logger.warning(f"⚡ Dataset too large ({len(vecs)} > {MAX_UMAP_SIZE}), downsampling for performance...")
+            
+            # Stratified sampling to preserve data distribution
+            import numpy as np
+            np.random.seed(42)  # Reproducible sampling
+            indices = np.random.choice(len(vecs), size=MAX_UMAP_SIZE, replace=False)
+            indices = np.sort(indices)  # Keep original order
+            
+            vecs = vecs[indices]
+            metas = [metas[i] for i in indices]
+            ids = [ids[i] for i in indices]
+            
+            logger.info(f"📉 Downsampled to {len(vecs)} vectors for UMAP performance")
         
         # Projection
         from sklearn.cluster import MiniBatchKMeans
@@ -316,14 +340,71 @@ def embedding_projection(
             reducer = PCA(n_components=dims, random_state=42)
         else:  # default UMAP
             import umap
+            logger.info("🎯 Starting UMAP dimensionality reduction...")
+            
+            # Enable numba logging to match working version
+            import os
+            os.environ['NUMBA_ENABLE_CUDASIM'] = '0'  # Ensure CUDA sim is off
+            
+            # Set numba logging to match working version behavior
+            numba_logger = logging.getLogger('numba')
+            numba_logger.setLevel(logging.DEBUG)
+            
+            # Clear numba cache to avoid compilation issues
+            try:
+                import numba
+                logger.info("🧹 Clearing numba cache to avoid compilation conflicts...")
+                # Force fresh compilation
+                os.environ['NUMBA_CACHE_DIR'] = ''  # Disable cache temporarily
+            except Exception as e:
+                logger.warning(f"Could not configure numba cache: {e}")
+            
+            # Use simple UMAP configuration like working version
             reducer = umap.UMAP(
                 n_components=dims,
                 metric="cosine",
                 random_state=42,
             )
+            logger.info("⚙️ UMAP initialized, starting fit_transform...")
         
-        # Do dimensionality reduction
-        coords = reducer.fit_transform(vecs)
+        # Do dimensionality reduction with timeout monitoring
+        import time
+        import threading
+        
+        start_time = time.time()
+        result_container = [None]
+        error_container = [None]
+        
+        def reduction_task():
+            try:
+                result_container[0] = reducer.fit_transform(vecs)
+            except Exception as e:
+                error_container[0] = e
+        
+        # Start reduction in thread so we can monitor progress
+        thread = threading.Thread(target=reduction_task)
+        thread.daemon = True
+        thread.start()
+        
+        # Monitor progress with warnings
+        while thread.is_alive():
+            elapsed = time.time() - start_time
+            if elapsed > 10 and elapsed % 10 < 0.1:  # Every 10 seconds
+                logger.warning(f"⏰ UMAP still running after {elapsed:.0f} seconds...")
+            if elapsed > 120:  # 2 minute timeout
+                logger.error("💥 UMAP timeout after 2 minutes - switching to PCA fallback")
+                from sklearn.decomposition import PCA
+                pca_reducer = PCA(n_components=dims, random_state=42)
+                coords = pca_reducer.fit_transform(vecs)
+                logger.info(f"✅ PCA fallback completed! Output shape: {coords.shape}")
+                break
+            time.sleep(0.1)
+        else:
+            # Thread completed normally
+            if error_container[0]:
+                raise error_container[0]
+            coords = result_container[0]
+            logger.info(f"✅ Dimensionality reduction completed! Output shape: {coords.shape}")
         
         # Clustering
         from sklearn.decomposition import PCA

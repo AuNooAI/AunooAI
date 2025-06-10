@@ -4,10 +4,11 @@ import logging
 import sys
 import os
 
-# Disable numba JIT compilation to prevent verbose bytecode dumps
-os.environ['NUMBA_DISABLE_JIT'] = '1'
-# Set numba log level via environment variable
-os.environ['NUMBA_LOG_LEVEL'] = 'ERROR'
+# Enable numba JIT compilation for UMAP performance
+# Comment out the JIT disable to allow numba compilation like working version
+# os.environ['NUMBA_DISABLE_JIT'] = '1'  # ← This was causing UMAP to hang!
+# Enable numba debug logging to match working version behavior
+os.environ['NUMBA_LOG_LEVEL'] = 'DEBUG'
 
 def configure_logging():
     """Configure logging for the entire application."""
@@ -27,12 +28,12 @@ def configure_logging():
     console_handler.setFormatter(formatter)
     root_logger.addHandler(console_handler)
     
-    # Suppress verbose loggers
+    # Suppress verbose loggers (but allow numba to work for UMAP)
     suppress_loggers = [
-        'numba',
-        'numba.core',
-        'numba.core.byteflow',
-        'numba.core.ssa',
+        # 'numba',  # ← Allow numba logging for UMAP debugging
+        # 'numba.core',  # ← Allow numba.core logging
+        # 'numba.core.ssa',  # ← Allow SSA logging like working version
+        'numba.core.byteflow',  # Still suppress some verbose ones
         'numba.core.interpreter',
         'numba.core.types',
         'numba.core.typing',
@@ -63,8 +64,8 @@ def configure_logging():
         logger.setLevel(logging.ERROR)
         logger.propagate = False
         
-        # Also add a null handler to completely suppress output
-        if logger_name.startswith('numba'):
+        # Only suppress non-essential numba loggers (not core/ssa)
+        if logger_name.startswith('numba') and logger_name not in ['numba', 'numba.core', 'numba.core.ssa']:
             null_handler = logging.NullHandler()
             logger.addHandler(null_handler)
             logger.handlers = [null_handler]  # Remove all other handlers
@@ -77,7 +78,10 @@ def configure_logging():
         'app.routes': logging.INFO,
         'app.routes.vector_routes': logging.INFO,  # Explicitly enable vector routes logging
         'app.database': logging.INFO,
-        'app.startup': logging.INFO
+        'app.startup': logging.INFO,
+        'numba': logging.DEBUG,  # Enable numba debug logging like working version
+        'numba.core': logging.DEBUG,  # Enable numba.core debug logging
+        'numba.core.ssa': logging.DEBUG,  # Enable SSA debug logging like working version
     }
     
     for logger_name, level in app_loggers.items():
