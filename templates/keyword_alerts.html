@@ -5893,6 +5893,14 @@ async function startArticleAnalysis() {
         // If background processing is enabled, allow user to continue using the interface
         if (backgroundProcessing) {
             showAlert(`Analysis started in background for ${currentAnalysisArticles.length} articles. You can continue using the interface.`, 'info');
+            
+            // Close the modal to allow user to continue using the interface
+            setTimeout(() => {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('articleAnalysisModal'));
+                if (modal) {
+                    modal.hide();
+                }
+            }, 1000); // Small delay to let user see the progress start
         }
         
         // Start streaming analysis
