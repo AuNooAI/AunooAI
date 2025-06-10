@@ -1521,6 +1521,26 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     background-color: var(--primary-dark);
     border-color: var(--primary-dark);
 }
+
+/* Square icon buttons styling */
+.btn-square {
+    width: 32px;
+    height: 32px;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 0.375rem !important;
+}
+
+.btn-square i {
+    font-size: 0.875rem;
+}
+
+.btn-square:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
 </style>
 {% endblock %}
 
@@ -1574,15 +1594,13 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                         </label>
                     </div>
                     <button class="btn btn-sm btn-outline-primary" onclick="checkKeywords()">
-                        <i class="fas fa-sync"></i> Check Now
+                        <i class="fas fa-sync"></i> Update Now
                     </button>
+                    <a href="/keyword-monitor" class="btn btn-sm btn-primary">
+                        <i class="fas fa-cog"></i> Manage
+                    </a>
                 </div>
             </div>
-        </div>
-        <div class="flex-shrink-0 ms-3">
-            <a href="/keyword-monitor" class="btn btn-primary">
-                <i class="fas fa-cog"></i> Manage Keywords
-            </a>
         </div>
     </div>
 
@@ -1617,7 +1635,6 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                             <th>Size</th>
                             <th style="width: 20%; min-width: 150px;">Tags & Enrichment</th>
                             <th style="width: 12%; min-width: 100px;">Detected</th>
-                            <th style="width: 30%; min-width: 200px;">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1714,27 +1731,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     {% endif %}
                                 </div>
                             </td>
-                            <td>
-                                <div class="d-flex gap-2 flex-wrap">
-                                    <a href="/keyword-monitor#group-{{ group.id }}" 
-                                       class="btn btn-sm btn-outline-primary trend-link" 
-                                       title="Manage this keyword group">
-                                        <i class="fas fa-cog"></i> Manage
-                                    </a>
-                                    <button class="btn btn-sm btn-outline-secondary update-group-btn" 
-                                            data-topic="{{ group.topic }}" 
-                                            data-group-id="{{ group.id }}"
-                                            title="Update this group now">
-                                        <i class="fas fa-sync"></i> Update
-                                    </button>
-                                    <button class="btn btn-sm btn-outline-info export-group-btn" 
-                                            data-topic="{{ group.topic }}" 
-                                            data-group-id="{{ group.id }}"
-                                            title="Export group alerts">
-                                        <i class="fas fa-download"></i> Export
-                                    </button>
-                                </div>
-                            </td>
+
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -1794,15 +1791,15 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     <i class="fas fa-trash"></i>
                                     Delete Selected (<span class="delete-count">0</span>)
                                 </button>
-                                <button class="btn btn-outline-success btn-sm" 
+                                <button class="btn btn-outline-success btn-sm btn-square" 
                                         onclick="updateGroupNow('{{ group.topic }}', '{{ group.id }}')"
                                         title="Check for new articles in this group">
-                                    <i class="fas fa-sync"></i> Update Now!
+                                    <i class="fas fa-sync"></i>
                                 </button>
-                                <button class="btn btn-outline-info btn-sm" 
+                                <button class="btn btn-outline-info btn-sm btn-square" 
                                         onclick="exportGroupAlerts('{{ group.topic }}', '{{ group.id }}')"
                                         title="Export alerts for this group">
-                                    <i class="fas fa-download"></i> Export
+                                    <i class="fas fa-download"></i>
                                 </button>
                                 <span class="badge bg-primary">{{ group.unread_count|default(0) }} alerts</span>
                                 {% set enriched_count = group.alerts|selectattr('article.category')|list|length + group.alerts|selectattr('article.analysis_complete')|list|length %}
