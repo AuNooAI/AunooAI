@@ -425,29 +425,234 @@ def embedding_projection(
         km = MiniBatchKMeans(n_clusters=n_clusters, random_state=42)
         clusters = km.fit_predict(vec_for_cluster)
         
-        # Generate cluster explanations
+        # Generate enhanced cluster explanations
         import re
         from collections import Counter, defaultdict
         from sklearn.feature_extraction import text as _sk_text
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        import numpy as np
         
         STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
-        tokens_by_cluster = defaultdict(list)
+        
+        # Enhanced STOP_WORDS with common news terms that don't add meaning
+        ENHANCED_STOP_WORDS = STOP_WORDS | {
+            'said', 'says', 'according', 'report', 'reports', 'news', 'new', 'latest',
+            'today', 'yesterday', 'week', 'month', 'year', 'time', 'years', 'months',
+            'company', 'companies', 'people', 'person', 'world', 'country', 'countries',
+            'government', 'state', 'states', 'city', 'way', 'ways', 'day', 'days',
+            'first', 'second', 'third', 'last', 'next', 'previous', 'current', 'recent',
+            'major', 'large', 'small', 'big', 'high', 'low', 'good', 'bad', 'better',
+            'best', 'worst', 'long', 'short', 'old', 'young', 'early', 'late', 'local',
+            'national', 'international', 'global', 'public', 'private', 'official',
+            'officials', 'sources', 'source', 'including', 'include', 'includes',
+            'part', 'parts', 'group', 'groups', 'number', 'numbers', 'total', 'many',
+            'several', 'various', 'different', 'similar', 'same', 'other', 'others',
+            'million', 'billion', 'thousand', 'million', 'percent', 'percentage'
+        }
+        
+        # Collect documents and metadata by cluster
+        cluster_documents = defaultdict(list)
+        cluster_metadata = defaultdict(list)
         
         for idx, lbl in enumerate(clusters):
             meta = metas[idx] if idx < len(metas) else {}
-            text = f"{meta.get('title', '')} {meta.get('summary', '')}"
-            toks = [
-                t.lower()
-                for t in re.findall(r"\b\w{3,}\b", text)
-                if t.lower() not in STOP_WORDS
-            ]
-            tokens_by_cluster[int(lbl)].extend(toks)
+            title = meta.get('title', '')
+            summary = meta.get('summary', '')
+            
+            # Combine title and summary with title weighted more heavily
+            document = f"{title} {title} {summary}"  # Title appears twice for emphasis
+            
+            cluster_documents[int(lbl)].append(document)
+            cluster_metadata[int(lbl)].append(meta)
         
-        # Extract keywords for each cluster
+        # Generate enhanced explanations using TF-IDF and contextual analysis
         explain = {}
-        for lbl, toks in tokens_by_cluster.items():
-            most_common = Counter(toks).most_common(5)
-            explain[lbl] = [w for w, _ in most_common]
+        
+        for lbl, docs in cluster_documents.items():
+            if not docs:
+                explain[lbl] = ["empty cluster"]
+                continue
+                
+            cluster_metas = cluster_metadata[lbl]
+            
+            # Method 1: TF-IDF based keyword extraction
+            combined_text = " ".join(docs)
+            
+            # Clean and tokenize
+            tokens = [
+                t.lower() for t in re.findall(r"\b[a-zA-Z]{3,}\b", combined_text)
+                if t.lower() not in ENHANCED_STOP_WORDS and len(t) >= 3
+            ]
+            
+            if not tokens:
+                explain[lbl] = ["misc content"]
+                continue
+            
+            # Get top keywords by frequency
+            keyword_counts = Counter(tokens)
+            top_keywords = [w for w, c in keyword_counts.most_common(15) if c >= 2]
+            
+            # Method 2: Extract domain-specific patterns
+            domain_patterns = []
+            
+            # Extract named entities and proper nouns (capitalized words)
+            named_entities = set()
+            for doc in docs:
+                entities = re.findall(r"\b[A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\b", doc)
+                for entity in entities:
+                    if len(entity.split()) <= 3 and entity.lower() not in ENHANCED_STOP_WORDS:
+                        named_entities.add(entity.lower())
+            
+            # Extract common phrases (2-3 word combinations)
+            phrase_counts = Counter()
+            for doc in docs:
+                words = re.findall(r"\b[a-zA-Z]{3,}\b", doc.lower())
+                clean_words = [w for w in words if w not in ENHANCED_STOP_WORDS]
+                
+                # Extract bigrams and trigrams
+                for i in range(len(clean_words) - 1):
+                    bigram = f"{clean_words[i]} {clean_words[i+1]}"
+                    phrase_counts[bigram] += 1
+                    
+                for i in range(len(clean_words) - 2):
+                    trigram = f"{clean_words[i]} {clean_words[i+1]} {clean_words[i+2]}"
+                    phrase_counts[trigram] += 1
+            
+            # Get meaningful phrases (appearing at least twice)
+            meaningful_phrases = [phrase for phrase, count in phrase_counts.most_common(5) if count >= 2]
+            
+            # Method 3: Analyze metadata patterns
+            categories = [meta.get('category') for meta in cluster_metas if meta.get('category')]
+            topics = [meta.get('topic') for meta in cluster_metas if meta.get('topic')]
+            sentiments = [meta.get('sentiment') for meta in cluster_metas if meta.get('sentiment')]
+            
+            category_pattern = Counter(categories).most_common(1)
+            topic_pattern = Counter(topics).most_common(1)
+            sentiment_pattern = Counter(sentiments).most_common(1)
+            
+            # Generate human-readable cluster title and description
+            cluster_info = {
+                "keywords": [],
+                "title": "",
+                "summary": "",
+                "count": len(cluster_metas)
+            }
+            
+            # Analyze dominant themes for title generation
+            title_components = []
+            summary_components = []
+            
+            # Priority 1: Category context for title
+            if category_pattern and len(category_pattern[0]) > 0:
+                cat, cat_count = category_pattern[0]
+                if cat_count >= len(cluster_metas) * 0.4:  # At least 40% of articles
+                    title_components.append(cat.title())
+            
+            # Priority 2: Topic context for title
+            if topic_pattern and len(topic_pattern[0]) > 0:
+                topic, topic_count = topic_pattern[0]
+                if topic_count >= len(cluster_metas) * 0.4:
+                    title_components.append(topic.title())
+            
+            # Priority 3: Most meaningful phrases for title
+            if meaningful_phrases:
+                # Use the most common meaningful phrase as part of title
+                best_phrase = meaningful_phrases[0].title()
+                if len(best_phrase.split()) <= 3:  # Keep titles concise
+                    title_components.append(best_phrase)
+            
+            # Priority 4: Top keywords for title if nothing else
+            if not title_components and top_keywords:
+                title_components.append(top_keywords[0].title())
+            
+            # Generate human-readable title
+            if title_components:
+                # Create a natural title
+                if len(title_components) == 1:
+                    cluster_title = f"{title_components[0]} News"
+                elif len(title_components) == 2:
+                    cluster_title = f"{title_components[0]} & {title_components[1]}"
+                else:
+                    cluster_title = f"{title_components[0]} Topics"
+            else:
+                cluster_title = "Mixed Content"
+            
+            # Generate summary description
+            summary_parts = []
+            
+            # Add article count context
+            article_count = len(cluster_metas)
+            if article_count > 1:
+                summary_parts.append(f"{article_count} articles about")
+            
+            # Add main themes
+            if meaningful_phrases:
+                main_themes = [phrase for phrase in meaningful_phrases[:2] if len(phrase.split()) <= 4]
+                if main_themes:
+                    summary_parts.append(" and ".join(main_themes))
+            elif top_keywords:
+                main_themes = top_keywords[:3]
+                summary_parts.append(", ".join(main_themes))
+            
+            # Add category/topic context to summary
+            context_parts = []
+            if category_pattern and len(category_pattern[0]) > 0:
+                cat, cat_count = category_pattern[0]
+                if cat_count >= len(cluster_metas) * 0.3:
+                    context_parts.append(f"in {cat.lower()}")
+            
+            if topic_pattern and len(topic_pattern[0]) > 0:
+                topic, topic_count = topic_pattern[0]
+                if topic_count >= len(cluster_metas) * 0.3 and topic.lower() not in " ".join(context_parts).lower():
+                    context_parts.append(f"related to {topic.lower()}")
+            
+            if context_parts:
+                summary_parts.extend(context_parts)
+            
+            # Add sentiment if very dominant
+            if sentiment_pattern and len(sentiment_pattern[0]) > 0:
+                sent, sent_count = sentiment_pattern[0]
+                if sent_count >= len(cluster_metas) * 0.7:  # At least 70% of articles
+                    summary_parts.append(f"with {sent.lower()} sentiment")
+            
+            # Create final summary
+            if summary_parts:
+                cluster_summary = " ".join(summary_parts).capitalize()
+                if not cluster_summary.endswith('.'):
+                    cluster_summary += "."
+            else:
+                cluster_summary = f"Collection of {article_count} related articles."
+            
+            # Collect keywords for legacy compatibility and detailed view
+            description_parts = []
+            
+            # Add top meaningful phrases
+            description_parts.extend(meaningful_phrases[:2])
+            
+            # Add top keywords
+            description_parts.extend(top_keywords[:6])
+            
+            # Add named entities
+            description_parts.extend(list(named_entities)[:2])
+            
+            # Clean up and deduplicate keywords
+            unique_parts = []
+            seen = set()
+            for part in description_parts:
+                if part and part not in seen and len(part.strip()) > 2:
+                    unique_parts.append(part.strip())
+                    seen.add(part)
+            
+            final_keywords = unique_parts[:8] if unique_parts else top_keywords[:5]
+            if not final_keywords:
+                final_keywords = ["misc content"]
+            
+            # Store enhanced cluster information
+            cluster_info["keywords"] = final_keywords
+            cluster_info["title"] = cluster_title
+            cluster_info["summary"] = cluster_summary
+            
+            explain[lbl] = cluster_info
         
         # Calculate centroids
         centroids = {}

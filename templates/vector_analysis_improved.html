@@ -664,6 +664,156 @@
         display: block !important;
     }
     
+    /* Enhanced cluster description styling */
+    .cluster-item {
+        border-radius: 8px !important;
+        margin-bottom: 8px;
+        transition: all 0.2s ease;
+        background: white;
+        border: 1px solid var(--border-color) !important;
+    }
+    
+    .cluster-item:hover {
+        border-color: var(--primary-color) !important;
+        box-shadow: 0 2px 8px rgba(255, 105, 180, 0.1);
+        transform: translateY(-1px);
+    }
+    
+    .cluster-title {
+        color: var(--primary-color);
+        font-weight: 600;
+        font-size: 0.95rem;
+    }
+    
+    .cluster-summary {
+        line-height: 1.3;
+        margin: 0.3rem 0 0.6rem 0;
+    }
+    
+    .cluster-summary small {
+        font-size: 0.8rem;
+        color: #6c757d;
+        font-style: italic;
+    }
+    
+    .cluster-description {
+        line-height: 1.4;
+        margin: 0.5rem 0;
+        position: relative;
+        cursor: help;
+    }
+    
+    /* Enhanced tooltip for cluster descriptions */
+    .cluster-description:hover::after {
+        content: attr(data-full-keywords);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 6px;
+        font-size: 0.75rem;
+        white-space: normal;
+        z-index: 1000;
+        max-width: min(400px, 90vw);
+        min-width: 200px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        pointer-events: none;
+        opacity: 0;
+        animation: fadeInTooltip 0.2s ease-in-out forwards;
+        word-wrap: break-word;
+        line-height: 1.3;
+    }
+    
+    /* Adjust tooltip positioning on smaller screens */
+    @media (max-width: 768px) {
+        .cluster-description:hover::after {
+            left: 0;
+            transform: none;
+            max-width: calc(100vw - 40px);
+        }
+        
+        .cluster-description:hover::before {
+            left: 20px;
+            transform: none;
+        }
+    }
+    
+    .cluster-description:hover::before {
+        content: '';
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%) translateY(2px);
+        width: 0;
+        height: 0;
+        border-left: 6px solid transparent;
+        border-right: 6px solid transparent;
+        border-top: 6px solid rgba(0, 0, 0, 0.9);
+        z-index: 1000;
+        pointer-events: none;
+        opacity: 0;
+        animation: fadeInTooltip 0.2s ease-in-out forwards;
+    }
+    
+    @keyframes fadeInTooltip {
+        from { opacity: 0; transform: translateX(-50%) translateY(4px); }
+        to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    
+    .cluster-keyword {
+        display: inline-block;
+        background: linear-gradient(135deg, var(--primary-light), rgba(255, 105, 180, 0.2));
+        color: var(--primary-color);
+        padding: 0.2rem 0.5rem;
+        margin: 0.1rem 0.2rem 0.1rem 0;
+        border-radius: 12px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        border: 1px solid rgba(255, 105, 180, 0.3);
+        transition: all 0.2s ease;
+    }
+    
+    .cluster-keyword:hover {
+        background: var(--primary-color);
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(255, 105, 180, 0.3);
+    }
+    
+    .cluster-preview {
+        font-size: 0.7rem;
+        opacity: 0.7;
+        font-style: italic;
+    }
+    
+    .cluster-actions {
+        display: flex;
+        gap: 0.3rem;
+        align-items: center;
+    }
+    
+    .cluster-actions .btn {
+        transition: all 0.2s ease;
+    }
+    
+    .cluster-actions .btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    /* Enhanced patterns card styling */
+    .pattern-card-body {
+        max-height: none !important;
+        overflow: visible !important;
+    }
+    
+    .pattern-card-body .list-group {
+        margin: -0.5rem 0;
+    }
+    
     /* Card body constraints - allow natural expansion */
     .card-body {
         overflow-wrap: break-word;
@@ -3127,23 +3277,57 @@ async function loadPatterns(forceRefresh = false){
     let clustersHtml = '<div class="card mb-3 position-relative"><div class="card-header d-flex justify-content-between align-items-center">Cluster Summary <button class="expand-toggle" onclick="toggleCardExpansion(this.parentElement.nextElementSibling)" title="Expand/Collapse"><i class="fas fa-expand-alt"></i></button></div><div class="card-body pattern-card-body">';
     if (Object.keys(clusterExplain).length > 0) {
       clustersHtml += '<div class="list-group list-group-flush">';
-      Object.entries(clusterExplain).sort(([idA], [idB]) => parseInt(idA) - parseInt(idB)).forEach(([id, keywords]) => {
+      Object.entries(clusterExplain).sort(([idA], [idB]) => parseInt(idA) - parseInt(idB)).forEach(([id, clusterInfo]) => {
         const count = clusterCounts[id] || 0;
         const hasSummary = window._clusterSummaries && window._clusterSummaries[id];
+        
+        // Handle both old format (array of keywords) and new format (object with title/summary)
+        let clusterTitle, clusterSummary, keywords;
+        if (Array.isArray(clusterInfo)) {
+          // Legacy format - just keywords
+          keywords = clusterInfo;
+          clusterTitle = `Topic ${id}`;
+          clusterSummary = `${count} articles about ${keywords.slice(0, 3).join(', ')}`;
+        } else {
+          // New enhanced format
+          keywords = clusterInfo.keywords || [];
+          clusterTitle = clusterInfo.title || `Topic ${id}`;
+          clusterSummary = clusterInfo.summary || `${count} related articles`;
+        }
+        
+        // Enhanced display with better formatting for improved descriptions
+        const displayKeywords = keywords.slice(0, 4); // Show fewer keywords since we have title/summary
+        const remainingCount = Math.max(0, keywords.length - 4);
+        
+        // Format keywords with better visual separation
+        const keywordDisplay = displayKeywords.map(kw => `<span class="cluster-keyword">${kw}</span>`).join('');
+        const moreIndicator = remainingCount > 0 ? ` <small class="text-muted">+${remainingCount} more</small>` : '';
+        
         clustersHtml += `
-          <div class="list-group-item d-flex justify-content-between align-items-start py-1 px-0">
+          <div class="list-group-item d-flex justify-content-between align-items-start py-2 px-0 cluster-item">
             <div class="ms-2 me-auto flex-grow-1">
-              <div class="fw-bold">Cluster ${id} 
-                <span class="badge bg-light text-dark rounded-pill me-1">${count} items</span>
+              <div class="fw-bold mb-1">
+                <span class="cluster-title">${clusterTitle}</span>
+                <span class="badge bg-primary text-white rounded-pill ms-2 me-1">${count} articles</span>
                 ${hasSummary ? '<span class="badge bg-success-subtle text-success-emphasis rounded-pill">Summarized</span>' : ''}
               </div>
-              <small class="text-muted d-block mb-1">${keywords.slice(0, 5).join(', ')}</small>
+              <div class="cluster-summary mb-2">
+                <small class="text-muted">${clusterSummary}</small>
+              </div>
+              ${displayKeywords.length > 0 ? `
+              <div class="cluster-description mb-1" 
+                   title="All keywords: ${keywords.join(', ')}" 
+                   data-full-keywords="All keywords: ${keywords.join(', ')}"
+                   data-bs-toggle="tooltip" 
+                   data-bs-placement="top">
+                ${keywordDisplay}${moreIndicator}
+              </div>` : ''}
             </div>
-            <div class="ms-2">
+            <div class="ms-2 cluster-actions">
               <button class="btn btn-sm btn-outline-secondary p-1 filter-cluster-btn" data-cluster-id="${id}" title="Filter by this cluster">
                 <i class="fas fa-filter fa-xs"></i>
               </button>
-              <button class="btn btn-sm btn-outline-primary p-1 summarize-cluster-btn" data-cluster-id="${id}" title="Summarize with Auspex">
+              <button class="btn btn-sm btn-outline-primary p-1 summarize-cluster-btn" data-cluster-id="${id}" title="Summarize with AI">
                 <i class="fas fa-comment-dots fa-xs"></i>
               </button>
             </div>
@@ -3256,9 +3440,27 @@ function rebuildLegend(items, colourMap, nonCluster=false, colorMode='cluster'){
     if(nonCluster){
       label=idx;
     }else{
-      const kw=(window.clusterExplain||{})[idx]||[];
-      label=kw.length?kw.slice(0,2).join(', '):`Cluster ${idx}`;
-      if(kw.length){span.title=kw.join(', ');}  // tooltip for cluster mode
+      const clusterInfo=(window.clusterExplain||{})[idx]||[];
+      // Handle both old format (array) and new format (object)
+      if (Array.isArray(clusterInfo)) {
+        // Legacy format - just keywords
+        label=clusterInfo.length?clusterInfo.slice(0,2).join(' • '):`Topic ${idx}`;
+        if(clusterInfo.length){
+          const fullDescription = clusterInfo.slice(0,6).join(', ');
+          const additionalTerms = clusterInfo.length > 6 ? ` (+${clusterInfo.length - 6} more)` : '';
+          span.title=`Topic ${idx}: ${fullDescription}${additionalTerms}`;
+        }
+      } else {
+        // New enhanced format with title and summary
+        label = clusterInfo.title || `Topic ${idx}`;
+        if (clusterInfo.summary) {
+          span.title = clusterInfo.summary;
+        } else if (clusterInfo.keywords && clusterInfo.keywords.length) {
+          const fullDescription = clusterInfo.keywords.slice(0,6).join(', ');
+          const additionalTerms = clusterInfo.keywords.length > 6 ? ` (+${clusterInfo.keywords.length - 6} more)` : '';
+          span.title = `${label}: ${fullDescription}${additionalTerms}`;
+        }
+      }
     }
     span.textContent=label;
     span.addEventListener('click',()=>{
