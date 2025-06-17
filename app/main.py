@@ -99,11 +99,20 @@ app.include_router(newsletter_page_router)
 # Import media bias routes
 from app.routes import media_bias_routes
 
+# Import test routes for Auspex
+from app.routes import test_routes
+
 # Add dataset router
 app.include_router(dataset_router)
 
 # Register media bias routes
 app.include_router(media_bias_routes.router)  # Add the new media bias routes
+
+# Add test routes
+app.include_router(test_routes.router)
+
+# Add Auspex routes
+app.include_router(auspex_router)
 
 # Include API routes
 app.include_router(api_router, prefix="/api")  # Add this line to include the API router
@@ -3812,4 +3821,12 @@ async def submit_article_page(request: Request, session=Depends(verify_session))
     return templates.TemplateResponse(
         "submit_article.html", 
         get_template_context(request)
+    )
+
+@app.get("/auspex-status", response_class=HTMLResponse)
+async def auspex_status_page(request: Request, session=Depends(verify_session)):
+    """Auspex status and testing page."""
+    return templates.TemplateResponse(
+        "auspex-status.html",
+        get_template_context(request, {"session": session})
     )

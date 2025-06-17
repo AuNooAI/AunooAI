@@ -8,6 +8,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="stylesheet" href="/static/css/styles.css">
+    <link rel="stylesheet" href="/static/css/auspex-chat.css">
     <style>
         /* Navbar layout styles */
         .navbar {
@@ -516,6 +517,7 @@
                             <li><hr class="dropdown-divider"></li>
                             <small class="text-muted">Knowledge Engineering</small><br>
                             <li><a class="dropdown-item" href="/promptmanager" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage AI prompts and templates"><i class="fas fa-brain"></i> Prompt Engineering</a></li>
+                            <li><a class="dropdown-item" href="#" id="promptManagerBtn" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage Auspex AI prompts"><i class="fas fa-robot"></i> Auspex Prompts</a></li>
                             <li><a class="dropdown-item" href="/create_topic" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and manage topics"><i class="fas fa-folder-plus"></i> Topic Management</a></li>
                             <li><a class="dropdown-item" href="/keyword-monitor" data-bs-toggle="tooltip" data-bs-placement="right" title="Monitor keywords and alerts"><i class="fas fa-search"></i> Keyword Monitoring</a></li>
                             <li><hr class="dropdown-divider"></li>
@@ -602,6 +604,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Marked.js for markdown parsing -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="/static/js/auspex-chat.js"></script>
     {% block extra_js %}{% endblock %}
 
     <!-- Debug info section -->
@@ -667,593 +670,367 @@
     {% block scripts %}{% endblock %}
 
     {% if session.get('user') %}
-    <!-- Floating Chat Button -->
-    <button class="floating-chat-button" id="floatingChatBtn" type="button" data-bs-toggle="modal" data-bs-target="#floatingChatModal">
-        <i class="fas fa-robot"></i>
-    </button>
+    <!-- Include Auspex Chat Component -->
+    {% include 'auspex-chat.html' %}
 
-    <!-- Floating Chat Modal -->
-    <div class="modal fade chat-modal" id="floatingChatModal" tabindex="-1" aria-labelledby="floatingChatModalLabel" aria-hidden="true">
-        <div class="modal-dialog">
+    <!-- Auspex Prompt Manager Modal -->
+    <div class="modal fade" id="auspexPromptModal" tabindex="-1" aria-labelledby="auspexPromptModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
             <div class="modal-content">
-                <div class="modal-header floating-chat-header">
-                    <div style="flex: 1;">
-                        <h5 class="modal-title mb-1" id="floatingChatModalLabel">
-                            <i class="fas fa-robot me-2"></i>Auspex AI Assistant
-                        </h5>
-                        <small class="opacity-75">Your AI-powered research companion</small>
-                    </div>
-                    <div class="floating-chat-controls">
-                        <select id="floatingTopicSelect" class="form-select form-select-sm" style="width: 150px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Select research topic">
-                            <option value="">Select topic...</option>
-                        </select>
-                        <select id="floatingModelSelect" class="form-select form-select-sm" style="width: 120px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Choose AI model">
-                            <option value="">Select model...</option>
-                        </select>
-                        <select id="floatingLimitSelect" class="form-select form-select-sm" style="width: 80px;" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Number of articles to analyze (25-75)">
-                            <option value="25">25</option>
-                            <option value="35">35</option>
-                            <option value="50" selected>50</option>
-                            <option value="65">65</option>
-                            <option value="75">75</option>
-                            <option value="85">85</option>
-                            <option value="100">100</option>
-                        </select>
-                        <button class="floating-chat-icon-btn" id="clearChatBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Clear chat history">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>
-                        <button class="floating-chat-icon-btn" id="exportChatBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Export conversation">
-                            <i class="fas fa-download"></i>
-                        </button>
-                        <button class="floating-chat-icon-btn" id="minimizeChatBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Minimize chat">
-                            <i class="fas fa-window-minimize"></i>
-                        </button>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
+                <div class="modal-header">
+                    <h5 class="modal-title" id="auspexPromptModalLabel">
+                        <i class="fas fa-brain me-2"></i>Auspex Prompt Manager
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <div class="floating-chat-messages" id="floatingChatMessages">
-                        <div class="floating-message assistant">
-                            <div class="floating-message-avatar">
-                                <i class="fas fa-robot"></i>
+                    <div class="row">
+                        <!-- Prompt List -->
+                        <div class="col-md-4">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0">Available Prompts</h6>
+                                <button class="btn btn-sm btn-primary" id="newPromptBtn">
+                                    <i class="fas fa-plus"></i> New
+                                </button>
                             </div>
-                            <div class="floating-message-content">
-                                <strong>Welcome to Auspex!</strong><br>
-                                I'm your AI research assistant. Select a topic and model above, then ask me anything about your data.
+                            <div id="promptList" class="list-group">
+                                <!-- Prompts will be loaded here -->
                             </div>
                         </div>
-                    </div>
-                    <div class="floating-quick-queries" id="floatingQuickQueries">
-                        <label>Quick queries:</label>
-                        <button class="floating-quick-btn" data-query="Summarize recent trends">Recent trends</button>
-                        <button class="floating-quick-btn" data-query="What are the key insights?">Key insights</button>
-                        <button class="floating-quick-btn" data-query="Analyze sentiment patterns">Sentiment analysis</button>
-                        <button class="floating-quick-btn" data-query="Show future impact predictions">Future impact</button>
-                        <button class="floating-quick-btn" data-query="Compare categories">Compare categories</button>
-                        <button class="floating-quick-btn" data-query="Analyze potential risks and challenges">Risk analysis</button>
-                        <button class="floating-quick-btn" data-query="Provide a comprehensive summary by category">Category summary</button>
-                        <div id="customQueries" style="display: contents;"></div>
-                    </div>
-                    <div class="floating-chat-input">
-                        <textarea id="floatingChatInput" class="form-control" placeholder="Ask Auspex anything..." disabled></textarea>
-                        <button id="floatingChatSave" class="btn" title="Save as quick query" disabled style="margin-right: 5px;">
-                            <i class="fas fa-bookmark"></i>
-                        </button>
-                        <button id="floatingChatSend" class="btn" disabled>
-                            <i class="fas fa-paper-plane"></i>
-                        </button>
-                    </div>
-                    <div class="floating-chat-loading" id="floatingChatLoading" style="display: none;">
-                        <i class="fas fa-spinner"></i> Auspex is thinking...
+                        
+                        <!-- Prompt Editor -->
+                        <div class="col-md-8">
+                            <div id="promptEditor" style="display: none;">
+                                <form id="promptForm">
+                                    <div class="mb-3">
+                                        <label for="promptName" class="form-label">Prompt Name</label>
+                                        <input type="text" class="form-control" id="promptName" required>
+                                        <div class="form-text">Unique identifier for this prompt</div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="promptTitle" class="form-label">Display Title</label>
+                                        <input type="text" class="form-control" id="promptTitle" required>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="promptDescription" class="form-label">Description</label>
+                                        <input type="text" class="form-control" id="promptDescription">
+                                        <div class="form-text">Optional description of this prompt's purpose</div>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <label for="promptContent" class="form-label">Prompt Content</label>
+                                        <textarea class="form-control" id="promptContent" rows="12" required></textarea>
+                                        <div class="form-text">
+                                            The system prompt that will be sent to the AI model. 
+                                            You can use markdown formatting.
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="d-flex gap-2">
+                                        <button type="submit" class="btn btn-primary" id="savePromptBtn">
+                                            <i class="fas fa-save"></i> Save
+                                        </button>
+                                        <button type="button" class="btn btn-secondary" id="cancelPromptBtn">
+                                            Cancel
+                                        </button>
+                                        <button type="button" class="btn btn-danger ms-auto" id="deletePromptBtn" style="display: none;">
+                                            <i class="fas fa-trash"></i> Delete
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                            
+                            <div id="promptViewer">
+                                <div class="text-center text-muted py-5">
+                                    <i class="fas fa-brain fa-3x mb-3"></i>
+                                    <p>Select a prompt to view or edit</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Floating Chat JavaScript -->
+    <!-- Floating Chat JavaScript moved to external auspex-chat.js file -->
+
     <script>
-        class FloatingChat {
+        // Auspex Prompt Manager
+        class AuspexPromptManager {
             constructor() {
-                this.elements = {
-                    button: document.getElementById('floatingChatBtn'),
-                    modal: document.getElementById('floatingChatModal'),
-                    topicSelect: document.getElementById('floatingTopicSelect'),
-                    modelSelect: document.getElementById('floatingModelSelect'),
-                    limitSelect: document.getElementById('floatingLimitSelect'),
-                    messages: document.getElementById('floatingChatMessages'),
-                    input: document.getElementById('floatingChatInput'),
-                    sendBtn: document.getElementById('floatingChatSend'),
-                    saveBtn: document.getElementById('floatingChatSave'),
-                    loading: document.getElementById('floatingChatLoading'),
-                    clearBtn: document.getElementById('clearChatBtn'),
-                    exportBtn: document.getElementById('exportChatBtn'),
-                    minimizeBtn: document.getElementById('minimizeChatBtn'),
-                    quickQueries: document.getElementById('floatingQuickQueries')
-                };
-                
-                this.storageKeys = {
-                    topic: 'auspex_floating_last_topic',
-                    model: 'auspex_floating_last_model',
-                    limit: 'auspex_floating_last_limit',
-                    customQueries: 'auspex_floating_custom_queries',
-                    minimized: 'auspex_floating_minimized'
-                };
-                
-                this.conversationHistory = [];
-                this.customQueries = this.loadCustomQueries();
-                this.isMinimized = localStorage.getItem(this.storageKeys.minimized) === 'true';
-                
-                this.init();
-            }
-
-            async init() {
-                await this.loadTopics();
-                await this.loadModels();
-                this.restoreLastSelections();
-                this.renderCustomQueries();
-                this.updateMinimizedState();
+                this.currentPrompt = null;
+                this.isEditing = false;
                 this.bindEvents();
-                this.updateButtonState();
-            }
-
-            updateMinimizedState() {
-                if (this.isMinimized) {
-                    this.elements.button.classList.add('minimized');
-                    // Change the button to show restore functionality
-                    this.elements.button.onclick = () => this.restoreChat();
-                } else {
-                    this.elements.button.classList.remove('minimized');
-                    // Reset to normal modal toggle
-                    this.elements.button.onclick = null;
-                    this.elements.button.setAttribute('data-bs-toggle', 'modal');
-                    this.elements.button.setAttribute('data-bs-target', '#floatingChatModal');
-                }
-            }
-
-            async loadTopics() {
-                try {
-                    const response = await fetch('/api/topics');
-                    const topics = await response.json();
-                    
-                    topics.forEach(topic => {
-                        const option = document.createElement('option');
-                        option.value = topic.name;
-                        option.textContent = topic.name;
-                        this.elements.topicSelect.appendChild(option);
-                    });
-                } catch (error) {
-                    console.error('Error loading topics:', error);
-                }
-            }
-
-            async loadModels() {
-                try {
-                    const response = await fetch('/api/ai_models');
-                    const models = await response.json();
-                    
-                    const modelList = Array.isArray(models) ? models : [];
-                    modelList.forEach(model => {
-                        const option = document.createElement('option');
-                        option.value = model.name || model;
-                        option.textContent = model.name || model;
-                        this.elements.modelSelect.appendChild(option);
-                    });
-                } catch (error) {
-                    console.error('Error loading models:', error);
-                }
-            }
-
-            restoreLastSelections() {
-                // Restore last selected topic
-                const lastTopic = localStorage.getItem(this.storageKeys.topic);
-                if (lastTopic) {
-                    this.elements.topicSelect.value = lastTopic;
-                }
-
-                // Restore last selected model
-                const lastModel = localStorage.getItem(this.storageKeys.model);
-                if (lastModel) {
-                    this.elements.modelSelect.value = lastModel;
-                }
-
-                // Restore last selected limit
-                const lastLimit = localStorage.getItem(this.storageKeys.limit);
-                if (lastLimit) {
-                    this.elements.limitSelect.value = lastLimit;
-                }
-
-                console.log('Restored selections:', { topic: lastTopic, model: lastModel, limit: lastLimit });
-            }
-
-            saveSelections() {
-                // Save current selections to localStorage
-                if (this.elements.topicSelect.value) {
-                    localStorage.setItem(this.storageKeys.topic, this.elements.topicSelect.value);
-                }
-                if (this.elements.modelSelect.value) {
-                    localStorage.setItem(this.storageKeys.model, this.elements.modelSelect.value);
-                }
-                if (this.elements.limitSelect.value) {
-                    localStorage.setItem(this.storageKeys.limit, this.elements.limitSelect.value);
-                }
             }
 
             bindEvents() {
-                // Topic/model selection with saving
-                this.elements.topicSelect.addEventListener('change', () => {
-                    this.saveSelections();
-                    this.updateButtonState();
-                });
-                
-                this.elements.modelSelect.addEventListener('change', () => {
-                    this.saveSelections();
-                    this.updateButtonState();
-                });
-                
-                this.elements.limitSelect.addEventListener('change', () => {
-                    this.saveSelections();
-                    this.updateButtonState();
-                });
-                
-                // Send message
-                this.elements.sendBtn.addEventListener('click', () => this.sendMessage());
-                this.elements.input.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        this.sendMessage();
-                    }
+                // Open prompt manager
+                document.getElementById('promptManagerBtn')?.addEventListener('click', () => {
+                    this.openPromptManager();
                 });
 
-                // Update button states when user types
-                this.elements.input.addEventListener('input', () => this.updateButtonState());
-
-                // Save query button
-                this.elements.saveBtn.addEventListener('click', () => this.saveCurrentQuery());
-
-                // Clear and export buttons
-                this.elements.clearBtn.addEventListener('click', () => this.clearChat());
-                this.elements.exportBtn.addEventListener('click', () => this.exportChat());
-
-                // Minimize button
-                this.elements.minimizeBtn.addEventListener('click', () => this.minimizeChat());
-
-                // Quick query buttons
-                this.elements.quickQueries.addEventListener('click', (e) => {
-                    if (e.target.classList.contains('floating-quick-btn')) {
-                        const query = e.target.dataset.query;
-                        if (query) {
-                            this.elements.input.value = query;
-                            this.sendMessage();
-                        }
-                    }
+                // New prompt button
+                document.getElementById('newPromptBtn')?.addEventListener('click', () => {
+                    this.newPrompt();
                 });
 
-                // Show pulse animation when modal opens
-                this.elements.modal.addEventListener('shown.bs.modal', () => {
-                    this.elements.button.classList.remove('pulse');
-                    // Initialize tooltips for new buttons
-                    const tooltipElements = this.elements.modal.querySelectorAll('[data-bs-toggle="tooltip"]');
-                    tooltipElements.forEach(element => {
-                        new bootstrap.Tooltip(element);
-                    });
+                // Form submission
+                document.getElementById('promptForm')?.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.savePrompt();
                 });
 
-                // Handle modal close to update minimized state
-                this.elements.modal.addEventListener('hidden.bs.modal', () => {
-                    if (this.isMinimized) {
-                        this.updateMinimizedState();
-                    }
+                // Cancel button
+                document.getElementById('cancelPromptBtn')?.addEventListener('click', () => {
+                    this.cancelEdit();
                 });
 
-                // Add pulse when there might be new insights
-                this.startPulseTimer();
+                // Delete button
+                document.getElementById('deletePromptBtn')?.addEventListener('click', () => {
+                    this.deletePrompt();
+                });
             }
 
-            updateButtonState() {
-                const isReady = this.elements.topicSelect.value && this.elements.modelSelect.value && this.elements.limitSelect.value;
-                const hasInput = this.elements.input.value.trim().length > 0;
-                
-                this.elements.input.disabled = !isReady;
-                this.elements.sendBtn.disabled = !isReady || !hasInput;
-                this.elements.saveBtn.disabled = !hasInput;
-                
-                if (isReady) {
-                    this.elements.input.placeholder = "Ask Auspex anything...";
-                } else {
-                    this.elements.input.placeholder = "Complete setup above first...";
-                }
+            async openPromptManager() {
+                await this.loadPrompts();
+                const modal = new bootstrap.Modal(document.getElementById('auspexPromptModal'));
+                modal.show();
             }
 
-            addMessage(content, isUser = false) {
-                const messageDiv = document.createElement('div');
-                messageDiv.className = `floating-message ${isUser ? 'user' : 'assistant'}`;
-                
-                const avatar = document.createElement('div');
-                avatar.className = 'floating-message-avatar';
-                avatar.innerHTML = isUser ? '<i class="fas fa-user"></i>' : '<i class="fas fa-robot"></i>';
-                
-                const contentDiv = document.createElement('div');
-                contentDiv.className = 'floating-message-content';
-                
-                const textContent = typeof content === 'object' && content.response ? content.response : content;
-                
-                if (isUser) {
-                    contentDiv.textContent = textContent;
-                } else {
-                    contentDiv.innerHTML = marked.parse(textContent);
-                }
-                
-                messageDiv.appendChild(avatar);
-                messageDiv.appendChild(contentDiv);
-                
-                // Add copy button for assistant messages
-                if (!isUser) {
-                    const copyButton = document.createElement('button');
-                    copyButton.className = 'floating-message-copy';
-                    copyButton.innerHTML = '<i class="fas fa-copy"></i>';
-                    copyButton.title = 'Copy message';
-                    copyButton.onclick = () => this.copyMessage(textContent);
-                    messageDiv.appendChild(copyButton);
-                }
-                
-                this.elements.messages.appendChild(messageDiv);
-                this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
-                
-                // Track in conversation history (exclude welcome message)
-                if (messageDiv !== this.elements.messages.firstElementChild) {
-                    this.conversationHistory.push({ content: textContent, isUser });
-                }
-            }
-
-            async sendMessage() {
-                const message = this.elements.input.value.trim();
-                if (!message) return;
-
-                // Add user message
-                this.addMessage(message, true);
-                this.elements.input.value = '';
-
-                // Show loading
-                this.elements.loading.style.display = 'block';
-                this.elements.sendBtn.disabled = true;
-
+            async loadPrompts() {
                 try {
-                    // Prepare conversation history for the API
-                    const conversationHistory = this.conversationHistory.map(msg => ({
-                        role: msg.isUser ? "user" : "assistant",
-                        content: msg.content
-                    }));
-
-                    const response = await fetch('/api/chat', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            message: message,
-                            topic: this.elements.topicSelect.value,
-                            model: this.elements.modelSelect.value,
-                            limit: this.elements.limitSelect.value,
-                            conversation_history: conversationHistory
-                        })
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-
+                    const response = await fetch('/api/auspex/prompts');
+                    if (!response.ok) throw new Error('Failed to load prompts');
+                    
                     const data = await response.json();
-                    if (data && data.response) {
-                        this.addMessage(data.response, false);
-                    } else {
-                        throw new Error('Invalid response format');
-                    }
+                    this.renderPromptList(data.prompts || []);
                 } catch (error) {
-                    this.addMessage(`Sorry, I encountered an error: ${error.message}`, false);
-                    console.error('Chat error:', error);
-                } finally {
-                    this.elements.loading.style.display = 'none';
-                    this.updateButtonState();
+                    console.error('Error loading prompts:', error);
+                    this.showError('Failed to load prompts');
                 }
             }
 
-            startPulseTimer() {
-                // Add pulse animation every 30 seconds when modal is closed
-                setInterval(() => {
-                    if (!this.elements.modal.classList.contains('show')) {
-                        this.elements.button.classList.add('pulse');
-                        setTimeout(() => {
-                            this.elements.button.classList.remove('pulse');
-                        }, 3000);
-                    }
-                }, 30000);
+            renderPromptList(prompts) {
+                const list = document.getElementById('promptList');
+                list.innerHTML = '';
+
+                prompts.forEach(prompt => {
+                    const item = document.createElement('div');
+                    item.className = 'list-group-item list-group-item-action';
+                    item.innerHTML = `
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">${this.escapeHtml(prompt.title)}</h6>
+                            ${prompt.is_default ? '<span class="badge bg-primary">Default</span>' : ''}
+                        </div>
+                        <p class="mb-1 text-muted small">${this.escapeHtml(prompt.description || 'No description')}</p>
+                        <small class="text-muted">Name: ${this.escapeHtml(prompt.name)}</small>
+                    `;
+                    item.addEventListener('click', () => this.selectPrompt(prompt));
+                    list.appendChild(item);
+                });
             }
 
-            clearChat() {
-                // Keep only the welcome message
-                const welcomeMessage = this.elements.messages.querySelector('.floating-message.assistant');
-                this.elements.messages.innerHTML = '';
-                if (welcomeMessage) {
-                    this.elements.messages.appendChild(welcomeMessage.cloneNode(true));
+            selectPrompt(prompt) {
+                this.currentPrompt = prompt;
+                
+                // Update list selection
+                document.querySelectorAll('#promptList .list-group-item').forEach(item => {
+                    item.classList.remove('active');
+                });
+                event.currentTarget.classList.add('active');
+
+                // Show prompt in viewer
+                this.showPromptViewer(prompt);
+            }
+
+            showPromptViewer(prompt) {
+                const viewer = document.getElementById('promptViewer');
+                const editor = document.getElementById('promptEditor');
+                
+                editor.style.display = 'none';
+                viewer.style.display = 'block';
+                
+                viewer.innerHTML = `
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0">${this.escapeHtml(prompt.title)}</h6>
+                            <div>
+                                ${prompt.is_default ? '<span class="badge bg-primary me-2">Default</span>' : ''}
+                                <button class="btn btn-sm btn-outline-primary" onclick="auspexPromptManager.editPrompt()">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted mb-3">${this.escapeHtml(prompt.description || 'No description')}</p>
+                            <h6>Prompt Content:</h6>
+                            <pre class="bg-light p-3 rounded" style="white-space: pre-wrap; max-height: 400px; overflow-y: auto;">${this.escapeHtml(prompt.content)}</pre>
+                        </div>
+                    </div>
+                `;
+            }
+
+            newPrompt() {
+                this.currentPrompt = null;
+                this.isEditing = true;
+                this.showPromptEditor();
+                
+                // Clear form
+                document.getElementById('promptForm').reset();
+                document.getElementById('promptName').readOnly = false;
+                document.getElementById('deletePromptBtn').style.display = 'none';
+            }
+
+            editPrompt() {
+                if (!this.currentPrompt) return;
+                
+                this.isEditing = true;
+                this.showPromptEditor();
+                
+                // Fill form
+                document.getElementById('promptName').value = this.currentPrompt.name;
+                document.getElementById('promptName').readOnly = this.currentPrompt.is_default;
+                document.getElementById('promptTitle').value = this.currentPrompt.title;
+                document.getElementById('promptDescription').value = this.currentPrompt.description || '';
+                document.getElementById('promptContent').value = this.currentPrompt.content;
+                document.getElementById('deletePromptBtn').style.display = this.currentPrompt.is_default ? 'none' : 'block';
+            }
+
+            showPromptEditor() {
+                document.getElementById('promptViewer').style.display = 'none';
+                document.getElementById('promptEditor').style.display = 'block';
+            }
+
+            cancelEdit() {
+                this.isEditing = false;
+                if (this.currentPrompt) {
+                    this.showPromptViewer(this.currentPrompt);
+                } else {
+                    document.getElementById('promptEditor').style.display = 'none';
+                    document.getElementById('promptViewer').style.display = 'block';
+                    document.getElementById('promptViewer').innerHTML = `
+                        <div class="text-center text-muted py-5">
+                            <i class="fas fa-brain fa-3x mb-3"></i>
+                            <p>Select a prompt to view or edit</p>
+                        </div>
+                    `;
                 }
-                this.conversationHistory = [];
             }
 
-            exportChat() {
-                if (this.conversationHistory.length === 0) {
-                    alert('No conversation to export');
+            async savePrompt() {
+                const formData = {
+                    name: document.getElementById('promptName').value.trim(),
+                    title: document.getElementById('promptTitle').value.trim(),
+                    description: document.getElementById('promptDescription').value.trim(),
+                    content: document.getElementById('promptContent').value.trim()
+                };
+
+                if (!formData.name || !formData.title || !formData.content) {
+                    this.showError('Please fill in all required fields');
                     return;
                 }
 
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const content = this.conversationHistory.map(msg => 
-                    `${msg.isUser ? 'User' : 'Auspex'}: ${msg.content}`
-                ).join('\n\n');
-                
-                const blob = new Blob([content], { type: 'text/plain' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `auspex-conversation-${timestamp}.txt`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            }
-
-            copyMessage(content) {
-                navigator.clipboard.writeText(content).then(() => {
-                    // Show brief feedback
-                    const notification = document.createElement('div');
-                    notification.textContent = 'Copied!';
-                    notification.style.cssText = `
-                        position: fixed;
-                        top: 20px;
-                        right: 20px;
-                        background: #28a745;
-                        color: white;
-                        padding: 8px 16px;
-                        border-radius: 4px;
-                        z-index: 9999;
-                        font-size: 0.875rem;
-                    `;
-                    document.body.appendChild(notification);
-                    setTimeout(() => {
-                        document.body.removeChild(notification);
-                    }, 2000);
-                }).catch(err => {
-                    console.error('Failed to copy:', err);
-                });
-            }
-
-            loadCustomQueries() {
                 try {
-                    const saved = localStorage.getItem(this.storageKeys.customQueries);
-                    return saved ? JSON.parse(saved) : [];
-                } catch (error) {
-                    console.error('Error loading custom queries:', error);
-                    return [];
-                }
-            }
-
-            saveCustomQueries() {
-                try {
-                    localStorage.setItem(this.storageKeys.customQueries, JSON.stringify(this.customQueries));
-                } catch (error) {
-                    console.error('Error saving custom queries:', error);
-                }
-            }
-
-            renderCustomQueries() {
-                const container = document.getElementById('customQueries');
-                container.innerHTML = '';
-                
-                this.customQueries.forEach((query, index) => {
-                    const button = document.createElement('button');
-                    button.className = 'floating-quick-btn custom';
-                    button.dataset.query = query;
-                    button.innerHTML = `
-                        ${query.length > 20 ? query.substring(0, 20) + '...' : query}
-                        <button class="remove-custom" onclick="event.stopPropagation(); floatingChatInstance.removeCustomQuery(${index})" title="Remove query">×</button>
-                    `;
-                    container.appendChild(button);
-                });
-            }
-
-            addCustomQuery(query) {
-                if (query && query.trim()) {
-                    const trimmedQuery = query.trim();
-                    if (!this.customQueries.includes(trimmedQuery)) {
-                        this.customQueries.push(trimmedQuery);
-                        this.saveCustomQueries();
-                        this.renderCustomQueries();
-                        
-                        // Show feedback
-                        const notification = document.createElement('div');
-                        notification.textContent = 'Query saved!';
-                        notification.style.cssText = `
-                            position: fixed;
-                            top: 20px;
-                            right: 20px;
-                            background: #28a745;
-                            color: white;
-                            padding: 8px 16px;
-                            border-radius: 4px;
-                            z-index: 9999;
-                            font-size: 0.875rem;
-                        `;
-                        document.body.appendChild(notification);
-                        setTimeout(() => {
-                            document.body.removeChild(notification);
-                        }, 2000);
+                    let response;
+                    if (this.currentPrompt) {
+                        // Update existing prompt
+                        response = await fetch(`/api/auspex/prompts/${this.currentPrompt.name}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                title: formData.title,
+                                content: formData.content,
+                                description: formData.description
+                            })
+                        });
                     } else {
-                        alert('This query already exists!');
+                        // Create new prompt
+                        response = await fetch('/api/auspex/prompts', {
+                            method: 'POST',  
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(formData)
+                        });
                     }
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Failed to save prompt');
+                    }
+
+                    this.showSuccess(this.currentPrompt ? 'Prompt updated successfully' : 'Prompt created successfully');
+                    await this.loadPrompts();
+                    this.cancelEdit();
+                } catch (error) {
+                    console.error('Error saving prompt:', error);
+                    this.showError(error.message);
                 }
             }
 
-            removeCustomQuery(index) {
-                if (confirm('Remove this custom query?')) {
-                    this.customQueries.splice(index, 1);
-                    this.saveCustomQueries();
-                    this.renderCustomQueries();
-                }
-            }
-
-            saveCurrentQuery() {
-                const query = this.elements.input.value.trim();
-                if (query) {
-                    this.addCustomQuery(query);
-                }
-            }
-
-            minimizeChat() {
-                this.isMinimized = true;
-                localStorage.setItem(this.storageKeys.minimized, 'true');
+            async deletePrompt() {
+                if (!this.currentPrompt || this.currentPrompt.is_default) return;
                 
-                // Properly close the modal and remove backdrop
-                const modalInstance = bootstrap.Modal.getInstance(this.elements.modal);
-                if (modalInstance) {
-                    modalInstance.hide();
-                } else {
-                    // Fallback if no instance exists
-                    this.elements.modal.classList.remove('show');
-                    this.elements.modal.style.display = 'none';
-                    this.elements.modal.setAttribute('aria-hidden', 'true');
-                    document.body.classList.remove('modal-open');
-                    
-                    // Remove any leftover backdrops
-                    const backdrops = document.querySelectorAll('.modal-backdrop');
-                    backdrops.forEach(backdrop => backdrop.remove());
+                if (!confirm(`Are you sure you want to delete "${this.currentPrompt.title}"?`)) {
+                    return;
                 }
+
+                try {
+                    const response = await fetch(`/api/auspex/prompts/${this.currentPrompt.name}`, {
+                        method: 'DELETE'
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Failed to delete prompt');
+                    }
+
+                    this.showSuccess('Prompt deleted successfully');
+                    await this.loadPrompts();
+                    this.cancelEdit();
+                } catch (error) {
+                    console.error('Error deleting prompt:', error);
+                    this.showError(error.message);
+                }
+            }
+
+            showError(message) {
+                this.showNotification(message, 'danger');
+            }
+
+            showSuccess(message) {
+                this.showNotification(message, 'success');
+            }
+
+            showNotification(message, type = 'info') {
+                const notification = document.createElement('div');
+                notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+                notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+                notification.innerHTML = `
+                    ${message}
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                document.body.appendChild(notification);
                 
-                // Ensure body scroll is restored
                 setTimeout(() => {
-                    document.body.style.overflow = '';
-                    document.body.style.paddingRight = '';
-                    document.body.classList.remove('modal-open');
-                    
-                    // Double-check backdrop removal
-                    const remainingBackdrops = document.querySelectorAll('.modal-backdrop');
-                    remainingBackdrops.forEach(backdrop => backdrop.remove());
-                    
-                    // Update button state
-                    this.updateMinimizedState();
-                }, 150); // Give Bootstrap time to clean up
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 5000);
             }
 
-            restoreChat() {
-                this.isMinimized = false;
-                localStorage.setItem(this.storageKeys.minimized, 'false');
-                this.updateMinimizedState();
-                // Open the modal
-                const modalInstance = new bootstrap.Modal(this.elements.modal);
-                modalInstance.show();
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
             }
         }
 
-        // Initialize floating chat when DOM is ready
+        // Initialize prompt manager
+        let auspexPromptManager;
         document.addEventListener('DOMContentLoaded', () => {
-            window.floatingChatInstance = new FloatingChat();
+            auspexPromptManager = new AuspexPromptManager();
         });
     </script>
     {% endif %}

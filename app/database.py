@@ -178,6 +178,112 @@ class Database:
                 )
             """)
             
+            # Create auspex_chats table for chat persistence
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS auspex_chats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    topic TEXT NOT NULL,
+                    title TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    user_id TEXT,
+                    metadata TEXT,
+                    FOREIGN KEY (user_id) REFERENCES users(username) ON DELETE SET NULL
+                )
+            """)
+            
+            # Create auspex_messages table for individual messages
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS auspex_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+                    content TEXT NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    model_used TEXT,
+                    tokens_used INTEGER,
+                    metadata TEXT,
+                    FOREIGN KEY (chat_id) REFERENCES auspex_chats(id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Create auspex_prompts table for editable system prompts
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS auspex_prompts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    description TEXT,
+                    is_default BOOLEAN DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    user_created TEXT,
+                    FOREIGN KEY (user_created) REFERENCES users(username) ON DELETE SET NULL
+                )
+            """)
+            
+            conn.commit()
+            
+            # Initialize default Auspex prompt if it doesn't exist
+            cursor.execute("SELECT COUNT(*) FROM auspex_prompts WHERE name = 'default'")
+            if cursor.fetchone()[0] == 0:
+                default_prompt = """You are Auspex, an advanced AI research assistant specialized in analyzing news trends, sentiment patterns, and providing strategic insights.
+
+Your capabilities include:
+- Analyzing vast amounts of news data and research
+- Identifying emerging trends and patterns
+- Providing sentiment analysis and future impact predictions
+- Accessing real-time news data through specialized tools
+- Comparing different categories and topics
+- Offering strategic foresight and risk analysis
+
+You have access to the following tools:
+- search_news: Search for current news articles (PRIORITIZED for "latest/recent" queries)
+- get_topic_articles: Retrieve articles from the database for specific topics
+- analyze_sentiment_trends: Analyze sentiment patterns over time
+- get_article_categories: Get category distributions for topics
+- search_articles_by_keywords: Search articles by specific keywords
+
+When tool data is provided to you, it will be clearly marked at the beginning of your context. Always acknowledge when you're using tool data and explain what insights you're drawing from it.
+
+CRITICAL PRIORITIES:
+- When users ask for "latest", "recent", "current", or "breaking" news, prioritize real-time news search results
+- Clearly distinguish between real-time news data and database/historical data
+- If news search provides results, focus primarily on those for latest information queries
+- Only use database articles as fallback when news search fails or for historical analysis
+
+RESPONSE FORMAT: When you receive tool results, always:
+1. **IMMEDIATELY** identify the data source (Latest News Search vs Database Articles)
+2. Acknowledge which tools were used (you'll see a "Tools Used" section)
+3. Summarize the key findings from the tool data
+4. Provide your analysis and insights based on this data
+5. Be transparent about what the data shows vs. your interpretation
+
+Always provide thorough, insightful analysis backed by data. When asked about trends or patterns, use your tools to gather current information. Be concise but comprehensive in your responses.
+
+Remember to cite your sources and provide actionable insights where possible."""
+                
+                cursor.execute("""
+                    INSERT INTO auspex_prompts (name, title, content, description, is_default)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    "default",
+                    "Default Auspex Assistant",
+                    default_prompt,
+                    "The default system prompt for Auspex AI assistant with tool integration",
+                    True
+                ))
+                conn.commit()
+            
+            # Add indexes for better performance
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_chats_topic ON auspex_chats(topic)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_chats_user_id ON auspex_chats(user_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_messages_chat_id ON auspex_messages(chat_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_messages_role ON auspex_messages(role)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_prompts_name ON auspex_prompts(name)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_prompts_is_default ON auspex_prompts(is_default)")
+            
             conn.commit()
 
     def migrate_db(self):
@@ -2041,30 +2147,18 @@ class Database:
             return True
 
     def _add_relevance_columns_to_articles(self, cursor):
-        """Add relevance score columns to the articles table."""
-        # Check if articles table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles'")
-        if cursor.fetchone():
-            # Check which columns already exist
-            cursor.execute("PRAGMA table_info(articles)")
-            columns = {row[1] for row in cursor.fetchall()}
-            
-            relevance_columns = {
-                "topic_alignment_score": "REAL",
-                "keyword_relevance_score": "REAL",
-                "confidence_score": "REAL",
-                "overall_match_explanation": "TEXT",
-                "extracted_article_topics": "TEXT",
-                "extracted_article_keywords": "TEXT"
-            }
-            
-            for col_name, col_type in relevance_columns.items():
-                if col_name not in columns:
-                    logger.info(f"Adding column '{col_name}' to articles table")
-                    cursor.execute(f"ALTER TABLE articles ADD COLUMN {col_name} {col_type}")
-        else:
-            # This case should ideally be handled by create_articles_table
-            logger.warning("articles table does not exist while trying to add relevance columns.")
+        """Add relevance columns to articles table if they don't exist."""
+        try:
+            cursor.execute("ALTER TABLE articles ADD COLUMN relevance_score REAL")
+            logger.info("Added relevance_score column to articles table")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+        
+        try:
+            cursor.execute("ALTER TABLE articles ADD COLUMN relevance_reason TEXT")
+            logger.info("Added relevance_reason column to articles table")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     def get_podcast_settings(self):
         with self.get_connection() as conn:
@@ -2086,6 +2180,274 @@ class Database:
                     "uploads_folder": "podcast_uploads",
                     "output_folder": "podcasts"
                 }
+
+    # Auspex Chat Management Methods
+    def create_auspex_chat(self, topic: str, title: str = None, user_id: str = None, metadata: dict = None) -> int:
+        """Create a new Auspex chat session."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            metadata_json = json.dumps(metadata) if metadata else None
+            cursor.execute("""
+                INSERT INTO auspex_chats (topic, title, user_id, metadata)
+                VALUES (?, ?, ?, ?)
+            """, (topic, title, user_id, metadata_json))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_auspex_chats(self, topic: str = None, user_id: str = None, limit: int = 50) -> List[Dict]:
+        """Get Auspex chat sessions."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            query = "SELECT * FROM auspex_chats WHERE 1=1"
+            params = []
+            
+            if topic:
+                query += " AND topic = ?"
+                params.append(topic)
+            if user_id:
+                query += " AND user_id = ?"
+                params.append(user_id)
+                
+            query += " ORDER BY updated_at DESC LIMIT ?"
+            params.append(limit)
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            
+            return [{
+                'id': row[0],
+                'topic': row[1],
+                'title': row[2],
+                'created_at': row[3],
+                'updated_at': row[4],
+                'user_id': row[5],
+                'metadata': json.loads(row[6]) if row[6] else None
+            } for row in rows]
+
+    def get_auspex_chat(self, chat_id: int) -> Optional[Dict]:
+        """Get a specific Auspex chat."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM auspex_chats WHERE id = ?", (chat_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                return None
+                
+            return {
+                'id': row[0],
+                'topic': row[1],
+                'title': row[2],
+                'created_at': row[3],
+                'updated_at': row[4],
+                'user_id': row[5],
+                'metadata': json.loads(row[6]) if row[6] else None
+            }
+
+    def update_auspex_chat(self, chat_id: int, title: str = None, metadata: dict = None) -> bool:
+        """Update an Auspex chat."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            updates = []
+            params = []
+            
+            if title is not None:
+                updates.append("title = ?")
+                params.append(title)
+            if metadata is not None:
+                updates.append("metadata = ?")
+                params.append(json.dumps(metadata))
+                
+            if not updates:
+                return True
+                
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            params.append(chat_id)
+            
+            query = f"UPDATE auspex_chats SET {', '.join(updates)} WHERE id = ?"
+            cursor.execute(query, params)
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_auspex_chat(self, chat_id: int) -> bool:
+        """Delete an Auspex chat and all its messages."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM auspex_chats WHERE id = ?", (chat_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def add_auspex_message(self, chat_id: int, role: str, content: str, 
+                          model_used: str = None, tokens_used: int = None, 
+                          metadata: dict = None) -> int:
+        """Add a message to an Auspex chat."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            metadata_json = json.dumps(metadata) if metadata else None
+            
+            cursor.execute("""
+                INSERT INTO auspex_messages (chat_id, role, content, model_used, tokens_used, metadata)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (chat_id, role, content, model_used, tokens_used, metadata_json))
+            
+            # Update chat's updated_at timestamp
+            cursor.execute("UPDATE auspex_chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (chat_id,))
+            
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_auspex_messages(self, chat_id: int) -> List[Dict]:
+        """Get all messages for an Auspex chat."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, chat_id, role, content, timestamp, model_used, tokens_used, metadata
+                FROM auspex_messages 
+                WHERE chat_id = ? 
+                ORDER BY timestamp ASC
+            """, (chat_id,))
+            
+            rows = cursor.fetchall()
+            return [{
+                'id': row[0],
+                'chat_id': row[1],
+                'role': row[2],
+                'content': row[3],
+                'timestamp': row[4],
+                'model_used': row[5],
+                'tokens_used': row[6],
+                'metadata': json.loads(row[7]) if row[7] else None
+            } for row in rows]
+
+    # Auspex Prompt Management Methods
+    def create_auspex_prompt(self, name: str, title: str, content: str, 
+                           description: str = None, is_default: bool = False, 
+                           user_created: str = None) -> int:
+        """Create a new Auspex prompt template."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO auspex_prompts (name, title, content, description, is_default, user_created)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (name, title, content, description, is_default, user_created))
+            conn.commit()
+            return cursor.lastrowid
+
+    def get_auspex_prompts(self) -> List[Dict]:
+        """Get all Auspex prompt templates."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, title, content, description, is_default, created_at, updated_at, user_created
+                FROM auspex_prompts 
+                ORDER BY is_default DESC, title ASC
+            """)
+            
+            rows = cursor.fetchall()
+            return [{
+                'id': row[0],
+                'name': row[1],
+                'title': row[2],
+                'content': row[3],
+                'description': row[4],
+                'is_default': bool(row[5]),
+                'created_at': row[6],
+                'updated_at': row[7],
+                'user_created': row[8]
+            } for row in rows]
+
+    def get_auspex_prompt(self, name: str) -> Optional[Dict]:
+        """Get a specific Auspex prompt by name."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, title, content, description, is_default, created_at, updated_at, user_created
+                FROM auspex_prompts 
+                WHERE name = ?
+            """, (name,))
+            
+            row = cursor.fetchone()
+            if not row:
+                return None
+                
+            return {
+                'id': row[0],
+                'name': row[1],
+                'title': row[2],
+                'content': row[3],
+                'description': row[4],
+                'is_default': bool(row[5]),
+                'created_at': row[6],
+                'updated_at': row[7],
+                'user_created': row[8]
+            }
+
+    def update_auspex_prompt(self, name: str, title: str = None, content: str = None, 
+                           description: str = None) -> bool:
+        """Update an Auspex prompt template."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            updates = []
+            params = []
+            
+            if title is not None:
+                updates.append("title = ?")
+                params.append(title)
+            if content is not None:
+                updates.append("content = ?")
+                params.append(content)
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+                
+            if not updates:
+                return True
+                
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+            params.append(name)
+            
+            query = f"UPDATE auspex_prompts SET {', '.join(updates)} WHERE name = ?"
+            cursor.execute(query, params)
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def delete_auspex_prompt(self, name: str) -> bool:
+        """Delete an Auspex prompt template."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM auspex_prompts WHERE name = ? AND is_default = 0", (name,))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_default_auspex_prompt(self) -> Optional[Dict]:
+        """Get the default Auspex system prompt."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, title, content, description, is_default, created_at, updated_at, user_created
+                FROM auspex_prompts 
+                WHERE is_default = 1
+                LIMIT 1
+            """)
+            
+            row = cursor.fetchone()
+            if not row:
+                return None
+                
+            return {
+                'id': row[0],
+                'name': row[1],
+                'title': row[2],
+                'content': row[3],
+                'description': row[4],
+                'is_default': bool(row[5]),
+                'created_at': row[6],
+                'updated_at': row[7],
+                'user_created': row[8]
+            }
 
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"

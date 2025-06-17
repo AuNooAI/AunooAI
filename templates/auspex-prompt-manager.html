@@ -1,0 +1,418 @@
+{% if session.get('user') %}
+<!-- Auspex Prompt Manager Modal -->
+<div class="modal fade" id="auspexPromptModal" tabindex="-1" aria-labelledby="auspexPromptModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="auspexPromptModalLabel">
+                    <i class="fas fa-brain me-2"></i>Auspex Prompt Manager
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <!-- Prompt List -->
+                    <div class="col-md-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="mb-0">Available Prompts</h6>
+                            <button class="btn btn-sm btn-primary" id="newPromptBtn">
+                                <i class="fas fa-plus"></i> New
+                            </button>
+                        </div>
+                        <div id="promptList" class="list-group">
+                            <!-- Prompts will be loaded here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Prompt Editor -->
+                    <div class="col-md-8">
+                        <div id="promptEditor" style="display: none;">
+                            <form id="promptForm">
+                                <div class="mb-3">
+                                    <label for="promptName" class="form-label">Prompt Name</label>
+                                    <input type="text" class="form-control" id="promptName" required>
+                                    <div class="form-text">Unique identifier for this prompt</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="promptTitle" class="form-label">Display Title</label>
+                                    <input type="text" class="form-control" id="promptTitle" required>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="promptDescription" class="form-label">Description</label>
+                                    <input type="text" class="form-control" id="promptDescription">
+                                    <div class="form-text">Optional description of this prompt's purpose</div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="promptContent" class="form-label">Prompt Content</label>
+                                    <textarea class="form-control" id="promptContent" rows="12" required></textarea>
+                                    <div class="form-text">
+                                        The system prompt that will be sent to the AI model. 
+                                        You can use markdown formatting.
+                                    </div>
+                                </div>
+                                
+                                <div class="d-flex gap-2">
+                                    <button type="submit" class="btn btn-primary" id="savePromptBtn">
+                                        <i class="fas fa-save"></i> Save
+                                    </button>
+                                    <button type="button" class="btn btn-secondary" id="cancelPromptBtn">
+                                        Cancel
+                                    </button>
+                                    <button type="button" class="btn btn-danger ms-auto" id="deletePromptBtn" style="display: none;">
+                                        <i class="fas fa-trash"></i> Delete
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <div id="promptViewer">
+                            <div class="text-center text-muted py-5">
+                                <i class="fas fa-brain fa-3x mb-3"></i>
+                                <p>Select a prompt to view or edit</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add button to open prompt manager in chat header -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add prompt manager button to chat header
+    const chatHeader = document.querySelector('.floating-chat-header .floating-chat-controls');
+    if (chatHeader) {
+        const promptBtn = document.createElement('button');
+        promptBtn.className = 'floating-chat-icon-btn';
+        promptBtn.id = 'promptManagerBtn';
+        promptBtn.innerHTML = '<i class="fas fa-brain"></i>';
+        promptBtn.title = 'Manage Prompts';
+        promptBtn.setAttribute('data-bs-toggle', 'modal');
+        promptBtn.setAttribute('data-bs-target', '#auspexPromptModal');
+        
+        // Insert before the close button
+        const closeBtn = chatHeader.querySelector('.btn-close');
+        chatHeader.insertBefore(promptBtn, closeBtn);
+    }
+    
+    // Initialize prompt manager
+    window.promptManager = new AuspexPromptManager();
+});
+
+class AuspexPromptManager {
+    constructor() {
+        this.currentPrompt = null;
+        this.isEditing = false;
+        this.modal = new bootstrap.Modal(document.getElementById('auspexPromptModal'));
+        this.initializeElements();
+        this.addEventListeners();
+    }
+    
+    initializeElements() {
+        this.elements = {
+            modal: document.getElementById('auspexPromptModal'),
+            promptList: document.getElementById('promptList'),
+            promptEditor: document.getElementById('promptEditor'),
+            promptViewer: document.getElementById('promptViewer'),
+            promptForm: document.getElementById('promptForm'),
+            newPromptBtn: document.getElementById('newPromptBtn'),
+            savePromptBtn: document.getElementById('savePromptBtn'),
+            cancelPromptBtn: document.getElementById('cancelPromptBtn'),
+            deletePromptBtn: document.getElementById('deletePromptBtn'),
+            promptName: document.getElementById('promptName'),
+            promptTitle: document.getElementById('promptTitle'),
+            promptDescription: document.getElementById('promptDescription'),
+            promptContent: document.getElementById('promptContent')
+        };
+    }
+    
+    addEventListeners() {
+        // Load prompts when modal is shown
+        this.elements.modal.addEventListener('shown.bs.modal', () => {
+            this.loadPrompts();
+        });
+        
+        // New prompt button
+        this.elements.newPromptBtn.addEventListener('click', () => {
+            this.startNewPrompt();
+        });
+        
+        // Cancel button
+        this.elements.cancelPromptBtn.addEventListener('click', () => {
+            this.cancelEdit();
+        });
+        
+        // Form submission
+        this.elements.promptForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.savePrompt();
+        });
+        
+        // Delete button
+        this.elements.deletePromptBtn.addEventListener('click', () => {
+            this.deletePrompt();
+        });
+    }
+    
+    async loadPrompts() {
+        try {
+            const response = await fetch('/api/auspex/prompts');
+            if (!response.ok) {
+                throw new Error('Failed to load prompts');
+            }
+            
+            const data = await response.json();
+            this.renderPromptList(data.prompts);
+        } catch (error) {
+            console.error('Error loading prompts:', error);
+            this.showError('Failed to load prompts');
+        }
+    }
+    
+    renderPromptList(prompts) {
+        this.elements.promptList.innerHTML = '';
+        
+        prompts.forEach(prompt => {
+            const item = document.createElement('a');
+            item.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-start';
+            item.href = '#';
+            item.dataset.promptName = prompt.name;
+            
+            const content = document.createElement('div');
+            content.className = 'ms-2 me-auto';
+            
+            const title = document.createElement('div');
+            title.className = 'fw-bold';
+            title.textContent = prompt.title;
+            
+            const description = document.createElement('small');
+            description.className = 'text-muted';
+            description.textContent = prompt.description || 'No description';
+            
+            content.appendChild(title);
+            content.appendChild(description);
+            item.appendChild(content);
+            
+            if (prompt.is_default) {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-primary rounded-pill';
+                badge.textContent = 'Default';
+                item.appendChild(badge);
+            }
+            
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.selectPrompt(prompt);
+            });
+            
+            this.elements.promptList.appendChild(item);
+        });
+    }
+    
+    selectPrompt(prompt) {
+        this.currentPrompt = prompt;
+        
+        // Update active state
+        this.elements.promptList.querySelectorAll('.list-group-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        
+        const selectedItem = this.elements.promptList.querySelector(`[data-prompt-name="${prompt.name}"]`);
+        if (selectedItem) {
+            selectedItem.classList.add('active');
+        }
+        
+        // Show prompt details
+        this.showPromptViewer(prompt);
+    }
+    
+    showPromptViewer(prompt) {
+        this.elements.promptEditor.style.display = 'none';
+        this.elements.promptViewer.style.display = 'block';
+        
+        this.elements.promptViewer.innerHTML = `
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h6 class="mb-0">${prompt.title}</h6>
+                    <div>
+                        ${prompt.is_default ? '<span class="badge bg-primary">Default</span>' : ''}
+                        <button class="btn btn-sm btn-outline-primary ms-2" onclick="promptManager.editPrompt()">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <p class="card-text text-muted mb-3">${prompt.description || 'No description provided'}</p>
+                    <div class="border rounded p-3" style="background-color: #f8f9fa; max-height: 300px; overflow-y: auto;">
+                        <pre style="white-space: pre-wrap; margin: 0;">${prompt.content}</pre>
+                    </div>
+                    <div class="mt-3">
+                        <small class="text-muted">
+                            Created: ${new Date(prompt.created_at).toLocaleDateString()}
+                            ${prompt.updated_at !== prompt.created_at ? `• Updated: ${new Date(prompt.updated_at).toLocaleDateString()}` : ''}
+                        </small>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    startNewPrompt() {
+        this.currentPrompt = null;
+        this.isEditing = false;
+        this.showPromptEditor();
+        this.clearForm();
+        this.elements.promptName.disabled = false;
+        this.elements.deletePromptBtn.style.display = 'none';
+    }
+    
+    editPrompt() {
+        if (!this.currentPrompt) return;
+        
+        this.isEditing = true;
+        this.showPromptEditor();
+        this.fillForm(this.currentPrompt);
+        this.elements.promptName.disabled = true; // Can't change name when editing
+        this.elements.deletePromptBtn.style.display = this.currentPrompt.is_default ? 'none' : 'block';
+    }
+    
+    showPromptEditor() {
+        this.elements.promptViewer.style.display = 'none';
+        this.elements.promptEditor.style.display = 'block';
+    }
+    
+    cancelEdit() {
+        if (this.currentPrompt) {
+            this.showPromptViewer(this.currentPrompt);
+        } else {
+            this.elements.promptEditor.style.display = 'none';
+            this.elements.promptViewer.style.display = 'block';
+            this.elements.promptViewer.innerHTML = `
+                <div class="text-center text-muted py-5">
+                    <i class="fas fa-brain fa-3x mb-3"></i>
+                    <p>Select a prompt to view or edit</p>
+                </div>
+            `;
+        }
+    }
+    
+    clearForm() {
+        this.elements.promptName.value = '';
+        this.elements.promptTitle.value = '';
+        this.elements.promptDescription.value = '';
+        this.elements.promptContent.value = '';
+    }
+    
+    fillForm(prompt) {
+        this.elements.promptName.value = prompt.name;
+        this.elements.promptTitle.value = prompt.title;
+        this.elements.promptDescription.value = prompt.description || '';
+        this.elements.promptContent.value = prompt.content;
+    }
+    
+    async savePrompt() {
+        const formData = {
+            name: this.elements.promptName.value.trim(),
+            title: this.elements.promptTitle.value.trim(),
+            description: this.elements.promptDescription.value.trim(),
+            content: this.elements.promptContent.value.trim()
+        };
+        
+        if (!formData.name || !formData.title || !formData.content) {
+            this.showError('Please fill in all required fields');
+            return;
+        }
+        
+        try {
+            let url, method;
+            if (this.isEditing) {
+                url = `/api/auspex/prompts/${encodeURIComponent(formData.name)}`;
+                method = 'PUT';
+                delete formData.name; // Don't send name in update
+            } else {
+                url = '/api/auspex/prompts';
+                method = 'POST';
+            }
+            
+            const response = await fetch(url, {
+                method: method,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to save prompt');
+            }
+            
+            this.showSuccess(this.isEditing ? 'Prompt updated successfully' : 'Prompt created successfully');
+            this.loadPrompts();
+            this.cancelEdit();
+        } catch (error) {
+            console.error('Error saving prompt:', error);
+            this.showError(error.message);
+        }
+    }
+    
+    async deletePrompt() {
+        if (!this.currentPrompt || this.currentPrompt.is_default) return;
+        
+        if (!confirm(`Are you sure you want to delete the prompt "${this.currentPrompt.title}"?`)) {
+            return;
+        }
+        
+        try {
+            const response = await fetch(`/api/auspex/prompts/${encodeURIComponent(this.currentPrompt.name)}`, {
+                method: 'DELETE'
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to delete prompt');
+            }
+            
+            this.showSuccess('Prompt deleted successfully');
+            this.currentPrompt = null;
+            this.loadPrompts();
+            this.cancelEdit();
+        } catch (error) {
+            console.error('Error deleting prompt:', error);
+            this.showError(error.message);
+        }
+    }
+    
+    showSuccess(message) {
+        this.showToast(message, 'success');
+    }
+    
+    showError(message) {
+        this.showToast(message, 'danger');
+    }
+    
+    showToast(message, type) {
+        // Simple toast notification
+        const toast = document.createElement('div');
+        toast.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+        toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+        toast.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        
+        document.body.appendChild(toast);
+        setTimeout(() => {
+            if (toast.parentNode) {
+                toast.parentNode.removeChild(toast);
+            }
+        }, 5000);
+    }
+}
+</script>
+{% endif %} 

@@ -1,25 +1,18 @@
-﻿# AuNoo AI
+﻿# Article Processing Pipeline
 
-## Overview
+This Python script implements a comprehensive article processing pipeline that:
+1. Extracts article data from input files
+2. Scrapes article content using BrightData API
+3. Assesses article relevance using NLP
+4. Enriches articles with additional metadata
+5. Saves processed articles to a database/storage
 
-An AI-powered news research and analysis platform that uses Large Language Models (LLMs) and Machine Learning to extract insights from articles.
+## Setup
 
-## Getting Started
-
-### Clone the Repository
+1. Create and activate a virtual environment:
 ```bash
-git clone https://github.com/orochford/AunooAI.git
-cd AunooAI
-```
-
-### Local Development
-
-1. Create and activate virtual environment:
-```bash
-python -m venv .venv
-source .venv/bin/activate  # On Unix/macOS
-# or
-.venv\Scripts\activate  # On Windows
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
 2. Install dependencies:
@@ -27,260 +20,76 @@ source .venv/bin/activate  # On Unix/macOS
 pip install -r requirements.txt
 ```
 
-3. Generate SSL Certificate (Required):
+3. Download spaCy model:
 ```bash
-# Generate self-signed certificate
-openssl req -x509 -newkey rsa:4096 -nodes -out cert.pem -keyout key.pem -days 365
+python -m spacy download en_core_web_sm
 ```
 
-4. Start the app:
+4. Create a `.env` file with required API keys:
+```
+BRIGHTDATA_API_KEY=your_brightdata_api_key
+OPENAI_API_KEY=your_openai_api_key
+NEWS_API_KEY=your_news_api_key
+```
+
+## Input File Format
+
+The script expects a CSV file (`input_articles.csv`) with the following columns:
+- original_id: Unique identifier for the article
+- source: Source of the article
+- url: URL of the article
+- created_on: Publication date (YYYY-MM-DD format)
+- language: Article language (default: 'en')
+- sentiment: Sentiment score
+- geo_lat: Latitude (optional)
+- geo_long: Longitude (optional)
+- geo_type: Geography type (optional)
+- address: Location address (optional)
+- author_name: Author's name (optional)
+- author_username: Author's username (optional)
+- author_avatar: Author's avatar URL (optional)
+- author_link: Author's profile link (optional)
+
+## Usage
+
+Run the script:
 ```bash
-python app/run.py
+python article_processor.py
 ```
 
-5. Access the application:
-```
-https://localhost:8000
-```
+The script will:
+1. Read articles from `input_articles.csv`
+2. Process each article through the pipeline
+3. Save enriched articles to `processed_articles/` directory
 
-### Docker Deployment
+## Output
 
-Build the container:
-```bash
-docker build -t aunoo-ai .
-```
+Processed articles are saved as JSON files in the `processed_articles/` directory with:
+- Original article metadata
+- Scraped content
+- Named entities
+- Key phrases
+- Topic relevance scores
+- Keyword matches
+- Processing metadata
 
-Run using Docker Compose:
-```bash
-docker compose up
-```
+## Logging
 
-#### App Info in Docker
+The script uses detailed logging with different levels:
+- DEBUG: Detailed processing information
+- INFO: General processing status
+- WARNING: Non-critical issues
+- ERROR: Critical issues that need attention
 
-When building Docker images, the application automatically captures version, branch, and build date information:
+Logs are printed to stdout with timestamps and log levels.
 
-```bash
-# Manually specify app info during build
-docker build \
-  --build-arg APP_VERSION=$(cat version.txt) \
-  --build-arg APP_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) \
-  --build-arg APP_BUILD_DATE="$(date -u +'%Y-%m-%d %H:%M:%S')" \
-  -t aunoo-ai .
-```
+## Error Handling
 
-The docker-compose.yml file already includes commands to automatically extract this information during build.
+The script implements comprehensive error handling:
+- Individual article processing errors don't stop the pipeline
+- All errors are logged with details
+- Failed articles can be reprocessed
 
-If building in CI/CD pipelines where git is not available, you can explicitly set these values:
+## Dependencies
 
-```bash
-# CI/CD example
-docker build \
-  --build-arg APP_VERSION="1.5.0" \
-  --build-arg APP_GIT_BRANCH="main" \
-  --build-arg APP_BUILD_DATE="$(date -u +'%Y-%m-%d %H:%M:%S')" \
-  -t aunoo-ai .
-```
-
-#### Multiple Instance Deployment
-
-The docker-compose.yml includes several pre-configured instances:
-- `aunoo-test`: Default testing instance
-- `aunoo-customer-x`: Customer X instance
-- `aunoo-customer-y`: Customer Y instance
-
-To run a specific instance:
-```bash
-docker compose --profile customer-x up  # For Customer X instance
-```
-
-### Google Cloud Run Deployment
-
-AunooAI can be deployed to Google Cloud Run for a scalable, serverless deployment with multi-tenant support.
-
-#### Prerequisites
-
-- Google Cloud Platform account
-- `gcloud` CLI installed and configured
-- Docker installed
-
-#### Deployment Steps
-
-1. Configure your GCP project:
-```bash
-gcloud config set project YOUR_PROJECT_ID
-```
-
-2. Deploy a new tenant:
-```bash
-./scripts/gcp-deploy.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --admin-password SECURE_PASSWORD
-```
-
-3. Check tenant storage configuration:
-```bash
-./scripts/check-tenant-storage.sh --project YOUR_PROJECT_ID --verbose
-```
-
-4. Update tenant resource settings:
-```bash
-./scripts/update-cloud-run-deployments.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
-```
-
-5. Fix all tenants at once:
-```bash
-./scripts/fix-all-tenants.sh --project YOUR_PROJECT_ID --admin-password SECURE_PASSWORD --redeploy
-```
-
-#### Resource Recommendations
-
-For production workloads, we recommend the following resource settings:
-- CPU: 2-4 cores
-- Memory: 4-8 GB
-- Min Instances: 1-2
-- Max Instances: 10-20
-- Concurrency: 80-100
-- Timeout: 600s
-
-These settings can be configured using the `update-cloud-run-deployments.sh` script.
-
-#### Data Persistence
-
-All tenant data is stored in Cloud Storage buckets, ensuring persistence across container restarts and updates. Each tenant has its own dedicated bucket:
-
-```
-gs://YOUR_PROJECT_ID-aunooai-TENANT_NAME/
-```
-
-The storage bucket is mounted as a volume in the Cloud Run service at `/app/app/data/TENANT_NAME`, providing direct file system access to the persistent storage. This ensures that all data written to this directory is automatically persisted to Cloud Storage.
-
-In addition, data is automatically synced to the bucket every 5 minutes and when the container exits as a backup mechanism.
-
-### Self-Hosting Guide
-
-1. System Requirements:
-   - Python 3.11 or higher
-   - 2GB RAM minimum
-   - 10GB storage space
-   - Linux/Unix environment recommended
-
-2. Environment Configuration:
-   ```bash
-   # Copy example environment file
-   cp .env.example .env
-   
-   # Edit with your settings
-   nano .env
-   ```
-
-3. Start Application:
-   ```bash
-   # Using systemd (recommended for production)
-   sudo cp deployment/aunoo-ai.service /etc/systemd/system/
-   sudo systemctl enable aunoo-ai
-   sudo systemctl start aunoo-ai
-   ```
-
-4. Monitor Logs:
-   ```bash
-   sudo journalctl -u aunoo-ai -f
-   ```
-
-5. Certificate Renewal:
-   ```bash
-   # Add to crontab
-   0 0 1 * * /path/to/AunooAI/scripts/renew_cert.sh
-   ```
-
-## Updating the Application
-
-AunooAI includes a comprehensive update management system to ensure your user configurations and data are preserved when updating to new versions.
-
-### Protected User Files
-
-The following files are user-defined and will be preserved during updates:
-
-- `app/data/fnapp.db` - Application database
-- `app/config/config.json` - Main configuration file
-- `app/config/litellm_config.yaml` - LiteLLM configuration
-- `app/config/templates/` - Template files
-- `app/config/provider_config.json` - Provider configuration
-- `.env` - Environment variables
-
-### Update Management
-
-Use the provided update management script to safely update while preserving your configurations:
-
-```bash
-# Check for available updates
-python scripts/manage_update.py check
-
-# Update safely (backs up user files, pulls updates, restores files)
-python scripts/manage_update.py update
-
-# Update to a specific branch
-python scripts/manage_update.py update --branch main
-
-# Just create a backup of user files
-python scripts/manage_update.py backup
-
-# Restore from a backup
-python scripts/manage_update.py restore backups/20240317_123456
-```
-
-### Manual Backup and Restore
-
-For manual control over the backup and restore process:
-
-```bash
-# Create a backup of user files
-python scripts/preserve_user_files.py backup
-
-# List available backups
-python scripts/preserve_user_files.py list
-
-# Restore from a backup
-python scripts/preserve_user_files.py restore backups/20240317_123456
-```
-
-### Initializing Default Configurations
-
-To initialize default configuration templates:
-
-```bash
-python scripts/init_defaults.py
-```
-
-This creates default configuration files in their expected locations if they don't already exist.
-
-## Troubleshooting
-
-### Cloud Run Deployment Issues
-
-1. **Missing Storage Bucket**: If a tenant is losing data, check if it has a storage bucket configured:
-   ```bash
-   ./scripts/verify-tenant-config.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
-   ```
-   
-   If no storage bucket is found, configure one:
-   ```bash
-   ./scripts/configure-tenant-storage.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
-   ```
-
-2. **Missing Volume Mount**: If the Cloud Run service doesn't show a volume mount under "Revisions" -> "Volumes", add it:
-   ```bash
-   ./scripts/add-volume-mounts.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME
-   ```
-   
-   To add volume mounts to all tenants:
-   ```bash
-   ./scripts/add-volume-mounts.sh --project YOUR_PROJECT_ID
-   ```
-
-3. **Resource Constraints**: If a tenant is experiencing performance issues, update its resource settings:
-   ```bash
-   ./scripts/update-cloud-run-deployments.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --cpu 4 --memory 8Gi
-   ```
-
-4. **Data Persistence Issues**: To ensure data persistence, redeploy the tenant:
-   ```bash
-   ./scripts/gcp-deploy.sh --project YOUR_PROJECT_ID --tenant TENANT_NAME --admin-password SECURE_PASSWORD
-   ```
+See `requirements.txt` for the complete list of dependencies and their versions.

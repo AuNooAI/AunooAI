@@ -119,12 +119,17 @@
 .floating-chat-icon-btn {
     background: rgba(255, 255, 255, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.3);
-    color: white;
-    padding: 4px 8px;
+    color: white !important;
+    padding: 6px 10px;
     border-radius: 4px;
     cursor: pointer;
     transition: all 0.2s ease;
-    font-size: 0.75rem;
+    font-size: 0.875rem;
+    min-width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .floating-chat-icon-btn:hover {
@@ -289,6 +294,23 @@
     color: #333;
 }
 
+.floating-message.streaming .floating-message-content {
+    border-left: 3px solid #FF69B4;
+    animation: pulse-border 2s infinite;
+}
+
+@keyframes pulse-border {
+    0% { border-left-color: #FF69B4; }
+    50% { border-left-color: #FF1493; }
+    100% { border-left-color: #FF69B4; }
+}
+
+.floating-message.welcome .floating-message-content {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    border: 1px solid #FF69B4;
+    border-radius: 8px;
+}
+
 .floating-message-avatar {
     width: 36px;
     height: 36px;
@@ -326,6 +348,171 @@
     100% { transform: rotate(360deg); }
 }
 
+/* Chat container layout */
+.chat-container {
+    display: flex;
+    height: 100%;
+    overflow: hidden;
+}
+
+.chat-sidebar {
+    width: 280px;
+    background: #f8f9fa;
+    border-right: 1px solid #e9ecef;
+    display: flex;
+    flex-direction: column;
+    transition: margin-left 0.3s ease;
+    margin-left: 0; /* Visible by default */
+}
+
+.chat-sidebar.shown {
+    margin-left: 0;
+}
+
+.chat-sidebar.hidden {
+    margin-left: -280px;
+}
+
+.chat-sidebar-header {
+    padding: 15px;
+    background: white;
+    border-bottom: 1px solid #e9ecef;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chat-sidebar-header h6 {
+    margin: 0;
+    font-size: 0.875rem;
+    color: #666;
+}
+
+.chat-sessions-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+}
+
+.chat-session-item {
+    padding: 10px;
+    margin-bottom: 8px;
+    background: white;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.chat-session-item:hover {
+    background: #f0f0f0;
+    border-color: #FF69B4;
+}
+
+.chat-session-item.active {
+    background: #FF69B4;
+    color: white;
+    border-color: #FF1493;
+}
+
+.chat-session-title {
+    font-size: 0.875rem;
+    font-weight: 500;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.chat-session-info {
+    font-size: 0.75rem;
+    opacity: 0.7;
+}
+
+.chat-session-content {
+    flex: 1;
+    cursor: pointer;
+}
+
+.chat-session-actions {
+    display: flex;
+    gap: 5px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.chat-session-item:hover .chat-session-actions {
+    opacity: 1;
+}
+
+.chat-session-actions .btn {
+    padding: 2px 6px;
+    font-size: 0.75rem;
+}
+
+.chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Article formatting improvements */
+.floating-message-content img {
+    max-width: 100px;
+    height: auto;
+    border-radius: 4px;
+    margin: 5px 0;
+}
+
+.floating-message-content pre {
+    background: #f8f9fa;
+    padding: 10px;
+    border-radius: 4px;
+    overflow-x: auto;
+    font-size: 0.875rem;
+}
+
+.floating-message-content code {
+    background: #f8f9fa;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 0.875rem;
+}
+
+.floating-message-content h1,
+.floating-message-content h2,
+.floating-message-content h3,
+.floating-message-content h4,
+.floating-message-content h5,
+.floating-message-content h6 {
+    margin-top: 15px;
+    margin-bottom: 10px;
+}
+
+.floating-message-content p {
+    margin-bottom: 10px;
+    line-height: 1.5;
+}
+
+.floating-message-content ul,
+.floating-message-content ol {
+    padding-left: 20px;
+    margin-bottom: 10px;
+}
+
+.floating-message-content blockquote {
+    border-left: 3px solid #FF69B4;
+    padding-left: 15px;
+    margin: 10px 0;
+    background: #f8f9fa;
+    padding: 10px 15px;
+    border-radius: 0 4px 4px 0;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .chat-modal .modal-dialog {
@@ -346,5 +533,13 @@
         width: 160px;
         font-size: 12px;
         padding: 0 15px;
+    }
+    
+    .chat-sidebar {
+        width: 250px;
+    }
+    
+    .chat-sidebar.hidden {
+        margin-left: -250px;
     }
 } 

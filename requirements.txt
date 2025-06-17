@@ -42,7 +42,7 @@ scikit-learn>=1.7.0
 nltk>=3.6.5
 plotly==5.18.0
 kaleido==0.2.1  # For static image export
-pandas==2.1.4
+pandas==2.2.0
 atproto
 # BERTopic and dependencies for proper topic modeling
 bertopic>=0.15.0
@@ -50,3 +50,8 @@ sentence-transformers>=2.2.0
 hdbscan>=0.8.29
 transformers>=4.21.0
 bertopic
+beautifulsoup4==4.12.3
+spacy==3.7.2
+en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
+# MCP integration
+mcp
