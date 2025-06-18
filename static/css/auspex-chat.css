@@ -137,6 +137,28 @@
     transform: translateY(-1px);
 }
 
+.floating-chat-icon-btn.tools-toggle {
+    position: relative;
+}
+
+.floating-chat-icon-btn.tools-toggle.active {
+    background: rgba(0, 255, 0, 0.3);
+    border-color: rgba(0, 255, 0, 0.5);
+}
+
+.floating-chat-icon-btn.tools-toggle.active:hover {
+    background: rgba(0, 255, 0, 0.4);
+}
+
+.floating-chat-icon-btn.tools-toggle:not(.active) {
+    background: rgba(255, 0, 0, 0.3);
+    border-color: rgba(255, 0, 0, 0.5);
+}
+
+.floating-chat-icon-btn.tools-toggle:not(.active):hover {
+    background: rgba(255, 0, 0, 0.4);
+}
+
 .floating-message-copy {
     position: absolute;
     top: 8px;
@@ -361,16 +383,36 @@
     border-right: 1px solid #e9ecef;
     display: flex;
     flex-direction: column;
-    transition: margin-left 0.3s ease;
-    margin-left: 0; /* Visible by default */
+    transition: all 0.5s ease;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+    overflow: hidden;
 }
 
 .chat-sidebar.shown {
-    margin-left: 0;
+    width: 280px;
+    opacity: 1;
+    min-width: 280px;
+    max-width: 280px;
 }
 
 .chat-sidebar.hidden {
-    margin-left: -280px;
+    width: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+    border-right: none;
+    min-width: 0 !important;
+    max-width: 0 !important;
+}
+
+/* Debug styles for sidebar */
+.chat-sidebar.shown {
+    background-color: rgba(0, 255, 0, 0.1) !important; /* Green tint when shown */
+}
+
+.chat-sidebar.hidden {
+    background-color: rgba(255, 0, 0, 0.1) !important; /* Red tint when hidden */
 }
 
 .chat-sidebar-header {
@@ -458,7 +500,35 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    position: relative;
 }
+
+.chat-main-controls {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    z-index: 100;
+    display: flex;
+    gap: 8px;
+}
+
+.chat-main-controls .floating-chat-icon-btn {
+    background-color: rgba(255, 255, 255, 0.9);
+    border: 1px solid rgba(0,0,0,0.2);
+    color: #333 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 14px;
+}
+
+.chat-main-controls .floating-chat-icon-btn:hover {
+    background-color: rgba(255, 255, 255, 1);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+
+
 
 /* Article formatting improvements */
 .floating-message-content img {
@@ -535,11 +605,47 @@
         padding: 0 15px;
     }
     
-    .chat-sidebar {
+    .chat-sidebar.shown {
         width: 250px;
     }
     
     .chat-sidebar.hidden {
-        margin-left: -250px;
+        width: 0;
     }
+}
+
+/* Modal fullscreen adjustments using Bootstrap's native classes */
+.chat-modal .modal-dialog.modal-fullscreen {
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    max-height: none !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+}
+
+.chat-modal .modal-dialog.modal-fullscreen .modal-content {
+    width: 100vw !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
+    border: none !important;
+}
+
+.chat-modal .modal-dialog.modal-fullscreen .modal-body {
+    height: calc(100vh - 80px) !important;
+    padding: 0 !important;
+}
+
+.chat-modal .modal-dialog.modal-fullscreen .chat-container {
+    height: 100% !important;
+}
+
+.chat-modal .modal-dialog.modal-fullscreen .floating-chat-messages {
+    height: calc(100vh - 200px) !important;
+    max-height: none !important;
+}
+
+/* Ensure proper transitions for modal resize */
+.chat-modal .modal-dialog {
+    transition: all 0.3s ease;
 } 

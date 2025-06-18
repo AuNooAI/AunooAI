@@ -10,21 +10,322 @@ from typing import Dict, List, Optional
 
 from app.collectors.thenewsapi_collector import TheNewsAPICollector
 from app.database import get_database_instance
+from app.analyze_db import AnalyzeDB
+from app.vector_store import search_articles as vector_search_articles
+from app.ai_models import get_ai_model
 
 logger = logging.getLogger(__name__)
 
 class AuspexToolsService:
-    """Service providing tools for Auspex AI."""
+    """Service providing tools for Auspex AI with sophisticated database navigation."""
 
     def __init__(self):
         self.news_collector = None
         self.db = get_database_instance()
+        self.analyze_db = AnalyzeDB(self.db)
 
     def _get_news_collector(self) -> TheNewsAPICollector:
         """Get or create news collector instance."""
         if self.news_collector is None:
             self.news_collector = TheNewsAPICollector()
         return self.news_collector
+
+    def _extract_json_from_response(self, response: str) -> str:
+        """Extract JSON object from LLM response, handling any extra text."""
+        try:
+            # Try to find JSON object between curly braces
+            start = response.find('{')
+            end = response.rfind('}') + 1
+            if start >= 0 and end > start:
+                json_str = response[start:end]
+                # Clean up double curly braces
+                json_str = json_str.replace('{{', '{').replace('}}', '}')
+                # Remove any leading/trailing whitespace
+                json_str = json_str.strip()
+                logger.debug(f"Cleaned JSON string: {json_str}")
+                return json_str
+            return response
+        except Exception as e:
+            logger.error(f"Error extracting JSON: {str(e)}")
+            return response
+
+    def _select_diverse_articles(self, articles: List[Dict], limit: int) -> List[Dict]:
+        """Select diverse articles from a larger pool based on category, source, and recency."""
+        if len(articles) <= limit:
+            return articles
+        
+        # Sort by similarity score first (best matches first)
+        sorted_articles = sorted(articles, key=lambda x: x.get('similarity_score', 1.0))
+        
+        selected = []
+        seen_categories = set()
+        seen_sources = set()
+        
+        # First pass: Select top articles ensuring category diversity
+        for article in sorted_articles:
+            if len(selected) >= limit:
+                break
+                
+            category = article.get('category', 'Unknown')
+            source = article.get('news_source', 'Unknown')
+            
+            # Prefer articles from new categories and sources
+            category_bonus = 0 if category in seen_categories else 1
+            source_bonus = 0 if source in seen_sources else 0.5
+            
+            # Add if we have space and it adds diversity, or if it's a very good match
+            if (len(selected) < limit * 0.7 or  # Always fill 70% with top matches
+                category_bonus > 0 or source_bonus > 0):
+                selected.append(article)
+                seen_categories.add(category)
+                seen_sources.add(source)
+        
+        # Fill remaining slots with best remaining articles
+        remaining_needed = limit - len(selected)
+        if remaining_needed > 0:
+            remaining_articles = [a for a in sorted_articles if a not in selected]
+            selected.extend(remaining_articles[:remaining_needed])
+        
+        return selected[:limit]
+
+    async def enhanced_database_search(self, query: str, topic: str, limit: int = 50, model: str = "gpt-3.5-turbo") -> Dict:
+        """Enhanced database search with hybrid vector/SQL search and intelligent query parsing."""
+        try:
+            # Get available options for this topic
+            topic_options = self.analyze_db.get_topic_options(topic)
+            
+            # Enhanced search strategy: Use both SQL and vector search
+            # First, try vector search for semantic understanding
+            vector_articles = []
+            try:
+                # Build metadata filter for vector search
+                metadata_filter = {"topic": topic}
+                vector_results = vector_search_articles(
+                    query=query,
+                    top_k=100,
+                    metadata_filter=metadata_filter
+                )
+                
+                # Convert vector results to article format
+                for result in vector_results:
+                    if result.get("metadata"):
+                        vector_articles.append({
+                            "uri": result["metadata"].get("uri"),
+                            "title": result["metadata"].get("title"),
+                            "summary": result["metadata"].get("summary"),
+                            "category": result["metadata"].get("category"),
+                            "sentiment": result["metadata"].get("sentiment"),
+                            "future_signal": result["metadata"].get("future_signal"),
+                            "time_to_impact": result["metadata"].get("time_to_impact"),
+                            "publication_date": result["metadata"].get("publication_date"),
+                            "news_source": result["metadata"].get("news_source"),
+                            "tags": result["metadata"].get("tags", "").split(",") if result["metadata"].get("tags") else [],
+                            "similarity_score": result.get("score", 0)
+                        })
+                
+                logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
+                
+            except Exception as e:
+                logger.warning(f"Vector search failed, falling back to SQL search: {e}")
+                vector_articles = []
+
+            # If vector search found good results, use them; otherwise fall back to SQL search
+            if len(vector_articles) >= 10:
+                # Enhanced selection: Apply diversity and quality filtering
+                articles = self._select_diverse_articles(vector_articles, limit)
+                total_count = len(vector_articles)
+                search_method = "semantic vector search with diversity filtering"
+                
+                # Format search criteria for display
+                search_summary = f"""## Search Method: Enhanced Semantic Search
+- **Query**: "{query}"
+- **Topic Filter**: {topic}
+- **Search Type**: Vector similarity search using embeddings
+- **Results**: Found {total_count} semantically relevant articles
+- **Analysis Limit**: {limit} articles
+
+## Results Overview
+Analyzing the {len(articles)} most semantically similar articles
+"""
+            else:
+                # Fall back to intelligent SQL-based search logic
+                # First, let the LLM determine if this is a search request and what parameters to use
+                available_options = f"""Available search options:
+1. Categories: {', '.join(topic_options['categories'])}
+2. Sentiments: {', '.join(topic_options['sentiments'])}
+3. Future Signals: {', '.join(topic_options['futureSignals'])}
+4. Time to Impact: {', '.join(topic_options['timeToImpacts'])}
+5. Keywords in title, summary, or tags
+6. Date ranges (last week/month/year)"""
+
+                search_intent_messages = [
+                    {"role": "system", "content": f"""You are an AI assistant that helps search through articles about {topic}.
+Your job is to create effective search queries based on user questions.
+
+{available_options}
+
+IMPORTANT: You must follow these exact steps in order:
+
+1. SPECIAL QUERY TYPES:
+   a) For trend analysis requests:
+      - Do NOT use keywords like "trends" or "patterns"
+      - Instead, use ONLY the date_range parameter
+      - Return ALL articles within that timeframe
+      Example:
+      {{
+          "queries": [
+              {{
+                  "description": "Get all articles from the last 90 days for trend analysis",
+                  "params": {{
+                      "category": null,
+                      "keyword": null,
+                      "sentiment": null,
+                      "future_signal": null,
+                      "tags": null,
+                      "date_range": "90"
+                  }}
+              }}
+          ]
+      }}
+
+Return your search strategy in this format:
+{{
+    "queries": [
+        {{
+            "description": "Brief description of what this query searches for",
+            "params": {{
+                "category": ["Exact category names"] or null,
+                "keyword": "main search term OR alternative term OR another term",
+                "sentiment": "exact sentiment" or null,
+                "future_signal": "exact signal" or null,
+                "time_to_impact": "exact impact timing" or null,
+                "tags": ["relevant", "search", "terms"],
+                "date_range": "7/30/365" or null
+            }}
+        }}
+    ]
+}}"""},
+                    {"role": "user", "content": query}
+                ]
+
+                # Get search parameters from LLM
+                ai_model = get_ai_model(model)
+                search_response = ai_model.generate_response(search_intent_messages)
+                logger.debug(f"LLM search response: {search_response}")
+                
+                try:
+                    json_str = self._extract_json_from_response(search_response)
+                    logger.debug(f"Extracted JSON: {json_str}")
+                    search_strategy = json.loads(json_str)
+                    logger.debug(f"Search strategy: {json.dumps(search_strategy, indent=2)}")
+                    
+                    all_articles = []
+                    total_count = 0
+                    
+                    for query_config in search_strategy["queries"]:
+                        params = query_config["params"]
+                        logger.debug(f"Executing query: {query_config['description']}")
+                        logger.debug(f"Query params: {json.dumps(params, indent=2)}")
+                        
+                        # Calculate date range if specified
+                        pub_date_start = None
+                        pub_date_end = None
+                        if params.get("date_range"):
+                            if params["date_range"] != "all":
+                                pub_date_end = datetime.now()
+                                pub_date_start = pub_date_end - timedelta(days=int(params["date_range"]))
+                                pub_date_end = pub_date_end.strftime('%Y-%m-%d')
+                                pub_date_start = pub_date_start.strftime('%Y-%m-%d')
+
+                        # If we have a category match, use only that
+                        if params.get("category"):
+                            articles_batch, count = self.db.search_articles(
+                                topic=topic,
+                                category=params.get("category"),
+                                pub_date_start=pub_date_start,
+                                pub_date_end=pub_date_end,
+                                page=1,
+                                per_page=limit
+                            )
+                        # Otherwise, use keyword search
+                        else:
+                            articles_batch, count = self.db.search_articles(
+                                topic=topic,
+                                keyword=params.get("keyword"),
+                                sentiment=[params.get("sentiment")] if params.get("sentiment") else None,
+                                future_signal=[params.get("future_signal")] if params.get("future_signal") else None,
+                                tags=params.get("tags"),
+                                pub_date_start=pub_date_start,
+                                pub_date_end=pub_date_end,
+                                page=1,
+                                per_page=limit
+                            )
+                        
+                        logger.debug(f"Query returned {count} articles")
+                        all_articles.extend(articles_batch)
+                        total_count += count
+                    
+                    # Remove duplicates based on article URI
+                    seen_uris = set()
+                    unique_articles = []
+                    for article in all_articles:
+                        if article['uri'] not in seen_uris:
+                            seen_uris.add(article['uri'])
+                            unique_articles.append(article)
+                    
+                    articles = unique_articles[:limit]
+                    search_method = "structured keyword search"
+
+                    # Format search criteria for display
+                    active_filters = []
+                    for query_config in search_strategy.get("queries", []):
+                        params = query_config.get("params", {})
+                        if params.get("keyword"):
+                            active_filters.append(f"Keywords: {params.get('keyword').replace('|', ' OR ')}")
+                        if params.get("category"):
+                            active_filters.append(f"Categories: {', '.join(params.get('category'))}")
+                        if params.get("sentiment"):
+                            active_filters.append(f"Sentiment: {params.get('sentiment')}")
+                        if params.get("future_signal"):
+                            active_filters.append(f"Future Signal: {params.get('future_signal')}")
+                        if params.get("tags"):
+                            active_filters.append(f"Tags: {', '.join(params.get('tags'))}")
+
+                    search_summary = f"""## Search Method: {search_method.title()}
+{chr(10).join(['- ' + f for f in active_filters])}
+- **Analysis Limit**: {limit} articles
+
+## Results Overview
+Found {total_count} total matching articles
+Analyzing the {len(articles)} most recent articles
+"""
+                except Exception as e:
+                    logger.error(f"Search error: {str(e)}", exc_info=True)
+                    articles = []
+                    total_count = 0
+                    search_method = "error fallback"
+                    search_summary = "## Search Error\nFell back to basic search due to parsing error."
+
+            return {
+                "query": query,
+                "topic": topic,
+                "search_method": search_method,
+                "search_summary": search_summary,
+                "total_articles": total_count,
+                "analyzed_articles": len(articles),
+                "articles": articles,
+                "topic_options": topic_options
+            }
+
+        except Exception as e:
+            logger.error(f"Error in enhanced database search: {e}")
+            return {
+                "error": f"Error in enhanced database search: {str(e)}",
+                "query": query,
+                "topic": topic,
+                "total_articles": 0,
+                "articles": []
+            }
 
     async def search_news(self, query: str, max_results: int = 10, 
                          language: str = "en", days_back: int = 7, 

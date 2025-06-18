@@ -5,7 +5,7 @@
 
 <!-- Floating Chat Modal -->
 <div class="modal fade chat-modal" id="floatingChatModal" tabindex="-1" aria-labelledby="floatingChatModalLabel" aria-hidden="true">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header floating-chat-header">
                 <div style="flex: 1;">
@@ -39,8 +39,14 @@
                     <button class="floating-chat-icon-btn" id="promptEditBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Edit prompts">
                         <i class="fas fa-brain"></i>
                     </button>
+                    <button class="floating-chat-icon-btn tools-toggle active" id="toolsToggleBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Tools enabled - Click to disable">
+                        <i class="fas fa-wrench"></i>
+                    </button>
                     <button class="floating-chat-icon-btn" id="toggleSidebar" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Hide chat history">
                         <i class="fas fa-chevron-left"></i>
+                    </button>
+                    <button class="floating-chat-icon-btn" id="expandWindowBtn" data-bs-toggle="tooltip" data-bs-placement="top" title="Expand window">
+                        <i class="fas fa-expand"></i>
                     </button>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
@@ -59,6 +65,14 @@
                         </div>
                     </div>
                     <div class="chat-main">
+                        <div class="chat-main-controls">
+                            <button class="floating-chat-icon-btn" id="toggleSidebar" data-bs-toggle="tooltip" data-bs-placement="top" title="Hide chat history">
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <button class="floating-chat-icon-btn" id="expandWindowBtn" data-bs-toggle="tooltip" data-bs-placement="top" title="Expand window">
+                                <i class="fas fa-expand"></i>
+                            </button>
+                        </div>
                         <div class="floating-chat-messages" id="floatingChatMessages">
                             <div class="floating-message assistant">
                                 <div class="floating-message-avatar">

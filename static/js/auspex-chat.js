@@ -18,7 +18,9 @@ class FloatingChat {
             quickQueries: document.getElementById('floatingQuickQueries'),
             sidebar: document.getElementById('chatSidebar'),
             sessionsList: document.getElementById('chatSessionsList'),
-            promptEditBtn: document.getElementById('promptEditBtn')
+            promptEditBtn: document.getElementById('promptEditBtn'),
+            expandWindowBtn: document.getElementById('expandWindowBtn'),
+            toolsToggleBtn: document.getElementById('toolsToggleBtn')
         };
         
         // Chat state
@@ -32,11 +34,13 @@ class FloatingChat {
             model: 'auspex_floating_last_model',
             limit: 'auspex_floating_last_limit',
             customQueries: 'auspex_floating_custom_queries',
-            minimized: 'auspex_floating_minimized'
+            minimized: 'auspex_floating_minimized',
+            toolsEnabled: 'auspex_floating_tools_enabled'
         };
         
         this.customQueries = this.loadCustomQueries();
         this.isMinimized = localStorage.getItem(this.storageKeys.minimized) === 'true';
+        this.toolsEnabled = localStorage.getItem(this.storageKeys.toolsEnabled) !== 'false'; // Default to true
         
         console.log('Initializing chat...');
         this.init();
@@ -102,7 +106,8 @@ class FloatingChat {
             clearBtn: 'clearChatBtn',
             exportBtn: 'exportChatBtn',
             quickQueries: 'floatingQuickQueries',
-            promptEditBtn: 'promptEditBtn'
+            promptEditBtn: 'promptEditBtn',
+            expandWindowBtn: 'expandWindowBtn'
         };
         
         let foundCount = 0;
@@ -122,6 +127,40 @@ class FloatingChat {
         
         console.log(`Found ${foundCount}/${Object.keys(elementIds).length} elements`);
         
+        // Add specific event listeners for buttons that might have been missing
+        if (this.elements.toggleSidebar && !this.elements.toggleSidebar.hasAttribute('data-listener-added')) {
+            this.elements.toggleSidebar.addEventListener('click', (e) => {
+                console.log('Toggle sidebar clicked via modal show listener');
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleSidebar();
+            });
+            this.elements.toggleSidebar.setAttribute('data-listener-added', 'true');
+            console.log('✓ Added toggle sidebar listener after modal show');
+        }
+        
+        if (this.elements.expandWindowBtn && !this.elements.expandWindowBtn.hasAttribute('data-listener-added')) {
+            this.elements.expandWindowBtn.addEventListener('click', (e) => {
+                console.log('Expand window clicked via modal show listener');
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleExpandWindow();
+            });
+            this.elements.expandWindowBtn.setAttribute('data-listener-added', 'true');
+            console.log('✓ Added expand window listener after modal show');
+        }
+        
+        if (this.elements.toolsToggleBtn && !this.elements.toolsToggleBtn.hasAttribute('data-listener-added')) {
+            this.elements.toolsToggleBtn.addEventListener('click', (e) => {
+                console.log('Tools toggle clicked via modal show listener');
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleTools();
+            });
+            this.elements.toolsToggleBtn.setAttribute('data-listener-added', 'true');
+            console.log('✓ Added tools toggle listener after modal show');
+        }
+        
         // If still missing critical elements, try again after a longer delay
         if (!this.elements.sessionsList || !this.elements.sidebar) {
             console.log('Critical elements still missing, trying again in 500ms...');
@@ -129,9 +168,6 @@ class FloatingChat {
                 this.retryElementInitialization();
             }, 500);
         } else {
-            // Re-add event listeners for elements that were missing
-            this.addEventListeners();
-            
             // Update UI state now that elements are available
             this.updateUIState();
         }
@@ -150,10 +186,50 @@ class FloatingChat {
         if (!this.elements.toggleSidebar) {
             this.elements.toggleSidebar = document.getElementById('toggleSidebar');
         }
+        if (!this.elements.expandWindowBtn) {
+            this.elements.expandWindowBtn = document.getElementById('expandWindowBtn');
+        }
+        if (!this.elements.promptEditBtn) {
+            this.elements.promptEditBtn = document.getElementById('promptEditBtn');
+        }
         
         if (this.elements.sessionsList && this.elements.sidebar) {
             console.log('Critical elements found on retry!');
-            this.addEventListeners();
+            
+            // Add event listeners for the newly found elements
+            if (this.elements.toggleSidebar && !this.elements.toggleSidebar.hasAttribute('data-listener-added')) {
+                this.elements.toggleSidebar.addEventListener('click', (e) => {
+                    console.log('Toggle sidebar clicked via retry listener');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.toggleSidebar();
+                });
+                this.elements.toggleSidebar.setAttribute('data-listener-added', 'true');
+                console.log('✓ Added toggle sidebar listener on retry');
+            }
+            
+            if (this.elements.expandWindowBtn && !this.elements.expandWindowBtn.hasAttribute('data-listener-added')) {
+                this.elements.expandWindowBtn.addEventListener('click', (e) => {
+                    console.log('Expand window clicked via retry listener');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.toggleExpandWindow();
+                });
+                this.elements.expandWindowBtn.setAttribute('data-listener-added', 'true');
+                console.log('✓ Added expand window listener on retry');
+            }
+            
+            if (this.elements.toolsToggleBtn && !this.elements.toolsToggleBtn.hasAttribute('data-listener-added')) {
+                this.elements.toolsToggleBtn.addEventListener('click', (e) => {
+                    console.log('Tools toggle clicked via retry listener');
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.toggleTools();
+                });
+                this.elements.toolsToggleBtn.setAttribute('data-listener-added', 'true');
+                console.log('✓ Added tools toggle listener on retry');
+            }
+            
             this.updateUIState();
         } else {
             console.warn('Critical elements still not found after retry');
@@ -274,7 +350,7 @@ class FloatingChat {
         }
     }
 
-        addEventListeners() {
+    addEventListeners() {
         // Topic selection change
         if (this.elements.topicSelect) {
             this.elements.topicSelect.addEventListener('change', async () => {
@@ -326,11 +402,6 @@ class FloatingChat {
             this.elements.exportBtn.addEventListener('click', () => this.exportChat());
         }
 
-        // Toggle sidebar
-        if (this.elements.toggleSidebar) {
-            this.elements.toggleSidebar.addEventListener('click', () => this.toggleSidebar());
-        }
-
         // Save query
         if (this.elements.saveBtn) {
             this.elements.saveBtn.addEventListener('click', () => this.saveCurrentQuery());
@@ -355,6 +426,79 @@ class FloatingChat {
         // Prompt edit button
         if (this.elements.promptEditBtn) {
             this.elements.promptEditBtn.addEventListener('click', () => this.openPromptManager());
+            console.log('✓ Prompt edit event listener added');
+        } else {
+            console.warn('✗ Prompt edit button not found for event listener');
+        }
+
+        // Use event delegation for buttons that might not be available initially
+        document.addEventListener('click', (e) => {
+            // Check if the clicked element or any of its parents is the toggle sidebar button
+            const toggleSidebarBtn = e.target.closest('#toggleSidebar');
+            if (toggleSidebarBtn) {
+                console.log('Toggle sidebar clicked via delegation');
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleSidebar();
+                return;
+            }
+            
+            // Check if the clicked element or any of its parents is the expand window button
+            const expandWindowBtn = e.target.closest('#expandWindowBtn');
+            if (expandWindowBtn) {
+                console.log('Expand window clicked via delegation');
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleExpandWindow();
+                return;
+            }
+            
+            // Check if the clicked element or any of its parents is the tools toggle button
+            const toolsToggleBtn = e.target.closest('#toolsToggleBtn');
+            if (toolsToggleBtn) {
+                console.log('Tools toggle clicked via delegation');
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleTools();
+                return;
+            }
+        });
+        
+        // Also try direct event listeners if elements exist
+        if (this.elements.toggleSidebar) {
+            this.elements.toggleSidebar.addEventListener('click', (e) => {
+                console.log('Toggle sidebar clicked via direct listener');
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleSidebar();
+            });
+            console.log('✓ Toggle sidebar element found and direct listener added');
+        } else {
+            console.warn('✗ Toggle sidebar button not found initially');
+        }
+
+        if (this.elements.expandWindowBtn) {
+            this.elements.expandWindowBtn.addEventListener('click', (e) => {
+                console.log('Expand window clicked via direct listener');
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleExpandWindow();
+            });
+            console.log('✓ Expand window element found and direct listener added');
+        } else {
+            console.warn('✗ Expand window button not found initially');
+        }
+
+        if (this.elements.toolsToggleBtn) {
+            this.elements.toolsToggleBtn.addEventListener('click', (e) => {
+                console.log('Tools toggle clicked via direct listener');
+                e.preventDefault();
+                e.stopPropagation();
+                this.toggleTools();
+            });
+            console.log('✓ Tools toggle element found and direct listener added');
+        } else {
+            console.warn('✗ Tools toggle button not found initially');
         }
 
         // Floating chat button
@@ -389,15 +533,19 @@ class FloatingChat {
             // Update sidebar with sessions
             this.updateSessionsList();
             
-            // Create new chat session if none exists
-            if (this.chatSessions.length === 0) {
+            // Create new chat session if none exists and we don't already have an active chat
+            if (this.chatSessions.length === 0 && !this.currentChatId) {
                 console.log(`DEBUG: No existing sessions, creating new one...`);
                 await this.createNewChatSession(topic);
-            } else {
-                console.log(`DEBUG: Loading most recent chat session: ${this.chatSessions[0].id}`);
-                // Load the most recent chat session
-                this.currentChatId = this.chatSessions[0].id;
-                await this.loadChatHistory(this.currentChatId);
+            } else if (this.chatSessions.length > 0) {
+                // Only load if we don't have a current chat or if current chat is not in the sessions list
+                const currentChatExists = this.chatSessions.some(session => session.id === this.currentChatId);
+                if (!this.currentChatId || !currentChatExists) {
+                    console.log(`DEBUG: Loading most recent chat session: ${this.chatSessions[0].id}`);
+                    // Load the most recent chat session
+                    this.currentChatId = this.chatSessions[0].id;
+                    await this.loadChatHistory(this.currentChatId);
+                }
             }
             
             console.log(`DEBUG: Chat session setup complete, currentChatId: ${this.currentChatId}`);
@@ -521,7 +669,8 @@ class FloatingChat {
             model,
             limit,
             currentChatId: this.currentChatId,
-            hasChat: this.currentChatId !== null
+            hasChat: this.currentChatId !== null,
+            toolsEnabled: this.toolsEnabled
         });
 
         if (!topic || !model || !this.currentChatId) {
@@ -546,7 +695,8 @@ class FloatingChat {
             chat_id: this.currentChatId,
             message: message,
             model: model,
-            limit: limit
+            limit: limit,
+            use_tools: this.toolsEnabled
         });
 
         try {
@@ -559,7 +709,8 @@ class FloatingChat {
                     chat_id: this.currentChatId,
                     message: message,
                     model: model,
-                    limit: limit
+                    limit: limit,
+                    use_tools: this.toolsEnabled
                 })
             });
 
@@ -677,6 +828,19 @@ class FloatingChat {
         
         if (this.elements.saveBtn) {
             this.elements.saveBtn.disabled = !(hasTopic && hasModel && hasChat);
+        }
+        
+        // Update tools toggle button state
+        if (this.elements.toolsToggleBtn) {
+            if (this.toolsEnabled) {
+                this.elements.toolsToggleBtn.classList.add('active');
+                this.elements.toolsToggleBtn.title = 'Tools enabled - Click to disable';
+                this.elements.toolsToggleBtn.setAttribute('data-bs-original-title', 'Tools enabled - Click to disable');
+            } else {
+                this.elements.toolsToggleBtn.classList.remove('active');
+                this.elements.toolsToggleBtn.title = 'Tools disabled - Click to enable';
+                this.elements.toolsToggleBtn.setAttribute('data-bs-original-title', 'Tools disabled - Click to enable');
+            }
         }
     }
 
@@ -896,33 +1060,62 @@ class FloatingChat {
     }
 
     toggleSidebar() {
-        if (!this.elements.sidebar || !this.elements.toggleSidebar) {
-            console.warn('Sidebar or toggle button element not found');
+        console.log('toggleSidebar called');
+        
+        // Try to find elements if not already found
+        if (!this.elements.sidebar) {
+            this.elements.sidebar = document.getElementById('chatSidebar');
+            console.log('Found sidebar element:', !!this.elements.sidebar);
+        }
+        if (!this.elements.toggleSidebar) {
+            this.elements.toggleSidebar = document.getElementById('toggleSidebar');
+            console.log('Found toggle sidebar element:', !!this.elements.toggleSidebar);
+        }
+        
+        if (!this.elements.sidebar) {
+            console.error('CRITICAL: Sidebar element not found! Looking for #chatSidebar');
+            // Debug: list all elements with chat-sidebar class
+            const sidebarElements = document.querySelectorAll('.chat-sidebar');
+            console.log('Found elements with .chat-sidebar class:', sidebarElements.length);
+            sidebarElements.forEach((el, i) => console.log(`  ${i}: id="${el.id}", classes="${el.className}"`));
+            return;
+        }
+        
+        if (!this.elements.toggleSidebar) {
+            console.error('CRITICAL: Toggle sidebar button not found! Looking for #toggleSidebar');
             return;
         }
         
         const isCurrentlyShown = this.elements.sidebar.classList.contains('shown');
+        console.log('Sidebar currently shown:', isCurrentlyShown);
+        console.log('Sidebar current classes:', this.elements.sidebar.className);
         
         if (isCurrentlyShown) {
             // Hide sidebar
             this.elements.sidebar.classList.remove('shown');
             this.elements.sidebar.classList.add('hidden');
+            
+            // Update button
+            const icon = this.elements.toggleSidebar.querySelector('i');
+            if (icon) {
+                icon.className = 'fas fa-chevron-right';
+                this.elements.toggleSidebar.title = 'Show chat history';
+                this.elements.toggleSidebar.setAttribute('data-bs-original-title', 'Show chat history');
+            }
+            console.log('Sidebar hidden - new classes:', this.elements.sidebar.className);
         } else {
             // Show sidebar
             this.elements.sidebar.classList.remove('hidden');
             this.elements.sidebar.classList.add('shown');
-        }
-        
-        // Update icon and tooltip
-        const icon = this.elements.toggleSidebar.querySelector('i');
-        if (icon) {
-            if (this.elements.sidebar.classList.contains('shown')) {
+            
+            // Update button
+            const icon = this.elements.toggleSidebar.querySelector('i');
+            if (icon) {
                 icon.className = 'fas fa-chevron-left';
                 this.elements.toggleSidebar.title = 'Hide chat history';
-            } else {
-                icon.className = 'fas fa-chevron-right';
-                this.elements.toggleSidebar.title = 'Show chat history';
+                this.elements.toggleSidebar.setAttribute('data-bs-original-title', 'Hide chat history');
             }
+            console.log('Sidebar shown - new classes:', this.elements.sidebar.className);
         }
     }
 
@@ -979,8 +1172,6 @@ class FloatingChat {
         }).join('');
 
         this.elements.sessionsList.innerHTML = sessionsHtml;
-
-        // Note: Click handlers are now inline in the HTML for better event handling
     }
 
     async deleteChatSession(chatId) {
@@ -1047,10 +1238,99 @@ class FloatingChat {
             console.error('Prompt manager modal not found');
         }
     }
+
+    toggleExpandWindow() {
+        console.log('toggleExpandWindow called');
+        
+        if (!this.elements.modal) {
+            console.error('CRITICAL: Modal element not found! Looking for #floatingChatModal');
+            return;
+        }
+        
+        const modalDialog = this.elements.modal.querySelector('.modal-dialog');
+        const icon = this.elements.expandWindowBtn.querySelector('i');
+        
+        if (!modalDialog || !icon) {
+            console.error('CRITICAL: Modal dialog or icon not found!');
+            return;
+        }
+
+        const isExpanded = modalDialog.classList.contains('modal-fullscreen');
+        console.log(`Modal currently expanded: ${isExpanded}`);
+        
+        if (isExpanded) {
+            // Collapse to normal size
+            modalDialog.classList.remove('modal-fullscreen');
+            if (!modalDialog.classList.contains('modal-xl')) {
+                modalDialog.classList.add('modal-xl');
+            }
+            icon.className = 'fas fa-expand';
+            this.elements.expandWindowBtn.title = 'Expand window';
+            this.elements.expandWindowBtn.setAttribute('data-bs-original-title', 'Expand window');
+            console.log('Modal collapsed');
+        } else {
+            // Expand to fullscreen
+            modalDialog.classList.remove('modal-xl');
+            modalDialog.classList.add('modal-fullscreen');
+            icon.className = 'fas fa-compress';
+            this.elements.expandWindowBtn.title = 'Collapse window';
+            this.elements.expandWindowBtn.setAttribute('data-bs-original-title', 'Collapse window');
+            console.log('Modal expanded');
+        }
+    }
+
+    toggleTools() {
+        console.log('toggleTools called');
+        
+        this.toolsEnabled = !this.toolsEnabled;
+        localStorage.setItem(this.storageKeys.toolsEnabled, this.toolsEnabled.toString());
+        
+        // Update button appearance
+        if (this.elements.toolsToggleBtn) {
+            if (this.toolsEnabled) {
+                this.elements.toolsToggleBtn.classList.add('active');
+                this.elements.toolsToggleBtn.title = 'Tools enabled - Click to disable';
+                this.elements.toolsToggleBtn.setAttribute('data-bs-original-title', 'Tools enabled - Click to disable');
+            } else {
+                this.elements.toolsToggleBtn.classList.remove('active');
+                this.elements.toolsToggleBtn.title = 'Tools disabled - Click to enable';
+                this.elements.toolsToggleBtn.setAttribute('data-bs-original-title', 'Tools disabled - Click to enable');
+            }
+        }
+        
+        console.log(`Tools ${this.toolsEnabled ? 'enabled' : 'disabled'}`);
+        
+        // Show a brief notification
+        this.showToolsNotification(this.toolsEnabled);
+    }
+
+    showToolsNotification(enabled) {
+        const notification = document.createElement('div');
+        notification.textContent = `Tools ${enabled ? 'enabled' : 'disabled'}`;
+        notification.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: ${enabled ? '#28a745' : '#dc3545'};
+            color: white;
+            padding: 12px 20px;
+            border-radius: 6px;
+            z-index: 10000;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        `;
+        document.body.appendChild(notification);
+        setTimeout(() => {
+            if (document.body.contains(notification)) {
+                document.body.removeChild(notification);
+            }
+        }, 2000);
+    }
 }
 
 // Initialize floating chat when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM Content Loaded - Initializing FloatingChat');
     window.floatingChatInstance = new FloatingChat();
-}); 
+});
