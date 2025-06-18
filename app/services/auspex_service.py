@@ -479,7 +479,7 @@ class OptimizedContextManager:
         """Estimate token count from text."""
         return max(1, len(text) // self.chars_per_token)
     
-    def optimize_article_selection(self, articles: List[Dict], query: str, budget_tokens: int) -> List[Dict]:
+    def optimize_article_selection(self, articles: List[Dict], query: str, budget_tokens: int, user_limit: int = None) -> List[Dict]:
         """Optimize article selection within token budget."""
         if not articles:
             return []
@@ -505,12 +505,17 @@ class OptimizedContextManager:
         estimated_tokens_per_compressed_article = 120  # More optimistic estimate for compressed articles
         max_possible_articles = budget_tokens // estimated_tokens_per_compressed_article
         
-        # Don't artificially limit target_count by available articles - we want to scale up!
-        # If we have fewer articles than our budget allows, we'll use duplicates with diversity
-        target_count = max(max_possible_articles, 50)  # Always aim for budget-sized target
-        
-        # But cap it at a reasonable maximum to prevent excessive processing
-        target_count = min(target_count, 1000)  # Reasonable cap for mega-context models
+        # Respect user's limit if provided, otherwise use token-based calculation
+        if user_limit and user_limit > 0:
+            target_count = min(user_limit, max_possible_articles)  # Respect user limit but don't exceed token budget
+            logger.info(f"Using user-specified limit: {user_limit}, capped by token budget to: {target_count}")
+        else:
+            # Don't artificially limit target_count by available articles - we want to scale up!
+            # If we have fewer articles than our budget allows, we'll use duplicates with diversity
+            target_count = max(max_possible_articles, 50)  # Always aim for budget-sized target
+            
+            # But cap it at a reasonable maximum to prevent excessive processing
+            target_count = min(target_count, 1000)  # Reasonable cap for mega-context models
         
         diverse_articles = self.ensure_diversity(clustered_articles, target_count)
         logger.info(f"Selected {len(diverse_articles)} diverse articles from {len(clustered_articles)} clustered articles")
@@ -957,9 +962,9 @@ CURRENT SESSION CONTEXT:
                 logger.info(f"Context budget allocation: {budget}")
                 logger.info(f"Articles budget: {budget['articles']} tokens for {len(vector_articles)} vector articles")
                 
-                # Use optimized article selection
+                # Use optimized article selection with user limit
                 optimized_articles = self.context_manager.optimize_article_selection(
-                    vector_articles, message, budget["articles"]
+                    vector_articles, message, budget["articles"], user_limit=limit
                 )
                 
                 # Format with optimized context
@@ -1604,13 +1609,33 @@ Article Details:
     async def _generate_streaming_response(self, messages: List[Dict], model: str) -> AsyncGenerator[str, None]:
         """Generate streaming response from LLM."""
         try:
+            # Calculate appropriate max_tokens based on model context limit
+            context_limit = self._get_model_context_limit(model)
+            
+            # Estimate tokens used by input (rough approximation)
+            input_text = " ".join([msg.get("content", "") for msg in messages])
+            estimated_input_tokens = len(input_text) // 4  # Rough estimate: 4 chars per token
+            
+            # Reserve tokens for response (aim for 25-50% of context for output)
+            if context_limit >= 100000:  # Large context models
+                max_tokens = min(8000, context_limit - estimated_input_tokens - 1000)  # Large response capability
+            elif context_limit >= 32000:  # Medium context models  
+                max_tokens = min(4000, context_limit - estimated_input_tokens - 1000)
+            else:  # Smaller context models
+                max_tokens = min(2000, context_limit - estimated_input_tokens - 1000)
+            
+            # Ensure we have at least some tokens for response
+            max_tokens = max(500, max_tokens)
+            
+            logger.info(f"Model: {model}, Context limit: {context_limit}, Estimated input tokens: {estimated_input_tokens}, Max response tokens: {max_tokens}")
+            
             # Create the streaming response
             response_stream = await litellm.acompletion(
                 model=model,
                 messages=messages,
                 stream=True,
                 temperature=0.7,
-                max_tokens=2000
+                max_tokens=max_tokens
             )
             
             # Handle the async generator properly
