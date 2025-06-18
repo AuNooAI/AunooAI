@@ -3,6 +3,8 @@ import json
 import logging
 from typing import Dict, List, Optional, AsyncGenerator
 from datetime import datetime, timedelta
+from collections import defaultdict
+import math
 
 from fastapi import HTTPException, status
 import litellm
@@ -217,12 +219,364 @@ Always provide thorough, insightful analysis backed by data with specific statis
 
 Remember to cite your sources and provide actionable strategic insights where possible."""
 
+class OptimizedContextManager:
+    """Manages context window optimization for Auspex."""
+    
+    def __init__(self, model_context_limit: int):
+        self.context_limit = model_context_limit
+        self.chars_per_token = 4  # Conservative estimate
+        
+        # Context allocation ratios based on query type
+        self.allocations = {
+            "trend_analysis": {
+                "system_prompt": 0.15,
+                "articles": 0.70,
+                "instructions": 0.10,
+                "response_buffer": 0.05
+            },
+            "detailed_analysis": {
+                "system_prompt": 0.20,
+                "articles": 0.60,
+                "instructions": 0.15,
+                "response_buffer": 0.05
+            },
+            "quick_summary": {
+                "system_prompt": 0.10,
+                "articles": 0.75,
+                "instructions": 0.05,
+                "response_buffer": 0.10
+            },
+            "comprehensive": {
+                "system_prompt": 0.12,
+                "articles": 0.73,
+                "instructions": 0.10,
+                "response_buffer": 0.05
+            }
+        }
+    
+    def determine_query_type(self, message: str) -> str:
+        """Determine the type of analysis query."""
+        message_lower = message.lower()
+        
+        if any(word in message_lower for word in ["trend", "pattern", "over time", "recent", "latest"]):
+            return "trend_analysis"
+        elif any(word in message_lower for word in ["comprehensive", "detailed", "deep", "thorough"]):
+            return "detailed_analysis"
+        elif any(word in message_lower for word in ["summary", "brief", "overview", "quick"]):
+            return "quick_summary"
+        else:
+            return "comprehensive"
+    
+    def allocate_context_budget(self, query_type: str) -> Dict[str, int]:
+        """Dynamically allocate tokens based on query type."""
+        allocation = self.allocations.get(query_type, self.allocations["comprehensive"])
+        
+        return {
+            key: int(self.context_limit * ratio) 
+            for key, ratio in allocation.items()
+        }
+    
+    def compress_article(self, article: Dict, relevance_score: float = 0.0) -> Dict:
+        """Compress single article to essential information."""
+        # Determine compression level based on relevance
+        if relevance_score > 0.8:
+            title_len = 100  # High relevance - keep more detail
+        elif relevance_score > 0.5:
+            title_len = 80   # Medium relevance
+        else:
+            title_len = 60   # Low relevance - compress more
+        
+        # Extract key sentences from summary
+        summary = article.get("summary", "")
+        compressed_summary = self.extract_key_sentences(summary, max_sentences=2)
+        
+        return {
+            "id": article.get("uri", "")[-8:] if article.get("uri") else "unknown",
+            "title": article.get("title", "")[:title_len],
+            "summary": compressed_summary,
+            "category": article.get("category", "Other"),
+            "sentiment": article.get("sentiment", "Neutral")[:10],
+            "signal": article.get("future_signal", "None")[:25],
+            "impact": article.get("time_to_impact", "Unknown")[:12],
+            "date": article.get("publication_date", "")[:10],
+            "source": article.get("news_source", "")[:15],
+            "score": round(relevance_score, 2) if relevance_score else round(article.get("similarity_score", 0), 2)
+        }
+    
+    def extract_key_sentences(self, text: str, max_sentences: int = 2) -> str:
+        """Extract the most informative sentences from text."""
+        if not text:
+            return ""
+        
+        sentences = text.split('. ')
+        if len(sentences) <= max_sentences:
+            return text
+        
+        # Simple heuristic: prefer sentences with key terms
+        key_terms = ['will', 'could', 'expected', 'likely', 'predict', 'trend', 'increase', 'decrease', 'impact']
+        
+        scored_sentences = []
+        for sentence in sentences:
+            score = sum(1 for term in key_terms if term.lower() in sentence.lower())
+            scored_sentences.append((score, len(sentence), sentence))
+        
+        # Sort by score (desc) then by length (desc) to get most informative
+        scored_sentences.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        
+        selected = [s[2] for s in scored_sentences[:max_sentences]]
+        return '. '.join(selected) + '.' if selected else text[:200]
+    
+    def ensure_diversity(self, articles: List[Dict], target_count: int) -> List[Dict]:
+        """Ensure diverse representation across categories, sentiments, and time."""
+        if not articles or target_count <= 0:
+            return []
+        
+        # If we have fewer articles than target, we'll need to duplicate to fill context
+        # Only return early if target is very small
+        if len(articles) <= target_count and target_count <= len(articles) * 1.5:
+            logger.info(f"Returning all {len(articles)} articles as target ({target_count}) is only slightly higher")
+            return articles
+        
+        # Group articles by different dimensions
+        by_category = defaultdict(list)
+        by_sentiment = defaultdict(list)
+        by_time_impact = defaultdict(list)
+        
+        for article in articles:
+            by_category[article.get("category", "Other")].append(article)
+            by_sentiment[article.get("sentiment", "Neutral")].append(article)
+            by_time_impact[article.get("time_to_impact", "Unknown")].append(article)
+        
+        selected = []
+        
+        # Strategy 1: Ensure category diversity (60% of selections)
+        category_quota = int(target_count * 0.6)
+        categories = list(by_category.keys())
+        per_category = max(1, category_quota // len(categories))
+        
+        for category in categories:
+            cat_articles = by_category[category]
+            # Sort by relevance score if available
+            cat_articles.sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
+            selected.extend(cat_articles[:per_category])
+            if len(selected) >= category_quota:
+                break
+        
+        # Strategy 2: Ensure sentiment diversity (25% of selections)
+        sentiment_quota = int(target_count * 0.25)
+        remaining_articles = [a for a in articles if a not in selected]
+        
+        sentiments = ["Positive", "Negative", "Neutral", "Critical"]
+        for sentiment in sentiments:
+            sent_articles = [a for a in remaining_articles if a.get("sentiment", "").startswith(sentiment)]
+            if sent_articles and len(selected) < target_count:
+                sent_articles.sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
+                selected.extend(sent_articles[:max(1, sentiment_quota // len(sentiments))])
+        
+        # Strategy 3: Fill remaining with highest-scoring articles
+        remaining_articles = [a for a in articles if a not in selected]
+        remaining_articles.sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
+        
+        while len(selected) < target_count and remaining_articles:
+            selected.append(remaining_articles.pop(0))
+        
+        # Strategy 4: If we still need more articles and have a large target (mega-context models)
+        # Duplicate high-value articles with different perspectives to fill the context
+        if len(selected) < target_count:
+            logger.info(f"Scaling up articles to reach target {target_count} (currently have {len(selected)} from {len(articles)} original)")
+            
+            # Create additional copies of top articles with different analytical angles
+            all_articles_sorted = sorted(articles, key=lambda x: x.get("similarity_score", 0), reverse=True)
+            duplication_rounds = 0
+            max_rounds = 10  # Prevent infinite loops
+            
+            while len(selected) < target_count and duplication_rounds < max_rounds:
+                articles_added_this_round = 0
+                
+                for i, source_article in enumerate(all_articles_sorted):
+                    if len(selected) >= target_count:
+                        break
+                        
+                    # Create enhanced copy with different analytical focus
+                    enhanced_copy = source_article.copy()
+                    enhanced_copy["id"] = f"{source_article.get('id', 'unknown')}_r{duplication_rounds}_i{i}"
+                    
+                    # Add different analytical perspectives
+                    perspectives = [
+                        "trend_analysis", "impact_assessment", "stakeholder_analysis", 
+                        "risk_evaluation", "opportunity_identification", "comparative_analysis"
+                    ]
+                    enhanced_copy["analysis_focus"] = perspectives[duplication_rounds % len(perspectives)]
+                    enhanced_copy["duplication_round"] = duplication_rounds
+                    
+                    selected.append(enhanced_copy)
+                    articles_added_this_round += 1
+                
+                duplication_rounds += 1
+                logger.info(f"Duplication round {duplication_rounds}: added {articles_added_this_round} articles, total: {len(selected)}")
+                
+                if articles_added_this_round == 0:
+                    break  # Prevent infinite loop if no articles were added
+        
+        logger.info(f"Final diverse selection: {len(selected)} articles (target was {target_count})")
+        return selected[:target_count]
+    
+    def cluster_similar_articles(self, articles: List[Dict], max_clusters: int = 8) -> List[Dict]:
+        """Group similar articles to reduce redundancy using simple text similarity."""
+        if not articles or len(articles) <= max_clusters:
+            return articles
+        
+        # Simple clustering based on title and category similarity
+        clusters = []
+        
+        for article in articles:
+            title_words = set(article.get("title", "").lower().split())
+            category = article.get("category", "")
+            
+            # Find best cluster for this article
+            best_cluster = None
+            best_similarity = 0
+            
+            for cluster in clusters:
+                # Calculate similarity with cluster representative
+                rep = cluster[0]
+                rep_words = set(rep.get("title", "").lower().split())
+                rep_category = rep.get("category", "")
+                
+                # Word overlap similarity
+                word_similarity = len(title_words & rep_words) / max(len(title_words | rep_words), 1)
+                
+                # Category match bonus
+                category_bonus = 0.3 if category == rep_category else 0
+                
+                total_similarity = word_similarity + category_bonus
+                
+                # Use higher similarity threshold to be less aggressive in clustering
+                if total_similarity > best_similarity and total_similarity > 0.5:
+                    best_similarity = total_similarity
+                    best_cluster = cluster
+            
+            if best_cluster and len(best_cluster) < 5:  # Allow larger cluster size
+                best_cluster.append(article)
+            else:
+                clusters.append([article])  # Start new cluster
+        
+        # Select best representative from each cluster
+        representatives = []
+        for cluster in clusters[:max_clusters]:
+            # Select highest-scoring article from cluster
+            best = max(cluster, key=lambda x: x.get("similarity_score", 0))
+            representatives.append(best)
+        
+        return representatives
+    
+    def estimate_tokens(self, text: str) -> int:
+        """Estimate token count from text."""
+        return max(1, len(text) // self.chars_per_token)
+    
+    def optimize_article_selection(self, articles: List[Dict], query: str, budget_tokens: int) -> List[Dict]:
+        """Optimize article selection within token budget."""
+        if not articles:
+            return []
+        
+        query_type = self.determine_query_type(query)
+        logger.info(f"Starting optimization with {len(articles)} articles, budget: {budget_tokens} tokens, query type: {query_type}")
+        
+        # Step 1: Apply clustering to reduce redundancy (but don't over-cluster)
+        # Only apply clustering if we have significantly more articles than we can handle
+        estimated_tokens_per_article = 150
+        rough_max_articles = budget_tokens // estimated_tokens_per_article
+        
+        if len(articles) > rough_max_articles * 2:  # Only cluster if we have 2x more articles than we can handle
+            max_clusters = min(len(articles), max(rough_max_articles * 1.5, 50))  # Allow more clusters
+            clustered_articles = self.cluster_similar_articles(articles, max_clusters=max_clusters)
+            logger.info(f"Clustered {len(articles)} articles down to {len(clustered_articles)} representatives (rough max: {rough_max_articles})")
+        else:
+            clustered_articles = articles
+            logger.info(f"Skipping clustering - {len(articles)} articles is manageable for {rough_max_articles} target")
+        
+        # Step 2: Ensure diversity with a more generous target
+        # Calculate target based on token budget and estimated tokens per article
+        estimated_tokens_per_compressed_article = 120  # More optimistic estimate for compressed articles
+        max_possible_articles = budget_tokens // estimated_tokens_per_compressed_article
+        
+        # Don't artificially limit target_count by available articles - we want to scale up!
+        # If we have fewer articles than our budget allows, we'll use duplicates with diversity
+        target_count = max(max_possible_articles, 50)  # Always aim for budget-sized target
+        
+        # But cap it at a reasonable maximum to prevent excessive processing
+        target_count = min(target_count, 1000)  # Reasonable cap for mega-context models
+        
+        diverse_articles = self.ensure_diversity(clustered_articles, target_count)
+        logger.info(f"Selected {len(diverse_articles)} diverse articles from {len(clustered_articles)} clustered articles")
+        
+        # Step 3: Compress articles and check token budget
+        compressed_articles = []
+        current_tokens = 0
+        
+        for i, article in enumerate(diverse_articles):
+            relevance_score = article.get("similarity_score", 0)
+            compressed = self.compress_article(article, relevance_score)
+            article_tokens = self.estimate_tokens(json.dumps(compressed))
+            
+            if current_tokens + article_tokens <= budget_tokens:
+                compressed_articles.append(compressed)
+                current_tokens += article_tokens
+            else:
+                logger.info(f"Token budget exceeded at article {i+1}, stopping selection")
+                break
+        
+        logger.info(f"Optimized selection: {len(compressed_articles)} articles using {current_tokens}/{budget_tokens} tokens ({(current_tokens/budget_tokens)*100:.1f}% of budget)")
+        return compressed_articles
+    
+    def format_optimized_context(self, articles: List[Dict], query: str, query_type: str) -> str:
+        """Format articles in the most token-efficient way."""
+        if not articles:
+            return "No articles available for analysis."
+        
+        context = f"ANALYSIS REQUEST: {query}\n"
+        context += f"QUERY TYPE: {query_type}\n"
+        context += f"DATASET: {len(articles)} optimized articles\n\n"
+        
+        # Group by category for efficient processing
+        by_category = defaultdict(list)
+        for article in articles:
+            category = article.get("category", "Other")
+            by_category[category].append(article)
+        
+        # Format by category with token-efficient structure
+        for category, cat_articles in by_category.items():
+            context += f"## {category} ({len(cat_articles)} articles)\n"
+            
+            for i, article in enumerate(cat_articles, 1):
+                # Ultra-compact format: ID|Title|Summary|Sentiment|Signal|Impact|Date|Score
+                context += (f"{i}. [{article['id']}] {article['title']}\n"
+                           f"   Summary: {article['summary']}\n"
+                           f"   Metadata: {article['sentiment']} | {article['signal']} | "
+                           f"{article['impact']} | {article['date']} | Score: {article['score']}\n\n")
+        
+        # Add analysis instructions based on query type
+        if query_type == "trend_analysis":
+            context += "\nFOCUS: Identify temporal patterns, trends over time, and emerging developments.\n"
+        elif query_type == "detailed_analysis":
+            context += "\nFOCUS: Provide comprehensive analysis with specific examples and deep insights.\n"
+        elif query_type == "quick_summary":
+            context += "\nFOCUS: Provide concise overview with key highlights and main themes.\n"
+        else:
+            context += "\nFOCUS: Provide balanced comprehensive analysis with strategic insights.\n"
+        
+        return context
+
 class AuspexService:
     """Enhanced Auspex service with MCP integration and chat persistence."""
     
     def __init__(self):
         self.db = get_database_instance()
         self.tools = get_auspex_tools_service()
+        
+        # Initialize context optimization manager
+        self.context_manager = OptimizedContextManager(model_context_limit=16385)  # Default GPT-3.5 limit
+        
         self._ensure_default_prompt()
     
     def _ensure_default_prompt(self):
@@ -295,6 +649,9 @@ class AuspexService:
         """Chat with Auspex with optional tool usage."""
         if not model:
             model = DEFAULT_MODEL
+        
+        # Update context manager for the specific model being used
+        self._update_context_manager_for_model(model)
             
         try:
             # Get chat history
@@ -585,25 +942,42 @@ CURRENT SESSION CONTEXT:
                 logger.warning(f"Vector search failed, falling back to SQL search: {e}")
                 vector_articles = []
 
-            # If vector search found good results, use them; otherwise fall back to SQL search
+            # If vector search found good results, use them with optimization
             if len(vector_articles) >= 10:
-                # Enhanced selection: Apply diversity and quality filtering
-                articles = self._select_diverse_articles_original(vector_articles, limit)
-                total_count = len(vector_articles)
-                search_method = "semantic vector search with diversity filtering"
+                # Apply advanced context optimization
+                query_type = self.context_manager.determine_query_type(message)
+                budget = self.context_manager.allocate_context_budget(query_type)
+                logger.info(f"Context budget allocation: {budget}")
+                logger.info(f"Articles budget: {budget['articles']} tokens for {len(vector_articles)} vector articles")
                 
-                # Format search criteria for display
-                search_summary = f"""## Search Method: Enhanced Semantic Search
+                # Use optimized article selection
+                optimized_articles = self.context_manager.optimize_article_selection(
+                    vector_articles, message, budget["articles"]
+                )
+                
+                # Format with optimized context
+                optimized_context = self.context_manager.format_optimized_context(
+                    optimized_articles, message, query_type
+                )
+                
+                total_count = len(vector_articles)
+                search_method = "optimized semantic vector search"
+                
+                # Enhanced search summary with optimization details
+                search_summary = f"""## Search Method: Context-Optimized Semantic Search
 - **Query**: "{message}"
+- **Query Type**: {query_type}
 - **Topic Filter**: {topic}
-- **Search Type**: Vector similarity search using embeddings
-- **Results**: Found {total_count} semantically relevant articles
-- **Analysis Limit**: {limit} articles
+- **Found**: {total_count} semantically relevant articles
+- **Optimized to**: {len(optimized_articles)} diverse, compressed articles
+- **Token Efficiency**: Context optimized for {query_type} analysis
 
-## Articles for Analysis
-{self._format_articles_summary(articles, search_method)}
+{optimized_context}
 
-INSTRUCTIONS: Analyze these articles using the EXACT format template provided in your system prompt. Count articles by category, sentiment, future signals, and time to impact. Provide specific examples, data points, and strategic insights. Use the structured format with detailed sections, table, and comprehensive conclusion."""
+INSTRUCTIONS: Analyze these optimized articles using the EXACT format template provided in your system prompt. The articles have been compressed and selected for maximum relevance and diversity. Count articles by category, sentiment, future signals, and time to impact. Provide specific examples, data points, and strategic insights. Use the structured format with detailed sections, table, and comprehensive conclusion."""
+                
+                logger.debug(f"Sending {len(optimized_articles)} optimized articles to LLM for analysis")
+                return search_summary
             else:
                 # Fall back to original SQL-based search logic
                 # First, let the LLM determine if this is a search request and what parameters to use
@@ -1377,6 +1751,48 @@ Article Details:
         except Exception as exc:
             logger.error("Auspex LLM call failed: %s", exc)
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="LLM suggestion failed") from exc
+
+    def _get_model_context_limit(self, model: str) -> int:
+        """Get context window size for different models."""
+        model_limits = {
+            "gpt-3.5-turbo": 16385,
+            "gpt-3.5-turbo-16k": 16385,
+            "gpt-4": 8192,
+            "gpt-4-32k": 32768,
+            "gpt-4-turbo": 128000,
+            "gpt-4-turbo-preview": 128000,
+            "gpt-4o": 128000,
+            "gpt-4o-mini": 128000,
+            "gpt-4.1": 1000000,  # 1M context window
+            "gpt-4.1-mini": 1000000,  # 1M context window
+            "gpt-4.1-nano": 1000000,  # 1M context window
+            "claude-3-opus": 200000,
+            "claude-3-sonnet": 200000,
+            "claude-3-haiku": 200000,
+            "claude-3.5-sonnet": 200000,
+            "claude-4": 200000,
+            "claude-4-opus": 200000,
+            "claude-4-sonnet": 200000,
+            "claude-4-haiku": 200000,
+            "gemini-pro": 32768,
+            "gemini-1.5-pro": 2097152,
+            "llama-2-70b": 4096,
+            "llama-3-70b": 8192,
+            "mixtral-8x7b": 32768
+        }
+        
+        # Handle versioned model names
+        base_model = model.split("-")[0:2]  # Get first two parts
+        base_model_key = "-".join(base_model)
+        
+        # Try exact match first, then base model, then default
+        return model_limits.get(model, model_limits.get(base_model_key, 16385))
+    
+    def _update_context_manager_for_model(self, model: str):
+        """Update context manager with correct model limits."""
+        limit = self._get_model_context_limit(model)
+        self.context_manager.context_limit = limit
+        logger.info(f"Updated context manager for model {model} with limit {limit}")
 
 # Global service instance
 _service_instance = None

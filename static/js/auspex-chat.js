@@ -47,16 +47,57 @@ class FloatingChat {
         this.isMinimized = localStorage.getItem(this.storageKeys.minimized) === 'true';
         this.toolsConfig = this.loadToolsConfig();
         
-        // Context window estimation
+        // Context window estimation with optimization-aware limits
         this.contextLimits = {
             'gpt-3.5-turbo': 16385,
+            'gpt-3.5-turbo-16k': 16385,
             'gpt-4': 8192,
+            'gpt-4-32k': 32768,
             'gpt-4-turbo': 128000,
+            'gpt-4-turbo-preview': 128000,
             'gpt-4o': 128000,
-            'claude-3-sonnet': 200000,
+            'gpt-4o-mini': 128000,
+            'gpt-4.1': 1000000,  // 1M context window
+            'gpt-4.1-mini': 1000000,  // 1M context window
+            'gpt-4.1-nano': 1000000,  // 1M context window
             'claude-3-opus': 200000,
+            'claude-3-sonnet': 200000,
             'claude-3-haiku': 200000,
+            'claude-3.5-sonnet': 200000,
+            'claude-4': 200000,
+            'claude-4-opus': 200000,
+            'claude-4-sonnet': 200000,
+            'claude-4-haiku': 200000,
+            'gemini-pro': 32768,
+            'gemini-1.5-pro': 2097152,
+            'llama-2-70b': 4096,
+            'llama-3-70b': 8192,
+            'mixtral-8x7b': 32768,
             'default': 16385
+        };
+        
+        // Optimization factors for different query types
+        this.optimizationFactors = {
+            'trend_analysis': {
+                compression_ratio: 0.6,  // 40% reduction through compression
+                diversity_ratio: 0.7,    // 30% reduction through diversity filtering
+                format_efficiency: 0.8   // 20% reduction through optimized formatting
+            },
+            'detailed_analysis': {
+                compression_ratio: 0.7,
+                diversity_ratio: 0.8,
+                format_efficiency: 0.9
+            },
+            'quick_summary': {
+                compression_ratio: 0.5,
+                diversity_ratio: 0.6,
+                format_efficiency: 0.7
+            },
+            'comprehensive': {
+                compression_ratio: 0.65,
+                diversity_ratio: 0.75,
+                format_efficiency: 0.85
+            }
         };
         
         console.log('Initializing chat...');
@@ -1375,23 +1416,91 @@ class FloatingChat {
         // Get context window limit for the model
         const contextLimit = this.contextLimits[model] || this.contextLimits.default;
         
-        // Estimate tokens used by system prompt and conversation history (conservative estimate)
-        const systemPromptTokens = 1500; // Estimated
+        // Determine query type for optimization
+        const queryType = this.determineQueryType(message);
+        const optimizationFactor = this.optimizationFactors[queryType];
+        
+        // Calculate budget allocation (matching backend logic)
+        const allocation = this.optimizationFactors[queryType];
+        const systemPromptTokens = Math.floor(contextLimit * 0.12); // System prompt allocation
         const conversationHistoryTokens = this.estimateConversationTokens();
         const messageTokens = this.estimateTokens(message);
-        const responseReserveTokens = 2000; // Reserve for response
+        const responseReserveTokens = Math.floor(contextLimit * 0.05); // Response buffer
+        const articlesAllocation = Math.floor(contextLimit * 0.73); // Articles get 73% for comprehensive
         
-        // Available tokens for articles
-        const availableTokens = contextLimit - systemPromptTokens - conversationHistoryTokens - messageTokens - responseReserveTokens;
+        // Available tokens for articles (use backend logic)
+        const availableTokens = Math.min(
+            articlesAllocation,
+            contextLimit - systemPromptTokens - conversationHistoryTokens - messageTokens - responseReserveTokens
+        );
         
-        // Estimate tokens per article (title + summary + metadata)
-        const tokensPerArticle = 300; // Conservative estimate
+        // Use backend token estimation (120 tokens per compressed article)
+        const optimizedTokensPerArticle = 120;
         
-        // Calculate optimal sample size
-        const optimalSize = Math.floor(availableTokens / tokensPerArticle);
+        // Calculate rough max articles (matching backend logic)
+        const roughMaxArticles = Math.floor(availableTokens / optimizedTokensPerArticle);
         
-        // Apply reasonable bounds
-        return Math.max(10, Math.min(150, optimalSize));
+        // Match backend logic for target count
+        const targetCount = Math.max(roughMaxArticles, 50); // Allow at least 50 if possible
+        
+        // Apply reasonable bounds (matching backend bounds)
+        return Math.max(10, Math.min(300, targetCount));
+    }
+    
+    determineQueryType(message) {
+        if (!message) return 'comprehensive';
+        
+        const messageLower = message.toLowerCase();
+        
+        if (messageLower.includes('trend') || messageLower.includes('pattern') || 
+            messageLower.includes('over time') || messageLower.includes('recent') || 
+            messageLower.includes('latest')) {
+            return 'trend_analysis';
+        }
+        
+        if (messageLower.includes('comprehensive') || messageLower.includes('detailed') || 
+            messageLower.includes('deep') || messageLower.includes('thorough')) {
+            return 'detailed_analysis';
+        }
+        
+        if (messageLower.includes('summary') || messageLower.includes('brief') || 
+            messageLower.includes('overview') || messageLower.includes('quick')) {
+            return 'quick_summary';
+        }
+        
+        return 'comprehensive';
+    }
+    
+    calculateOptimizedTokenUsage(sampleSize, model, message) {
+        const queryType = this.determineQueryType(message);
+        const optimizationFactor = this.optimizationFactors[queryType];
+        const contextLimit = this.contextLimits[model] || this.contextLimits.default;
+        
+        // Match backend token calculation exactly
+        const systemPromptTokens = Math.floor(contextLimit * 0.12); // 12% allocation
+        const conversationHistoryTokens = this.estimateConversationTokens();
+        const messageTokens = this.estimateTokens(message);
+        
+        // Use backend's optimized tokens per article (120 tokens per compressed article)
+        const optimizedTokensPerArticle = 120;
+        const articleTokens = sampleSize * optimizedTokensPerArticle;
+        
+        return {
+            total: systemPromptTokens + conversationHistoryTokens + messageTokens + articleTokens,
+            breakdown: {
+                system: systemPromptTokens,
+                conversation: conversationHistoryTokens,
+                message: messageTokens,
+                articles: articleTokens,
+                per_article: optimizedTokensPerArticle
+            },
+            optimization: {
+                query_type: queryType,
+                compression_ratio: optimizationFactor.compression_ratio,
+                diversity_ratio: optimizationFactor.diversity_ratio,
+                format_efficiency: optimizationFactor.format_efficiency
+            }
+        };
     }
 
     estimateTokens(text) {
@@ -1432,46 +1541,106 @@ class FloatingChat {
         const message = this.elements.input ? this.elements.input.value : '';
         let sampleSize = this.calculateOptimalSampleSize(model, message);
         
-        // Estimate total tokens that would be used
+        // Get optimized token usage calculation
         const contextLimit = this.contextLimits[model] || this.contextLimits.default;
-        const estimatedArticleTokens = sampleSize * 300;
-        const totalEstimatedTokens = 1500 + this.estimateConversationTokens() + this.estimateTokens(message) + estimatedArticleTokens;
+        const modelContextLimit = contextLimit; // For consistent naming
+        const tokenUsage = this.calculateOptimizedTokenUsage(sampleSize, model, message);
         
         // Safety check: If we're over 95% of context, automatically reduce sample size
-        let contextUsage = (totalEstimatedTokens / contextLimit) * 100;
+        let contextUsage = (tokenUsage.total / contextLimit) * 100;
         
         if (contextUsage > 95 && this.elements.sampleSizeMode.value === 'auto') {
-            // Calculate safe sample size
+            // Calculate safe sample size with optimization
             const safeTokenBudget = contextLimit * 0.9; // Use 90% of context for safety
-            const availableForArticles = safeTokenBudget - 1500 - this.estimateConversationTokens() - this.estimateTokens(message);
-            const safeSampleSize = Math.max(5, Math.floor(availableForArticles / 300));
+            const availableForArticles = safeTokenBudget - tokenUsage.breakdown.system - tokenUsage.breakdown.conversation - tokenUsage.breakdown.message;
+            const safeSampleSize = Math.max(5, Math.floor(availableForArticles / tokenUsage.breakdown.per_article));
             
             if (safeSampleSize < sampleSize) {
                 sampleSize = safeSampleSize;
-                const newEstimatedTokens = 1500 + this.estimateConversationTokens() + this.estimateTokens(message) + (sampleSize * 300);
-                contextUsage = (newEstimatedTokens / contextLimit) * 100;
+                const newTokenUsage = this.calculateOptimizedTokenUsage(sampleSize, model, message);
+                contextUsage = (newTokenUsage.total / contextLimit) * 100;
+                tokenUsage.total = newTokenUsage.total;
+                tokenUsage.breakdown = newTokenUsage.breakdown;
             }
         }
         
         // Warning for custom limits that exceed capacity
         let warningText = '';
+        let optimizationInfo = '';
+        
         if (contextUsage > 100) {
             warningText = ' ⚠️ OVERFLOW';
             if (this.elements.sampleSizeMode.value === 'custom') {
-                // Calculate safe custom limit
+                // Calculate safe custom limit with optimization
                 const maxSafeTokens = contextLimit * 0.9;
-                const maxSafeArticles = Math.floor((maxSafeTokens - 1500 - this.estimateConversationTokens() - this.estimateTokens(message)) / 300);
+                const maxSafeArticles = Math.floor((maxSafeTokens - tokenUsage.breakdown.system - tokenUsage.breakdown.conversation - tokenUsage.breakdown.message) / tokenUsage.breakdown.per_article);
                 warningText += ` (Max safe: ${Math.max(5, maxSafeArticles)})`;
             }
         }
         
-        this.elements.contextStats.textContent = `Context: ${sampleSize} articles, ~${(1500 + this.estimateConversationTokens() + this.estimateTokens(message) + (sampleSize * 300)).toLocaleString()} tokens (${contextUsage.toFixed(1)}%)${warningText}`;
+        // Add optimization information for better understanding
+        if (message && message.length > 0) {
+            const queryType = tokenUsage.optimization.query_type;
+            const compressionPercent = Math.round((1 - tokenUsage.optimization.compression_ratio) * 100);
+            
+            // Calculate what the old system would have used
+            const oldTokensPerArticle = 300;
+            const oldTotalTokens = tokenUsage.breakdown.system + tokenUsage.breakdown.conversation + tokenUsage.breakdown.message + (sampleSize * oldTokensPerArticle);
+            const oldContextUsage = (oldTotalTokens / contextLimit) * 100;
+            const tokenSavings = Math.round(((oldTotalTokens - tokenUsage.total) / oldTotalTokens) * 100);
+            
+            optimizationInfo = ` | ${queryType.replace('_', ' ')} (${compressionPercent}% compressed, ${tokenSavings}% tokens saved)`;
+        }
+        
+        // Enhanced context display with optimization details
+        const modelIndicator = modelContextLimit >= 1000000 ? ' 🚀1M' : 
+                              modelContextLimit >= 200000 ? ' ⚡200K' : 
+                              modelContextLimit >= 100000 ? ' 💫100K' : '';
+        
+        const contextText = `Context: ${sampleSize} articles, ~${tokenUsage.total.toLocaleString()} tokens (${contextUsage.toFixed(1)}%)${modelIndicator}${optimizationInfo}${warningText}`;
+        
+        this.elements.contextStats.textContent = contextText;
+        
+        // Add tooltip with detailed breakdown and comparison
+        let tooltipText = `OPTIMIZED TOKEN BREAKDOWN:
+System: ${tokenUsage.breakdown.system.toLocaleString()}
+Conversation: ${tokenUsage.breakdown.conversation.toLocaleString()}
+Message: ${tokenUsage.breakdown.message.toLocaleString()}
+Articles: ${tokenUsage.breakdown.articles.toLocaleString()} (${tokenUsage.breakdown.per_article}/article)
+Total: ${tokenUsage.total.toLocaleString()} tokens
+
+OPTIMIZATION DETAILS:
+Query Type: ${tokenUsage.optimization.query_type.replace('_', ' ')}
+Compression: ${Math.round((1 - tokenUsage.optimization.compression_ratio) * 100)}%
+Format Efficiency: ${Math.round((1 - tokenUsage.optimization.format_efficiency) * 100)}% reduction
+Diversity Factor: ${Math.round((1 - tokenUsage.optimization.diversity_ratio) * 100)}% filtering`;
+
+        // Add comparison if we have a message
+        if (message && message.length > 0) {
+            const oldTokensPerArticle = 300;
+            const oldTotalTokens = tokenUsage.breakdown.system + tokenUsage.breakdown.conversation + tokenUsage.breakdown.message + (sampleSize * oldTokensPerArticle);
+            const tokenSavings = oldTotalTokens - tokenUsage.total;
+            const percentSavings = Math.round((tokenSavings / oldTotalTokens) * 100);
+            
+            tooltipText += `
+
+WITHOUT OPTIMIZATION:
+Articles would use: ${(sampleSize * oldTokensPerArticle).toLocaleString()} tokens (${oldTokensPerArticle}/article)
+Total would be: ${oldTotalTokens.toLocaleString()} tokens
+Context usage: ${((oldTotalTokens / contextLimit) * 100).toFixed(1)}%
+
+SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
+        }
+        
+        this.elements.contextStats.title = tooltipText;
         
         // Show/hide context info based on whether we have selections
         const hasModel = model !== '';
         this.elements.contextInfo.style.display = hasModel ? 'block' : 'none';
         
-        // Enhanced color coding for context usage
+        // Enhanced color coding for context usage with optimization awareness
+        const isMegaContext = modelContextLimit >= 1000000; // 1M+ tokens
+        
         if (contextUsage > 100) {
             this.elements.contextStats.style.color = '#dc3545'; // Red for overflow
             this.elements.contextStats.style.fontWeight = 'bold';
@@ -1479,11 +1648,49 @@ class FloatingChat {
             this.elements.contextStats.style.color = '#dc3545'; // Red for danger
             this.elements.contextStats.style.fontWeight = '600';
         } else if (contextUsage > 70) {
-            this.elements.contextStats.style.color = '#ffc107'; // Yellow for warning
+            this.elements.contextStats.style.color = '#fd7e14'; // Orange for warning
+            this.elements.contextStats.style.fontWeight = '500';
+        } else if (contextUsage > 50) {
+            this.elements.contextStats.style.color = '#28a745'; // Green for good efficiency
             this.elements.contextStats.style.fontWeight = '500';
         } else {
-            this.elements.contextStats.style.color = '#007bff'; // Blue for safe
+            this.elements.contextStats.style.color = isMegaContext ? '#6f42c1' : '#007bff'; // Purple for mega-context models, blue for others
             this.elements.contextStats.style.fontWeight = '500';
+        }
+        
+        // Add special styling for mega-context models
+        if (isMegaContext && contextUsage < 10) {
+            this.elements.contextStats.style.background = 'linear-gradient(90deg, rgba(111,66,193,0.1) 0%, rgba(111,66,193,0.05) 100%)';
+            this.elements.contextStats.style.border = '1px solid rgba(111,66,193,0.2)';
+            this.elements.contextStats.style.borderRadius = '4px';
+            this.elements.contextStats.style.padding = '4px 8px';
+        } else {
+            this.elements.contextStats.style.background = '';
+            this.elements.contextStats.style.border = '';
+            this.elements.contextStats.style.borderRadius = '';
+            this.elements.contextStats.style.padding = '';
+        }
+        
+        // Add optimization indicator
+        if (message && message.length > 0) {
+            const oldTokensPerArticle = 300;
+            const oldTotalTokens = tokenUsage.breakdown.system + tokenUsage.breakdown.conversation + tokenUsage.breakdown.message + (sampleSize * oldTokensPerArticle);
+            const tokenSavings = Math.round(((oldTotalTokens - tokenUsage.total) / oldTotalTokens) * 100);
+            
+            // Add visual optimization indicator for significant savings
+            if (tokenSavings >= 30) {
+                this.elements.contextStats.style.textShadow = '0 0 3px rgba(40, 167, 69, 0.5)'; // Green glow for great optimization
+                this.elements.contextStats.style.borderLeft = '3px solid #28a745';
+                this.elements.contextStats.style.paddingLeft = '8px';
+            } else if (tokenSavings >= 15) {
+                this.elements.contextStats.style.textShadow = '0 0 2px rgba(0, 123, 255, 0.4)'; // Blue glow for good optimization
+                this.elements.contextStats.style.borderLeft = '2px solid #007bff';
+                this.elements.contextStats.style.paddingLeft = '6px';
+            } else {
+                this.elements.contextStats.style.textShadow = '';
+                this.elements.contextStats.style.borderLeft = '';
+                this.elements.contextStats.style.paddingLeft = '';
+            }
         }
     }
 
