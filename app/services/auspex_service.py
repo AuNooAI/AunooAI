@@ -1609,25 +1609,22 @@ Article Details:
     async def _generate_streaming_response(self, messages: List[Dict], model: str) -> AsyncGenerator[str, None]:
         """Generate streaming response from LLM."""
         try:
-            # Calculate appropriate max_tokens based on model context limit
+            # Get model limits
             context_limit = self._get_model_context_limit(model)
+            max_output_tokens = self._get_model_output_limit(model)
             
             # Estimate tokens used by input (rough approximation)
             input_text = " ".join([msg.get("content", "") for msg in messages])
             estimated_input_tokens = len(input_text) // 4  # Rough estimate: 4 chars per token
             
-            # Reserve tokens for response (aim for 25-50% of context for output)
-            if context_limit >= 100000:  # Large context models
-                max_tokens = min(8000, context_limit - estimated_input_tokens - 1000)  # Large response capability
-            elif context_limit >= 32000:  # Medium context models  
-                max_tokens = min(4000, context_limit - estimated_input_tokens - 1000)
-            else:  # Smaller context models
-                max_tokens = min(2000, context_limit - estimated_input_tokens - 1000)
+            # Calculate max_tokens based on model's actual output limit and available context
+            available_context = context_limit - estimated_input_tokens - 1000  # Reserve 1000 for safety
+            max_tokens = min(max_output_tokens, available_context)
             
             # Ensure we have at least some tokens for response
             max_tokens = max(500, max_tokens)
             
-            logger.info(f"Model: {model}, Context limit: {context_limit}, Estimated input tokens: {estimated_input_tokens}, Max response tokens: {max_tokens}")
+            logger.info(f"Model: {model}, Context limit: {context_limit}, Max output limit: {max_output_tokens}, Estimated input tokens: {estimated_input_tokens}, Final max_tokens: {max_tokens}")
             
             # Create the streaming response
             response_stream = await litellm.acompletion(
@@ -1825,6 +1822,44 @@ Article Details:
         
         # Try exact match first, then base model, then default
         return model_limits.get(model, model_limits.get(base_model_key, 16385))
+    
+    def _get_model_output_limit(self, model: str) -> int:
+        """Get maximum output token limit for different models."""
+        # Model-specific output token limits (different from context window)
+        model_output_limits = {
+            "gpt-4": 16384,      # GPT-4 max output tokens
+            "gpt-4-32k": 16384,  # GPT-4-32k max output tokens
+            "gpt-4-turbo": 16384,
+            "gpt-4-turbo-preview": 16384,
+            "gpt-4o": 16384,
+            "gpt-4o-mini": 16384,
+            "gpt-4.1": 32768,    # GPT-4.1 max output tokens
+            "gpt-4.1-mini": 32768,
+            "gpt-4.1-nano": 32768,
+            "gpt-3.5-turbo": 4096,  # GPT-3.5 max output tokens
+            "gpt-3.5-turbo-16k": 4096,
+            # For other models, use reasonable defaults based on their context size
+            "claude-3-opus": 8192,
+            "claude-3-sonnet": 8192,
+            "claude-3-haiku": 8192,
+            "claude-3.5-sonnet": 8192,
+            "claude-4": 8192,
+            "claude-4-opus": 8192,
+            "claude-4-sonnet": 8192,
+            "claude-4-haiku": 8192,
+            "gemini-pro": 8192,
+            "gemini-1.5-pro": 8192,
+            "llama-2-70b": 2048,
+            "llama-3-70b": 2048,
+            "mixtral-8x7b": 8192
+        }
+        
+        # Handle versioned model names
+        base_model = model.split("-")[0:2]  # Get first two parts
+        base_model_key = "-".join(base_model)
+        
+        # Try exact match first, then base model, then reasonable default
+        return model_output_limits.get(model, model_output_limits.get(base_model_key, 4096))
     
     def _update_context_manager_for_model(self, model: str):
         """Update context manager with correct model limits."""
