@@ -22,6 +22,85 @@ DEFAULT_MODEL = "gpt-3.5-turbo"
 # Default system prompt for Auspex
 DEFAULT_AUSPEX_PROMPT = """You are Auspex, an advanced AI research assistant specialized in analyzing news trends, sentiment patterns, and providing strategic insights using AuNoo's strategic-foresight methodology.
 
+CRITICAL RESPONSE FORMAT REQUIREMENTS:
+When analyzing articles, you MUST provide responses in this EXACT structure:
+
+## Summary of Search Results for "[Query/Topic]"
+
+- **Total articles found:** [X] (most semantically relevant subset analyzed)
+- **Category focus:**  
+  - [Category 1]: ~[X] articles  
+  - [Category 2]: ~[X] articles related to [specific aspect]  
+  - [Category 3]: Several articles touching on [specific themes]  
+  - [Additional categories with counts and descriptions]
+
+- **Sentiment distribution:**  
+  - Neutral: Majority (~[X]%)  
+  - Positive: ~[X]%  
+  - Critical: ~[X]% (notably on [specific concerns])  
+  - None specified: Remainder  
+
+- **Future signal distribution:**  
+  - [Signal type]: ~[X]%  
+  - [Signal type]: ~[X]%  
+  - [Signal type]: Few  
+  - None specified: Some  
+
+- **Time to Impact:**  
+  - Immediate to short-term: [Description of articles and focus areas]  
+  - Mid-term: [Description with specific examples]  
+  - Long-term: [Description of forward-looking content]
+
+---
+
+## Detailed Analysis: [Topic/Query Focus]
+
+### 1. **[Major Theme 1]**
+- [Detailed analysis with specific examples and data points]
+- **[Specific Country/Entity]** [specific actions taken with amounts/details]
+- **[Another Entity]** [specific initiatives with concrete details]
+- [Additional bullet points with specifics]
+
+### 2. **[Major Theme 2]**
+- [Analysis framework with real examples]
+- [Specific comparisons and contrasts]
+- [Concrete data points and implications]
+
+### 3. **[Major Theme 3]**
+- [International cooperation vs rivalry analysis]
+- [Specific initiatives and their implications]
+- [Policy and governance considerations]
+
+### 4. **[Major Theme 4]**
+- [Corporate and private sector involvement]
+- [Specific companies and their roles]
+- [Investment figures and strategic implications]
+
+### 5. **[Major Theme 5]**
+- [Risk analysis and challenges]
+- [Expert warnings and concerns]
+- [Future implications and scenarios]
+
+---
+
+## Key Themes and Highlights
+
+| Theme                          | Summary                                                                                          | Representative Articles / Examples                           |
+|--------------------------------|--------------------------------------------------------------------------------------------------|--------------------------------------------------------------|
+| [Theme 1]                      | [Detailed summary with specifics]                                                              | [Specific examples with concrete details]                   |
+| [Theme 2]                      | [Analysis with data points and trends]                                                         | [Examples with figures and outcomes]                        |
+| [Theme 3]                      | [Strategic implications and developments]                                                       | [Specific initiatives and results]                          |
+| [Theme 4]                      | [Investment and business analysis]                                                              | [Company names, amounts, strategic moves]                   |
+| [Theme 5]                      | [Risk assessment and challenges]                                                               | [Expert quotes, comparative analysis]                       |
+
+---
+
+## Conclusion
+
+[Comprehensive conclusion that synthesizes all themes, provides strategic outlook, identifies key trends, discusses implications, and offers balanced perspective on future developments. Must be substantial and actionable.]
+
+---
+
 STRATEGIC FORESIGHT FRAMEWORK:
 AuNoo follows strategic-foresight methodology with these key components:
 - **Categories**: Thematic sub-clusters inside a topic for organized analysis
@@ -334,14 +413,10 @@ Available Time to Impact Options:
 
 TOOLS STATUS: {'ENABLED - You can access real-time data and perform advanced analysis' if use_tools else 'DISABLED - Provide analysis based on your knowledge and any provided context'}
 
-When analyzing this topic, focus on:
-- Strategic foresight methodology specific to {topic}
-- Category-specific trends and patterns
-- Future signal implications for this domain
-- Time-to-impact assessments for developments
-- Cross-category relationships and dependencies
-
-Remember to apply the strategic foresight framework consistently and provide actionable insights specific to {topic}."""
+CURRENT SESSION CONTEXT:
+- Topic: {topic}
+- Tools: {'Available' if use_tools else 'Disabled'}
+- Focus: Apply strategic foresight methodology specific to {topic} using the available categories, sentiments, and future signals listed above."""
 
                 return {
                     "name": f"enhanced_{topic.lower().replace(' ', '_')}",
@@ -406,6 +481,16 @@ Remember to apply the strategic foresight framework consistently and provide act
             
             # Get available options for this topic (original logic)
             topic_options = analyze_db.get_topic_options(topic)
+            
+            # Add null check for topic_options
+            if not topic_options:
+                logger.warning(f"No topic options found for topic: {topic}")
+                topic_options = {
+                    'categories': [],
+                    'sentiments': [],
+                    'futureSignals': [],
+                    'timeToImpacts': []
+                }
 
             # Enhanced search strategy: Use both SQL and vector search (original logic)
             # First, try vector search for semantic understanding
@@ -421,7 +506,7 @@ Remember to apply the strategic foresight framework consistently and provide act
                 
                 # Convert vector results to article format
                 for result in vector_results:
-                    if result.get("metadata"):
+                    if result and result.get("metadata"):
                         vector_articles.append({
                             "uri": result["metadata"].get("uri"),
                             "title": result["metadata"].get("title"),
@@ -457,9 +542,10 @@ Remember to apply the strategic foresight framework consistently and provide act
 - **Results**: Found {total_count} semantically relevant articles
 - **Analysis Limit**: {limit} articles
 
-## Results Overview
-Analyzing the {len(articles)} most semantically similar articles
-"""
+## Articles for Analysis
+{self._format_articles_summary(articles, search_method)}
+
+INSTRUCTIONS: Analyze these articles using the EXACT format template provided in your system prompt. Count articles by category, sentiment, future signals, and time to impact. Provide specific examples, data points, and strategic insights. Use the structured format with detailed sections, table, and comprehensive conclusion."""
             else:
                 # Fall back to original SQL-based search logic
                 # First, let the LLM determine if this is a search request and what parameters to use
@@ -531,79 +617,95 @@ Return your search strategy in this format:
                     search_strategy = json.loads(json_str)
                     logger.debug(f"Search strategy: {json.dumps(search_strategy, indent=2)}")
                     
-                    all_articles = []
-                    total_count = 0
-                    
-                    for query in search_strategy["queries"]:
-                        params = query["params"]
-                        logger.debug(f"Executing query: {query['description']}")
-                        logger.debug(f"Query params: {json.dumps(params, indent=2)}")
+                    # Add null check for search_strategy
+                    if not search_strategy or not search_strategy.get("queries"):
+                        logger.warning(f"Invalid search strategy returned for message: {message}")
+                        # Fallback to simple keyword search
+                        articles, total_count = self.db.search_articles(
+                            topic=topic,
+                            keyword=message,
+                            page=1,
+                            per_page=limit
+                        )
+                        search_method = "fallback keyword search"
+                    else:
+                        all_articles = []
+                        total_count = 0
                         
-                        # Calculate date range if specified
-                        pub_date_start = None
-                        pub_date_end = None
-                        if params.get("date_range"):
-                            if params["date_range"] != "all":
-                                pub_date_end = datetime.now()
-                                pub_date_start = pub_date_end - timedelta(days=int(params["date_range"]))
-                                pub_date_end = pub_date_end.strftime('%Y-%m-%d')
-                                pub_date_start = pub_date_start.strftime('%Y-%m-%d')
+                        for query in search_strategy.get("queries", []):
+                            if not query or not query.get("params"):
+                                continue
+                                
+                            params = query["params"]
+                            logger.debug(f"Executing query: {query['description']}")
+                            logger.debug(f"Query params: {json.dumps(params, indent=2)}")
+                            
+                            # Calculate date range if specified
+                            pub_date_start = None
+                            pub_date_end = None
+                            if params.get("date_range"):
+                                if params["date_range"] != "all":
+                                    pub_date_end = datetime.now()
+                                    pub_date_start = pub_date_end - timedelta(days=int(params["date_range"]))
+                                    pub_date_end = pub_date_end.strftime('%Y-%m-%d')
+                                    pub_date_start = pub_date_start.strftime('%Y-%m-%d')
 
-                        # If we have a category match, use only that
-                        if params.get("category"):
-                            articles_batch, count = self.db.search_articles(
-                                topic=topic,
-                                category=params.get("category"),
-                                pub_date_start=pub_date_start,
-                                pub_date_end=pub_date_end,
-                                page=1,
-                                per_page=limit
-                            )
-                        # Otherwise, use keyword search
-                        else:
-                            articles_batch, count = self.db.search_articles(
-                                topic=topic,
-                                keyword=params.get("keyword"),
-                                sentiment=[params.get("sentiment")] if params.get("sentiment") else None,
-                                future_signal=[params.get("future_signal")] if params.get("future_signal") else None,
-                                tags=params.get("tags"),
-                                pub_date_start=pub_date_start,
-                                pub_date_end=pub_date_end,
-                                page=1,
-                                per_page=limit
-                            )
+                            # If we have a category match, use only that
+                            if params.get("category"):
+                                articles_batch, count = self.db.search_articles(
+                                    topic=topic,
+                                    category=params.get("category"),
+                                    pub_date_start=pub_date_start,
+                                    pub_date_end=pub_date_end,
+                                    page=1,
+                                    per_page=limit
+                                )
+                            # Otherwise, use keyword search
+                            else:
+                                articles_batch, count = self.db.search_articles(
+                                    topic=topic,
+                                    keyword=params.get("keyword"),
+                                    sentiment=[params.get("sentiment")] if params.get("sentiment") else None,
+                                    future_signal=[params.get("future_signal")] if params.get("future_signal") else None,
+                                    tags=params.get("tags"),
+                                    pub_date_start=pub_date_start,
+                                    pub_date_end=pub_date_end,
+                                    page=1,
+                                    per_page=limit
+                                )
+                            
+                            logger.debug(f"Query returned {count} articles")
+                            if articles_batch:
+                                all_articles.extend(articles_batch)
+                                total_count += count
                         
-                        logger.debug(f"Query returned {count} articles")
-                        all_articles.extend(articles_batch)
-                        total_count += count
-                    
-                    # Remove duplicates based on article URI
-                    seen_uris = set()
-                    unique_articles = []
-                    for article in all_articles:
-                        if article['uri'] not in seen_uris:
-                            seen_uris.add(article['uri'])
-                            unique_articles.append(article)
-                    
-                    articles = unique_articles[:limit]  # Use user's selected limit
-                    search_method = "structured keyword search"
+                        # Remove duplicates based on article URI
+                        seen_uris = set()
+                        unique_articles = []
+                        for article in all_articles:
+                            if article and article.get('uri') and article['uri'] not in seen_uris:
+                                seen_uris.add(article['uri'])
+                                unique_articles.append(article)
+                        
+                        articles = unique_articles[:limit]  # Use user's selected limit
+                        search_method = "structured keyword search"
 
-                    # Format search criteria for display
-                    active_filters = []
-                    for query in search_strategy.get("queries", []):
-                        params = query.get("params", {})
-                        if params.get("keyword"):
-                            active_filters.append(f"Keywords: {params.get('keyword').replace('|', ' OR ')}")
-                        if params.get("category"):
-                            active_filters.append(f"Categories: {', '.join(params.get('category'))}")
-                        if params.get("sentiment"):
-                            active_filters.append(f"Sentiment: {params.get('sentiment')}")
-                        if params.get("future_signal"):
-                            active_filters.append(f"Future Signal: {params.get('future_signal')}")
-                        if params.get("tags"):
-                            active_filters.append(f"Tags: {', '.join(params.get('tags'))}")
+                        # Format search criteria for display
+                        active_filters = []
+                        for query in search_strategy.get("queries", []):
+                            params = query.get("params", {})
+                            if params.get("keyword"):
+                                active_filters.append(f"Keywords: {params.get('keyword').replace('|', ' OR ')}")
+                            if params.get("category"):
+                                active_filters.append(f"Categories: {', '.join(params.get('category'))}")
+                            if params.get("sentiment"):
+                                active_filters.append(f"Sentiment: {params.get('sentiment')}")
+                            if params.get("future_signal"):
+                                active_filters.append(f"Future Signal: {params.get('future_signal')}")
+                            if params.get("tags"):
+                                active_filters.append(f"Tags: {', '.join(params.get('tags'))}")
 
-                    search_summary = f"""## Search Method: {search_method.title()}
+                        search_summary = f"""## Search Method: {search_method.title()}
 {chr(10).join(['- ' + f for f in active_filters])}
 - **Analysis Limit**: {limit} articles
 
@@ -703,7 +805,40 @@ CRITICAL: Count and categorize the articles carefully. Use specific numbers and 
 
         except Exception as e:
             logger.error(f"Error in original chat database logic: {e}")
-            return None
+            # Fallback: Try simple search as last resort
+            try:
+                articles, count = self.db.search_articles(
+                    topic=topic,
+                    keyword=message,
+                    page=1,
+                    per_page=limit
+                )
+                if articles:
+                    return f"""## Fallback Search Results
+Found {count} articles using simple keyword search for "{message}" in topic {topic}.
+
+## Articles Summary
+{self._format_articles_summary(articles[:limit], "fallback search")}
+
+INSTRUCTIONS: Analyze these articles using the EXACT format template provided in your system prompt."""
+                else:
+                    return f"""## No Results Found
+No articles found for query "{message}" in topic {topic}. 
+
+Please try:
+- Using different keywords
+- Checking if the topic has articles in the database
+- Using a broader search term
+
+You can ask me for help with alternative search strategies."""
+            except Exception as fallback_error:
+                logger.error(f"Fallback search also failed: {fallback_error}")
+                return f"""## Search Error
+I encountered an error while searching for "{message}" in topic {topic}. 
+
+Error details: {str(e)}
+
+Please try rephrasing your question or contact support if the issue persists."""
 
     def _select_diverse_articles_original(self, articles, limit):
         """Original select_diverse_articles function from chat_routes.py"""

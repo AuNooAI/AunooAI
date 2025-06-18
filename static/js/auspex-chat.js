@@ -127,50 +127,8 @@ class FloatingChat {
         
         console.log(`Found ${foundCount}/${Object.keys(elementIds).length} elements`);
         
-        // Add specific event listeners for buttons that might have been missing
-        if (this.elements.toggleSidebar && !this.elements.toggleSidebar.hasAttribute('data-listener-added')) {
-            this.elements.toggleSidebar.addEventListener('click', (e) => {
-                console.log('Toggle sidebar clicked via modal show listener');
-                e.preventDefault();
-                e.stopPropagation();
-                this.toggleSidebar();
-            });
-            this.elements.toggleSidebar.setAttribute('data-listener-added', 'true');
-            console.log('✓ Added toggle sidebar listener after modal show');
-        }
-        
-        if (this.elements.expandWindowBtn && !this.elements.expandWindowBtn.hasAttribute('data-listener-added')) {
-            this.elements.expandWindowBtn.addEventListener('click', (e) => {
-                console.log('Expand window clicked via modal show listener');
-                e.preventDefault();
-                e.stopPropagation();
-                this.toggleExpandWindow();
-            });
-            this.elements.expandWindowBtn.setAttribute('data-listener-added', 'true');
-            console.log('✓ Added expand window listener after modal show');
-        }
-        
-        if (this.elements.toolsToggleBtn && !this.elements.toolsToggleBtn.hasAttribute('data-listener-added')) {
-            this.elements.toolsToggleBtn.addEventListener('click', (e) => {
-                console.log('Tools toggle clicked via modal show listener');
-                e.preventDefault();
-                e.stopPropagation();
-                this.toggleTools();
-            });
-            this.elements.toolsToggleBtn.setAttribute('data-listener-added', 'true');
-            console.log('✓ Added tools toggle listener after modal show');
-        }
-        
-        // If still missing critical elements, try again after a longer delay
-        if (!this.elements.sessionsList || !this.elements.sidebar) {
-            console.log('Critical elements still missing, trying again in 500ms...');
-            setTimeout(() => {
-                this.retryElementInitialization();
-            }, 500);
-        } else {
-            // Update UI state now that elements are available
-            this.updateUIState();
-        }
+        // Update UI state now that elements are available
+        this.updateUIState();
     }
     
     retryElementInitialization() {
@@ -195,40 +153,6 @@ class FloatingChat {
         
         if (this.elements.sessionsList && this.elements.sidebar) {
             console.log('Critical elements found on retry!');
-            
-            // Add event listeners for the newly found elements
-            if (this.elements.toggleSidebar && !this.elements.toggleSidebar.hasAttribute('data-listener-added')) {
-                this.elements.toggleSidebar.addEventListener('click', (e) => {
-                    console.log('Toggle sidebar clicked via retry listener');
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this.toggleSidebar();
-                });
-                this.elements.toggleSidebar.setAttribute('data-listener-added', 'true');
-                console.log('✓ Added toggle sidebar listener on retry');
-            }
-            
-            if (this.elements.expandWindowBtn && !this.elements.expandWindowBtn.hasAttribute('data-listener-added')) {
-                this.elements.expandWindowBtn.addEventListener('click', (e) => {
-                    console.log('Expand window clicked via retry listener');
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this.toggleExpandWindow();
-                });
-                this.elements.expandWindowBtn.setAttribute('data-listener-added', 'true');
-                console.log('✓ Added expand window listener on retry');
-            }
-            
-            if (this.elements.toolsToggleBtn && !this.elements.toolsToggleBtn.hasAttribute('data-listener-added')) {
-                this.elements.toolsToggleBtn.addEventListener('click', (e) => {
-                    console.log('Tools toggle clicked via retry listener');
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this.toggleTools();
-                });
-                this.elements.toolsToggleBtn.setAttribute('data-listener-added', 'true');
-                console.log('✓ Added tools toggle listener on retry');
-            }
             
             this.updateUIState();
         } else {
@@ -464,42 +388,8 @@ class FloatingChat {
             }
         });
         
-        // Also try direct event listeners if elements exist
-        if (this.elements.toggleSidebar) {
-            this.elements.toggleSidebar.addEventListener('click', (e) => {
-                console.log('Toggle sidebar clicked via direct listener');
-                e.preventDefault();
-                e.stopPropagation();
-                this.toggleSidebar();
-            });
-            console.log('✓ Toggle sidebar element found and direct listener added');
-        } else {
-            console.warn('✗ Toggle sidebar button not found initially');
-        }
-
-        if (this.elements.expandWindowBtn) {
-            this.elements.expandWindowBtn.addEventListener('click', (e) => {
-                console.log('Expand window clicked via direct listener');
-                e.preventDefault();
-                e.stopPropagation();
-                this.toggleExpandWindow();
-            });
-            console.log('✓ Expand window element found and direct listener added');
-        } else {
-            console.warn('✗ Expand window button not found initially');
-        }
-
-        if (this.elements.toolsToggleBtn) {
-            this.elements.toolsToggleBtn.addEventListener('click', (e) => {
-                console.log('Tools toggle clicked via direct listener');
-                e.preventDefault();
-                e.stopPropagation();
-                this.toggleTools();
-            });
-            console.log('✓ Tools toggle element found and direct listener added');
-        } else {
-            console.warn('✗ Tools toggle button not found initially');
-        }
+        // Note: Using event delegation above for toggleSidebar, expandWindowBtn, and toolsToggleBtn
+        // to handle cases where elements might not be available during initial load
 
         // Floating chat button
         if (this.elements.button) {
