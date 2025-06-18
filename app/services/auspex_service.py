@@ -277,7 +277,7 @@ class OptimizedContextManager:
         }
     
     def compress_article(self, article: Dict, relevance_score: float = 0.0) -> Dict:
-        """Compress single article to essential information."""
+        """Compress single article to essential information while preserving URL for linking."""
         # Determine compression level based on relevance
         if relevance_score > 0.8:
             title_len = 100  # High relevance - keep more detail
@@ -290,8 +290,13 @@ class OptimizedContextManager:
         summary = article.get("summary", "")
         compressed_summary = self.extract_key_sentences(summary, max_sentences=2)
         
+        # Preserve both short ID and full URL for link generation
+        uri = article.get("uri", "") or article.get("url", "")
+        
         return {
-            "id": article.get("uri", "")[-8:] if article.get("uri") else "unknown",
+            "id": uri[-8:] if uri else "unknown",
+            "uri": uri,  # Keep full URI for link generation
+            "url": article.get("url", "") or uri,  # Keep URL for link generation
             "title": article.get("title", "")[:title_len],
             "summary": compressed_summary,
             "category": article.get("category", "Other"),
@@ -549,8 +554,10 @@ class OptimizedContextManager:
             context += f"## {category} ({len(cat_articles)} articles)\n"
             
             for i, article in enumerate(cat_articles, 1):
-                # Ultra-compact format: ID|Title|Summary|Sentiment|Signal|Impact|Date|Score
+                # Compact format with URL preserved for link generation
+                url = article.get('url') or article.get('uri', '')
                 context += (f"{i}. [{article['id']}] {article['title']}\n"
+                           f"   URL: {url}\n"
                            f"   Summary: {article['summary']}\n"
                            f"   Metadata: {article['sentiment']} | {article['signal']} | "
                            f"{article['impact']} | {article['date']} | Score: {article['score']}\n\n")
@@ -974,7 +981,13 @@ CURRENT SESSION CONTEXT:
 
 {optimized_context}
 
-INSTRUCTIONS: Analyze these optimized articles using the EXACT format template provided in your system prompt. The articles have been compressed and selected for maximum relevance and diversity. Count articles by category, sentiment, future signals, and time to impact. Provide specific examples, data points, and strategic insights. Use the structured format with detailed sections, table, and comprehensive conclusion."""
+CITATION INSTRUCTIONS: When referencing articles in your analysis, create proper markdown links using the provided URLs. For example:
+- Instead of writing "[d2794684]" or similar artifacts
+- Use proper format like: "according to [article title](URL)" or "[Source reporting](URL)"
+- Each article has a URL field provided - use these for creating clickable links
+- Reference articles by their meaningful titles, not their ID codes
+
+ANALYSIS INSTRUCTIONS: Analyze these optimized articles using the EXACT format template provided in your system prompt. The articles have been compressed and selected for maximum relevance and diversity. Count articles by category, sentiment, future signals, and time to impact. Provide specific examples, data points, and strategic insights. Use the structured format with detailed sections, table, and comprehensive conclusion."""
                 
                 logger.debug(f"Sending {len(optimized_articles)} optimized articles to LLM for analysis")
                 return search_summary
