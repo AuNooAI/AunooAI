@@ -26,8 +26,8 @@ class ChatMessageRequest(BaseModel):
     chat_id: int = Field(..., description="Chat session ID")
     message: str = Field(..., description="User message")
     model: str | None = Field(None, description="Model to use for response")
-    limit: int | None = Field(50, description="Number of articles to analyze (25-100)")
-    use_tools: bool = Field(True, description="Whether to use tools for enhanced analysis")
+    limit: int | None = Field(50, description="Number of articles to analyze (auto-sized based on context)")
+    tools_config: dict | None = Field(None, description="Individual tool configuration settings")
 
 class PromptRequest(BaseModel):
     name: str = Field(..., description="Unique prompt name")
@@ -159,7 +159,7 @@ async def send_chat_message(req: ChatMessageRequest, session=Depends(verify_sess
         """Generate streaming response."""
         try:
             logger.info(f"Starting chat_with_tools for chat_id: {req.chat_id}")
-            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.use_tools):
+            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config):
                 yield f"data: {json.dumps({'content': chunk})}\n\n"
             logger.info("Chat response completed successfully")
             yield f"data: {json.dumps({'done': True})}\n\n"

@@ -2195,21 +2195,31 @@ Remember to cite your sources and provide actionable insights where possible."""
             return cursor.lastrowid
 
     def get_auspex_chats(self, topic: str = None, user_id: str = None, limit: int = 50) -> List[Dict]:
-        """Get Auspex chat sessions."""
+        """Get Auspex chat sessions with message counts."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
-            query = "SELECT * FROM auspex_chats WHERE 1=1"
+            # Join with auspex_messages to get message count for each chat
+            query = """
+                SELECT c.*, COALESCE(m.message_count, 0) as message_count
+                FROM auspex_chats c
+                LEFT JOIN (
+                    SELECT chat_id, COUNT(*) as message_count
+                    FROM auspex_messages
+                    GROUP BY chat_id
+                ) m ON c.id = m.chat_id
+                WHERE 1=1
+            """
             params = []
             
             if topic:
-                query += " AND topic = ?"
+                query += " AND c.topic = ?"
                 params.append(topic)
             if user_id:
-                query += " AND user_id = ?"
+                query += " AND c.user_id = ?"
                 params.append(user_id)
                 
-            query += " ORDER BY updated_at DESC LIMIT ?"
+            query += " ORDER BY c.updated_at DESC LIMIT ?"
             params.append(limit)
             
             cursor.execute(query, params)
@@ -2222,7 +2232,8 @@ Remember to cite your sources and provide actionable insights where possible."""
                 'created_at': row[3],
                 'updated_at': row[4],
                 'user_id': row[5],
-                'metadata': json.loads(row[6]) if row[6] else None
+                'metadata': json.loads(row[6]) if row[6] else None,
+                'message_count': row[7]
             } for row in rows]
 
     def get_auspex_chat(self, chat_id: int) -> Optional[Dict]:

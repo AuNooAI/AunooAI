@@ -6,7 +6,8 @@ class FloatingChat {
             modal: document.getElementById('floatingChatModal'),
             topicSelect: document.getElementById('floatingTopicSelect'),
             modelSelect: document.getElementById('floatingModelSelect'),
-            limitSelect: document.getElementById('floatingLimitSelect'),
+            sampleSizeMode: document.getElementById('floatingSampleSizeMode'),
+            customLimit: document.getElementById('floatingCustomLimit'),
             messages: document.getElementById('floatingChatMessages'),
             input: document.getElementById('floatingChatInput'),
             sendBtn: document.getElementById('floatingChatSend'),
@@ -20,7 +21,10 @@ class FloatingChat {
             sessionsList: document.getElementById('chatSessionsList'),
             promptEditBtn: document.getElementById('promptEditBtn'),
             expandWindowBtn: document.getElementById('expandWindowBtn'),
-            toolsToggleBtn: document.getElementById('toolsToggleBtn')
+            toolsConfigBtn: document.getElementById('toolsConfigBtn'),
+            contextInfo: document.getElementById('contextInfo'),
+            contextStats: document.getElementById('contextStats'),
+            toolsConfigModal: document.getElementById('toolsConfigModal')
         };
         
         // Chat state
@@ -32,15 +36,28 @@ class FloatingChat {
         this.storageKeys = {
             topic: 'auspex_floating_last_topic',
             model: 'auspex_floating_last_model',
-            limit: 'auspex_floating_last_limit',
+            sampleSizeMode: 'auspex_floating_sample_size_mode',
+            customLimit: 'auspex_floating_custom_limit',
             customQueries: 'auspex_floating_custom_queries',
             minimized: 'auspex_floating_minimized',
-            toolsEnabled: 'auspex_floating_tools_enabled'
+            toolsConfig: 'auspex_floating_tools_config'
         };
         
         this.customQueries = this.loadCustomQueries();
         this.isMinimized = localStorage.getItem(this.storageKeys.minimized) === 'true';
-        this.toolsEnabled = localStorage.getItem(this.storageKeys.toolsEnabled) !== 'false'; // Default to true
+        this.toolsConfig = this.loadToolsConfig();
+        
+        // Context window estimation
+        this.contextLimits = {
+            'gpt-3.5-turbo': 16385,
+            'gpt-4': 8192,
+            'gpt-4-turbo': 128000,
+            'gpt-4o': 128000,
+            'claude-3-sonnet': 200000,
+            'claude-3-opus': 200000,
+            'claude-3-haiku': 200000,
+            'default': 16385
+        };
         
         console.log('Initializing chat...');
         this.init();
@@ -260,10 +277,20 @@ class FloatingChat {
             this.elements.modelSelect.value = savedModel;
         }
 
-        const savedLimit = localStorage.getItem(this.storageKeys.limit);
-        if (savedLimit) {
-            this.elements.limitSelect.value = savedLimit;
+        const savedSampleSizeMode = localStorage.getItem(this.storageKeys.sampleSizeMode);
+        if (savedSampleSizeMode) {
+            this.elements.sampleSizeMode.value = savedSampleSizeMode;
+        } else {
+            this.elements.sampleSizeMode.value = 'auto'; // Default to auto
         }
+
+        const savedCustomLimit = localStorage.getItem(this.storageKeys.customLimit);
+        if (savedCustomLimit) {
+            this.elements.customLimit.value = savedCustomLimit;
+        }
+
+        // Initialize sample size mode
+        this.handleSampleSizeModeChange();
         
         // Apply settings after loading dropdowns with a longer delay to ensure DOM is ready
         if (savedTopic) {
@@ -291,13 +318,24 @@ class FloatingChat {
                 console.log(`DEBUG: Model changed to: '${this.elements.modelSelect.value}'`);
                 localStorage.setItem(this.storageKeys.model, this.elements.modelSelect.value);
                 this.updateUIState();
+                this.updateContextInfo();
             });
         }
 
-        // Limit selection change
-        if (this.elements.limitSelect) {
-            this.elements.limitSelect.addEventListener('change', () => {
-                localStorage.setItem(this.storageKeys.limit, this.elements.limitSelect.value);
+        // Sample size mode change
+        if (this.elements.sampleSizeMode) {
+            this.elements.sampleSizeMode.addEventListener('change', () => {
+                localStorage.setItem(this.storageKeys.sampleSizeMode, this.elements.sampleSizeMode.value);
+                this.handleSampleSizeModeChange();
+                this.updateContextInfo();
+            });
+        }
+
+        // Custom limit change
+        if (this.elements.customLimit) {
+            this.elements.customLimit.addEventListener('change', () => {
+                localStorage.setItem(this.storageKeys.customLimit, this.elements.customLimit.value);
+                this.updateContextInfo();
             });
         }
 
@@ -355,6 +393,9 @@ class FloatingChat {
             console.warn('✗ Prompt edit button not found for event listener');
         }
 
+        // Tools configuration modal event listeners
+        this.addToolsConfigEventListeners();
+
         // Use event delegation for buttons that might not be available initially
         document.addEventListener('click', (e) => {
             // Check if the clicked element or any of its parents is the toggle sidebar button
@@ -374,16 +415,6 @@ class FloatingChat {
                 e.preventDefault();
                 e.stopPropagation();
                 this.toggleExpandWindow();
-                return;
-            }
-            
-            // Check if the clicked element or any of its parents is the tools toggle button
-            const toolsToggleBtn = e.target.closest('#toolsToggleBtn');
-            if (toolsToggleBtn) {
-                console.log('Tools toggle clicked via delegation');
-                e.preventDefault();
-                e.stopPropagation();
-                this.toggleTools();
                 return;
             }
         });
@@ -551,7 +582,7 @@ class FloatingChat {
 
         const topic = this.elements.topicSelect ? this.elements.topicSelect.value : '';
         const model = this.elements.modelSelect ? this.elements.modelSelect.value : '';
-        const limit = this.elements.limitSelect ? parseInt(this.elements.limitSelect.value) || 50 : 50;
+        const limit = this.calculateOptimalSampleSize(model, message);
 
         console.log(`DEBUG: sendMessage called with:`, {
             message,
@@ -560,7 +591,7 @@ class FloatingChat {
             limit,
             currentChatId: this.currentChatId,
             hasChat: this.currentChatId !== null,
-            toolsEnabled: this.toolsEnabled
+            toolsConfig: this.toolsConfig
         });
 
         if (!topic || !model || !this.currentChatId) {
@@ -600,7 +631,7 @@ class FloatingChat {
                     message: message,
                     model: model,
                     limit: limit,
-                    use_tools: this.toolsEnabled
+                    tools_config: this.toolsConfig
                 })
             });
 
@@ -720,18 +751,20 @@ class FloatingChat {
             this.elements.saveBtn.disabled = !(hasTopic && hasModel && hasChat);
         }
         
-        // Update tools toggle button state
-        if (this.elements.toolsToggleBtn) {
-            if (this.toolsEnabled) {
-                this.elements.toolsToggleBtn.classList.add('active');
-                this.elements.toolsToggleBtn.title = 'Tools enabled - Click to disable';
-                this.elements.toolsToggleBtn.setAttribute('data-bs-original-title', 'Tools enabled - Click to disable');
+        // Update tools config button state
+        if (this.elements.toolsConfigBtn) {
+            const hasCustomConfig = this.hasCustomToolsConfig();
+            if (hasCustomConfig) {
+                this.elements.toolsConfigBtn.classList.add('has-custom-config');
+                this.elements.toolsConfigBtn.title = 'Custom tools configuration active';
             } else {
-                this.elements.toolsToggleBtn.classList.remove('active');
-                this.elements.toolsToggleBtn.title = 'Tools disabled - Click to enable';
-                this.elements.toolsToggleBtn.setAttribute('data-bs-original-title', 'Tools disabled - Click to enable');
+                this.elements.toolsConfigBtn.classList.remove('has-custom-config');
+                this.elements.toolsConfigBtn.title = 'Configure tools';
             }
         }
+        
+        // Update context info
+        this.updateContextInfo();
     }
 
     showLoading(show) {
@@ -1169,39 +1202,307 @@ class FloatingChat {
         }
     }
 
-    toggleTools() {
-        console.log('toggleTools called');
+    // Tools Configuration Methods
+    loadToolsConfig() {
+        try {
+            const saved = localStorage.getItem(this.storageKeys.toolsConfig);
+            return saved ? JSON.parse(saved) : this.getDefaultToolsConfig();
+        } catch (error) {
+            console.error('Error loading tools config:', error);
+            return this.getDefaultToolsConfig();
+        }
+    }
+
+    getDefaultToolsConfig() {
+        return {
+            get_topic_articles: true,
+            semantic_search_and_analyze: true,
+            search_articles_by_keywords: true,
+            follow_up_query: true,
+            analyze_sentiment_trends: true,
+            get_article_categories: true,
+            search_news: true
+        };
+    }
+
+    saveToolsConfig() {
+        try {
+            localStorage.setItem(this.storageKeys.toolsConfig, JSON.stringify(this.toolsConfig));
+        } catch (error) {
+            console.error('Error saving tools config:', error);
+        }
+    }
+
+    hasCustomToolsConfig() {
+        const defaultConfig = this.getDefaultToolsConfig();
+        return JSON.stringify(this.toolsConfig) !== JSON.stringify(defaultConfig);
+    }
+
+    addToolsConfigEventListeners() {
+        // Save tools config
+        const saveBtn = document.getElementById('saveToolsConfig');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => this.saveToolsConfiguration());
+        }
+
+        // Enable all tools
+        const enableAllBtn = document.getElementById('enableAllTools');
+        if (enableAllBtn) {
+            enableAllBtn.addEventListener('click', () => this.setAllTools(true));
+        }
+
+        // Disable all tools
+        const disableAllBtn = document.getElementById('disableAllTools');
+        if (disableAllBtn) {
+            disableAllBtn.addEventListener('click', () => this.setAllTools(false));
+        }
+
+        // Reset to default
+        const resetBtn = document.getElementById('resetDefaultTools');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', () => this.resetToolsToDefault());
+        }
+
+        // Individual tool toggles
+        const toolIds = [
+            'toolGetTopicArticles',
+            'toolSemanticSearch', 
+            'toolKeywordSearch',
+            'toolFollowUp',
+            'toolSentimentTrends',
+            'toolCategoryAnalysis',
+            'toolNewsSearch'
+        ];
+
+        toolIds.forEach(id => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.addEventListener('change', () => this.updateToolConfig(id, element.checked));
+            }
+        });
+
+        // Load current config into modal when it's shown
+        if (this.elements.toolsConfigModal) {
+            this.elements.toolsConfigModal.addEventListener('shown.bs.modal', () => {
+                this.loadToolsConfigIntoModal();
+            });
+        }
+    }
+
+    loadToolsConfigIntoModal() {
+        const toolMapping = {
+            'toolGetTopicArticles': 'get_topic_articles',
+            'toolSemanticSearch': 'semantic_search_and_analyze',
+            'toolKeywordSearch': 'search_articles_by_keywords',
+            'toolFollowUp': 'follow_up_query',
+            'toolSentimentTrends': 'analyze_sentiment_trends',
+            'toolCategoryAnalysis': 'get_article_categories',
+            'toolNewsSearch': 'search_news'
+        };
+
+        Object.entries(toolMapping).forEach(([elementId, configKey]) => {
+            const element = document.getElementById(elementId);
+            if (element) {
+                element.checked = this.toolsConfig[configKey] || false;
+            }
+        });
+    }
+
+    updateToolConfig(elementId, enabled) {
+        const toolMapping = {
+            'toolGetTopicArticles': 'get_topic_articles',
+            'toolSemanticSearch': 'semantic_search_and_analyze',
+            'toolKeywordSearch': 'search_articles_by_keywords',
+            'toolFollowUp': 'follow_up_query',
+            'toolSentimentTrends': 'analyze_sentiment_trends',
+            'toolCategoryAnalysis': 'get_article_categories',
+            'toolNewsSearch': 'search_news'
+        };
+
+        const configKey = toolMapping[elementId];
+        if (configKey) {
+            this.toolsConfig[configKey] = enabled;
+        }
+    }
+
+    saveToolsConfiguration() {
+        this.saveToolsConfig();
+        this.updateUIState();
         
-        this.toolsEnabled = !this.toolsEnabled;
-        localStorage.setItem(this.storageKeys.toolsEnabled, this.toolsEnabled.toString());
+        // Close modal
+        const modal = bootstrap.Modal.getInstance(this.elements.toolsConfigModal);
+        if (modal) {
+            modal.hide();
+        }
+
+        // Show notification
+        this.showNotification('Tools configuration saved successfully!', 'success');
+    }
+
+    setAllTools(enabled) {
+        Object.keys(this.toolsConfig).forEach(key => {
+            this.toolsConfig[key] = enabled;
+        });
+        this.loadToolsConfigIntoModal();
+    }
+
+    resetToolsToDefault() {
+        this.toolsConfig = this.getDefaultToolsConfig();
+        this.loadToolsConfigIntoModal();
+    }
+
+    // Dynamic Sample Sizing Methods
+    calculateOptimalSampleSize(model, message) {
+        const mode = this.elements.sampleSizeMode ? this.elements.sampleSizeMode.value : 'auto';
         
-        // Update button appearance
-        if (this.elements.toolsToggleBtn) {
-            if (this.toolsEnabled) {
-                this.elements.toolsToggleBtn.classList.add('active');
-                this.elements.toolsToggleBtn.title = 'Tools enabled - Click to disable';
-                this.elements.toolsToggleBtn.setAttribute('data-bs-original-title', 'Tools enabled - Click to disable');
-            } else {
-                this.elements.toolsToggleBtn.classList.remove('active');
-                this.elements.toolsToggleBtn.title = 'Tools disabled - Click to enable';
-                this.elements.toolsToggleBtn.setAttribute('data-bs-original-title', 'Tools disabled - Click to enable');
+        switch (mode) {
+            case 'auto':
+                return this.calculateAutoSampleSize(model, message);
+            case 'balanced':
+                return 50;
+            case 'comprehensive':
+                return 100;
+            case 'focused':
+                return 25;
+            case 'custom':
+                return parseInt(this.elements.customLimit.value) || 50;
+            default:
+                return 50;
+        }
+    }
+
+    calculateAutoSampleSize(model, message) {
+        // Get context window limit for the model
+        const contextLimit = this.contextLimits[model] || this.contextLimits.default;
+        
+        // Estimate tokens used by system prompt and conversation history (conservative estimate)
+        const systemPromptTokens = 1500; // Estimated
+        const conversationHistoryTokens = this.estimateConversationTokens();
+        const messageTokens = this.estimateTokens(message);
+        const responseReserveTokens = 2000; // Reserve for response
+        
+        // Available tokens for articles
+        const availableTokens = contextLimit - systemPromptTokens - conversationHistoryTokens - messageTokens - responseReserveTokens;
+        
+        // Estimate tokens per article (title + summary + metadata)
+        const tokensPerArticle = 300; // Conservative estimate
+        
+        // Calculate optimal sample size
+        const optimalSize = Math.floor(availableTokens / tokensPerArticle);
+        
+        // Apply reasonable bounds
+        return Math.max(10, Math.min(150, optimalSize));
+    }
+
+    estimateTokens(text) {
+        // Rough estimation: ~4 characters per token for English text
+        return Math.ceil(text.length / 4);
+    }
+
+    estimateConversationTokens() {
+        // Estimate based on current chat messages
+        const messages = this.elements.messages.querySelectorAll('.floating-message-content');
+        let totalChars = 0;
+        
+        messages.forEach(msg => {
+            totalChars += msg.textContent.length;
+        });
+        
+        return Math.ceil(totalChars / 4);
+    }
+
+    handleSampleSizeModeChange() {
+        const mode = this.elements.sampleSizeMode.value;
+        
+        if (mode === 'custom') {
+            this.elements.customLimit.classList.add('show');
+            this.elements.customLimit.style.display = 'block';
+        } else {
+            this.elements.customLimit.classList.remove('show');
+            this.elements.customLimit.style.display = 'none';
+        }
+        
+        this.updateContextInfo();
+    }
+
+    updateContextInfo() {
+        if (!this.elements.contextInfo || !this.elements.contextStats) return;
+        
+        const model = this.elements.modelSelect ? this.elements.modelSelect.value : '';
+        const message = this.elements.input ? this.elements.input.value : '';
+        let sampleSize = this.calculateOptimalSampleSize(model, message);
+        
+        // Estimate total tokens that would be used
+        const contextLimit = this.contextLimits[model] || this.contextLimits.default;
+        const estimatedArticleTokens = sampleSize * 300;
+        const totalEstimatedTokens = 1500 + this.estimateConversationTokens() + this.estimateTokens(message) + estimatedArticleTokens;
+        
+        // Safety check: If we're over 95% of context, automatically reduce sample size
+        let contextUsage = (totalEstimatedTokens / contextLimit) * 100;
+        
+        if (contextUsage > 95 && this.elements.sampleSizeMode.value === 'auto') {
+            // Calculate safe sample size
+            const safeTokenBudget = contextLimit * 0.9; // Use 90% of context for safety
+            const availableForArticles = safeTokenBudget - 1500 - this.estimateConversationTokens() - this.estimateTokens(message);
+            const safeSampleSize = Math.max(5, Math.floor(availableForArticles / 300));
+            
+            if (safeSampleSize < sampleSize) {
+                sampleSize = safeSampleSize;
+                const newEstimatedTokens = 1500 + this.estimateConversationTokens() + this.estimateTokens(message) + (sampleSize * 300);
+                contextUsage = (newEstimatedTokens / contextLimit) * 100;
             }
         }
         
-        console.log(`Tools ${this.toolsEnabled ? 'enabled' : 'disabled'}`);
+        // Warning for custom limits that exceed capacity
+        let warningText = '';
+        if (contextUsage > 100) {
+            warningText = ' ⚠️ OVERFLOW';
+            if (this.elements.sampleSizeMode.value === 'custom') {
+                // Calculate safe custom limit
+                const maxSafeTokens = contextLimit * 0.9;
+                const maxSafeArticles = Math.floor((maxSafeTokens - 1500 - this.estimateConversationTokens() - this.estimateTokens(message)) / 300);
+                warningText += ` (Max safe: ${Math.max(5, maxSafeArticles)})`;
+            }
+        }
         
-        // Show a brief notification
-        this.showToolsNotification(this.toolsEnabled);
+        this.elements.contextStats.textContent = `Context: ${sampleSize} articles, ~${(1500 + this.estimateConversationTokens() + this.estimateTokens(message) + (sampleSize * 300)).toLocaleString()} tokens (${contextUsage.toFixed(1)}%)${warningText}`;
+        
+        // Show/hide context info based on whether we have selections
+        const hasModel = model !== '';
+        this.elements.contextInfo.style.display = hasModel ? 'block' : 'none';
+        
+        // Enhanced color coding for context usage
+        if (contextUsage > 100) {
+            this.elements.contextStats.style.color = '#dc3545'; // Red for overflow
+            this.elements.contextStats.style.fontWeight = 'bold';
+        } else if (contextUsage > 90) {
+            this.elements.contextStats.style.color = '#dc3545'; // Red for danger
+            this.elements.contextStats.style.fontWeight = '600';
+        } else if (contextUsage > 70) {
+            this.elements.contextStats.style.color = '#ffc107'; // Yellow for warning
+            this.elements.contextStats.style.fontWeight = '500';
+        } else {
+            this.elements.contextStats.style.color = '#007bff'; // Blue for safe
+            this.elements.contextStats.style.fontWeight = '500';
+        }
     }
 
-    showToolsNotification(enabled) {
+    showNotification(message, type = 'info') {
         const notification = document.createElement('div');
-        notification.textContent = `Tools ${enabled ? 'enabled' : 'disabled'}`;
+        notification.textContent = message;
+        
+        const colors = {
+            success: '#28a745',
+            error: '#dc3545',
+            warning: '#ffc107',
+            info: '#007bff'
+        };
+        
         notification.style.cssText = `
             position: fixed;
             top: 20px;
             right: 20px;
-            background: ${enabled ? '#28a745' : '#dc3545'};
+            background: ${colors[type] || colors.info};
             color: white;
             padding: 12px 20px;
             border-radius: 6px;
@@ -1210,12 +1511,13 @@ class FloatingChat {
             font-weight: 500;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         `;
+        
         document.body.appendChild(notification);
         setTimeout(() => {
             if (document.body.contains(notification)) {
                 document.body.removeChild(notification);
             }
-        }, 2000);
+        }, 3000);
     }
 }
 

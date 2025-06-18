@@ -291,7 +291,7 @@ class AuspexService:
             logger.error(f"Error deleting chat session: {e}")
             return False
 
-    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, use_tools: bool = True) -> AsyncGenerator[str, None]:
+    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None) -> AsyncGenerator[str, None]:
         """Chat with Auspex with optional tool usage."""
         if not model:
             model = DEFAULT_MODEL
@@ -323,7 +323,7 @@ class AuspexService:
             )
             
             # Get system prompt and enhance it with topic information
-            system_prompt = self.get_enhanced_system_prompt(chat_id, use_tools)
+            system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config)
             
             # Prepare messages with system prompt
             llm_messages = [
@@ -331,12 +331,13 @@ class AuspexService:
                 *conversation
             ]
             
-            # Check if we need to use tools based on the message content and use_tools flag
+            # Check if we need to use tools based on the message content and tools_config
+            use_tools = tools_config and any(tools_config.values()) if tools_config else True
             needs_tools = use_tools and await self._should_use_tools(message)
             
             if needs_tools:
                 # Use tools to gather information
-                tool_results = await self._use_mcp_tools(message, chat_id, limit)
+                tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config)
                 if tool_results:
                     # Add tool results to context
                     llm_messages.append({
@@ -356,7 +357,7 @@ class AuspexService:
                 role="assistant",
                 content=full_response,
                 model_used=model,
-                metadata={"used_tools": needs_tools, "tools_enabled": use_tools}
+                metadata={"used_tools": needs_tools, "tools_config": tools_config}
             )
             
         except Exception as e:
@@ -371,12 +372,12 @@ class AuspexService:
                     role="assistant",
                     content=error_msg,
                     model_used=model,
-                    metadata={"error": True, "tools_enabled": use_tools}
+                    metadata={"error": True, "tools_config": tools_config}
                 )
             except:
                 pass
 
-    def get_enhanced_system_prompt(self, chat_id: int, use_tools: bool = True) -> Dict:
+    def get_enhanced_system_prompt(self, chat_id: int, tools_config: Dict = None) -> Dict:
         """Get enhanced system prompt with topic-specific information."""
         try:
             # Get base prompt
@@ -411,11 +412,11 @@ Available Future Signals:
 Available Time to Impact Options:
 {', '.join(topic_options.get('timeToImpacts', []))}
 
-TOOLS STATUS: {'ENABLED - You can access real-time data and perform advanced analysis' if use_tools else 'DISABLED - Provide analysis based on your knowledge and any provided context'}
+TOOLS STATUS: {self._format_tools_status(tools_config)}
 
 CURRENT SESSION CONTEXT:
 - Topic: {topic}
-- Tools: {'Available' if use_tools else 'Disabled'}
+- Tools: {self._format_active_tools(tools_config)}
 - Focus: Apply strategic foresight methodology specific to {topic} using the available categories, sentiments, and future signals listed above."""
 
                 return {
@@ -452,7 +453,7 @@ CURRENT SESSION CONTEXT:
         
         return should_use
 
-    async def _use_mcp_tools(self, message: str, chat_id: int, limit: int) -> Optional[str]:
+    async def _use_mcp_tools(self, message: str, chat_id: int, limit: int, tools_config: Dict = None) -> Optional[str]:
         """Use the original sophisticated database navigation logic from chat_routes.py"""
         logger.info(f"_use_mcp_tools called for message: '{message}', chat_id: {chat_id}")
         
@@ -473,16 +474,61 @@ CURRENT SESSION CONTEXT:
             logger.error(f"Error in _use_mcp_tools: {e}")
             return None
 
+    def _format_tools_status(self, tools_config: Dict = None) -> str:
+        """Format tools status for system prompt."""
+        if not tools_config:
+            return "DISABLED - Provide analysis based on your knowledge and any provided context"
+        
+        enabled_tools = [tool for tool, enabled in tools_config.items() if enabled]
+        if not enabled_tools:
+            return "DISABLED - All tools are turned off"
+        
+        if len(enabled_tools) == len(tools_config):
+            return "FULLY ENABLED - You can access all available tools for real-time data and advanced analysis"
+        
+        return f"PARTIALLY ENABLED - You have access to these tools: {', '.join(enabled_tools)}"
+
+    def _format_active_tools(self, tools_config: Dict = None) -> str:
+        """Format active tools list for system prompt."""
+        if not tools_config:
+            return "None available"
+        
+        enabled_tools = [tool for tool, enabled in tools_config.items() if enabled]
+        if not enabled_tools:
+            return "All disabled"
+        
+        tool_descriptions = {
+            'get_topic_articles': 'Topic Articles',
+            'semantic_search_and_analyze': 'Semantic Search',
+            'search_articles_by_keywords': 'Keyword Search',
+            'follow_up_query': 'Follow-up Query',
+            'analyze_sentiment_trends': 'Sentiment Analysis',
+            'get_article_categories': 'Category Analysis',
+            'search_news': 'Real-time News'
+        }
+        
+        active_descriptions = [tool_descriptions.get(tool, tool) for tool in enabled_tools]
+        return f"Active: {', '.join(active_descriptions)}"
+
     async def _original_chat_database_logic(self, message: str, topic: str, limit: int) -> Optional[str]:
         """Restore the original sophisticated database navigation from chat_routes.py"""
         try:
             analyze_db = AnalyzeDB(self.db)
             ai_model = get_ai_model(DEFAULT_MODEL)
             
-            # Get available options for this topic (original logic)
-            topic_options = analyze_db.get_topic_options(topic)
+            # Validate inputs
+            if not message or not topic or not limit:
+                logger.error(f"Invalid inputs: message='{message}', topic='{topic}', limit={limit}")
+                return f"## Search Error\nInvalid search parameters. Please ensure you have selected a topic and entered a message."
             
-            # Add null check for topic_options
+            # Get available options for this topic (original logic)
+            try:
+                topic_options = analyze_db.get_topic_options(topic)
+            except Exception as e:
+                logger.warning(f"Error getting topic options for {topic}: {e}")
+                topic_options = None
+            
+            # Add comprehensive null check for topic_options
             if not topic_options:
                 logger.warning(f"No topic options found for topic: {topic}")
                 topic_options = {
@@ -504,21 +550,33 @@ CURRENT SESSION CONTEXT:
                     metadata_filter=metadata_filter
                 )
                 
-                # Convert vector results to article format
-                for result in vector_results:
-                    if result and result.get("metadata"):
+                # Convert vector results to article format with comprehensive null checks
+                if vector_results and isinstance(vector_results, list):
+                    for result in vector_results:
+                        if not result or not isinstance(result, dict):
+                            continue
+                            
+                        metadata = result.get("metadata")
+                        if not metadata or not isinstance(metadata, dict):
+                            continue
+                            
+                        # Only add articles with valid URI
+                        uri = metadata.get("uri")
+                        if not uri:
+                            continue
+                            
                         vector_articles.append({
-                            "uri": result["metadata"].get("uri"),
-                            "title": result["metadata"].get("title"),
-                            "summary": result["metadata"].get("summary"),
-                            "category": result["metadata"].get("category"),
-                            "sentiment": result["metadata"].get("sentiment"),
-                            "future_signal": result["metadata"].get("future_signal"),
-                            "time_to_impact": result["metadata"].get("time_to_impact"),
-                            "publication_date": result["metadata"].get("publication_date"),
-                            "news_source": result["metadata"].get("news_source"),
-                            "tags": result["metadata"].get("tags", "").split(",") if result["metadata"].get("tags") else [],
-                            "similarity_score": result.get("score", 0)
+                            "uri": uri,
+                            "title": metadata.get("title", "Unknown Title"),
+                            "summary": metadata.get("summary", "No summary available"),
+                            "category": metadata.get("category", "Uncategorized"),
+                            "sentiment": metadata.get("sentiment", "Neutral"),
+                            "future_signal": metadata.get("future_signal", "None"),
+                            "time_to_impact": metadata.get("time_to_impact", "Unknown"),
+                            "publication_date": metadata.get("publication_date", "Unknown"),
+                            "news_source": metadata.get("news_source", "Unknown"),
+                            "tags": metadata.get("tags", "").split(",") if metadata.get("tags") else [],
+                            "similarity_score": result.get("score", 0.0)
                         })
                 
                 logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
@@ -617,96 +675,155 @@ Return your search strategy in this format:
                     search_strategy = json.loads(json_str)
                     logger.debug(f"Search strategy: {json.dumps(search_strategy, indent=2)}")
                     
-                    # Add null check for search_strategy
-                    if not search_strategy or not search_strategy.get("queries"):
+                    # Add comprehensive null check for search_strategy
+                    if not search_strategy or not isinstance(search_strategy, dict) or not search_strategy.get("queries"):
                         logger.warning(f"Invalid search strategy returned for message: {message}")
                         # Fallback to simple keyword search
-                        articles, total_count = self.db.search_articles(
-                            topic=topic,
-                            keyword=message,
-                            page=1,
-                            per_page=limit
-                        )
-                        search_method = "fallback keyword search"
+                        try:
+                            articles, total_count = self.db.search_articles(
+                                topic=topic,
+                                keyword=message,
+                                page=1,
+                                per_page=limit
+                            )
+                            search_method = "fallback keyword search"
+                        except Exception as fallback_error:
+                            logger.error(f"Fallback search also failed: {fallback_error}")
+                            articles = []
+                            total_count = 0
+                            search_method = "error fallback"
                     else:
                         all_articles = []
                         total_count = 0
                         
-                        for query in search_strategy.get("queries", []):
-                            if not query or not query.get("params"):
+                        queries = search_strategy.get("queries", [])
+                        if not isinstance(queries, list):
+                            logger.warning(f"Search strategy queries is not a list: {type(queries)}")
+                            queries = []
+                        
+                        for query in queries:
+                            if not query or not isinstance(query, dict):
+                                logger.debug(f"Skipping invalid query: {query}")
                                 continue
                                 
-                            params = query["params"]
-                            logger.debug(f"Executing query: {query['description']}")
+                            params = query.get("params")
+                            if not params or not isinstance(params, dict):
+                                logger.debug(f"Skipping query with invalid params: {params}")
+                                continue
+                                
+                            logger.debug(f"Executing query: {query.get('description', 'Unknown')}")
                             logger.debug(f"Query params: {json.dumps(params, indent=2)}")
                             
-                            # Calculate date range if specified
-                            pub_date_start = None
-                            pub_date_end = None
-                            if params.get("date_range"):
-                                if params["date_range"] != "all":
-                                    pub_date_end = datetime.now()
-                                    pub_date_start = pub_date_end - timedelta(days=int(params["date_range"]))
-                                    pub_date_end = pub_date_end.strftime('%Y-%m-%d')
-                                    pub_date_start = pub_date_start.strftime('%Y-%m-%d')
+                            try:
+                                # Calculate date range if specified
+                                pub_date_start = None
+                                pub_date_end = None
+                                date_range = params.get("date_range")
+                                if date_range and str(date_range) != "all":
+                                    try:
+                                        days = int(date_range)
+                                        pub_date_end = datetime.now()
+                                        pub_date_start = pub_date_end - timedelta(days=days)
+                                        pub_date_end = pub_date_end.strftime('%Y-%m-%d')
+                                        pub_date_start = pub_date_start.strftime('%Y-%m-%d')
+                                    except (ValueError, TypeError) as date_error:
+                                        logger.warning(f"Invalid date range value: {date_range}, error: {date_error}")
 
-                            # If we have a category match, use only that
-                            if params.get("category"):
-                                articles_batch, count = self.db.search_articles(
-                                    topic=topic,
-                                    category=params.get("category"),
-                                    pub_date_start=pub_date_start,
-                                    pub_date_end=pub_date_end,
-                                    page=1,
-                                    per_page=limit
-                                )
-                            # Otherwise, use keyword search
-                            else:
-                                articles_batch, count = self.db.search_articles(
-                                    topic=topic,
-                                    keyword=params.get("keyword"),
-                                    sentiment=[params.get("sentiment")] if params.get("sentiment") else None,
-                                    future_signal=[params.get("future_signal")] if params.get("future_signal") else None,
-                                    tags=params.get("tags"),
-                                    pub_date_start=pub_date_start,
-                                    pub_date_end=pub_date_end,
-                                    page=1,
-                                    per_page=limit
-                                )
-                            
-                            logger.debug(f"Query returned {count} articles")
-                            if articles_batch:
-                                all_articles.extend(articles_batch)
-                                total_count += count
+                                # Safe parameter extraction with null checks
+                                category = params.get("category")
+                                if category and not isinstance(category, list):
+                                    category = [category] if category else None
+                                
+                                sentiment = params.get("sentiment")
+                                if sentiment:
+                                    sentiment = [sentiment] if not isinstance(sentiment, list) else sentiment
+                                
+                                future_signal = params.get("future_signal")
+                                if future_signal:
+                                    future_signal = [future_signal] if not isinstance(future_signal, list) else future_signal
+                                
+                                keyword = params.get("keyword")
+                                tags = params.get("tags")
+                                if tags and not isinstance(tags, list):
+                                    tags = [tags] if tags else None
+
+                                # If we have a category match, use only that
+                                if category:
+                                    articles_batch, count = self.db.search_articles(
+                                        topic=topic,
+                                        category=category,
+                                        pub_date_start=pub_date_start,
+                                        pub_date_end=pub_date_end,
+                                        page=1,
+                                        per_page=limit
+                                    )
+                                # Otherwise, use keyword search
+                                else:
+                                    articles_batch, count = self.db.search_articles(
+                                        topic=topic,
+                                        keyword=keyword,
+                                        sentiment=sentiment,
+                                        future_signal=future_signal,
+                                        tags=tags,
+                                        pub_date_start=pub_date_start,
+                                        pub_date_end=pub_date_end,
+                                        page=1,
+                                        per_page=limit
+                                    )
+                                
+                                logger.debug(f"Query returned {count} articles")
+                                if articles_batch and isinstance(articles_batch, list):
+                                    all_articles.extend(articles_batch)
+                                    total_count += count
+                            except Exception as query_error:
+                                logger.error(f"Error executing individual query: {query_error}")
+                                continue
                         
                         # Remove duplicates based on article URI
                         seen_uris = set()
                         unique_articles = []
                         for article in all_articles:
-                            if article and article.get('uri') and article['uri'] not in seen_uris:
+                            if article and isinstance(article, dict) and article.get('uri') and article['uri'] not in seen_uris:
                                 seen_uris.add(article['uri'])
                                 unique_articles.append(article)
                         
-                        articles = unique_articles[:limit]  # Use user's selected limit
+                        articles = unique_articles[:limit] if unique_articles else []  # Use user's selected limit
                         search_method = "structured keyword search"
 
                         # Format search criteria for display
                         active_filters = []
-                        for query in search_strategy.get("queries", []):
-                            params = query.get("params", {})
-                            if params.get("keyword"):
-                                active_filters.append(f"Keywords: {params.get('keyword').replace('|', ' OR ')}")
-                            if params.get("category"):
-                                active_filters.append(f"Categories: {', '.join(params.get('category'))}")
-                            if params.get("sentiment"):
-                                active_filters.append(f"Sentiment: {params.get('sentiment')}")
-                            if params.get("future_signal"):
-                                active_filters.append(f"Future Signal: {params.get('future_signal')}")
-                            if params.get("tags"):
-                                active_filters.append(f"Tags: {', '.join(params.get('tags'))}")
+                        try:
+                            for query in search_strategy.get("queries", []):
+                                if not isinstance(query, dict):
+                                    continue
+                                params = query.get("params", {})
+                                if not isinstance(params, dict):
+                                    continue
+                                if params.get("keyword"):
+                                    keyword_text = str(params.get('keyword', ''))
+                                    active_filters.append(f"Keywords: {keyword_text.replace('|', ' OR ')}")
+                                if params.get("category"):
+                                    categories = params.get('category', [])
+                                    if isinstance(categories, list):
+                                        active_filters.append(f"Categories: {', '.join(categories)}")
+                                    else:
+                                        active_filters.append(f"Categories: {categories}")
+                                if params.get("sentiment"):
+                                    active_filters.append(f"Sentiment: {params.get('sentiment')}")
+                                if params.get("future_signal"):
+                                    active_filters.append(f"Future Signal: {params.get('future_signal')}")
+                                if params.get("tags"):
+                                    tags = params.get('tags', [])
+                                    if isinstance(tags, list):
+                                        active_filters.append(f"Tags: {', '.join(tags)}")
+                                    else:
+                                        active_filters.append(f"Tags: {tags}")
+                        except Exception as filter_error:
+                            logger.error(f"Error formatting active filters: {filter_error}")
+                            active_filters = ["Error formatting search criteria"]
 
                         search_summary = f"""## Search Method: {search_method.title()}
-{chr(10).join(['- ' + f for f in active_filters])}
+{chr(10).join(['- ' + f for f in active_filters]) if active_filters else '- No specific filters applied'}
 - **Analysis Limit**: {limit} articles
 
 ## Results Overview
@@ -725,18 +842,41 @@ Analyzing the {len(articles)} most recent articles
                     search_method = "basic keyword search (fallback)"
                     search_summary = f"## Basic Search (Fallback)\nKeyword search for: {message}"
 
+            # Check if we have any articles to analyze
+            if not articles:
+                return f"""## No Articles Found for Query: "{message}"
+
+**Search Summary:**
+- **Topic**: {topic}
+- **Query**: "{message}"
+- **Search Methods Attempted**: Vector search and structured keyword search
+- **Results**: 0 articles found
+
+**Possible Reasons:**
+1. The query terms may not match any articles in the database for this topic
+2. The topic "{topic}" may have limited article coverage
+3. The search terms might be too specific
+
+**Suggestions:**
+1. Try broader search terms (e.g., "AI developments" instead of "recent AI trends")
+2. Use more general keywords related to {topic}
+3. Check if there are articles available for this topic by asking "What articles are available?"
+4. Try searching for specific aspects like "AI research", "machine learning applications", etc.
+
+I can help you reformulate your search or provide information about what topics and categories are available in the database."""
+
             # Format articles for context (original format)
             context = "\n\n".join([
-                f"Title: {article['title']}\n"
-                f"Summary: {article['summary']}\n"
-                f"Category: {article['category']}\n"
-                f"Future Signal: {article['future_signal']}\n"
-                f"Sentiment: {article['sentiment']}\n"
-                f"Time to Impact: {article['time_to_impact']}\n"
-                f"Tags: {', '.join(article['tags']) if article.get('tags') else 'None'}\n"
+                f"Title: {article.get('title', 'No title')}\n"
+                f"Summary: {article.get('summary', 'No summary')}\n"
+                f"Category: {article.get('category', 'No category')}\n"
+                f"Future Signal: {article.get('future_signal', 'No signal')}\n"
+                f"Sentiment: {article.get('sentiment', 'No sentiment')}\n"
+                f"Time to Impact: {article.get('time_to_impact', 'No impact time')}\n"
+                f"Tags: {', '.join(article.get('tags', [])) if article.get('tags') else 'None'}\n"
                 f"Publication Date: {article.get('publication_date', 'Unknown')}"
                 + (f"\nSimilarity Score: {article.get('similarity_score', 'N/A')}" if 'similarity_score' in article else "")
-                for article in articles
+                for article in articles if isinstance(article, dict)
             ])
 
             # Build the final context in original format with sophisticated analysis instructions
