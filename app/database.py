@@ -312,7 +312,8 @@ Remember to cite your sources and provide actionable insights where possible."""
                     ("ensure_settings_podcasts_table", self._ensure_settings_podcasts_table),
                     ("add_metadata_column_to_podcasts", self._add_metadata_column_to_podcasts),
                     ("create_newsletter_prompts_table", self._create_newsletter_prompts_table),
-                    ("add_relevance_columns_to_articles", self._add_relevance_columns_to_articles)
+                    ("add_relevance_columns_to_articles", self._add_relevance_columns_to_articles),
+                    ("add_auto_ingest_columns", self._add_auto_ingest_columns)
                 ]
                 
                 # Apply migrations that haven't been applied yet
@@ -2159,6 +2160,50 @@ Remember to cite your sources and provide actionable insights where possible."""
             logger.info("Added relevance_reason column to articles table")
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+    def _add_auto_ingest_columns(self, cursor):
+        """Add auto-ingest columns to articles and keyword_monitor_settings tables."""
+        # Add auto-ingest columns to articles table
+        auto_ingest_article_columns = [
+            ("auto_ingested", "BOOLEAN DEFAULT FALSE"),
+            ("ingest_status", "TEXT"),
+            ("quality_score", "REAL"),
+            ("quality_issues", "TEXT")
+        ]
+        
+        for column_name, column_def in auto_ingest_article_columns:
+            try:
+                cursor.execute(f"ALTER TABLE articles ADD COLUMN {column_name} {column_def}")
+                logger.info(f"Added {column_name} column to articles table")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+        
+        # Add auto-ingest settings to keyword_monitor_settings table
+        auto_ingest_settings_columns = [
+            ("auto_ingest_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("min_relevance_threshold", "REAL NOT NULL DEFAULT 0.0"),
+            ("quality_control_enabled", "BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("auto_save_approved_only", "BOOLEAN NOT NULL DEFAULT FALSE"),
+            ("default_llm_model", "TEXT NOT NULL DEFAULT 'gpt-4o-mini'"),
+            ("llm_temperature", "REAL NOT NULL DEFAULT 0.1"),
+            ("llm_max_tokens", "INTEGER NOT NULL DEFAULT 1000")
+        ]
+        
+        for column_name, column_def in auto_ingest_settings_columns:
+            try:
+                cursor.execute(f"ALTER TABLE keyword_monitor_settings ADD COLUMN {column_name} {column_def}")
+                logger.info(f"Added {column_name} column to keyword_monitor_settings table")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+        
+        # Create indexes for better performance
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_auto_ingested ON articles(auto_ingested)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_ingest_status ON articles(ingest_status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_quality_score ON articles(quality_score)")
+            logger.info("Created auto-ingest indexes on articles table")
+        except sqlite3.OperationalError:
+            pass  # Indexes already exist
 
     def get_podcast_settings(self):
         with self.get_connection() as conn:
