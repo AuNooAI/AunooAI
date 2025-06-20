@@ -1582,27 +1582,35 @@ Please try rephrasing your question or contact support if the issue persists."""
             sentiments[sent] = sentiments.get(sent, 0) + 1
         
         # Format summary
+        category_dist = chr(10).join([f"- {cat}: {count} articles ({count/total_articles*100:.1f}%)" for cat, count in categories.items()])
+        sentiment_dist = chr(10).join([f"- {sent}: {count} articles ({count/total_articles*100:.1f}%)" for sent, count in sentiments.items()])
+        
+        # Format article details - limit to first 10
+        article_details = []
+        for i, article in enumerate(articles[:10]):
+            similarity_text = f" | Similarity: {article.get('similarity_score', 0):.3f}" if 'similarity_score' in article else ""
+            detail = (f"[{i+1}] {article['title'][:100]}...\n" +
+                     f"    Category: {article.get('category', 'N/A')} | Sentiment: {article.get('sentiment', 'N/A')}" +
+                     f" | Future Signal: {article.get('future_signal', 'N/A')}" + similarity_text +
+                     f"\n    Summary: {article.get('summary', 'No summary')[:200]}...")
+            article_details.append(detail)
+        
+        article_details_text = chr(10).join(article_details)
+        more_articles_text = f"\n... and {len(articles) - 10} more articles" if len(articles) > 10 else ""
+        
         summary = f"""Search Method: {search_type}
 Total Articles: {total_articles}
 Unique Sources: {unique_sources}
 Date Range: {date_range}
 
 Category Distribution:
-{chr(10).join([f"- {cat}: {count} articles ({count/total_articles*100:.1f}%)" for cat, count in categories.items()])}
+{category_dist}
 
 Sentiment Distribution:
-{chr(10).join([f"- {sent}: {count} articles ({count/total_articles*100:.1f}%)" for sent, count in sentiments.items()])}
+{sentiment_dist}
 
 Article Details:
-{chr(10).join([
-    f"[{i+1}] {article['title'][:100]}..." + 
-    f"\\n    Category: {article.get('category', 'N/A')} | Sentiment: {article.get('sentiment', 'N/A')}" +
-    f" | Future Signal: {article.get('future_signal', 'N/A')}" +
-    (f" | Similarity: {article.get('similarity_score', 0):.3f}" if 'similarity_score' in article else "") +
-    f"\\n    Summary: {article.get('summary', 'No summary')[:200]}..."
-    for i, article in enumerate(articles[:10])  # Show first 10 articles
-])}
-{f'\\n... and {len(articles) - 10} more articles' if len(articles) > 10 else ''}"""
+{article_details_text}{more_articles_text}"""
         
         return summary
 

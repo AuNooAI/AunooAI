@@ -213,6 +213,11 @@ class RelevanceCalculator:
                     score = validated_result[score_field]
                     validated_result[score_field] = max(0.0, min(1.0, score))
                 
+                # Calculate combined relevance score (average of topic and keyword scores)
+                topic_score = validated_result["topic_alignment_score"]
+                keyword_score = validated_result["keyword_relevance_score"]
+                validated_result["relevance_score"] = (topic_score + keyword_score) / 2.0
+                
                 # Ensure lists are actually lists
                 for list_field in ["extracted_article_topics", "extracted_article_keywords"]:
                     if not isinstance(validated_result[list_field], list):
@@ -234,7 +239,8 @@ class RelevanceCalculator:
                     "overall_match_explanation": f"Failed to parse analysis response: {str(parse_error)}",
                     "confidence_score": 0.0,
                     "extracted_article_topics": [],
-                    "extracted_article_keywords": []
+                    "extracted_article_keywords": [],
+                    "relevance_score": 0.0
                 }
                 
         except Exception as e:
@@ -286,7 +292,8 @@ class RelevanceCalculator:
                     "overall_match_explanation": f"Analysis failed: {str(e)}",
                     "confidence_score": 0.0,
                     "extracted_article_topics": [],
-                    "extracted_article_keywords": []
+                    "extracted_article_keywords": [],
+                    "relevance_score": 0.0
                 })
                 results.append(result)
         

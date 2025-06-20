@@ -9,6 +9,13 @@ from app.database import Database
 
 logger = logging.getLogger(__name__)
 
+# Import AutomatedIngestService for auto-ingest functionality
+try:
+    from app.services.automated_ingest_service import AutomatedIngestService
+except ImportError:
+    logger.warning("AutomatedIngestService not available - auto-ingest features disabled")
+    AutomatedIngestService = None
+
 # Global variable to track task status
 _background_task_status = {
     "running": False,
@@ -26,6 +33,10 @@ class KeywordMonitor:
         self.db = db
         self.collector = None
         self.last_collector_init_attempt = None
+        # Initialize auto-ingest service if available
+        self.auto_ingest_service = None
+        if AutomatedIngestService:
+            self.auto_ingest_service = AutomatedIngestService(db)
         # Enable foreign keys at connection level
         with self.db.get_connection() as conn:
             conn.execute("PRAGMA foreign_keys = ON")
@@ -333,6 +344,24 @@ class KeywordMonitor:
                         for i, article in enumerate(articles[:3]):  # Log up to first 3 articles
                             logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
                         
+                        # Try auto-ingest pipeline if enabled (before processing individual articles)
+                        auto_ingest_results = None
+                        if self.should_auto_ingest():
+                            try:
+                                # Get keywords for this topic
+                                cursor.execute("""
+                                    SELECT mk.keyword
+                                    FROM monitored_keywords mk
+                                    JOIN keyword_groups kg ON mk.group_id = kg.id
+                                    WHERE kg.topic = ?
+                                """, (topic,))
+                                topic_keywords = [row[0] for row in cursor.fetchall()]
+                                
+                                auto_ingest_results = await self.auto_ingest_pipeline(articles, topic, topic_keywords)
+                                logger.info(f"Auto-ingest results: {auto_ingest_results}")
+                            except Exception as e:
+                                logger.error(f"Auto-ingest pipeline failed: {e}")
+                        
                         # Process each article
                         for article in articles:
                             try:
@@ -486,6 +515,70 @@ class KeywordMonitor:
         except Exception as e:
             logger.error(f"Error checking keywords: {str(e)}")
             return {"success": False, "error": str(e), "new_articles": new_articles_count}
+    
+    def get_auto_ingest_settings(self) -> Dict[str, any]:
+        """Get auto-ingest settings from database"""
+        if not self.auto_ingest_service:
+            return {"auto_ingest_enabled": False}
+        return self.auto_ingest_service.get_auto_ingest_settings()
+    
+    def should_auto_ingest(self) -> bool:
+        """Check if auto-ingest is enabled"""
+        settings = self.get_auto_ingest_settings()
+        return settings.get("auto_ingest_enabled", False)
+    
+    async def auto_ingest_pipeline(self, articles: List[Dict[str, any]], topic: str, keywords: List[str]) -> Dict[str, any]:
+        """
+        Run the auto-ingest pipeline on a batch of articles
+        
+        Args:
+            articles: List of article dictionaries
+            topic: Topic name for context
+            keywords: List of keywords for relevance scoring
+            
+        Returns:
+            Processing results dictionary
+        """
+        if not self.auto_ingest_service:
+            logger.warning("Auto-ingest service not available")
+            return {"success": False, "error": "Auto-ingest service not available"}
+        
+        if not self.should_auto_ingest():
+            logger.debug("Auto-ingest is disabled, skipping pipeline")
+            return {"success": True, "message": "Auto-ingest disabled", "processed": 0}
+        
+        try:
+            logger.info(f"Starting auto-ingest pipeline for {len(articles)} articles on topic '{topic}'")
+            
+            # Convert articles to the format expected by the auto-ingest service
+            # The news collector returns articles with 'url', 'source', etc.
+            # but the auto-ingest service expects 'uri', 'news_source', etc.
+            formatted_articles = []
+            for article in articles:
+                formatted_article = {
+                    'uri': article.get('url', ''),
+                    'title': article.get('title', ''),
+                    'news_source': article.get('source', ''),
+                    'publication_date': article.get('published_date', ''),
+                    'summary': article.get('summary', ''),
+                    'topic': topic,
+                    'analyzed': False
+                }
+                formatted_articles.append(formatted_article)
+            
+            # Process articles through the automated pipeline
+            results = self.auto_ingest_service.process_articles_batch(formatted_articles, topic, keywords)
+            
+            # Note: The process_articles_batch method handles its own saving logic
+            # We don't need to save articles here as they are already processed
+            # and saved within the service if they meet the criteria
+            
+            logger.info(f"Auto-ingest pipeline completed: {results}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in auto-ingest pipeline: {e}")
+            return {"success": False, "error": str(e)}
 
 async def run_keyword_monitor():
     """Background task to periodically check keywords"""

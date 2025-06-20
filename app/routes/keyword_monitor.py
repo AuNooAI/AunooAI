@@ -79,6 +79,14 @@ class KeywordMonitorSettings(BaseModel):
     page_size: int
     daily_request_limit: int = 100
     provider: str = "newsapi"
+    # Auto-ingest settings
+    auto_ingest_enabled: bool = False
+    min_relevance_threshold: float = 0.0
+    quality_control_enabled: bool = True
+    auto_save_approved_only: bool = False
+    default_llm_model: str = "gpt-4o-mini"
+    llm_temperature: float = 0.1
+    llm_max_tokens: int = 1000
 
 class PollingToggle(BaseModel):
     enabled: bool
@@ -378,7 +386,8 @@ async def get_alerts(
                         SELECT category, sentiment, driver_type, time_to_impact,
                                topic_alignment_score, keyword_relevance_score, 
                                confidence_score, overall_match_explanation,
-                               extracted_article_topics, extracted_article_keywords
+                               extracted_article_topics, extracted_article_keywords,
+                               auto_ingested, ingest_status, quality_score, quality_issues
                         FROM articles 
                         WHERE uri = ?
                     """, (article_data["uri"],))
@@ -387,7 +396,8 @@ async def get_alerts(
                         (category, sentiment, driver_type, time_to_impact,
                          topic_alignment_score, keyword_relevance_score,
                          confidence_score, overall_match_explanation,
-                         extracted_article_topics, extracted_article_keywords) = enrichment_row
+                         extracted_article_topics, extracted_article_keywords,
+                         auto_ingested, ingest_status, quality_score, quality_issues) = enrichment_row
                         
                         logger.info(f"API ENRICHMENT FOUND for {article_data['uri']}: category={category}, sentiment={sentiment}, driver_type={driver_type}, time_to_impact={time_to_impact}")
                         if category:
@@ -427,6 +437,12 @@ async def get_alerts(
                                 article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
                             except:
                                 article_data["extracted_article_keywords"] = []
+                        
+                        # Add auto-ingest fields
+                        article_data["auto_ingested"] = bool(auto_ingested) if auto_ingested is not None else False
+                        article_data["ingest_status"] = ingest_status
+                        article_data["quality_score"] = quality_score
+                        article_data["quality_issues"] = quality_issues
                         
                         # Debug log to verify enrichment is in article_data
                         if "Uncertainty" in article_data["title"]:
@@ -927,7 +943,7 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
             # Log the count for debugging
             logger.debug(f"Active keywords count: {total_keywords}")
             
-            # Get settings and status together
+            # Get settings and status together (including auto-ingest fields)
             cursor.execute("""
                 SELECT 
                     s.check_interval,
@@ -939,6 +955,13 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                     s.daily_request_limit,
                     s.is_enabled,
                     s.provider,
+                    COALESCE(s.auto_ingest_enabled, FALSE) as auto_ingest_enabled,
+                    COALESCE(s.min_relevance_threshold, 0.0) as min_relevance_threshold,
+                    COALESCE(s.quality_control_enabled, TRUE) as quality_control_enabled,
+                    COALESCE(s.auto_save_approved_only, FALSE) as auto_save_approved_only,
+                    COALESCE(s.default_llm_model, 'gpt-4o-mini') as default_llm_model,
+                    COALESCE(s.llm_temperature, 0.1) as llm_temperature,
+                    COALESCE(s.llm_max_tokens, 1000) as llm_max_tokens,
                     COALESCE(kms.requests_today, 0) as requests_today,
                     kms.last_error
                 FROM keyword_monitor_settings s
@@ -964,8 +987,15 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                     "daily_request_limit": settings[6],
                     "is_enabled": settings[7],
                     "provider": settings[8],
-                    "requests_today": settings[9] if settings[9] is not None else 0,
-                    "last_error": settings[10],
+                    "auto_ingest_enabled": settings[9],
+                    "min_relevance_threshold": settings[10],
+                    "quality_control_enabled": settings[11],
+                    "auto_save_approved_only": settings[12],
+                    "default_llm_model": settings[13],
+                    "llm_temperature": settings[14],
+                    "llm_max_tokens": settings[15],
+                    "requests_today": settings[16] if settings[16] is not None else 0,
+                    "last_error": settings[17],
                     "total_keywords": total_keywords
                 }
                 logger.debug(f"Returning response data: {response_data}")
@@ -981,6 +1011,13 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                     "daily_request_limit": 100,
                     "is_enabled": True,
                     "provider": "newsapi",
+                    "auto_ingest_enabled": False,
+                    "min_relevance_threshold": 0.0,
+                    "quality_control_enabled": True,
+                    "auto_save_approved_only": False,
+                    "default_llm_model": "gpt-4o-mini",
+                    "llm_temperature": 0.1,
+                    "llm_max_tokens": 1000,
                     "requests_today": 0,
                     "last_error": None,
                     "total_keywords": total_keywords
@@ -997,7 +1034,7 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
         with db.get_connection() as conn:
             cursor = conn.cursor()
             
-            # Create table if it doesn't exist
+            # Create table if it doesn't exist (with auto-ingest columns)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS keyword_monitor_settings (
                     id INTEGER PRIMARY KEY,
@@ -1008,17 +1045,26 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
                     sort_by TEXT NOT NULL,
                     page_size INTEGER NOT NULL,
                     daily_request_limit INTEGER NOT NULL,
-                    provider TEXT NOT NULL DEFAULT 'newsapi'
+                    provider TEXT NOT NULL DEFAULT 'newsapi',
+                    auto_ingest_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                    min_relevance_threshold REAL NOT NULL DEFAULT 0.0,
+                    quality_control_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                    auto_save_approved_only BOOLEAN NOT NULL DEFAULT FALSE,
+                    default_llm_model TEXT NOT NULL DEFAULT 'gpt-4o-mini',
+                    llm_temperature REAL NOT NULL DEFAULT 0.1,
+                    llm_max_tokens INTEGER NOT NULL DEFAULT 1000
                 )
             """)
             
-            # Update or insert settings
+            # Update or insert settings (including auto-ingest settings)
             cursor.execute("""
                 INSERT OR REPLACE INTO keyword_monitor_settings (
                     id, check_interval, interval_unit, search_fields,
-                    language, sort_by, page_size, daily_request_limit, provider
+                    language, sort_by, page_size, daily_request_limit, provider,
+                    auto_ingest_enabled, min_relevance_threshold, quality_control_enabled,
+                    auto_save_approved_only, default_llm_model, llm_temperature, llm_max_tokens
                 ) VALUES (
-                    1, ?, ?, ?, ?, ?, ?, ?, ?
+                    1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
             """, (
                 settings.check_interval,
@@ -1028,7 +1074,14 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
                 settings.sort_by,
                 settings.page_size,
                 settings.daily_request_limit,
-                settings.provider
+                settings.provider,
+                settings.auto_ingest_enabled,
+                settings.min_relevance_threshold,
+                settings.quality_control_enabled,
+                settings.auto_save_approved_only,
+                settings.default_llm_model,
+                settings.llm_temperature,
+                settings.llm_max_tokens
             ))
             
             conn.commit()
@@ -1564,7 +1617,11 @@ async def get_group_alerts(
                         a.bias_country,
                         a.press_freedom,
                         a.media_type,
-                        a.popularity
+                        a.popularity,
+                        a.auto_ingested,
+                        a.ingest_status,
+                        a.quality_score,
+                        a.quality_issues
                     FROM keyword_article_matches ka
                     JOIN articles a ON ka.article_uri = a.uri
                     WHERE ka.group_id = ? {read_condition}
@@ -1604,7 +1661,11 @@ async def get_group_alerts(
                         a.bias_country,
                         a.press_freedom,
                         a.media_type,
-                        a.popularity
+                        a.popularity,
+                        a.auto_ingested,
+                        a.ingest_status,
+                        a.quality_score,
+                        a.quality_issues
                     FROM keyword_alerts ka
                     JOIN articles a ON ka.article_uri = a.uri
                     JOIN monitored_keywords mk ON ka.keyword_id = mk.id
@@ -1653,9 +1714,9 @@ async def get_group_alerts(
             alerts = []
             for alert in alert_results:
                 if use_new_table:
-                    alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity = alert
+                    alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
                 else:
-                    alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity = alert
+                    alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
                 
                 # Get all matched keywords for this article and group
                 if use_new_table:
@@ -1750,7 +1811,11 @@ async def get_group_alerts(
                     "bias_country": bias_country,
                     "press_freedom": press_freedom,
                     "media_type": media_type,
-                    "popularity": popularity
+                    "popularity": popularity,
+                    "auto_ingested": bool(auto_ingested) if auto_ingested is not None else False,
+                    "ingest_status": ingest_status,
+                    "quality_score": quality_score,
+                    "quality_issues": quality_issues
                 }
                 
                 # Parse JSON fields for extracted topics and keywords
@@ -2676,3 +2741,208 @@ Analyze this content and provide your assessment."""
         logger.error(f"Error in content review: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+# Auto-ingest endpoints
+class AutoIngestToggle(BaseModel):
+    enabled: bool
+
+class BulkProcessRequest(BaseModel):
+    topic_id: str
+    max_articles: Optional[int] = 100
+    relevance_threshold_override: Optional[float] = None
+    quality_control_enabled: bool = True
+    dry_run: bool = False
+    llm_model_override: Optional[str] = None
+
+@router.post("/auto-ingest/enable")
+async def enable_auto_ingest(
+    toggle: AutoIngestToggle,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """Enable or disable auto-ingest functionality"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Update auto_ingest_enabled setting
+            cursor.execute("""
+                UPDATE keyword_monitor_settings 
+                SET auto_ingest_enabled = ?
+                WHERE id = 1
+            """, (toggle.enabled,))
+            
+            conn.commit()
+            
+            return {
+                "success": True,
+                "auto_ingest_enabled": toggle.enabled,
+                "message": f"Auto-ingest {'enabled' if toggle.enabled else 'disabled'} successfully"
+            }
+            
+    except Exception as e:
+        logger.error(f"Error toggling auto-ingest: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/auto-ingest/disable")
+async def disable_auto_ingest(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """Disable auto-ingest functionality"""
+    return await enable_auto_ingest(AutoIngestToggle(enabled=False), db, session)
+
+@router.get("/auto-ingest/status")
+async def get_auto_ingest_status(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """Get current auto-ingest status and settings"""
+    try:
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get auto-ingest settings
+            cursor.execute("""
+                SELECT 
+                    auto_ingest_enabled,
+                    min_relevance_threshold,
+                    quality_control_enabled,
+                    auto_save_approved_only,
+                    default_llm_model,
+                    llm_temperature,
+                    llm_max_tokens
+                FROM keyword_monitor_settings 
+                WHERE id = 1
+            """)
+            settings = cursor.fetchone()
+            
+            if settings:
+                # Get processing statistics
+                cursor.execute("""
+                    SELECT 
+                        COUNT(*) as total_auto_ingested,
+                        COUNT(CASE WHEN ingest_status = 'approved' THEN 1 END) as approved_count,
+                        COUNT(CASE WHEN ingest_status = 'failed' THEN 1 END) as failed_count,
+                        AVG(quality_score) as avg_quality_score
+                    FROM articles 
+                    WHERE auto_ingested = 1
+                """)
+                stats = cursor.fetchone()
+                
+                return {
+                    "success": True,
+                    "settings": {
+                        "auto_ingest_enabled": bool(settings[0]),
+                        "min_relevance_threshold": float(settings[1] or 0.0),
+                        "quality_control_enabled": bool(settings[2]),
+                        "auto_save_approved_only": bool(settings[3]),
+                        "default_llm_model": settings[4] or "gpt-4o-mini",
+                        "llm_temperature": float(settings[5] or 0.1),
+                        "llm_max_tokens": int(settings[6] or 1000)
+                    },
+                    "statistics": {
+                        "total_auto_ingested": stats[0] if stats else 0,
+                        "approved_count": stats[1] if stats else 0,
+                        "failed_count": stats[2] if stats else 0,
+                        "avg_quality_score": float(stats[3]) if stats and stats[3] else 0.0
+                    }
+                }
+            else:
+                return {
+                    "success": True,
+                    "settings": {
+                        "auto_ingest_enabled": False,
+                        "min_relevance_threshold": 0.0,
+                        "quality_control_enabled": True,
+                        "auto_save_approved_only": False,
+                        "default_llm_model": "gpt-4o-mini",
+                        "llm_temperature": 0.1,
+                        "llm_max_tokens": 1000
+                    },
+                    "statistics": {
+                        "total_auto_ingested": 0,
+                        "approved_count": 0,
+                        "failed_count": 0,
+                        "avg_quality_score": 0.0
+                    }
+                }
+                
+    except Exception as e:
+        logger.error(f"Error getting auto-ingest status: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/auto-ingest/trigger")
+async def trigger_auto_ingest(
+    topic: Optional[str] = None,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """Manually trigger auto-ingest for testing"""
+    try:
+        # Import here to avoid circular imports
+        from app.tasks.keyword_monitor import KeywordMonitor
+        
+        monitor = KeywordMonitor(db)
+        
+        if not monitor.should_auto_ingest():
+            return {
+                "success": False,
+                "message": "Auto-ingest is disabled in settings"
+            }
+        
+        # For manual trigger, we'll simulate with placeholder data
+        # In a real implementation, this would fetch recent articles
+        
+        return {
+            "success": True,
+            "message": "Auto-ingest trigger functionality implemented - requires integration with article collection",
+            "auto_ingest_enabled": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Error triggering auto-ingest: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/bulk-process-topic")
+async def bulk_process_topic(
+    request: BulkProcessRequest,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """Process all articles from a specific topic group with auto-ingest pipeline"""
+    try:
+        # Import here to avoid circular imports
+        from app.services.automated_ingest_service import AutomatedIngestService
+        
+        service = AutomatedIngestService(db)
+        
+        # Prepare processing options
+        options = {
+            "max_articles": request.max_articles,
+            "dry_run": request.dry_run,
+            "relevance_threshold_override": request.relevance_threshold_override,
+            "quality_control_enabled": request.quality_control_enabled,
+            "llm_model_override": request.llm_model_override
+        }
+        
+        # Process the topic articles
+        results = service.bulk_process_topic_articles(request.topic_id, options)
+        
+        # Format the response to match what the frontend expects
+        return {
+            "success": True,
+            "processed_count": results.get("processed_count", 0),
+            "total_count": results.get("total_count", 0),
+            "approved_count": results.get("approved_count", 0),
+            "filtered_count": results.get("filtered_count", 0),
+            "failed_count": results.get("failed_count", 0),
+            "processing_results": results,
+            "topic_id": request.topic_id,
+            "options_used": options,
+            "processing_log": results.get("processing_log", [])
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in bulk topic processing: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
