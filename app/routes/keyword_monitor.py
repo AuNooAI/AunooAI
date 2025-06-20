@@ -2927,7 +2927,7 @@ async def bulk_process_topic(
         }
         
         # Process the topic articles
-        results = service.bulk_process_topic_articles(request.topic_id, options)
+        results = await service.bulk_process_topic_articles(request.topic_id, options)
         
         # Format the response to match what the frontend expects
         return {

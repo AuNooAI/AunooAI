@@ -300,9 +300,9 @@ class AutomatedIngestService:
                 "approved": False
             }
     
-    def scrape_article_content(self, uri: str) -> Optional[str]:
+    async def scrape_article_content(self, uri: str) -> Optional[str]:
         """
-        Scrape full article content from URI
+        Scrape full article content from URI with token limiting
         
         Args:
             uri: Article URI to scrape
@@ -311,18 +311,42 @@ class AutomatedIngestService:
             Scraped content or None if failed
         """
         try:
-            # This would integrate with existing scraping infrastructure
-            # For now, return None to indicate scraping not implemented
             self.logger.debug(f"Scraping content for URI: {uri}")
             
-            # Placeholder - would use app/research.py scraping functionality
-            return None
+            # Check if we already have raw content
+            existing_raw = self.db.get_raw_article(uri)
+            if existing_raw and existing_raw.get('raw_markdown'):
+                self.logger.debug(f"Found existing raw content ({len(existing_raw['raw_markdown'])} chars)")
+                return existing_raw['raw_markdown']
             
+            # Initialize Research class for scraping (reuse existing infrastructure)
+            from app.research import Research
+            research = Research(self.db)
+            
+            # Scrape the article
+            scrape_result = await research.scrape_article(uri)
+            
+            if scrape_result and scrape_result.get('content'):
+                content = scrape_result['content']
+                
+                # Apply token limiting - truncate to reasonable size for processing
+                # Use ArticleAnalyzer's truncate_text method with 65K char limit (roughly 16K tokens)
+                from app.analyzers.article_analyzer import ArticleAnalyzer
+                truncated_content = ArticleAnalyzer.truncate_text(None, content, max_chars=65000)
+                
+                if len(content) > len(truncated_content):
+                    self.logger.info(f"Truncated content from {len(content)} to {len(truncated_content)} chars")
+                
+                return truncated_content
+            else:
+                self.logger.warning(f"No content returned from scraping: {uri}")
+                return None
+                
         except Exception as e:
             self.logger.error(f"Error scraping article content: {e}")
             return None
     
-    def process_articles_batch(self, articles: List[Dict[str, Any]], topic: str = None, keywords: List[str] = None, dry_run: bool = False) -> Dict[str, Any]:
+    async def process_articles_batch(self, articles: List[Dict[str, Any]], topic: str = None, keywords: List[str] = None, dry_run: bool = False) -> Dict[str, Any]:
         """
         Process a batch of articles through the enrichment pipeline
         
@@ -341,22 +365,67 @@ class AutomatedIngestService:
             "relevant": 0,
             "quality_passed": 0,
             "saved": 0,
+            "vector_indexed": 0,
             "errors": []
         }
         
         try:
             for article in articles:
+                article_uri = article.get('uri', 'unknown')
+                article_title = article.get('title', 'Unknown Title')
+                
                 try:
+                    self.logger.info(f"🔄 Starting processing for article: {article_title}")
+                    self.logger.info(f"   URI: {article_uri}")
+                    self.logger.info(f"   Source: {article.get('news_source', 'Unknown')}")
                     results["processed"] += 1
                     
                     # Step 1: Enrich with bias data
+                    self.logger.info(f"📊 Step 1: Enriching with media bias data...")
                     enriched_article = self.enrich_article_with_bias(article)
                     
-                    # Step 1.5: Perform full article analysis (category, sentiment, etc.)
+                    # Log bias enrichment results
+                    bias_data = {
+                        'bias': enriched_article.get('bias'),
+                        'factual_reporting': enriched_article.get('factual_reporting'),
+                        'credibility': enriched_article.get('mbfc_credibility_rating')
+                    }
+                    self.logger.info(f"   ✅ Bias enrichment completed: {bias_data}")
+                    
+                    # Step 1.5: Scrape and save raw content
+                    self.logger.info(f"📄 Step 2: Scraping raw article content...")
+                    try:
+                        raw_content = await self.scrape_article_content(enriched_article.get("uri"))
+                        if raw_content:
+                            # Save raw content to database
+                            self.db.save_raw_article(
+                                enriched_article.get("uri"),
+                                raw_content,
+                                topic or enriched_article.get("topic", "")
+                            )
+                            self.logger.info(f"   ✅ Raw content scraped and saved ({len(raw_content)} chars)")
+                        else:
+                            self.logger.warning(f"   ⚠️ No raw content available for scraping")
+                    except Exception as scrape_error:
+                        self.logger.warning(f"   ⚠️ Raw content scraping failed: {scrape_error}")
+                        # Continue processing even if scraping fails
+
+                    # Step 2: Perform full article analysis (category, sentiment, etc.)
+                    self.logger.info(f"🧠 Step 3: Performing LLM analysis...")
                     enriched_article = self.analyze_article_content(enriched_article)
                     results["enriched"] += 1
                     
-                    # Step 2: Score relevance
+                    # Log analysis results
+                    analysis_data = {
+                        'category': enriched_article.get('category'),
+                        'sentiment': enriched_article.get('sentiment'),
+                        'future_signal': enriched_article.get('future_signal'),
+                        'driver_type': enriched_article.get('driver_type')
+                    }
+                    self.logger.info(f"   ✅ LLM analysis completed: {analysis_data}")
+                    
+                    # Step 3: Score relevance
+                    self.logger.info(f"🎯 Step 4: Scoring relevance...")
                     relevance_result = self.score_article_relevance(enriched_article, topic, keywords)
                     
                     # Store relevance data in enriched article
@@ -367,16 +436,32 @@ class AutomatedIngestService:
                         "overall_match_explanation": relevance_result.get("overall_match_explanation")
                     })
                     
-                    # Check relevance threshold
+                    # Log relevance results
+                    relevance_score = relevance_result.get("relevance_score", 0)
                     relevance_threshold = self.get_relevance_threshold()
-                    if relevance_result.get("relevance_score", 0) >= relevance_threshold:
+                    self.logger.info(f"   ✅ Relevance scoring completed:")
+                    self.logger.info(f"      Score: {relevance_score:.3f} (threshold: {relevance_threshold:.3f})")
+                    self.logger.info(f"      Topic alignment: {relevance_result.get('topic_alignment_score', 0):.3f}")
+                    self.logger.info(f"      Keyword relevance: {relevance_result.get('keyword_relevance_score', 0):.3f}")
+                    
+                    # Check relevance threshold
+                    if relevance_score >= relevance_threshold:
                         results["relevant"] += 1
+                        self.logger.info(f"   ✅ Article meets relevance threshold - proceeding to quality check")
                         
-                        # Step 3: Quality check
+                        # Step 4: Quality check
+                        self.logger.info(f"🔍 Step 5: Quality control check...")
                         quality_result = self.quality_check_article(enriched_article)
                         
-                        if quality_result.get("approved", False):
+                        quality_score = quality_result.get("quality_score", 0)
+                        quality_approved = quality_result.get("approved", False)
+                        self.logger.info(f"   ✅ Quality check completed:")
+                        self.logger.info(f"      Score: {quality_score:.3f}")
+                        self.logger.info(f"      Approved: {quality_approved}")
+                        
+                        if quality_approved:
                             results["quality_passed"] += 1
+                            self.logger.info(f"   ✅ Article approved for ingestion")
                             
                             # Update article with processing results
                             enriched_article.update({
@@ -388,6 +473,7 @@ class AutomatedIngestService:
                             # Save approved article to database (unless dry run)
                             if not dry_run:
                                 try:
+                                    self.logger.info(f"💾 Step 6: Saving to database...")
                                     # Update the existing article record with auto-ingest data AND enrichment data
                                     with self.db.get_connection() as conn:
                                         cursor = conn.cursor()
@@ -446,20 +532,61 @@ class AutomatedIngestService:
                                         conn.commit()
                                         
                                     results["saved"] += 1
-                                    self.logger.debug(f"Updated article with auto-ingest data: {enriched_article.get('uri')}")
+                                    self.logger.info(f"   ✅ Database update completed")
+                                    
+                                    # ✅ ADD VECTOR DATABASE UPSERT
+                                    try:
+                                        self.logger.info(f"🔍 Step 7: Upserting to vector database...")
+                                        from app.vector_store import upsert_article
+                                        
+                                        # Create a copy of enriched article for vector indexing
+                                        vector_article = enriched_article.copy()
+                                        
+                                        # Try to get raw content for better vector indexing
+                                        try:
+                                            raw_article = self.db.get_raw_article(enriched_article.get("uri"))
+                                            if raw_article and raw_article.get('raw_markdown'):
+                                                vector_article['raw'] = raw_article['raw_markdown']
+                                                self.logger.info(f"   📄 Found raw content for vector indexing ({len(raw_article['raw_markdown'])} chars)")
+                                            else:
+                                                self.logger.info(f"   📄 No raw content found, using summary for vector indexing")
+                                        except Exception as raw_error:
+                                            self.logger.warning(f"   ⚠️ Could not retrieve raw content: {raw_error}")
+                                        
+                                        # Ensure we have some content for indexing
+                                        if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
+                                            # Index into vector database
+                                            upsert_article(vector_article)
+                                            results["vector_indexed"] += 1
+                                            self.logger.info(f"   ✅ Vector database upsert completed")
+                                        else:
+                                            self.logger.warning(f"   ⚠️ No content available for vector indexing")
+                                            
+                                    except Exception as vector_error:
+                                        self.logger.error(f"   ❌ Failed to upsert to vector database: {str(vector_error)}")
+                                        # Don't fail the entire operation if vector indexing fails
+                                        self.logger.warning("   ⚠️ Article saved to database but not indexed in vector store")
+                                    
+                                    self.logger.info(f"✅ Successfully processed and saved article: {article_title}")
+                                    
                                 except Exception as save_error:
                                     error_msg = f"Error updating article {enriched_article.get('uri', 'unknown')}: {str(save_error)}"
                                     results["errors"].append(error_msg)
-                                    self.logger.error(error_msg)
+                                    self.logger.error(f"❌ Database save failed: {error_msg}")
                             else:
                                 # In dry run mode, simulate saving
                                 results["saved"] += 1
-                                self.logger.debug(f"Dry run: Would update article: {enriched_article.get('uri')}")
+                                results["vector_indexed"] += 1
+                                self.logger.info(f"🧪 Dry run: Would update and vector index article: {enriched_article.get('uri')}")
                             
                         else:
+                            self.logger.warning(f"   ❌ Article failed quality check - marking as failed")
+                            quality_issues = quality_result.get("quality_issues", "Unknown quality issues")
+                            self.logger.warning(f"      Issues: {quality_issues}")
+                            
                             enriched_article.update({
                                 "ingest_status": "failed",
-                                "quality_issues": quality_result.get("quality_issues"),
+                                "quality_issues": quality_issues,
                                 "auto_ingested": True
                             })
                             
@@ -484,22 +611,35 @@ class AutomatedIngestService:
                                         ))
                                         conn.commit()
                                         
-                                    self.logger.debug(f"Updated failed quality check article: {enriched_article.get('uri')}")
+                                    self.logger.info(f"   ✅ Updated failed quality check article in database")
                                 except Exception as save_error:
                                     error_msg = f"Error updating failed article {enriched_article.get('uri', 'unknown')}: {str(save_error)}"
                                     results["errors"].append(error_msg)
-                                    self.logger.error(error_msg)
+                                    self.logger.error(f"❌ Failed article update error: {error_msg}")
+                    else:
+                        self.logger.warning(f"   ❌ Article below relevance threshold ({relevance_score:.3f} < {relevance_threshold:.3f}) - skipping")
                     
                 except Exception as e:
                     error_msg = f"Error processing article {article.get('uri', 'unknown')}: {str(e)}"
                     results["errors"].append(error_msg)
-                    self.logger.error(error_msg)
+                    self.logger.error(f"❌ Article processing failed: {error_msg}")
+                    
+                # Add separator between articles for readability
+                self.logger.info(f"{'='*80}")
             
-            self.logger.info(f"Batch processing completed: {results}")
+            self.logger.info(f"🏁 Batch processing completed:")
+            self.logger.info(f"   📊 Processed: {results['processed']}")
+            self.logger.info(f"   🧠 Enriched: {results['enriched']}")
+            self.logger.info(f"   🎯 Relevant: {results['relevant']}")
+            self.logger.info(f"   ✅ Quality passed: {results['quality_passed']}")
+            self.logger.info(f"   💾 Saved: {results['saved']}")
+            self.logger.info(f"   🔍 Vector indexed: {results['vector_indexed']}")
+            self.logger.info(f"   ❌ Errors: {len(results['errors'])}")
+            
             return results
             
         except Exception as e:
-            self.logger.error(f"Error in batch processing: {e}")
+            self.logger.error(f"❌ Error in batch processing: {e}")
             results["errors"].append(f"Batch processing error: {str(e)}")
             return results
     
@@ -607,7 +747,7 @@ class AutomatedIngestService:
             "llm_max_tokens": 1000
         }
     
-    def bulk_process_topic_articles(self, topic_id: str, options: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def bulk_process_topic_articles(self, topic_id: str, options: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Process all articles for a specific topic group with custom options
         
@@ -740,7 +880,7 @@ class AutomatedIngestService:
                 }
             else:
                 # Actually process the articles
-                results = self.process_articles_batch(articles_to_process, topic_id, keywords)
+                results = await self.process_articles_batch(articles_to_process, topic_id, keywords)
                 
                 # Map internal field names to UI expected field names
                 ui_results = {

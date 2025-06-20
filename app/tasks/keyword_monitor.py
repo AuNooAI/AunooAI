@@ -567,7 +567,7 @@ class KeywordMonitor:
                 formatted_articles.append(formatted_article)
             
             # Process articles through the automated pipeline
-            results = self.auto_ingest_service.process_articles_batch(formatted_articles, topic, keywords)
+            results = await self.auto_ingest_service.process_articles_batch(formatted_articles, topic, keywords)
             
             # Note: The process_articles_batch method handles its own saving logic
             # We don't need to save articles here as they are already processed
