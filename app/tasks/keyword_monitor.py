@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from app.collectors.newsapi_collector import NewsAPICollector
 from app.database import Database
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +25,30 @@ _background_task_status = {
     "next_check_time": None
 }
 
+# Global variable to track keyword monitor auto-ingest jobs
+# This integrates with the job tracking system in keyword_monitor.py routes
+_keyword_monitor_jobs = {}
+
+class KeywordMonitorJob:
+    """Job tracking for keyword monitor auto-ingest processing"""
+    def __init__(self, job_id: str, topic: str, article_count: int):
+        self.job_id = job_id
+        self.topic = topic
+        self.article_count = article_count
+        self.status = "running"
+        self.progress = 0
+        self.results = None
+        self.error = None
+        self.started_at = datetime.utcnow()
+        self.completed_at = None
+
 def get_task_status() -> Dict:
     """Get the current status of the keyword monitor background task"""
     return _background_task_status.copy()
+
+def get_keyword_monitor_jobs() -> Dict:
+    """Get all active keyword monitor jobs for integration with badge system"""
+    return _keyword_monitor_jobs.copy()
 
 class KeywordMonitor:
     def __init__(self, db: Database):
@@ -547,8 +569,13 @@ class KeywordMonitor:
             logger.debug("Auto-ingest is disabled, skipping pipeline")
             return {"success": True, "message": "Auto-ingest disabled", "processed": 0}
         
+        # Create job tracking for badge system
+        job_id = f"keyword-monitor-{uuid.uuid4()}"
+        job = KeywordMonitorJob(job_id, topic, len(articles))
+        _keyword_monitor_jobs[job_id] = job
+        
         try:
-            logger.info(f"Starting auto-ingest pipeline for {len(articles)} articles on topic '{topic}'")
+            logger.info(f"Starting auto-ingest pipeline for {len(articles)} articles on topic '{topic}' (Job ID: {job_id})")
             
             # Convert articles to the format expected by the auto-ingest service
             # The news collector returns articles with 'url', 'source', etc.
@@ -569,16 +596,34 @@ class KeywordMonitor:
             # Process articles through the automated pipeline
             results = await self.auto_ingest_service.process_articles_batch(formatted_articles, topic, keywords)
             
-            # Note: The process_articles_batch method handles its own saving logic
-            # We don't need to save articles here as they are already processed
-            # and saved within the service if they meet the criteria
+            # Update job status
+            job.status = "completed"
+            job.results = results
+            job.completed_at = datetime.utcnow()
             
-            logger.info(f"Auto-ingest pipeline completed: {results}")
+            # Schedule cleanup after 2 minutes
+            asyncio.create_task(self._cleanup_job_after_delay(job_id, 120))
+            
+            logger.info(f"Auto-ingest pipeline completed: {results} (Job ID: {job_id})")
             return results
             
         except Exception as e:
-            logger.error(f"Error in auto-ingest pipeline: {e}")
+            logger.error(f"Error in auto-ingest pipeline: {e} (Job ID: {job_id})")
+            job.status = "failed"
+            job.error = str(e)
+            job.completed_at = datetime.utcnow()
+            
+            # Schedule cleanup after 2 minutes even on failure
+            asyncio.create_task(self._cleanup_job_after_delay(job_id, 120))
+            
             return {"success": False, "error": str(e)}
+    
+    async def _cleanup_job_after_delay(self, job_id: str, delay_seconds: int):
+        """Clean up completed job after a delay"""
+        await asyncio.sleep(delay_seconds)
+        if job_id in _keyword_monitor_jobs:
+            logger.debug(f"Cleaning up keyword monitor job {job_id}")
+            del _keyword_monitor_jobs[job_id]
 
 async def run_keyword_monitor():
     """Background task to periodically check keywords"""

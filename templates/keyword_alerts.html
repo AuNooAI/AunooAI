@@ -1635,6 +1635,40 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     font-weight: 600;
     margin-bottom: 15px;
 }
+
+/* Processing status badge styling */
+#processingStatusBadge {
+    font-size: 0.875rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: all 0.3s ease;
+}
+
+#processingStatusBadge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+#processingStatusBadge .fa-spinner {
+    animation: spin 1s linear infinite;
+    color: rgba(255,255,255,0.9);
+}
+
+#processingStatusBadge.bg-warning {
+    background-color: #f0ad4e !important;
+    color: #fff;
+}
+
+#processingStatusBadge.bg-success {
+    background-color: #28a745 !important;
+    color: #fff;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
 </style>
 {% endblock %}
 
@@ -1650,6 +1684,10 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                 <div class="d-flex align-items-center gap-3">
                     <span class="text-muted">
                         <i class="fas fa-clock"></i> Last search: {{ last_check_time|default('Never', true) }}
+                    </span>
+                    <!-- Processing Status Badge -->
+                    <span id="processingStatusBadge" class="badge bg-success" style="display: none;">
+                        <i class="fas fa-spinner fa-spin me-1"></i> Processing <span id="processingCount">0</span> jobs
                     </span>
                     {% if last_error %}
                         <span class="text-danger">
@@ -7618,7 +7656,7 @@ function updateBulkThresholdDisplay(value) {
     document.getElementById('bulkThresholdValue').textContent = `${percentage}%`;
 }
 
-// Start bulk processing
+// Start bulk processing (async with polling)
 async function startBulkProcess() {
     const modal = document.getElementById('bulkProcessModal');
     const topic = modal.dataset.topic;
@@ -7643,7 +7681,9 @@ async function startBulkProcess() {
         document.getElementById('bulkProcessProgress').style.display = 'block';
         document.getElementById('bulkProcessResults').style.display = 'none';
         document.getElementById('startBulkProcessBtn').disabled = true;
+        document.getElementById('bulkProcessStatus').textContent = 'Starting processing...';
         
+        // Start the background job
         const response = await fetch('/api/keyword-monitor/bulk-process-topic', {
             method: 'POST',
             headers: {
@@ -7658,50 +7698,254 @@ async function startBulkProcess() {
 
         const result = await response.json();
         
-        if (result.success) {
-            // Update progress
-            document.getElementById('bulkProcessStatus').textContent = 'Processing completed';
-            document.getElementById('bulkProcessedCount').textContent = result.processed_count || 0;
-            document.getElementById('bulkTotalCount').textContent = result.total_count || 0;
-            document.getElementById('bulkProgressBar').style.width = '100%';
-            
-            // Show results
-            document.getElementById('bulkProcessResults').style.display = 'block';
-            document.getElementById('bulkResultsProcessed').textContent = result.processed_count || 0;
-            document.getElementById('bulkResultsApproved').textContent = result.approved_count || 0;
-            document.getElementById('bulkResultsFiltered').textContent = result.filtered_count || 0;
-            document.getElementById('bulkResultsFailed').textContent = result.failed_count || 0;
-            
-            // Show processing log
-            const logContainer = document.getElementById('bulkProcessLog');
-            if (result.processing_log) {
-                logContainer.innerHTML = result.processing_log.map(entry => 
-                    `<div class="text-muted small">${entry}</div>`
-                ).join('');
-            }
-            
-            const mode = options.dry_run ? 'dry-run' : 'processing';
-            showAlert(`Bulk ${mode} completed successfully!`, 'success');
-            
-            // Refresh the articles list to show updated statuses and relevance scores
-            if (!options.dry_run) {
-                setTimeout(() => {
-                    window.location.reload();
-                }, 2000); // Give user time to see the success message
-            }
+        if (result.success && result.job_id) {
+            // Start polling for job status
+            document.getElementById('bulkProcessStatus').textContent = 'Processing in background...';
+            await pollBulkProcessStatus(result.job_id, options.dry_run);
         } else {
-            throw new Error(result.error || 'Bulk processing failed');
+            throw new Error(result.error || 'Failed to start bulk processing job');
         }
     } catch (error) {
-        console.error('Error in bulk processing:', error);
-        showAlert(`Bulk processing failed: ${error.message}`, 'danger');
+        console.error('Error starting bulk processing:', error);
+        showAlert(`Failed to start bulk processing: ${error.message}`, 'danger');
         
         // Show error in progress section
         document.getElementById('bulkProcessStatus').textContent = `Error: ${error.message}`;
-    } finally {
         document.getElementById('startBulkProcessBtn').disabled = false;
     }
 }
 
+// Poll for bulk processing job status
+async function pollBulkProcessStatus(jobId, isDryRun) {
+    const maxRetries = 120; // 10 minutes max (5s intervals)
+    let retries = 0;
+    
+    const poll = async () => {
+        try {
+            const response = await fetch(`/api/keyword-monitor/bulk-process-status/${jobId}`);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            const statusResult = await response.json();
+            
+            // Update status display
+            if (statusResult.status === 'running') {
+                document.getElementById('bulkProcessStatus').textContent = 'Processing articles...';
+                
+                // Continue polling
+                retries++;
+                if (retries < maxRetries) {
+                    setTimeout(poll, 5000); // Poll every 5 seconds
+                } else {
+                    throw new Error('Processing timeout - job is taking too long');
+                }
+            } else if (statusResult.status === 'completed') {
+                // Job completed successfully
+                const results = statusResult.results;
+                
+                // Update progress
+                document.getElementById('bulkProcessStatus').textContent = 'Processing completed';
+                document.getElementById('bulkProcessedCount').textContent = results.processed_count || 0;
+                document.getElementById('bulkTotalCount').textContent = results.total_count || 0;
+                document.getElementById('bulkProgressBar').style.width = '100%';
+                
+                // Show results
+                document.getElementById('bulkProcessResults').style.display = 'block';
+                document.getElementById('bulkResultsProcessed').textContent = results.processed_count || 0;
+                document.getElementById('bulkResultsApproved').textContent = results.approved_count || 0;
+                document.getElementById('bulkResultsFiltered').textContent = results.filtered_count || 0;
+                document.getElementById('bulkResultsFailed').textContent = results.failed_count || 0;
+                
+                // Show processing log
+                const logContainer = document.getElementById('bulkProcessLog');
+                if (results.processing_log) {
+                    logContainer.innerHTML = results.processing_log.map(entry => 
+                        `<div class="text-muted small">${entry}</div>`
+                    ).join('');
+                }
+                
+                const mode = isDryRun ? 'dry-run' : 'processing';
+                showAlert(`Bulk ${mode} completed successfully!`, 'success');
+                
+                // Refresh the articles list to show updated statuses and relevance scores
+                if (!isDryRun) {
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 2000); // Give user time to see the success message
+                }
+                
+                document.getElementById('startBulkProcessBtn').disabled = false;
+                
+            } else if (statusResult.status === 'failed') {
+                // Job failed
+                throw new Error(statusResult.error || 'Processing job failed');
+            } else {
+                // Unknown status
+                throw new Error(`Unknown job status: ${statusResult.status}`);
+            }
+            
+        } catch (error) {
+            console.error('Error polling job status:', error);
+            showAlert(`Processing failed: ${error.message}`, 'danger');
+            document.getElementById('bulkProcessStatus').textContent = `Error: ${error.message}`;
+            document.getElementById('startBulkProcessBtn').disabled = false;
+        }
+    };
+    
+    // Start polling
+    setTimeout(poll, 2000); // Start first poll after 2 seconds
+}
+
+// Processing status monitoring functions
+let processingStatusInterval = null;
+
+// Initialize processing status monitoring
+function initProcessingStatusMonitoring() {
+    // Poll for active jobs every 10 seconds
+    processingStatusInterval = setInterval(updateProcessingStatus, 10000);
+    
+    // Update immediately on page load
+    updateProcessingStatus();
+}
+
+// Update processing status badge
+async function updateProcessingStatus() {
+    try {
+        const response = await fetch('/api/keyword-monitor/active-jobs-status', {
+            credentials: 'same-origin'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            const badge = document.getElementById('processingStatusBadge');
+            
+            if (!badge) {
+                console.error('Processing status badge element not found!');
+                return;
+            }
+            
+            console.log('Processing status update:', {
+                total_active: result.total_active,
+                total_jobs: result.total_jobs,
+                active_jobs: result.active_jobs,
+                current_badge_display: badge.style.display,
+                current_badge_className: badge.className
+            });
+            
+            if (result.total_active > 0) {
+                // Show badge with active job count
+                badge.style.display = 'inline-block';
+                badge.style.visibility = 'visible';
+                
+                // Update badge color based on number of jobs
+                badge.className = result.total_active > 3 ? 'badge bg-warning' : 'badge bg-success';
+                
+                // Update the full badge content properly with job type info
+                const jobText = result.total_active === 1 ? 'job' : 'jobs';
+                let badgeText = `Processing ${result.total_active} ${jobText}`;
+                
+                // Add more specific info if we have job details
+                if (result.active_jobs && result.active_jobs.length > 0) {
+                    const bulkJobs = result.active_jobs.filter(j => j.job_type === 'bulk_processing').length;
+                    const autoIngestJobs = result.active_jobs.filter(j => j.job_type === 'keyword_monitor_auto_ingest').length;
+                    
+                    if (bulkJobs > 0 && autoIngestJobs > 0) {
+                        badgeText = `Processing ${bulkJobs} bulk + ${autoIngestJobs} auto-ingest`;
+                    } else if (bulkJobs > 0) {
+                        badgeText = `Processing ${bulkJobs} bulk ${bulkJobs === 1 ? 'job' : 'jobs'}`;
+                    } else if (autoIngestJobs > 0) {
+                        badgeText = `Auto-ingesting ${autoIngestJobs} ${autoIngestJobs === 1 ? 'batch' : 'batches'}`;
+                    }
+                }
+                
+                badge.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i> ${badgeText}`;
+                
+                console.log('Badge shown with', result.total_active, 'active jobs');
+            } else {
+                // Force hide badge when no active jobs
+                badge.style.display = 'none';
+                badge.style.visibility = 'hidden';
+                badge.className = 'badge bg-success';
+                
+                console.log('Badge force-hidden - no active jobs, display:', badge.style.display, 'visibility:', badge.style.visibility);
+            }
+        }
+    } catch (error) {
+        console.error('Error updating processing status:', error);
+        // Force hide badge on error
+        const badge = document.getElementById('processingStatusBadge');
+        if (badge) {
+            badge.style.display = 'none';
+            badge.style.visibility = 'hidden';
+        }
+    }
+}
+
+// Start monitoring when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    initProcessingStatusMonitoring();
+});
+
+// Clean up interval when page unloads
+window.addEventListener('beforeunload', function() {
+    if (processingStatusInterval) {
+        clearInterval(processingStatusInterval);
+    }
+});
+
+// Manual functions for debugging
+async function clearCompletedJobs() {
+    try {
+        const response = await fetch('/api/keyword-monitor/clear-completed-jobs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin'
+        });
+        const result = await response.json();
+        console.log('Clear completed jobs result:', result);
+        
+        // Force update status after clearing
+        await updateProcessingStatus();
+        
+        return result;
+    } catch (error) {
+        console.error('Error clearing completed jobs:', error);
+    }
+}
+
+async function forceHideBadge() {
+    const badge = document.getElementById('processingStatusBadge');
+    if (badge) {
+        badge.style.display = 'none';
+        badge.style.visibility = 'hidden';
+        console.log('Badge force-hidden manually');
+    }
+}
+
+async function debugJobStatus() {
+    try {
+        const response = await fetch('/api/keyword-monitor/active-jobs-status', {
+            credentials: 'same-origin'
+        });
+        const result = await response.json();
+        console.log('Debug job status:', result);
+        return result;
+    } catch (error) {
+        console.error('Error debugging job status:', error);
+    }
+}
+
+// Add debug functions to window for console access
+window.clearCompletedJobs = clearCompletedJobs;
+window.forceHideBadge = forceHideBadge;
+window.debugJobStatus = debugJobStatus;
+
 </script>
-{% endblock %} 
+{% endblock %}

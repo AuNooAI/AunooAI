@@ -20,6 +20,7 @@ from app.ai_models import LiteLLMModel
 import asyncio
 import requests
 from app.config.config import load_config
+import time
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -370,6 +371,13 @@ class AutomatedIngestService:
         }
         
         try:
+            # Pre-scrape all articles in batch for efficiency
+            article_uris = [article.get('uri') for article in articles if article.get('uri')]
+            self.logger.info(f"🚀 Pre-scraping {len(article_uris)} articles in batch...")
+            
+            scraped_content = await self.scrape_articles_batch(article_uris)
+            self.logger.info(f"✅ Batch scraping completed: {len(scraped_content)} articles")
+            
             for article in articles:
                 article_uri = article.get('uri', 'unknown')
                 article_title = article.get('title', 'Unknown Title')
@@ -392,23 +400,38 @@ class AutomatedIngestService:
                     }
                     self.logger.info(f"   ✅ Bias enrichment completed: {bias_data}")
                     
-                    # Step 1.5: Scrape and save raw content
-                    self.logger.info(f"📄 Step 2: Scraping raw article content...")
-                    try:
-                        raw_content = await self.scrape_article_content(enriched_article.get("uri"))
-                        if raw_content:
+                    # Step 1.5: Get pre-scraped content
+                    self.logger.info(f"📄 Step 2: Getting pre-scraped article content...")
+                    raw_content = scraped_content.get(article_uri)
+                    
+                    if raw_content:
+                        try:
                             # Save raw content to database
                             self.db.save_raw_article(
                                 enriched_article.get("uri"),
                                 raw_content,
                                 topic or enriched_article.get("topic", "")
                             )
-                            self.logger.info(f"   ✅ Raw content scraped and saved ({len(raw_content)} chars)")
-                        else:
-                            self.logger.warning(f"   ⚠️ No raw content available for scraping")
-                    except Exception as scrape_error:
-                        self.logger.warning(f"   ⚠️ Raw content scraping failed: {scrape_error}")
-                        # Continue processing even if scraping fails
+                            self.logger.info(f"   ✅ Raw content from batch scraping saved ({len(raw_content)} chars)")
+                        except Exception as save_error:
+                            self.logger.warning(f"   ⚠️ Failed to save raw content: {save_error}")
+                    else:
+                        self.logger.warning(f"   ❌ No content available from batch scraping for: {article_uri}")
+                        # Try individual scraping as fallback
+                        try:
+                            raw_content = await self.scrape_article_content(article_uri)
+                            if raw_content:
+                                self.db.save_raw_article(
+                                    enriched_article.get("uri"),
+                                    raw_content,
+                                    topic or enriched_article.get("topic", "")
+                                )
+                                self.logger.info(f"   ✅ Fallback individual scraping successful ({len(raw_content)} chars)")
+                            else:
+                                self.logger.warning(f"   ❌ Individual scraping also failed: {article_uri}")
+                        except Exception as scrape_error:
+                            self.logger.warning(f"   ⚠️ Individual scraping failed: {scrape_error}")
+                            # Continue processing even if scraping fails
 
                     # Step 2: Perform full article analysis (category, sentiment, etc.)
                     self.logger.info(f"🧠 Step 3: Performing LLM analysis...")
@@ -480,6 +503,8 @@ class AutomatedIngestService:
                                         cursor.execute("""
                                             UPDATE articles 
                                             SET 
+                                                title = COALESCE(?, title),
+                                                summary = COALESCE(?, summary),
                                                 auto_ingested = 1,
                                                 ingest_status = ?,
                                                 quality_score = ?,
@@ -502,9 +527,13 @@ class AutomatedIngestService:
                                                 time_to_impact = ?,
                                                 driver_type = ?,
                                                 tags = ?,
-                                                analyzed = ?
+                                                analyzed = ?,
+                                                confidence_score = ?,
+                                                overall_match_explanation = ?
                                             WHERE uri = ?
                                         """, (
+                                            enriched_article.get("title"),
+                                            enriched_article.get("summary"),
                                             enriched_article.get("ingest_status"),
                                             enriched_article.get("quality_score"),
                                             enriched_article.get("quality_issues"),
@@ -527,6 +556,8 @@ class AutomatedIngestService:
                                             enriched_article.get("driver_type"),
                                             enriched_article.get("tags"),
                                             enriched_article.get("analyzed", True),
+                                            enriched_article.get("confidence_score"),
+                                            enriched_article.get("overall_match_explanation"),
                                             enriched_article.get("uri")
                                         ))
                                         conn.commit()
@@ -913,4 +944,205 @@ class AutomatedIngestService:
                 "success": False,
                 "error": str(e),
                 "topic": topic_id
-            } 
+            }
+    
+    async def scrape_articles_batch(self, uris: List[str]) -> Dict[str, Optional[str]]:
+        """
+        Scrape multiple articles using Firecrawl's batch API
+        
+        Args:
+            uris: List of article URIs to scrape
+            
+        Returns:
+            Dictionary mapping URIs to scraped content (or None if failed)
+        """
+        if not uris:
+            return {}
+            
+        results = {}
+        
+        try:
+            self.logger.info(f"Starting batch scraping for {len(uris)} articles")
+            
+            # Check for existing articles first
+            existing_articles = {}
+            for uri in uris:
+                existing_raw = self.db.get_raw_article(uri)
+                if existing_raw and existing_raw.get('raw_markdown'):
+                    existing_articles[uri] = existing_raw['raw_markdown']
+                    self.logger.debug(f"Found existing content for {uri}")
+            
+            # Filter out articles we already have
+            uris_to_scrape = [uri for uri in uris if uri not in existing_articles]
+            
+            if not uris_to_scrape:
+                self.logger.info("All articles already scraped, returning existing content")
+                return existing_articles
+            
+            # Initialize Research class for Firecrawl access
+            from app.research import Research
+            research = Research(self.db)
+            
+            if not research.firecrawl_app:
+                self.logger.warning("Firecrawl not available, falling back to individual scraping")
+                return await self._fallback_individual_scraping(uris)
+            
+            # Use Firecrawl batch API
+            batch_result = await self._firecrawl_batch_scrape(research.firecrawl_app, uris_to_scrape)
+            
+            # Combine existing and newly scraped content
+            results.update(existing_articles)
+            results.update(batch_result)
+            
+            self.logger.info(f"Batch scraping completed: {len(results)} articles processed")
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Error in batch scraping: {e}")
+            # Fallback to individual scraping on batch failure
+            return await self._fallback_individual_scraping(uris)
+    
+    async def _firecrawl_batch_scrape(self, firecrawl_app, uris: List[str]) -> Dict[str, Optional[str]]:
+        """
+        Use Firecrawl's batch API to scrape multiple URLs
+        
+        Args:
+            firecrawl_app: Firecrawl application instance
+            uris: List of URIs to scrape
+            
+        Returns:
+            Dictionary mapping URIs to scraped content
+        """
+        try:
+            # Prepare batch request
+            batch_data = {
+                "urls": uris,
+                "formats": ["markdown"],
+                "onlyMainContent": True,
+                "timeout": 30000,
+                "maxConcurrency": 5  # Limit concurrent requests
+            }
+            
+            self.logger.info(f"Submitting batch scrape request for {len(uris)} URLs")
+            
+            # Submit batch request using async method
+            batch_response = firecrawl_app.async_batch_scrape_urls(uris_to_scrape, **{
+                k: v for k, v in batch_data.items() if k != 'urls'
+            })
+            
+            if not batch_response or not batch_response.get('success'):
+                self.logger.error(f"Batch scrape failed: {batch_response}")
+                return {}
+            
+            batch_id = batch_response.get('id')
+            if not batch_id:
+                self.logger.error("No batch ID returned from Firecrawl")
+                return {}
+            
+            self.logger.info(f"Batch scrape submitted with ID: {batch_id}")
+            
+            # Poll for completion
+            results = await self._poll_batch_completion(firecrawl_app, batch_id)
+            
+            # Process results
+            processed_results = {}
+            for uri, content in results.items():
+                if content:
+                    # Apply token limiting
+                    from app.analyzers.article_analyzer import ArticleAnalyzer
+                    truncated_content = ArticleAnalyzer.truncate_text(None, content, max_chars=65000)
+                    
+                    if len(content) > len(truncated_content):
+                        self.logger.info(f"Truncated content for {uri}: {len(content)} -> {len(truncated_content)} chars")
+                    
+                    processed_results[uri] = truncated_content
+                else:
+                    processed_results[uri] = None
+            
+            return processed_results
+            
+        except Exception as e:
+            self.logger.error(f"Error in Firecrawl batch scraping: {e}")
+            return {}
+    
+    async def _poll_batch_completion(self, firecrawl_app, batch_id: str, max_wait_time: int = 300) -> Dict[str, Optional[str]]:
+        """
+        Poll Firecrawl batch API for completion
+        
+        Args:
+            firecrawl_app: Firecrawl application instance
+            batch_id: Batch job ID
+            max_wait_time: Maximum time to wait in seconds
+            
+        Returns:
+            Dictionary mapping URIs to scraped content
+        """
+        start_time = time.time()
+        poll_interval = 5  # Start with 5 second intervals
+        
+        while time.time() - start_time < max_wait_time:
+            try:
+                status_response = firecrawl_app.check_batch_scrape_status(batch_id)
+                
+                if not status_response:
+                    self.logger.warning(f"No status response for batch {batch_id}")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                status = status_response.get('status')
+                self.logger.debug(f"Batch {batch_id} status: {status}")
+                
+                if status == 'completed':
+                    # Get results
+                    results = {}
+                    data = status_response.get('data', [])
+                    
+                    for item in data:
+                        url = item.get('url')
+                        if item.get('success') and 'markdown' in item:
+                            results[url] = item['markdown']
+                        else:
+                            results[url] = None
+                            self.logger.warning(f"Failed to scrape {url}: {item.get('error', 'Unknown error')}")
+                    
+                    self.logger.info(f"Batch {batch_id} completed with {len(results)} results")
+                    return results
+                    
+                elif status == 'failed':
+                    self.logger.error(f"Batch {batch_id} failed: {status_response.get('error', 'Unknown error')}")
+                    return {}
+                    
+                # Still processing, wait before next poll
+                await asyncio.sleep(poll_interval)
+                
+                # Increase poll interval gradually
+                poll_interval = min(poll_interval * 1.2, 30)
+                
+            except Exception as e:
+                self.logger.error(f"Error polling batch status: {e}")
+                await asyncio.sleep(poll_interval)
+        
+        self.logger.warning(f"Batch {batch_id} timed out after {max_wait_time} seconds")
+        return {}
+    
+    async def _fallback_individual_scraping(self, uris: List[str]) -> Dict[str, Optional[str]]:
+        """
+        Fallback to individual scraping if batch fails
+        
+        Args:
+            uris: List of URIs to scrape
+            
+        Returns:
+            Dictionary mapping URIs to scraped content
+        """
+        results = {}
+        
+        for uri in uris:
+            try:
+                content = await self.scrape_article_content(uri)
+                results[uri] = content
+            except Exception as e:
+                self.logger.error(f"Individual scraping failed for {uri}: {e}")
+                results[uri] = None
+        
+        return results 

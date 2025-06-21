@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 from sqlalchemy.orm import Session
 from app.research import Research
@@ -101,67 +101,79 @@ class BulkResearch:
             logger.error(f"Error setting up analysis: {str(e)}")
             raise ValueError(f"Error in setup: {str(e)}")
 
+        # Pre-scrape all articles in batch for better performance
+        logger.info(f"🚀 Pre-scraping {len(urls)} articles in batch mode...")
+        scraped_content = await self._batch_scrape_articles(urls, topic)
+        logger.info(f"✅ Batch scraping completed: {len(scraped_content)} articles")
+
         for url in urls:
             try:
                 logger.debug(f"Processing URL: {url} for topic: {topic}")
                 
-                # Check if this is a Bluesky URL
-                if self.is_bluesky_url(url) and self.bluesky_collector:
-                    logger.info(f"Detected Bluesky URL: {url}, using BlueskyCollector")
-                    try:
-                        # Fetch content using BlueskyCollector
-                        content_result = await self.bluesky_collector.fetch_article_content(url)
-                        
-                        if not content_result:
-                            logger.error(f"Failed to fetch Bluesky content for {url}")
-                            raise ValueError(f"Failed to fetch Bluesky content for {url}")
-                            
-                        article_content = {
-                            "content": content_result.get("content", ""),
-                            "source": content_result.get("source", self.extract_source(url)),
-                            "publication_date": content_result.get("published_date", 
-                                                datetime.datetime.now().date().isoformat()),
-                            "title": content_result.get("title", "")
-                        }
-                        
-                        # Save raw article with topic if needed
+                # Get pre-scraped content
+                article_content = scraped_content.get(url)
+                
+                if not article_content:
+                    # Fallback to individual scraping if batch failed
+                    logger.warning(f"No batch content for {url}, trying individual scraping")
+                    
+                    # Check if this is a Bluesky URL
+                    if self.is_bluesky_url(url) and self.bluesky_collector:
+                        logger.info(f"Detected Bluesky URL: {url}, using BlueskyCollector")
                         try:
-                            self.db.save_raw_article(url, article_content["content"], topic)
-                            logger.info(f"Successfully saved Bluesky content with topic: {topic}")
-                        except Exception as save_error:
-                            logger.error(f"Failed to save Bluesky content, continuing: {str(save_error)}")
-                    except Exception as bluesky_error:
-                        logger.error(f"Error with BlueskyCollector: {str(bluesky_error)}")
-                        raise ValueError(f"Failed to process Bluesky URL: {str(bluesky_error)}")
-                else:
-                    # Fetch article content using the research component's method
-                    try:
-                        logger.debug(f"Fetching article content for URL: {url}")
-                        article_content = await self.research.fetch_article_content(url, save_with_topic=True)
-                        
-                        # Log the result of the fetch operation
-                        if article_content and article_content.get("content"):
-                            logger.debug(f"Successfully fetched content for {url}, length: {len(article_content['content'])}")
-                        else:
-                            logger.error(f"Failed to fetch valid content for URL: {url}")
-                            logger.debug(f"Article content response: {article_content}")
-                            raise ValueError(f"Failed to fetch valid content for URL: {url}")
-                        
-                    except Exception as fetch_error:
-                        logger.error(f"Error in fetch_article_content for {url}: {str(fetch_error)}")
-                        
-                        # If there was a foreign key constraint error, try direct scraping
-                        if "FOREIGN KEY constraint failed" in str(fetch_error):
-                            logger.info(f"Database constraint error encountered - trying direct scraping for {url}")
-                            # Use the _direct_scrape method that bypasses database operations
+                            # Fetch content using BlueskyCollector
+                            content_result = await self.bluesky_collector.fetch_article_content(url)
+                            
+                            if not content_result:
+                                logger.error(f"Failed to fetch Bluesky content for {url}")
+                                raise ValueError(f"Failed to fetch Bluesky content for {url}")
+                                
+                            article_content = {
+                                "content": content_result.get("content", ""),
+                                "source": content_result.get("source", self.extract_source(url)),
+                                "publication_date": content_result.get("published_date", 
+                                                    datetime.datetime.now().date().isoformat()),
+                                "title": content_result.get("title", "")
+                            }
+                            
+                            # Save raw article with topic if needed
                             try:
-                                article_content = await self._direct_scrape(url)
-                            except Exception as direct_scrape_error:
-                                logger.error(f"Direct scraping also failed for {url}: {str(direct_scrape_error)}")
-                                raise ValueError(f"Both fetch methods failed for {url}")
-                        else:
-                            # For other errors, reraise
-                            raise
+                                self.db.save_raw_article(url, article_content["content"], topic)
+                                logger.info(f"Successfully saved Bluesky content with topic: {topic}")
+                            except Exception as save_error:
+                                logger.error(f"Failed to save Bluesky content, continuing: {str(save_error)}")
+                        except Exception as bluesky_error:
+                            logger.error(f"Error with BlueskyCollector: {str(bluesky_error)}")
+                            raise ValueError(f"Failed to process Bluesky URL: {str(bluesky_error)}")
+                    else:
+                        # Fetch article content using the research component's method
+                        try:
+                            logger.debug(f"Fetching article content for URL: {url}")
+                            article_content = await self.research.fetch_article_content(url, save_with_topic=True)
+                            
+                            # Log the result of the fetch operation
+                            if article_content and article_content.get("content"):
+                                logger.debug(f"Successfully fetched content for {url}, length: {len(article_content['content'])}")
+                            else:
+                                logger.error(f"Failed to fetch valid content for URL: {url}")
+                                logger.debug(f"Article content response: {article_content}")
+                                raise ValueError(f"Failed to fetch valid content for URL: {url}")
+                            
+                        except Exception as fetch_error:
+                            logger.error(f"Error in fetch_article_content for {url}: {str(fetch_error)}")
+                            
+                            # If there was a foreign key constraint error, try direct scraping
+                            if "FOREIGN KEY constraint failed" in str(fetch_error):
+                                logger.info(f"Database constraint error encountered - trying direct scraping for {url}")
+                                # Use the _direct_scrape method that bypasses database operations
+                                try:
+                                    article_content = await self._direct_scrape(url)
+                                except Exception as direct_scrape_error:
+                                    logger.error(f"Direct scraping also failed for {url}: {str(direct_scrape_error)}")
+                                    raise ValueError(f"Both fetch methods failed for {url}")
+                            else:
+                                # For other errors, reraise
+                                raise
                 
                 # Validate the article content before proceeding
                 if (
@@ -446,6 +458,215 @@ class BulkResearch:
                 # If analysis successful, move to main articles table
                 if analysis:
                     await self.research.move_alert_to_articles(url)
+
+    async def _batch_scrape_articles(self, urls: List[str], topic: str = None) -> Dict[str, Dict[str, Any]]:
+        """
+        Batch scrape articles using Firecrawl's batch API or fallback to individual scraping
+        
+        Args:
+            urls: List of URLs to scrape
+            topic: Topic for saving raw articles
+            
+        Returns:
+            Dictionary mapping URLs to article content dictionaries
+        """
+        results = {}
+        
+        # Separate Bluesky URLs from regular URLs
+        bluesky_urls = []
+        regular_urls = []
+        
+        for url in urls:
+            if self.is_bluesky_url(url):
+                bluesky_urls.append(url)
+            else:
+                regular_urls.append(url)
+        
+        # Handle Bluesky URLs individually (they don't support batch)
+        for url in bluesky_urls:
+            if self.bluesky_collector:
+                try:
+                    content_result = await self.bluesky_collector.fetch_article_content(url)
+                    if content_result:
+                        results[url] = {
+                            "content": content_result.get("content", ""),
+                            "source": content_result.get("source", self.extract_source(url)),
+                            "publication_date": content_result.get("published_date", 
+                                                datetime.datetime.now().date().isoformat()),
+                            "title": content_result.get("title", "")
+                        }
+                        
+                        # Save raw content
+                        try:
+                            if topic:
+                                self.db.save_raw_article(url, results[url]["content"], topic)
+                        except Exception as save_error:
+                            logger.error(f"Failed to save Bluesky content: {save_error}")
+                except Exception as e:
+                    logger.error(f"Error fetching Bluesky content for {url}: {e}")
+                    results[url] = None
+        
+        # Handle regular URLs with batch processing
+        if regular_urls:
+            try:
+                # Try batch processing first
+                if self.research.firecrawl_app:
+                    logger.info(f"Attempting batch scraping for {len(regular_urls)} regular URLs")
+                    batch_results = await self._firecrawl_batch_scrape(regular_urls)
+                    
+                    for url, content in batch_results.items():
+                        if content:
+                            results[url] = {
+                                "content": content,
+                                "source": self.extract_source(url),
+                                "publication_date": self.article_analyzer.extract_publication_date(content),
+                                "title": self.article_analyzer.extract_title(content)
+                            }
+                            
+                            # Save raw content
+                            try:
+                                if topic:
+                                    self.db.save_raw_article(url, content, topic)
+                            except Exception as save_error:
+                                logger.error(f"Failed to save batch content: {save_error}")
+                        else:
+                            results[url] = None
+                else:
+                    logger.warning("Firecrawl not available, falling back to individual scraping")
+                    # Fallback to individual scraping
+                    for url in regular_urls:
+                        try:
+                            article_content = await self.research.fetch_article_content(url, save_with_topic=bool(topic))
+                            if article_content and article_content.get("content"):
+                                results[url] = article_content
+                            else:
+                                results[url] = None
+                        except Exception as e:
+                            logger.error(f"Individual scraping failed for {url}: {e}")
+                            results[url] = None
+                            
+            except Exception as e:
+                logger.error(f"Batch scraping failed: {e}")
+                # Fallback to individual scraping
+                for url in regular_urls:
+                    if url not in results:  # Only process if not already processed
+                        try:
+                            article_content = await self.research.fetch_article_content(url, save_with_topic=bool(topic))
+                            if article_content and article_content.get("content"):
+                                results[url] = article_content
+                            else:
+                                results[url] = None
+                        except Exception as e:
+                            logger.error(f"Fallback individual scraping failed for {url}: {e}")
+                            results[url] = None
+        
+        return results
+    
+    async def _firecrawl_batch_scrape(self, urls: List[str]) -> Dict[str, Optional[str]]:
+        """
+        Use Firecrawl's batch API to scrape multiple URLs
+        
+        Args:
+            urls: List of URLs to scrape
+            
+        Returns:
+            Dictionary mapping URLs to scraped content
+        """
+        try:
+            # Prepare batch request
+            batch_response = self.research.firecrawl_app.async_batch_scrape_urls(
+                urls,
+                formats=["markdown"],
+                onlyMainContent=True,
+                timeout=30000
+            )
+            
+            if not batch_response or not batch_response.get('success'):
+                logger.error(f"Batch scrape failed: {batch_response}")
+                return {}
+            
+            batch_id = batch_response.get('id')
+            if not batch_id:
+                logger.error("No batch ID returned from Firecrawl")
+                return {}
+            
+            logger.info(f"Batch scrape submitted with ID: {batch_id}")
+            
+            # Poll for completion
+            return await self._poll_batch_completion(batch_id)
+            
+        except Exception as e:
+            logger.error(f"Error in Firecrawl batch scraping: {e}")
+            return {}
+    
+    async def _poll_batch_completion(self, batch_id: str, max_wait_time: int = 300) -> Dict[str, Optional[str]]:
+        """
+        Poll Firecrawl batch API for completion
+        
+        Args:
+            batch_id: Batch job ID
+            max_wait_time: Maximum time to wait in seconds
+            
+        Returns:
+            Dictionary mapping URLs to scraped content
+        """
+        import time
+        
+        start_time = time.time()
+        poll_interval = 5  # Start with 5 second intervals
+        
+        while time.time() - start_time < max_wait_time:
+            try:
+                status_response = self.research.firecrawl_app.check_batch_scrape_status(batch_id)
+                
+                if not status_response:
+                    logger.warning(f"No status response for batch {batch_id}")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                
+                status = status_response.get('status')
+                logger.debug(f"Batch {batch_id} status: {status}")
+                
+                if status == 'completed':
+                    # Get results
+                    results = {}
+                    data = status_response.get('data', [])
+                    
+                    for item in data:
+                        url = item.get('url')
+                        if item.get('success') and 'markdown' in item:
+                            # Apply token limiting
+                            content = item['markdown']
+                            from app.analyzers.article_analyzer import ArticleAnalyzer
+                            truncated_content = ArticleAnalyzer.truncate_text(None, content, max_chars=65000)
+                            
+                            if len(content) > len(truncated_content):
+                                logger.info(f"Truncated content for {url}: {len(content)} -> {len(truncated_content)} chars")
+                            
+                            results[url] = truncated_content
+                        else:
+                            results[url] = None
+                            logger.warning(f"Failed to scrape {url}: {item.get('error', 'Unknown error')}")
+                    
+                    logger.info(f"Batch {batch_id} completed with {len(results)} results")
+                    return results
+                    
+                elif status == 'failed':
+                    logger.error(f"Batch {batch_id} failed: {status_response.get('error', 'Unknown error')}")
+                    return {}
+                    
+                # Still processing, wait before next poll
+                await asyncio.sleep(poll_interval)
+                
+                # Increase poll interval gradually
+                poll_interval = min(poll_interval * 1.2, 30)
+                
+            except Exception as e:
+                logger.error(f"Error polling batch status: {e}")
+                await asyncio.sleep(poll_interval)
+        
+        logger.warning(f"Batch {batch_id} timed out after {max_wait_time} seconds")
+        return {}
 
     async def _direct_scrape(self, url):
         """Directly scrape the URL without saving to database.

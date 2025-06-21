@@ -20,9 +20,26 @@ from app.config.config import load_config
 from app.relevance import RelevanceCalculator, RelevanceCalculatorError
 from urllib.parse import urlencode
 from app.ai_models import LiteLLMModel
+import asyncio
+import uuid
 
 # Set up logger
 logger = logging.getLogger(__name__)
+
+# Add global job tracking
+_processing_jobs = {}
+
+class ProcessingJob:
+    def __init__(self, job_id: str, topic_id: str, options: dict):
+        self.job_id = job_id
+        self.topic_id = topic_id
+        self.options = options
+        self.status = "running"
+        self.progress = 0
+        self.results = None
+        self.error = None
+        self.started_at = datetime.utcnow()
+        self.completed_at = None
 
 def build_analysis_url(article, topic):
     """Build URL with all available article metadata for analysis page"""
@@ -2910,9 +2927,40 @@ async def bulk_process_topic(
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
 ):
-    """Process all articles from a specific topic group with auto-ingest pipeline"""
+    """Process all articles from a specific topic group with auto-ingest pipeline (async)"""
     try:
-        # Import here to avoid circular imports
+        # Generate job ID
+        job_id = str(uuid.uuid4())
+        
+        # Create job tracking object
+        job = ProcessingJob(job_id, request.topic_id, request.dict())
+        _processing_jobs[job_id] = job
+        
+        # Start background task
+        asyncio.create_task(_background_bulk_process(job_id, request, db))
+        
+        # Return immediately with job ID
+        return {
+            "success": True,
+            "job_id": job_id,
+            "status": "started",
+            "message": f"Bulk processing started for topic: {request.topic_id}",
+            "check_status_url": f"/keyword-monitor/bulk-process-status/{job_id}"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error starting bulk topic processing: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def _background_bulk_process(job_id: str, request: BulkProcessRequest, db: Database):
+    """Background task for bulk processing"""
+    job = _processing_jobs[job_id]
+    
+    try:
+        # Set job status to running
+        job.status = "running"
+        logger.info(f"Starting background processing for job {job_id}")
+        
         from app.services.automated_ingest_service import AutomatedIngestService
         
         service = AutomatedIngestService(db)
@@ -2929,8 +2977,9 @@ async def bulk_process_topic(
         # Process the topic articles
         results = await service.bulk_process_topic_articles(request.topic_id, options)
         
-        # Format the response to match what the frontend expects
-        return {
+        # Update job status
+        job.status = "completed"
+        job.results = {
             "success": True,
             "processed_count": results.get("processed_count", 0),
             "total_count": results.get("total_count", 0),
@@ -2942,7 +2991,164 @@ async def bulk_process_topic(
             "options_used": options,
             "processing_log": results.get("processing_log", [])
         }
+        job.completed_at = datetime.utcnow()
+        logger.info(f"Completed background processing for job {job_id}")
+        
+        # Schedule job cleanup after 5 minutes
+        asyncio.create_task(_cleanup_job_after_delay(job_id, 300))  # 5 minutes
         
     except Exception as e:
-        logger.error(f"Error in bulk topic processing: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error in background bulk processing: {str(e)}")
+        job.status = "failed"
+        job.error = str(e)
+        job.completed_at = datetime.utcnow()
+        
+        # Schedule job cleanup after 5 minutes even on failure
+        asyncio.create_task(_cleanup_job_after_delay(job_id, 300))
+
+async def _cleanup_job_after_delay(job_id: str, delay_seconds: int):
+    """Clean up completed job after a delay"""
+    await asyncio.sleep(delay_seconds)
+    if job_id in _processing_jobs:
+        job = _processing_jobs[job_id]
+        if job.status in ["completed", "failed"]:
+            logger.info(f"Cleaning up completed job {job_id}")
+            del _processing_jobs[job_id]
+
+@router.get("/bulk-process-status/{job_id}")
+async def get_bulk_process_status(
+    job_id: str,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """Get status of a bulk processing job"""
+    if job_id not in _processing_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = _processing_jobs[job_id]
+    return {
+        "job_id": job_id,
+        "status": job.status,
+        "progress": job.progress,
+        "results": job.results,
+        "error": job.error,
+        "started_at": job.started_at.isoformat(),
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None
+    }
+
+@router.get("/active-jobs-status")
+async def get_active_jobs_status(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """
+    Get status of all active background processing jobs
+    
+    Returns:
+        Dictionary containing active job information
+    """
+    try:
+        # Import keyword monitor jobs
+        from app.tasks.keyword_monitor import get_keyword_monitor_jobs
+        keyword_jobs = get_keyword_monitor_jobs()
+        
+        active_jobs = []
+        all_jobs_details = []
+        
+        # Process bulk processing jobs
+        for job_id, job in _processing_jobs.items():
+            job_detail = {
+                "job_id": job_id,
+                "topic_id": job.topic_id,
+                "status": job.status,
+                "progress": job.progress,
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                "job_type": "bulk_processing"
+            }
+            all_jobs_details.append(job_detail)
+            
+            if job.status == "running":
+                active_jobs.append(job_detail)
+        
+        # Process keyword monitor auto-ingest jobs
+        for job_id, job in keyword_jobs.items():
+            job_detail = {
+                "job_id": job_id,
+                "topic_id": job.topic,
+                "status": job.status,
+                "progress": job.progress,
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                "job_type": "keyword_monitor_auto_ingest",
+                "article_count": job.article_count
+            }
+            all_jobs_details.append(job_detail)
+            
+            if job.status == "running":
+                active_jobs.append(job_detail)
+        
+        total_jobs = len(_processing_jobs) + len(keyword_jobs)
+        
+        return {
+            "success": True,
+            "active_jobs": active_jobs,
+            "all_jobs": all_jobs_details,
+            "total_active": len(active_jobs),
+            "total_jobs": total_jobs
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting active jobs status: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "active_jobs": [],
+            "all_jobs": [],
+            "total_active": 0,
+            "total_jobs": 0
+        }
+
+@router.post("/clear-completed-jobs")
+async def clear_completed_jobs(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """
+    Manually clear all completed/failed jobs from memory
+    """
+    try:
+        initial_count = len(_processing_jobs)
+        cleared_jobs = []
+        
+        # Get list of jobs to clear
+        jobs_to_clear = []
+        for job_id, job in _processing_jobs.items():
+            if job.status in ["completed", "failed"]:
+                jobs_to_clear.append(job_id)
+                cleared_jobs.append({
+                    "job_id": job_id,
+                    "status": job.status,
+                    "topic_id": job.topic_id
+                })
+        
+        # Clear the jobs
+        for job_id in jobs_to_clear:
+            del _processing_jobs[job_id]
+        
+        final_count = len(_processing_jobs)
+        
+        return {
+            "success": True,
+            "message": f"Cleared {len(jobs_to_clear)} completed/failed jobs",
+            "initial_job_count": initial_count,
+            "final_job_count": final_count,
+            "cleared_jobs": cleared_jobs
+        }
+        
+    except Exception as e:
+        logger.error(f"Error clearing completed jobs: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
