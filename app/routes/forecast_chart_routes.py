@@ -4,11 +4,12 @@ Routes for evidence-based forecast chart generation.
 
 import logging
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Depends
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 
 from app.services.forecast_chart_service import get_forecast_chart_service
+from app.security.session import verify_session
 
 logger = logging.getLogger(__name__)
 templates = Jinja2Templates(directory="templates")
@@ -58,9 +59,10 @@ async def forecast_chart_page(request: Request):
     return templates.TemplateResponse("forecast_chart.html", {"request": request})
 
 @web_router.get("/consensus-analysis", response_class=HTMLResponse)
-async def consensus_analysis_page(request: Request):
+async def consensus_analysis_page(request: Request, session=Depends(verify_session)):
     """Serve the consensus analysis interface page."""
-    return templates.TemplateResponse("consensus_analysis.html", {"request": request})
+    from app.main import get_template_context
+    return templates.TemplateResponse("consensus_analysis.html", get_template_context(request, {"session": session}))
 
 @router.get("/generate/{topic}")
 async def generate_forecast_chart(

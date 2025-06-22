@@ -1,15 +1,13 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Consensus Analysis - Evidence-Based Forecasts</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+{% extends "base.html" %}
+
+{% block title %}Consensus vs. Fringe Voices - AuNoo AI{% endblock %}
+
+{% block extra_css %}
     <style>
-        /* Base styling to match base.html */
+        /* Pink styling to match AuNoo AI theme */
         :root {
-            --primary-color: #007bff;
-            --primary-dark: #0056b3;
+            --primary-color: #FF69B4;
+            --primary-dark: #FF1493;
             --text-color: #333;
             --container-width: 1200px;
             --spacing-md: 1rem;
@@ -282,18 +280,60 @@
             border-style: solid;
             border-color: rgba(0,0,0,0.9) transparent transparent transparent;
         }
+        /* Enhanced consensus badge styling with transparency */
+        .consensus-confidence {
+            background: linear-gradient(135deg, rgba(255, 105, 180, 0.15), rgba(255, 20, 147, 0.15));
+            color: var(--primary-dark);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.875rem;
+            border: 1px solid rgba(255, 105, 180, 0.3);
+            backdrop-filter: blur(10px);
+        }
+
+        /* Enhanced consensus band with transparency */
+        .consensus-band {
+            background: rgba(255, 105, 180, 0.8) !important;
+            backdrop-filter: blur(5px);
+        }
+
+        /* Update other elements with pink theme */
+        .card-header.bg-primary {
+            background: linear-gradient(135deg, var(--primary-color), var(--primary-dark)) !important;
+        }
+
+        .text-primary {
+            color: var(--primary-color) !important;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+            border: none;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, var(--primary-dark), #C71585);
+            transform: translateY(-2px);
+        }
     </style>
-</head>
-<body>
-    <div class="container-fluid mt-4">
-        <div class="row">
-            <div class="col-12">
-                <div class="text-center mb-4">
-                    <h1 class="display-5 fw-bold text-dark mb-3">📊 Evidence-Based Consensus Analysis</h1>
-                    <p class="lead text-muted">Interactive analysis of expert consensus vs. outlier forecasts</p>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h1 class="h3 mb-1">
+                        <i class="fas fa-balance-scale me-2" style="color: #FF69B4;"></i>
+                        Consensus vs. Fringe Voices
+                    </h1>
+                    <p class="text-muted mb-0">Evidence-based analysis showing consensus patterns and outlier perspectives across topics</p>
                 </div>
             </div>
         </div>
+    </div>
         
         <div class="row">
             <div class="col-12">
@@ -386,6 +426,7 @@
             </div>
         </div>
     </div>
+</div>
 
     <!-- Topic Selection Modal -->
     <div class="modal fade" id="topicModal" tabindex="-1" aria-labelledby="topicModalLabel" aria-hidden="true">
@@ -455,11 +496,11 @@
                             </div>
                             
                             <div class="mb-3">
-                                <label for="categoryMode" class="form-label">Category Selection Mode</label>
+                                <label for="categoryMode" class="form-label">Analysis Mode</label>
                                 <select class="form-select" id="categoryMode" onchange="handleCategoryModeChange()">
-                                    <option value="existing">Existing Categories (Ontology-based)</option>
-                                    <option value="thematic">Thematic Analysis (AI-generated)</option>
-                                    <option value="custom" disabled>Custom Themes (Coming Soon)</option>
+                                    <option value="existing">📚 Ontological Categories (Database)</option>
+                                    <option value="thematic">🔍 Semantic Theme Discovery (Content Analysis)</option>
+                                    <option value="custom" disabled>⚡ Custom Themes (Coming Soon)</option>
                                 </select>
                                 <div class="form-text" id="categoryModeHelp">Choose how to organize the consensus analysis</div>
                             </div>
@@ -1860,12 +1901,12 @@
                 case 'existing':
                     categorySelectionContainer.style.display = 'block';
                     categorySelectionLabel.textContent = 'Categories (Optional)';
-                    categoryModeHelp.textContent = 'Choose how to organize the consensus analysis';
+                    categoryModeHelp.textContent = 'Use predefined ontological categories from the database';
                     loadExistingCategories();
                     break;
                 case 'thematic':
                     categorySelectionContainer.style.display = 'none';
-                    categoryModeHelp.textContent = 'AI will automatically identify themes from the articles';
+                    categoryModeHelp.textContent = 'AI performs semantic content analysis to discover emergent themes from actual article content (like Auspex prompts)';
                     break;
                 case 'custom':
                     // Placeholder for future implementation
@@ -2500,6 +2541,9 @@ Sentiment Breakdown:
             const model = document.getElementById('model').value;
             const sampleSizeMode = document.getElementById('sampleSizeMode').value;
             const customLimit = document.getElementById('customLimit').value;
+            const timeframe = document.getElementById('timeframe').value;
+            const categoryMode = document.getElementById('categoryMode').value;
+            const selectedCategories = getSelectedCategories();
             
             if (!topic) {
                 alert('Please select a topic');
@@ -2511,20 +2555,42 @@ Sentiment Breakdown:
                 return;
             }
             
-            // Save configuration to localStorage
+            // Save configuration to localStorage including all form data
             const config = {
                 topic,
                 model,
                 sampleSizeMode,
                 customLimit,
+                timeframe,
+                categoryMode,
+                selectedCategories,
                 timestamp: new Date().toISOString()
             };
             
             localStorage.setItem('consensusAnalysisConfig', JSON.stringify(config));
             
-            // Close the modal
-            const modal = bootstrap.Modal.getInstance(document.getElementById('topicModal'));
-            modal.hide();
+            // Close the modal with proper cleanup
+            const modalElement = document.getElementById('topicModal');
+            const modal = bootstrap.Modal.getInstance(modalElement);
+            
+            if (modal) {
+                modal.hide();
+                
+                // Ensure proper cleanup of backdrop after modal is hidden
+                modalElement.addEventListener('hidden.bs.modal', function cleanup() {
+                    // Remove any lingering backdrops
+                    const backdrops = document.querySelectorAll('.modal-backdrop');
+                    backdrops.forEach(backdrop => backdrop.remove());
+                    
+                    // Restore body scrolling
+                    document.body.classList.remove('modal-open');
+                    document.body.style.removeProperty('overflow');
+                    document.body.style.removeProperty('padding-right');
+                    
+                    // Remove this event listener
+                    modalElement.removeEventListener('hidden.bs.modal', cleanup);
+                }, { once: true });
+            }
             
             // Update button states
             updateLoadButton();
@@ -2544,9 +2610,31 @@ Sentiment Breakdown:
                     if (config.model) document.getElementById('model').value = config.model;
                     if (config.sampleSizeMode) document.getElementById('sampleSizeMode').value = config.sampleSizeMode;
                     if (config.customLimit) document.getElementById('customLimit').value = config.customLimit;
+                    if (config.timeframe) document.getElementById('timeframe').value = config.timeframe;
+                    if (config.categoryMode) document.getElementById('categoryMode').value = config.categoryMode;
+                    
+                    // Restore selected categories
+                    if (config.selectedCategories && Array.isArray(config.selectedCategories)) {
+                        // Clear existing selections
+                        document.querySelectorAll('.category-checkbox').forEach(checkbox => {
+                            checkbox.checked = false;
+                        });
+                        
+                        // Restore saved selections
+                        config.selectedCategories.forEach(categoryValue => {
+                            const checkbox = document.querySelector(`.category-checkbox[value="${categoryValue}"]`);
+                            if (checkbox) {
+                                checkbox.checked = true;
+                            }
+                        });
+                        
+                        updateCategoriesText();
+                    }
                     
                     // Update UI state
                     handleSampleSizeModeChange();
+                    handleCategoryModeChange();
+                    toggleCustomTimeframe();
                     updateLoadButton();
                     updateContextInfo();
                     
@@ -2700,5 +2788,7 @@ Sentiment Breakdown:
             }, 500);
         });
     </script>
-</body>
-</html> 
+{% endblock %}
+
+{% block extra_js %}
+{% endblock %} 

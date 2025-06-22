@@ -71,6 +71,7 @@ from app.routes.newsletter_routes import router as newsletter_router, page_route
 from app.routes.dataset_routes import router as dataset_router
 from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
 from app.routes.oauth_routes import router as oauth_router
+from app.routes.forecast_chart_routes import router as forecast_chart_router, web_router as forecast_chart_web_router
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -197,6 +198,8 @@ app.include_router(topic_router)  # Topic routes
 app.include_router(keyword_monitor_router)
 app.include_router(onboarding_router)
 app.include_router(saved_searches_router)  # Saved searches
+app.include_router(forecast_chart_router)  # API routes
+app.include_router(forecast_chart_web_router)  # Web routes
 
 def get_template_context(request: Request, additional_context: dict = None) -> dict:
     """Create a base template context with common variables."""
@@ -3837,3 +3840,5 @@ async def auspex_status_page(request: Request, session=Depends(verify_session)):
         "auspex-status.html",
         get_template_context(request, {"session": session})
     )
+
+# Route moved to app/routes/forecast_chart_routes.py to avoid duplication

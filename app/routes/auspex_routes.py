@@ -12,59 +12,92 @@ from app.security.session import verify_session
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auspex", tags=["Auspex"])
 
-async def identify_themes_from_articles(topic: str, timeframe_days: int) -> List[str]:
-    """Use AI to identify themes from articles instead of using predefined categories."""
+async def identify_themes_from_articles(topic: str, timeframe_days: int, model: str = "gpt-4o-mini", limit: int = 50) -> List[str]:
+    """Use AI to identify themes from actual article content through semantic analysis."""
     try:
         auspex = get_auspex_service()
         
-        # Create a prompt to identify themes using the Future Impact analysis approach
-        theme_identification_prompt = f"""
-        Please analyze articles about "{topic}" from the last {timeframe_days} days and identify the key themes that would be most valuable for consensus analysis.
+        # First, get articles for semantic analysis - similar to how Auspex prompts work
+        search_query = f"Find articles about {topic} from the last {timeframe_days} days to analyze content and identify emerging themes"
+        
+        # Create a chat session for theme discovery
+        chat_id = await auspex.create_chat_session(topic=topic, user_id=None, title="Theme Discovery")
+        
+        logger.info(f"Starting semantic theme discovery for topic: {topic}, timeframe: {timeframe_days} days, model: {model}, limit: {limit}")
+        
+        # Step 1: Search and retrieve articles for analysis
+        search_response = ""
+        async for chunk in auspex.chat_with_tools(
+            chat_id=chat_id, 
+            message=search_query,
+            model=model,
+            limit=limit,
+            tools_config={"search_articles": True, "get_sentiment_analysis": False}
+        ):
+            search_response += chunk
+        
+        logger.info(f"Retrieved articles for theme analysis: {len(search_response)} characters")
+        
+        # Step 2: Analyze the actual article content to discover themes
+        theme_analysis_prompt = f"""
+        Based on the articles retrieved above about "{topic}", perform semantic content analysis to identify 3-5 distinct themes that emerge from the actual article content.
 
-        Use your Future Impact prediction capabilities to identify 3-5 major themes that represent the most significant areas of discussion, debate, or development in this topic.
+        IMPORTANT: Analyze the ACTUAL CONTENT of the articles, not predefined categories. Look for:
+        
+        1. **Semantic Clustering**: Group articles by similar concepts, topics, and discussion patterns
+        2. **Emergent Themes**: Identify themes that emerge from the content itself, not from external categorization
+        3. **Content Patterns**: Look for recurring subjects, concerns, applications, or developments mentioned across articles
+        4. **Discussion Trends**: Identify what people are actually talking about and debating
 
-        Focus on themes that would have distinct consensus patterns, such as:
-        - Major application areas or use cases
-        - Key concerns or challenges  
-        - Regulatory or policy areas
-        - Economic or business impacts
-        - Technical developments
-        - Social or ethical considerations
+        Focus on themes that represent distinct areas of discussion with different consensus patterns:
+        - Specific application domains or use cases being discussed
+        - Particular concerns or challenges that emerge from the content  
+        - Technical developments or breakthroughs mentioned
+        - Policy/regulatory discussions in the articles
+        - Economic or business impacts covered
+        - Social or ethical considerations raised
 
-        Return ONLY a JSON array of theme names, like:
-        ["Theme 1", "Theme 2", "Theme 3"]
+        Generate theme names that reflect the ACTUAL CONTENT being discussed, not generic categories.
 
-        The themes should be specific enough to generate focused analysis but broad enough to encompass multiple articles.
+        Return ONLY a JSON array of theme names derived from the article content, like:
+        ["Theme Based on Content 1", "Theme Based on Content 2", "Theme Based on Content 3"]
+
+        Each theme should represent a distinct cluster of related article content.
         """
         
-        # Use the chat system to identify themes
-        chat_id = await auspex.create_chat_session(topic=topic, user_id=None, title="Theme Identification")
+        logger.info(f"Analyzing article content to discover themes...")
         
-        logger.info(f"Requesting theme identification for topic: {topic}, timeframe: {timeframe_days} days")
-        logger.info(f"Theme identification prompt: {theme_identification_prompt[:200]}...")
+        theme_response = ""
+        async for chunk in auspex.chat_with_tools(
+            chat_id=chat_id, 
+            message=theme_analysis_prompt,
+            model=model,
+            limit=10,  # Small limit for analysis
+            tools_config={"search_articles": False, "get_sentiment_analysis": False}
+        ):
+            theme_response += chunk
         
-        response_text = ""
-        async for chunk in auspex.chat_with_tools(chat_id, theme_identification_prompt, "gpt-4o", 100):
-            response_text += chunk
+        logger.info(f"Theme analysis response length: {len(theme_response)}")
+        logger.info(f"Theme analysis response: {theme_response}")
         
-        logger.info(f"Theme identification response length: {len(response_text)}")
-        logger.info(f"Theme identification response: {response_text}")
+        # Clean up the chat session
+        auspex.delete_chat_session(chat_id)
         
-        # Parse the JSON response
+        # Parse the JSON response from semantic analysis
         import json
         import re
         
         # Extract JSON array from response - try multiple patterns
         json_patterns = [
-            r'\[([^\]]+)\]',  # Original pattern
-            r'\[(.*?)\]',     # More flexible pattern
-            r'```json\s*(\[.*?\])\s*```',  # JSON code block
-            r'(\[.*?\])'      # Simple array pattern
+            r'```json\s*(\[.*?\])\s*```',  # JSON code block (try first)
+            r'\[([^\]]+)\]',              # Original pattern
+            r'\[(.*?)\]',                 # More flexible pattern  
+            r'(\[.*?\])'                  # Simple array pattern
         ]
         
         themes = None
         for pattern in json_patterns:
-            json_match = re.search(pattern, response_text, re.DOTALL)
+            json_match = re.search(pattern, theme_response, re.DOTALL)
             if json_match:
                 try:
                     json_str = json_match.group(1) if len(json_match.groups()) > 0 else json_match.group(0)
@@ -72,13 +105,39 @@ async def identify_themes_from_articles(topic: str, timeframe_days: int) -> List
                         json_str = '[' + json_str + ']'
                     themes = json.loads(json_str)
                     if isinstance(themes, list) and len(themes) > 0:
-                        logger.info(f"AI identified themes for {topic}: {themes}")
-                        return themes[:5]  # Limit to 5 themes max
+                        # Filter out empty or very short theme names
+                        valid_themes = [theme.strip() for theme in themes if theme and len(theme.strip()) > 5]
+                        logger.info(f"Semantically discovered themes for {topic}: {valid_themes}")
+                        return valid_themes[:5]  # Limit to 5 themes max
                 except (json.JSONDecodeError, IndexError) as e:
                     logger.debug(f"Failed to parse JSON with pattern {pattern}: {e}")
                     continue
         
-        logger.warning(f"Could not parse themes from AI response: {response_text[:500]}...")
+        logger.warning(f"Could not parse themes from semantic analysis response: {theme_response[:500]}...")
+        
+        # Fallback: try to extract theme-like phrases from the response text
+        fallback_themes = []
+        theme_patterns = [
+            r'(?:theme|topic|area|domain|focus)(?:\s+\d+)?:\s*([^.\n]+)',
+            r'[\"\']([^\"\']{10,50})[\"\']',  # Quoted phrases
+            r'(?:^|\n)\s*[-•]\s*([^.\n]{10,50})',  # Bullet points
+        ]
+        
+        for pattern in theme_patterns:
+            matches = re.findall(pattern, theme_response, re.IGNORECASE | re.MULTILINE)
+            for match in matches:
+                clean_theme = match.strip().strip('.,;:')
+                if len(clean_theme) > 5 and clean_theme not in fallback_themes:
+                    fallback_themes.append(clean_theme)
+                if len(fallback_themes) >= 5:
+                    break
+            if len(fallback_themes) >= 5:
+                break
+        
+        if fallback_themes:
+            logger.info(f"Fallback themes extracted from content: {fallback_themes}")
+            return fallback_themes
+        
         return []
         
     except Exception as e:
@@ -388,8 +447,8 @@ async def get_consensus_analysis(req: ConsensusAnalysisRequest, session=Depends(
             elif req.timeframe == 'all':
                 timeframe_days = 3650  # 10 years for "all time"
                 
-            logger.info(f"Calling identify_themes_from_articles with topic='{req.topic}', timeframe_days={timeframe_days}")
-            target_categories = await identify_themes_from_articles(req.topic, timeframe_days)
+            logger.info(f"Calling identify_themes_from_articles with topic='{req.topic}', timeframe_days={timeframe_days}, model={req.model}, limit={req.articleLimit}")
+            target_categories = await identify_themes_from_articles(req.topic, timeframe_days, req.model, req.articleLimit)
             logger.info(f"identify_themes_from_articles returned: {target_categories}")
             
             if not target_categories:
