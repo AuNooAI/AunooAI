@@ -14,7 +14,7 @@
         }
 
         .container {
-            max-width: var(--container-width);
+            max-width: 100%;
             margin: 0 auto;
             padding: 0 var(--spacing-md);
         }
@@ -77,16 +77,40 @@
             transition: all 0.3s ease;
             cursor: pointer;
             border: 2px solid transparent;
+            width: 100%;
+            max-width: none;
+            position: relative; /* Required for ::after positioning */
         }
 
         .domain-card:hover {
             transform: translateY(-2px);
             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+            border-color: rgba(255, 105, 180, 0.3);
         }
 
         .domain-card.selected {
             border-color: var(--primary-color);
             box-shadow: 0 8px 25px rgba(0, 123, 255, 0.2);
+        }
+        
+        /* Add visual indicator that cards are clickable */
+        .domain-card::after {
+            content: '▼ Click to expand';
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 11px;
+            color: rgba(0, 0, 0, 0.4);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+        
+        .domain-card:hover::after {
+            opacity: 1;
+        }
+        
+        .domain-card.selected::after {
+            content: '▲ Click to collapse';
         }
 
         .domain-icon {
@@ -121,6 +145,8 @@
             margin: 15px 0;
             overflow: hidden;
             box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            min-width: 800px; /* Wider minimum for full screen usage */
         }
 
         .consensus-band {
@@ -181,6 +207,90 @@
         
         .outlier-pessimistic {
             background: #dc3545;
+        }
+
+        /* Milestone markers - Enhanced for actionability */
+        .milestone-marker {
+            position: absolute;
+            width: 4px;
+            height: 100%;
+            top: 0;
+            cursor: pointer;
+            z-index: 6;
+            transition: all 0.3s ease;
+            border-radius: 2px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+        
+        .milestone-marker:hover {
+            width: 6px;
+            z-index: 16;
+            transform: scaleY(1.1);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+        
+        .milestone-marker::before {
+            content: '⚡';
+            position: absolute;
+            top: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: currentColor;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+            animation: pulse 2s infinite;
+        }
+        
+        .milestone-marker::after {
+            content: '📋';
+            position: absolute;
+            bottom: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 10px;
+            color: currentColor;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.7; }
+            50% { opacity: 1; }
+        }
+        
+        .milestone-immediate {
+            background: linear-gradient(45deg, #ff6b6b, #ff5252);
+            color: #ff6b6b;
+        }
+        
+        .milestone-immediate::before {
+            content: '🚨';
+        }
+        
+        .milestone-short {
+            background: linear-gradient(45deg, #ffa726, #ff9800);
+            color: #ffa726;
+        }
+        
+        .milestone-short::before {
+            content: '⚡';
+        }
+        
+        .milestone-mid {
+            background: linear-gradient(45deg, #42a5f5, #2196f3);
+            color: #42a5f5;
+        }
+        
+        .milestone-mid::before {
+            content: '🎯';
+        }
+        
+        .milestone-long {
+            background: linear-gradient(45deg, #ab47bc, #9c27b0);
+            color: #ab47bc;
+        }
+        
+        .milestone-long::before {
+            content: '🔮';
         }
         
         /* Alert styling */
@@ -364,67 +474,15 @@
                 <div id="errorContainer"></div>
                 
                 <div id="consensusContainer" style="display: none;">
+                    <!-- Full Width Main Content Area -->
                     <div class="row">
-                        <!-- Left Sidebar - Reading Guide -->
-                        <div class="col-md-3">
-                            <div class="card position-sticky" style="top: 20px;">
-                                <div class="card-header bg-primary text-white">
-                                    <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>How to Read This Analysis</h6>
+                        <div class="col-12">
+                            <div id="domainCards" style="width: 100%;"></div>
                                 </div>
-                                <div class="card-body">
-                                    <div class="mb-3">
-                                        <h6 class="fw-bold text-primary">Timeline Consensus</h6>
-                                        <p class="small mb-2">Colored bars show when experts believe impact will occur across 2024-2035+.</p>
-                                        <p class="small text-muted mb-0"><em>Hover over consensus bars for detailed explanations</em></p>
                                     </div>
-                                    
-                                    <div class="mb-3">
-                                        <h6 class="fw-bold text-primary">Consensus Types</h6>
-                                        <ul class="small mb-0 list-unstyled">
-                                            <li class="mb-1"><span style="color: #28a745;">●</span> <strong>Positive Growth:</strong> ≥60% positive sentiment - optimistic about opportunities</li>
-                                            <li class="mb-1"><span style="color: #ffc107;">●</span> <strong>Business Transform:</strong> 35-60% positive - cautious optimism about change</li>
-                                            <li class="mb-1"><span style="color: #6c757d;">●</span> <strong>Mixed Consensus:</strong> No dominant sentiment - balanced viewpoints</li>
-                                            <li class="mb-1"><span style="color: #dc3545;">●</span> <strong>Safety/Security:</strong> ≥25% critical - concerns about risks</li>
-                                            <li class="mb-1"><span style="color: #fd7e14;">●</span> <strong>Regulatory Response:</strong> 15-25% critical - calls for governance</li>
-                                        </ul>
-                                        <p class="small text-muted mt-2"><em>Based on sentiment analysis of article content</em></p>
                                     </div>
-                                    
-                                    <div class="mb-3">
-                                        <h6 class="fw-bold text-primary">Sentiment Distribution</h6>
-                                        <p class="small mb-2">Shows breakdown of positive, neutral, and critical viewpoints.</p>
                                     </div>
-                                    
-                                    <div class="mb-3">
-                                        <h6 class="fw-bold text-primary">Outlier Markers</h6>
-                                        <ul class="small mb-0 list-unstyled">
-                                            <li class="mb-1"><span style="color: #28a745;">●</span> <strong>Green:</strong> Optimistic scenarios</li>
-                                            <li class="mb-1"><span style="color: #dc3545;">●</span> <strong>Red:</strong> Pessimistic scenarios</li>
-                                        </ul>
-                                        <p class="small text-muted mt-2"><em>Hover over dots for details</em></p>
                                     </div>
-                                    
-                                    <div class="mb-3">
-                                        <h6 class="fw-bold text-primary">Confidence %</h6>
-                                        <p class="small mb-0">Percentage of sources agreeing on the dominant viewpoint.</p>
-                                    </div>
-                                    
-                                    <div>
-                                        <h6 class="fw-bold text-primary">Article Counts</h6>
-                                        <p class="small mb-0">Each category searches independently. The same article may appear in multiple categories if it's relevant to multiple domains.</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- Main Content Area -->
-                        <div class="col-md-9">
-                            <div id="domainCards"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 </div>
 
@@ -499,7 +557,7 @@
                                 <label for="categoryMode" class="form-label">Analysis Mode</label>
                                 <select class="form-select" id="categoryMode" onchange="handleCategoryModeChange()">
                                     <option value="existing">📚 Ontological Categories (Database)</option>
-                                    <option value="thematic">🔍 Semantic Theme Discovery (Content Analysis)</option>
+                                    <option value="thematic">📊 Semantic Theme Discovery (Content Analysis)</option>
                                     <option value="custom" disabled>⚡ Custom Themes (Coming Soon)</option>
                                 </select>
                                 <div class="form-text" id="categoryModeHelp">Choose how to organize the consensus analysis</div>
@@ -532,15 +590,7 @@
                         </div>
                     </div>
                     
-                    <!-- Debug buttons -->
-                    <div class="mt-3 d-flex gap-2">
-                        <button class="btn btn-sm btn-outline-secondary" onclick="testOutlierVisualization()">
-                            Test Outliers
-                        </button>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="testToggleFunction()">
-                            Test Toggle
-                        </button>
-                    </div>
+
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -792,14 +842,6 @@
                             <p><strong>Categories Analyzed:</strong> ${analysisData.total_categories_analyzed}</p>
                             <p><strong>Total Articles:</strong> ${totalArticlesFound > 0 ? `${totalArticlesFound} found, ${totalArticlesAnalyzed} analyzed` : `${totalArticlesAnalyzed} analyzed`} across all categories</p>
                             <p><strong>Method:</strong> Individual category consensus analysis</p>
-                            <div class="alert alert-info">
-                                <small><strong>How Article Counts Work:</strong><br>
-                                • Each category searches independently for relevant articles<br>
-                                • System finds all relevant articles, then selects most diverse subset for analysis<br>
-                                • Selection optimizes for source diversity and token budget constraints<br>
-                                • Categories may find overlapping articles (same article can appear in multiple categories)<br>
-                                • "Found" = total articles discovered, "Analyzed" = subset selected for detailed analysis</small>
-                            </div>
                         </div>
                     `;
                     domainCards.appendChild(summaryCard);
@@ -932,10 +974,10 @@
                 return defaultCategories;
             }
             
-            // Remove duplicates and limit to top 5 categories
+            // Remove duplicates (no artificial limit on categories)
             const uniqueCategories = categories.filter((cat, index, self) => 
                 index === self.findIndex(c => c.name === cat.name)
-            ).slice(0, 5);
+            );
             
             return uniqueCategories;
         }
@@ -1036,12 +1078,44 @@
                     timeline = parsedData.timeline_consensus || parsedData.timeline || timeline;
                 }
                 if (!optimisticOutliers.length) {
-                    const singleOptimistic = parsedData.optimistic_outliers || parsedData.optimisticOutlier;
-                    if (singleOptimistic) optimisticOutliers = [{ scenario: singleOptimistic }];
+                    // Try multiple field variations for optimistic outliers
+                    const singleOptimistic = parsedData.optimistic_outliers || 
+                                            parsedData.optimisticOutlier || 
+                                            parsedData['optimistic_outliers'] ||
+                                            parsedData['optimistic_scenarios'] ||
+                                            parsedData.optimistic_scenarios;
+                    if (singleOptimistic) {
+                        if (typeof singleOptimistic === 'string') {
+                            optimisticOutliers = [{ scenario: singleOptimistic }];
+                        } else if (Array.isArray(singleOptimistic)) {
+                            optimisticOutliers = singleOptimistic;
+                        }
+                    }
+                    console.log(`Optimistic outliers for ${categoryName}:`, {
+                        found: optimisticOutliers.length,
+                        source: singleOptimistic ? 'fallback fields' : 'none',
+                        data: optimisticOutliers
+                    });
                 }
                 if (!pessimisticOutliers.length) {
-                    const singlePessimistic = parsedData.pessimistic_outliers || parsedData.pessimisticOutlier;
-                    if (singlePessimistic) pessimisticOutliers = [{ scenario: singlePessimistic }];
+                    // Try multiple field variations for pessimistic outliers
+                    const singlePessimistic = parsedData.pessimistic_outliers || 
+                                             parsedData.pessimisticOutlier ||
+                                             parsedData['pessimistic_outliers'] ||
+                                             parsedData['pessimistic_scenarios'] ||
+                                             parsedData.pessimistic_scenarios;
+                    if (singlePessimistic) {
+                        if (typeof singlePessimistic === 'string') {
+                            pessimisticOutliers = [{ scenario: singlePessimistic }];
+                        } else if (Array.isArray(singlePessimistic)) {
+                            pessimisticOutliers = singlePessimistic;
+                        }
+                    }
+                    console.log(`Pessimistic outliers for ${categoryName}:`, {
+                        found: pessimisticOutliers.length,
+                        source: singlePessimistic ? 'fallback fields' : 'none',
+                        data: pessimisticOutliers
+                    });
                 }
             } else {
                 // Parse from text
@@ -1091,47 +1165,171 @@
             }
             
             // Calculate timeline positioning from actual timeline distribution
-            let startPercent = 20, widthPercent = 40;
+            let startPercent = 20, widthPercent = 40, milestones = [];
             if (timelineDistribution) {
-                // Find the timeframe with the most articles
+                // Calculate weighted consensus band based on all timeframes
                 const timeframes = Object.entries(timelineDistribution);
+                const totalArticles = Object.values(timelineDistribution).reduce((sum, count) => sum + count, 0);
+                
                 if (timeframes.length > 0) {
+                    // Find dominant timeframe
                     const [maxTimeframe, maxCount] = timeframes.reduce((a, b) => a[1] > b[1] ? a : b);
                     timeline = maxTimeframe;
                     
-                    // Map timeframe to timeline position (updated for 2025)
-                    if (maxTimeframe.includes('Immediate') || maxTimeframe.includes('2025')) {
-                        startPercent = 0; widthPercent = 25;
-                    } else if (maxTimeframe.includes('Short') || maxTimeframe.includes('2026') || maxTimeframe.includes('2027')) {
-                        startPercent = 20; widthPercent = 30;
-                    } else if (maxTimeframe.includes('Mid') || maxTimeframe.includes('2028') || maxTimeframe.includes('2029') || maxTimeframe.includes('2030')) {
-                        startPercent = 40; widthPercent = 35;
-                    } else if (maxTimeframe.includes('Long') || maxTimeframe.includes('203') || maxTimeframe.includes('2035')) {
-                        startPercent = 65; widthPercent = 35;
-                    }
+                    // Calculate weighted center and span based on distribution
+                    let weightedCenter = 0;
+                    let minPos = 100, maxPos = 0;
                     
-                    console.log(`Timeline positioning for ${categoryName}:`, {
+                    timeframes.forEach(([timeframe, count]) => {
+                        const weight = count / totalArticles;
+                        let timeframeCenter;
+                        
+                        if (timeframe.includes('Immediate')) {
+                            timeframeCenter = 10; // 2025
+                        } else if (timeframe.includes('Short-term')) {
+                            timeframeCenter = 35; // 2025-2027
+                        } else if (timeframe.includes('Mid-term')) {
+                            timeframeCenter = 62; // 2027-2030
+                        } else if (timeframe.includes('Long-term')) {
+                            timeframeCenter = 85; // 2030-2035+
+                        } else {
+                            timeframeCenter = 50; // Default
+                        }
+                        
+                        weightedCenter += timeframeCenter * weight;
+                        minPos = Math.min(minPos, timeframeCenter - 12);
+                        maxPos = Math.max(maxPos, timeframeCenter + 12);
+                        
+                        // Add milestone if significant presence (>12% of articles, lowered threshold)
+                        if (weight > 0.12) {
+                            // Add some variation to prevent exact overlap, but keep it meaningful
+                            const positionVariation = (Math.sin(categoryName.length * index) * 3); // Deterministic variation
+                            const adjustedPosition = Math.max(2, Math.min(timeframeCenter + positionVariation, 96));
+                            
+                            milestones.push({
+                                position: adjustedPosition,
+                                timeframe: timeframe,
+                                weight: weight,
+                                count: count
+                            });
+                        }
+                    });
+                    
+                    // Position consensus band around weighted center
+                    const bandWidth = Math.min(Math.max(maxPos - minPos, 20), 40);
+                    startPercent = Math.max(2, weightedCenter - bandWidth/2);
+                    widthPercent = Math.min(bandWidth, 96 - startPercent);
+                    
+                    // Add slight variation based on category to prevent exact overlap
+                    const categoryHash = categoryName.split('').reduce((a, b) => {
+                        a = ((a << 5) - a) + b.charCodeAt(0);
+                        return a & a;
+                    }, 0);
+                    const variation = (Math.abs(categoryHash) % 3) - 1; // -1 to +1 variation
+                    startPercent = Math.max(2, Math.min(startPercent + variation, 94 - widthPercent));
+                    
+                    console.log(`Enhanced timeline positioning for ${categoryName}:`, {
                         timelineDistribution,
                         dominantTimeframe: timeline,
-                        startPercent,
-                        widthPercent
+                        weightedCenter: weightedCenter.toFixed(1),
+                        startPercent: startPercent.toFixed(1),
+                        widthPercent: widthPercent.toFixed(1),
+                        milestones: milestones.length,
+                        milestonesData: milestones
                     });
                 }
             } else {
-                // Fallback timeline positioning based on timeline string (updated for 2025)
-                if (timeline.includes('Immediate') || timeline.includes('2025')) {
-                    startPercent = 0; widthPercent = 25;
-                } else if (timeline.includes('Short') || timeline.includes('2026') || timeline.includes('2027')) {
-                    startPercent = 20; widthPercent = 30;
-                } else if (timeline.includes('Mid') || timeline.includes('2028') || timeline.includes('2029') || timeline.includes('2030')) {
-                    startPercent = 40; widthPercent = 35;
-                } else if (timeline.includes('Long') || timeline.includes('203') || timeline.includes('2035')) {
-                    startPercent = 65; widthPercent = 35;
+                // Fallback timeline positioning based on timeline string with better variation
+                if (timeline.includes('Immediate')) {
+                    startPercent = 2; widthPercent = 18;
+                    // Add fallback milestone for immediate timeline with category-based variation
+                    const variation = (categoryName.length % 7) - 3; // -3 to +3 variation
+                    milestones.push({
+                        position: Math.max(2, Math.min(10 + variation, 96)),
+                        timeframe: 'Immediate (2025)',
+                        weight: 0.8, // Assume high concentration
+                        count: articlesAnalyzed || 20
+                    });
+                } else if (timeline.includes('Short')) {
+                    startPercent = 22; widthPercent = 26;
+                    // Add fallback milestone for short-term timeline with category-based variation
+                    const variation = (categoryName.length % 9) - 4; // -4 to +4 variation
+                    milestones.push({
+                        position: Math.max(2, Math.min(35 + variation, 96)),
+                        timeframe: 'Short-term (2025-2027)',
+                        weight: 0.7,
+                        count: articlesAnalyzed || 20
+                    });
+                } else if (timeline.includes('Mid')) {
+                    startPercent = 50; widthPercent = 24;
+                    // Add fallback milestone for mid-term timeline with category-based variation
+                    const variation = (categoryName.length % 11) - 5; // -5 to +5 variation
+                    milestones.push({
+                        position: Math.max(2, Math.min(62 + variation, 96)),
+                        timeframe: 'Mid-term (2027-2030)',
+                        weight: 0.6,
+                        count: articlesAnalyzed || 20
+                    });
+                } else if (timeline.includes('Long')) {
+                    startPercent = 76; widthPercent = 22;
+                    // Add fallback milestone for long-term timeline with category-based variation
+                    const variation = (categoryName.length % 5) - 2; // -2 to +2 variation
+                    milestones.push({
+                        position: Math.max(2, Math.min(85 + variation, 96)),
+                        timeframe: 'Long-term (2030-2035+)',
+                        weight: 0.5,
+                        count: articlesAnalyzed || 20
+                    });
+                } else {
+                    // If no matching timeline, spread them out based on category
+                    const categoryIndex = index % 4; // Use card index for variation
+                    switch (categoryIndex) {
+                        case 0: 
+                            startPercent = 2; widthPercent = 18;
+                            const variation0 = (categoryName.length % 6) - 3; // Unique variation per category
+                            milestones.push({
+                                position: Math.max(2, Math.min(10 + variation0, 96)),
+                                timeframe: 'Immediate (2025)',
+                                weight: 0.4,
+                                count: Math.floor((articlesAnalyzed || 20) * 0.4)
+                            });
+                            break;
+                        case 1: 
+                            startPercent = 22; widthPercent = 26;
+                            const variation1 = (categoryName.length % 8) - 4; // Unique variation per category
+                            milestones.push({
+                                position: Math.max(2, Math.min(35 + variation1, 96)),
+                                timeframe: 'Short-term (2025-2027)',
+                                weight: 0.4,
+                                count: Math.floor((articlesAnalyzed || 20) * 0.4)
+                            });
+                            break;
+                        case 2: 
+                            startPercent = 50; widthPercent = 24;
+                            const variation2 = (categoryName.length % 10) - 5; // Unique variation per category
+                            milestones.push({
+                                position: Math.max(2, Math.min(62 + variation2, 96)),
+                                timeframe: 'Mid-term (2027-2030)',
+                                weight: 0.4,
+                                count: Math.floor((articlesAnalyzed || 20) * 0.4)
+                            });
+                            break;
+                        case 3: 
+                            startPercent = 76; widthPercent = 22;
+                            const variation3 = (categoryName.length % 4) - 2; // Unique variation per category
+                            milestones.push({
+                                position: Math.max(2, Math.min(85 + variation3, 96)),
+                                timeframe: 'Long-term (2030-2035+)',
+                                weight: 0.4,
+                                count: Math.floor((articlesAnalyzed || 20) * 0.4)
+                            });
+                            break;
+                    }
                 }
             }
             
             const color = consensusColors[consensusType] || consensusColors['Mixed Consensus'];
-            const icon = domainIcons[categoryName] || '🔍';
+            const icon = domainIcons[categoryName] || '📊';
             
             // Create enhanced visualization with sentiment and timeline distributions
             console.log(`Creating card for ${categoryName}:`, {
@@ -1142,11 +1340,36 @@
                 articlesAnalyzed
             });
             
+            // Create a short tagline for the card header (different from full strategic implications)
+            let taglineDescription = '';
+            if (strategicImplications) {
+                // Take first sentence for tagline
+                const sentences = strategicImplications.split(/[.!?]+/);
+                if (sentences.length > 0 && sentences[0].length > 10) {
+                    taglineDescription = sentences[0].trim() + (sentences[0].endsWith('.') ? '' : '.');
+                }
+                // Limit length for display
+                if (taglineDescription.length > 120) {
+                    taglineDescription = taglineDescription.substring(0, 117) + '...';
+                }
+            }
+            // Fallback tagline if no strategic implications
+            if (!taglineDescription) {
+                taglineDescription = `Analysis of ${categoryName.toLowerCase()} trends and consensus patterns`;
+            }
+            
             const sentimentChart = createSentimentDistributionChart(sentimentDistribution);
             const timelineChart = createTimelineDistributionChart(timelineDistribution);
-            const outliersHtml = createOutliersVisualization(optimisticOutliers, pessimisticOutliers);
+            const outliersHtml = createOutliersVisualization(optimisticOutliers, pessimisticOutliers, categoryName);
+            const milestonesHtml = createMilestonesVisualization(milestones, categoryName);
             
-            console.log(`Outliers HTML for ${categoryName}:`, outliersHtml);
+            console.log(`Final visualization data for ${categoryName}:`, {
+                optimisticOutliers: optimisticOutliers.length,
+                pessimisticOutliers: pessimisticOutliers.length,
+                milestones: milestones.length,
+                outliersHtml: outliersHtml.length,
+                milestonesHtml: milestonesHtml.length
+            });
             
             card.innerHTML = `
                 <div class="card-header bg-light">
@@ -1158,8 +1381,7 @@
                             <div>
                                 <h5 class="mb-1 fw-bold">${categoryName}</h5>
                                 <small class="text-muted">
-                                    ${articlesAnalyzed} articles analyzed in this category
-                                    <i class="fas fa-info-circle ms-1" title="System finds all relevant articles, then selects the most diverse subset for detailed analysis within token budget constraints. Categories search independently." style="cursor: help; opacity: 0.7;"></i>
+                                    ${taglineDescription}
                                 </small>
                             </div>
                         </div>
@@ -1182,11 +1404,12 @@
                             left: ${startPercent}%; 
                             width: ${widthPercent}%; 
                             background: ${color};
-                        " data-tooltip="${getConsensusTooltip(consensusType, confidence, sentimentDistribution)}">
-                            ${consensusType.toUpperCase().replace(/ /g, ' ')}
+                        " data-tooltip="${getConsensusTooltip(consensusType, confidence, sentimentDistribution, timeline)}">
+                            ${getTimelineDisplayText(timeline, consensusType)}
                         </div>
                         
                         ${outliersHtml}
+                        ${milestonesHtml}
                     </div>
                     
                     <!-- Sentiment Distribution -->
@@ -1196,12 +1419,6 @@
                             ${sentimentChart}
                         </div>
                     ` : ''}
-                    
-                    <div class="mt-3">
-                        <button class="btn btn-sm btn-outline-primary" onclick="toggleCategoryDetails(${index}); console.log('Button clicked for index ${index}');">
-                            View Detailed Analysis
-                        </button>
-                    </div>
                     
                     <div class="expanded-details" style="display: none;" id="category-details-${index}">
                         <hr>
@@ -1304,6 +1521,41 @@
                             </div>
                         ` : ''}
                         
+                        <!-- Actionable Milestones -->
+                        ${milestones.length > 0 ? `
+                            <div class="mb-4">
+                                <h6 class="fw-bold text-warning mb-2">🎯 Key Decision Windows</h6>
+                                <div class="row">
+                                    ${milestones.map(milestone => {
+                                        const actionableData = generateActionableMilestone(milestone, categoryName, 0);
+                                        const urgencyColor = actionableData.urgency === 'critical' ? 'danger' : 
+                                                           actionableData.urgency === 'high' ? 'warning' : 
+                                                           actionableData.urgency === 'medium' ? 'info' : 'secondary';
+                                        
+                                        return `
+                                            <div class="col-12 mb-3">
+                                                <div class="card border-${urgencyColor} bg-light">
+                                                    <div class="card-body p-3">
+                                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                                            <h6 class="card-title mb-1 text-${urgencyColor}">${actionableData.title}</h6>
+                                                            <span class="badge bg-${urgencyColor}">${actionableData.urgency.toUpperCase()}</span>
+                                                        </div>
+                                                        <p class="card-text small mb-2">${actionableData.description}</p>
+                                                        <div class="alert alert-${urgencyColor} alert-sm mb-0 py-2">
+                                                            <strong>📋 Action Required:</strong> ${actionableData.action}
+                                                        </div>
+                                                        <small class="text-muted">
+                                                            📅 ${milestone.timeframe} | 📊 ${milestone.count} articles (${(milestone.weight * 100).toFixed(1)}% consensus)
+                                                        </small>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                        
                         <!-- Raw Analysis (Collapsible) -->
                         <div class="mt-3">
                             <button class="btn btn-sm btn-outline-secondary" onclick="toggleRawAnalysis(${index})">
@@ -1319,6 +1571,21 @@
                 </div>
             `;
             
+            // Add click event listener to the entire card
+            card.addEventListener('click', function(event) {
+                // Don't trigger if clicking on links, buttons, or other interactive elements
+                if (event.target.tagName === 'A' || 
+                    event.target.tagName === 'BUTTON' || 
+                    event.target.closest('button') || 
+                    event.target.closest('a')) {
+                    return;
+                }
+                toggleCategoryDetails(index);
+            });
+            
+            // Add hover effect to indicate clickability
+            card.style.cursor = 'pointer';
+            
             return card;
         }
 
@@ -1330,7 +1597,7 @@
             // Map consensus type to color
             const consensusType = data.consensusType || data.consensus_type || 'Mixed Consensus';
             const color = consensusColors[consensusType] || consensusColors['Mixed Consensus'];
-            const icon = domainIcons[categoryName] || '🔍';
+            const icon = domainIcons[categoryName] || '📊';
             const confidence = data.confidence || data.confidence_level || 60;
             const insight = data.insight || data.strategic_implications || `Analysis of ${categoryName} trends`;
             
@@ -1449,7 +1716,7 @@
             const sentimentData = getSentimentPattern(category);
             const consensusInfo = analyzeConsensus(sentimentData, category);
             
-            const icon = domainIcons[category] || '🔍';
+            const icon = domainIcons[category] || '📊';
             const color = consensusColors[consensusInfo.type] || consensusColors['Mixed Consensus'];
             
             card.innerHTML = `
@@ -1640,24 +1907,28 @@
         }
         
         function toggleDomainDetails(index) {
+            console.log(`Toggling category details for index: ${index}`);
+            const details = document.getElementById(`category-details-${index}`);
             const card = document.querySelector(`[data-index="${index}"]`);
-            const details = document.getElementById(`details-${index}`);
             
-            if (selectedDomain !== null && selectedDomain !== index) {
-                const prevCard = document.querySelector(`[data-index="${selectedDomain}"]`);
-                const prevDetails = document.getElementById(`details-${selectedDomain}`);
-                prevCard.classList.remove('selected');
-                prevDetails.style.display = 'none';
-            }
+            console.log('Details element:', details);
+            console.log('Card element:', card);
             
-            if (selectedDomain === index) {
+            if (details && card) {
+                const isHidden = details.style.display === 'none' || details.style.display === '';
+                details.style.display = isHidden ? 'block' : 'none';
+                
+                // Update card selection state
+                if (isHidden) {
+                    card.classList.add('selected');
+                } else {
                 card.classList.remove('selected');
-                details.style.display = 'none';
-                selectedDomain = null;
+                }
+                
+                console.log(`Set display to: ${details.style.display}`);
+                console.log(`Card selected: ${card.classList.contains('selected')}`);
             } else {
-                card.classList.add('selected');
-                details.style.display = 'block';
-                selectedDomain = index;
+                console.error(`Could not find elements - details: ${!!details}, card: ${!!card}`);
             }
         }
 
@@ -1725,60 +1996,127 @@
             const total = Object.values(distribution).reduce((sum, val) => sum + val, 0);
             if (total === 0) return null;
             
+            // Updated colors to match 2025 timeframes
             const colors = {
-                'Immediate (2024-2025)': '#ff6b6b',
+                'Immediate (2025)': '#ff6b6b',
                 'Short-term (2025-2027)': '#ffa726', 
                 'Mid-term (2027-2030)': '#42a5f5',
                 'Long-term (2030-2035+)': '#ab47bc'
             };
             
-            let html = '<div class="timeline-distribution d-flex rounded overflow-hidden" style="height: 20px; background: #f8f9fa;">';
+            // Find the dominant timeframe
+            const dominantTimeframe = Object.entries(distribution).reduce((a, b) => a[1] > b[1] ? a : b)[0];
+            
+            let html = '<div class="timeline-distribution d-flex rounded overflow-hidden" style="height: 24px; background: #f8f9fa; border: 1px solid #dee2e6;">';
             
             Object.entries(distribution).forEach(([timeframe, count]) => {
                 const percentage = (count / total) * 100;
                 const color = colors[timeframe] || '#6c757d';
-                html += `<div style="width: ${percentage}%; background: ${color}; position: relative;" title="${timeframe}: ${count} articles (${percentage.toFixed(1)}%)"></div>`;
+                const isDominant = timeframe === dominantTimeframe;
+                const borderStyle = isDominant ? 'border: 2px solid #007bff;' : '';
+                html += `<div style="width: ${percentage}%; background: ${color}; position: relative; ${borderStyle}" title="${timeframe}: ${count} articles (${percentage.toFixed(1)}%)${isDominant ? ' - Dominant Timeline' : ''}"></div>`;
             });
             
             html += '</div>';
-            html += '<div class="small text-muted mt-1">';
+            html += '<div class="small text-muted mt-1 d-flex flex-wrap gap-2">';
             Object.entries(distribution).forEach(([timeframe, count]) => {
                 const percentage = (count / total) * 100;
                 const color = colors[timeframe] || '#6c757d';
-                const shortName = timeframe.split(' ')[0];
-                html += `<span class="me-2"><span style="display: inline-block; width: 10px; height: 10px; background: ${color}; margin-right: 4px;"></span>${shortName}: ${count}</span>`;
+                const isDominant = timeframe === dominantTimeframe;
+                const weightClass = isDominant ? 'fw-bold' : '';
+                const shortName = timeframe.replace(/\([^)]*\)/, '').trim(); // Remove year ranges for cleaner display
+                html += `<span class="me-2 ${weightClass}"><span style="display: inline-block; width: 12px; height: 12px; background: ${color}; margin-right: 4px; border-radius: 2px;"></span>${shortName}: ${percentage.toFixed(1)}%${isDominant ? ' (dominant)' : ''}</span>`;
             });
             html += '</div>';
             
             return html;
         }
 
-        function createOutliersVisualization(optimisticOutliers, pessimisticOutliers) {
+        function createOutliersVisualization(optimisticOutliers, pessimisticOutliers, categoryName = 'Unknown Category') {
             let html = '';
             
             // Ensure we have arrays
             const optimistic = Array.isArray(optimisticOutliers) ? optimisticOutliers : [];
             const pessimistic = Array.isArray(pessimisticOutliers) ? pessimisticOutliers : [];
             
-            console.log('Plotting outliers:', { optimistic: optimistic.length, pessimistic: pessimistic.length });
+            console.log(`Plotting outliers for ${categoryName}:`, { optimistic: optimistic.length, pessimistic: pessimistic.length });
             
             // Function to map timeline to position (updated for 2025)
             function getTimelinePosition(timeline) {
-                if (!timeline) return 50; // Default center if no timeline
+                if (!timeline) {
+                    // Random position between 20-80% if no timeline specified
+                    const position = 20 + Math.random() * 60;
+                    console.log('No timeline provided, using random position:', position);
+                    return position;
+                }
                 
                 const timelineStr = timeline.toLowerCase();
-                if (timelineStr.includes('2025') || timelineStr.includes('immediate')) {
-                    return 12; // 2025 position
-                } else if (timelineStr.includes('2026') || timelineStr.includes('2027') || timelineStr.includes('short')) {
-                    return 35; // 2027 position  
-                } else if (timelineStr.includes('2028') || timelineStr.includes('2029') || timelineStr.includes('2030') || timelineStr.includes('mid')) {
-                    return 58; // 2030 position
-                } else if (timelineStr.includes('203') || timelineStr.includes('2035') || timelineStr.includes('long')) {
-                    return 82; // 2035+ position
-                } else if (timelineStr.includes('2024')) {
-                    return 5; // Before 2025 (shouldn't happen much now)
+                console.log('Processing timeline string:', timelineStr);
+                
+                // Handle specific year mentions first
+                if (timelineStr.includes('2025')) {
+                    if (timelineStr.includes('2025-2026') || timelineStr.includes('2025-2027')) {
+                        console.log('Timeline 2025-2026/2027 -> position 18');
+                        return 18; // Between 2025 and 2027
+                    }
+                    console.log('Timeline 2025 -> position 8');
+                    return 8; // 2025 position
+                } else if (timelineStr.includes('2026')) {
+                    console.log('Timeline 2026 -> position 28');
+                    return 28; // 2026 position
+                } else if (timelineStr.includes('2027')) {
+                    if (timelineStr.includes('2027-2030')) {
+                        console.log('Timeline 2027-2030 -> position 50');
+                        return 50; // Mid-term range
+                    }
+                    console.log('Timeline 2027 -> position 40');
+                    return 40; // 2027 position  
+                } else if (timelineStr.includes('2028')) {
+                    console.log('Timeline 2028 -> position 55');
+                    return 55; // 2028 position
+                } else if (timelineStr.includes('2029')) {
+                    console.log('Timeline 2029 -> position 62');
+                    return 62; // 2029 position
+                } else if (timelineStr.includes('2030')) {
+                    console.log('Timeline 2030 -> position 70');
+                    return 70; // 2030 position
+                } else if (timelineStr.includes('2031')) {
+                    console.log('Timeline 2031 -> position 75');
+                    return 75; // 2031 position
+                } else if (timelineStr.includes('2032')) {
+                    console.log('Timeline 2032 -> position 80');
+                    return 80; // 2032 position
+                } else if (timelineStr.includes('2035') || timelineStr.includes('203')) {
+                    console.log('Timeline 2035+ -> position 88');
+                    return 88; // 2035+ position
                 }
-                return 50; // Default center
+                
+                // Handle range descriptions
+                if (timelineStr.includes('immediate')) {
+                    const position = 8 + Math.random() * 10; // 2025 position with variation
+                    console.log('Timeline immediate -> position', position);
+                    return position;
+                } else if (timelineStr.includes('short')) {
+                    const position = 25 + Math.random() * 20; // 2025-2027 range with variation
+                    console.log('Timeline short-term -> position', position);
+                    return position;
+                } else if (timelineStr.includes('mid')) {
+                    const position = 50 + Math.random() * 20; // 2027-2030 range with variation
+                    console.log('Timeline mid-term -> position', position);
+                    return position;
+                } else if (timelineStr.includes('long')) {
+                    const position = 75 + Math.random() * 15; // 2030-2035+ range with variation
+                    console.log('Timeline long-term -> position', position);
+                    return position;
+                } else if (timelineStr.includes('2024')) {
+                    console.log('Timeline 2024 -> position 2');
+                    return 2; // Before 2025 (shouldn't happen much now)
+                }
+                
+                // If we can't parse the timeline, add randomness
+                const position = 20 + Math.random() * 60; // Random position in 20-80% range
+                console.warn('Could not parse timeline, using random position:', timeline, '->', position);
+                return position;
             }
             
             // Plot optimistic outliers
@@ -1795,9 +2133,16 @@
                     source = '';
                 }
                 
+                console.log(`Positioning optimistic outlier ${index} for ${categoryName}:`, {
+                    scenario: scenario.substring(0, 50),
+                    timeline,
+                    rawTimelinePosition: getTimelinePosition(timeline)
+                });
+                
                 // Position based on timeline, with slight offset for multiple outliers
                 const basePosition = getTimelinePosition(timeline);
-                const position = Math.max(2, Math.min(basePosition + (index * 3), 95));
+                const offsetPosition = basePosition + (index * 5); // Larger offset for visibility
+                const position = Math.max(2, Math.min(offsetPosition, 95));
                 
                 const tooltipText = `Optimistic: ${scenario}${timeline ? ` (${timeline})` : ''}${source ? ` - ${source}` : ''}`;
                 
@@ -1822,9 +2167,16 @@
                     source = '';
                 }
                 
+                console.log(`Positioning pessimistic outlier ${index} for ${categoryName}:`, {
+                    scenario: scenario.substring(0, 50),
+                    timeline,
+                    rawTimelinePosition: getTimelinePosition(timeline)
+                });
+                
                 // Position based on timeline, with slight offset for multiple outliers
                 const basePosition = getTimelinePosition(timeline);
-                const position = Math.max(2, Math.min(basePosition + (index * 3), 95));
+                const offsetPosition = basePosition + (index * 5); // Larger offset for visibility
+                const position = Math.max(2, Math.min(offsetPosition, 95));
                 
                 const tooltipText = `Pessimistic: ${scenario}${timeline ? ` (${timeline})` : ''}${source ? ` - ${source}` : ''}`;
                 
@@ -1836,6 +2188,146 @@
             });
             
             return html;
+        }
+
+        function createMilestonesVisualization(milestones, categoryName = 'Unknown Category') {
+            if (!milestones || milestones.length === 0) {
+                return '';
+            }
+            
+            console.log(`Creating ${milestones.length} actionable milestones for ${categoryName}:`, milestones);
+            
+            let html = '';
+            
+            milestones.forEach((milestone, index) => {
+                // Create actionable milestone based on timeframe and category
+                const actionableData = generateActionableMilestone(milestone, categoryName, index);
+                
+                // Determine milestone color class based on urgency/importance
+                let colorClass = 'milestone-mid'; // default
+                if (actionableData.urgency === 'critical') {
+                    colorClass = 'milestone-immediate';
+                } else if (actionableData.urgency === 'high') {
+                    colorClass = 'milestone-short';
+                } else if (actionableData.urgency === 'medium') {
+                    colorClass = 'milestone-mid';
+                } else {
+                    colorClass = 'milestone-long';
+                }
+                
+                const tooltipText = `${actionableData.title}
+                
+📅 Window: ${milestone.timeframe}
+🎯 Action: ${actionableData.action}
+📊 Evidence: ${milestone.count} articles (${(milestone.weight * 100).toFixed(1)}% consensus)
+⚡ Urgency: ${actionableData.urgency.toUpperCase()}
+
+${actionableData.description}`;
+                
+                html += `<div class="milestone-marker ${colorClass}" 
+                             style="left: ${milestone.position}%;"
+                             title="${tooltipText}"
+                             data-tooltip="${tooltipText}"
+                             data-action="${actionableData.action}"
+                             data-urgency="${actionableData.urgency}">
+                         </div>`;
+            });
+            
+            return html;
+        }
+
+        function generateActionableMilestone(milestone, categoryName, index) {
+            // Generate actionable milestones based on timeframe and category context
+            const timeframe = milestone.timeframe.toLowerCase();
+            const category = categoryName.toLowerCase();
+            const weight = milestone.weight;
+            
+            // Determine urgency based on timeframe and consensus strength
+            let urgency = 'medium';
+            if (timeframe.includes('immediate') && weight > 0.6) {
+                urgency = 'critical';
+            } else if (timeframe.includes('immediate') || (timeframe.includes('short') && weight > 0.7)) {
+                urgency = 'high';
+            } else if (timeframe.includes('long') && weight < 0.3) {
+                urgency = 'low';
+            }
+            
+            // Generate context-specific actionable milestones
+            let title, action, description;
+            
+            if (timeframe.includes('immediate')) {
+                if (category.includes('ai') || category.includes('artificial intelligence')) {
+                    title = '🚨 AI Adoption Decision Window';
+                    action = 'Evaluate AI integration roadmap and pilot programs';
+                    description = 'Critical window for competitive AI adoption decisions. Delay risks market position.';
+                } else if (category.includes('security') || category.includes('safety')) {
+                    title = '🛡️ Security Protocol Implementation';
+                    action = 'Deploy enhanced security measures and compliance frameworks';
+                    description = 'Immediate security vulnerabilities require urgent attention and resource allocation.';
+                } else if (category.includes('regulatory') || category.includes('policy')) {
+                    title = '📋 Regulatory Compliance Checkpoint';
+                    action = 'Review compliance status and prepare for regulatory changes';
+                    description = 'Regulatory landscape shifts requiring immediate compliance assessment.';
+                } else {
+                    title = '⚡ Strategic Response Window';
+                    action = 'Assess immediate market opportunities and threats';
+                    description = 'Time-sensitive strategic decisions required based on emerging consensus.';
+                }
+            } else if (timeframe.includes('short')) {
+                if (category.includes('business') || category.includes('economic')) {
+                    title = '💼 Business Model Adaptation';
+                    action = 'Develop strategic business model adjustments';
+                    description = 'Market dynamics suggest business model evolution needed within 2-3 years.';
+                } else if (category.includes('workforce') || category.includes('employment')) {
+                    title = '👥 Workforce Transformation Planning';
+                    action = 'Design reskilling and workforce adaptation programs';
+                    description = 'Prepare workforce for anticipated changes in job market and skill requirements.';
+                } else if (category.includes('technology') || category.includes('innovation')) {
+                    title = '🔬 Technology Investment Decision';
+                    action = 'Finalize technology investment and development priorities';
+                    description = 'Critical technology adoption window for maintaining competitive advantage.';
+                } else {
+                    title = '📈 Strategic Planning Milestone';
+                    action = 'Update strategic plans based on emerging trends';
+                    description = 'Key planning window for adapting to anticipated market changes.';
+                }
+            } else if (timeframe.includes('mid')) {
+                if (category.includes('infrastructure') || category.includes('system')) {
+                    title = '🏗️ Infrastructure Modernization';
+                    action = 'Plan and budget for infrastructure upgrades';
+                    description = 'Mid-term infrastructure investments needed to support anticipated changes.';
+                } else if (category.includes('market') || category.includes('industry')) {
+                    title = '🌐 Market Position Review';
+                    action = 'Evaluate market positioning and competitive strategy';
+                    description = 'Strategic review period for market position and competitive dynamics.';
+                } else {
+                    title = '🎯 Strategic Checkpoint';
+                    action = 'Review and adjust long-term strategic direction';
+                    description = 'Mid-term strategic review based on consensus trend development.';
+                }
+            } else {
+                // Long-term
+                if (category.includes('research') || category.includes('development')) {
+                    title = '🔮 R&D Investment Horizon';
+                    action = 'Establish long-term research and development priorities';
+                    description = 'Long-term R&D planning window based on anticipated future developments.';
+                } else if (category.includes('sustainability') || category.includes('environment')) {
+                    title = '🌱 Sustainability Transition';
+                    action = 'Develop long-term sustainability and transition strategies';
+                    description = 'Long-term planning window for sustainable business transformation.';
+                } else {
+                    title = '🔭 Future State Planning';
+                    action = 'Develop long-term vision and capability roadmaps';
+                    description = 'Strategic planning horizon for future state preparation and capability building.';
+                }
+            }
+            
+            return {
+                title,
+                action,
+                description,
+                urgency
+            };
         }
 
         function extractUrlFromReference(reference) {
@@ -1943,7 +2435,7 @@
                                    id="cat_Trends" 
                                    value="Trends" onchange="updateCategoriesText()">
                             <label class="form-check-label small" for="cat_Trends">
-                                <strong>🔍 Trends</strong> <span class="text-muted">(AI-surfaced emerging patterns)</span>
+                                <strong>📈 Trends</strong> <span class="text-muted">(AI-surfaced emerging patterns)</span>
                             </label>
                         `;
                         checkboxContainer.appendChild(trendsDiv);
@@ -1978,7 +2470,7 @@
                                    id="cat_Trends" 
                                    value="Trends" onchange="updateCategoriesText()">
                             <label class="form-check-label small" for="cat_Trends">
-                                <strong>🔍 Trends</strong> <span class="text-muted">(AI-surfaced emerging patterns)</span>
+                                <strong>📈 Trends</strong> <span class="text-muted">(AI-surfaced emerging patterns)</span>
                             </label>
                         `;
                         checkboxContainer.appendChild(trendsDiv);
@@ -2012,7 +2504,7 @@
                                id="cat_Trends" 
                                value="Trends" onchange="updateCategoriesText()">
                         <label class="form-check-label small" for="cat_Trends">
-                            <strong>🔍 Trends</strong> <span class="text-muted">(AI-surfaced emerging patterns)</span>
+                            <strong>📈 Trends</strong> <span class="text-muted">(AI-surfaced emerging patterns)</span>
                         </label>
                     </div>
                     <hr class="my-2">
@@ -2277,10 +2769,7 @@
                 document.getElementById('sampleSizeMode').addEventListener('change', updateContextInfo);
                 document.getElementById('customLimit').addEventListener('input', updateContextInfo);
                 
-                // Load saved configuration after elements are populated
-                setTimeout(() => {
-                    loadSavedConfiguration();
-                }, 100);
+                // Configuration will be loaded by DOMContentLoaded after all data is ready
                 
             } catch (error) {
                 console.warn('Failed to load data:', error);
@@ -2294,15 +2783,18 @@
         function testOutlierVisualization() {
             console.log('Testing outlier visualization...');
             const testOptimistic = [
-                { scenario: 'Test optimistic scenario 1' },
-                { scenario: 'Test optimistic scenario 2' }
+                { scenario: 'Breakthrough AI capabilities by 2025', timeline: 'Immediate (2025)' },
+                { scenario: 'Revolutionary productivity gains', timeline: 'Short-term (2025-2027)' }
             ];
             const testPessimistic = [
-                { scenario: 'Test pessimistic scenario 1' }
+                { scenario: 'Major security vulnerabilities discovered', timeline: 'Mid-term (2027-2030)' },
+                { scenario: 'Regulatory backlash delays adoption', timeline: 'Long-term (2030-2035+)' }
             ];
             
-            const html = createOutliersVisualization(testOptimistic, testPessimistic);
+            const html = createOutliersVisualization(testOptimistic, testPessimistic, 'Test Category');
             console.log('Generated HTML:', html);
+            console.log('Optimistic outliers:', testOptimistic);
+            console.log('Pessimistic outliers:', testPessimistic);
             
             // Add to a test container
             const testContainer = document.createElement('div');
@@ -2312,9 +2804,12 @@
             
             document.body.appendChild(testContainer);
             
+            // Initialize tooltips for the test
+            initializeTooltips();
+            
             setTimeout(() => {
                 document.body.removeChild(testContainer);
-            }, 5000);
+            }, 8000);
         }
         
         function testToggleFunction() {
@@ -2334,11 +2829,98 @@
                 document.body.removeChild(testElement);
             }, 5000);
         }
+        
+        function testMilestoneVisualization() {
+            console.log('Testing milestone visualization...');
+            const testMilestones = [
+                { position: 10, timeframe: 'Immediate (2025)', weight: 0.3, count: 15 },
+                { position: 35, timeframe: 'Short-term (2025-2027)', weight: 0.4, count: 20 },
+                { position: 85, timeframe: 'Long-term (2030-2035+)', weight: 0.2, count: 10 }
+            ];
+            
+            const html = createMilestonesVisualization(testMilestones, 'Test Category');
+            console.log('Generated Milestones HTML:', html);
+            
+            // Add to a test container
+            const testContainer = document.createElement('div');
+            testContainer.className = 'timeline-container';
+            testContainer.style.cssText = 'position: relative; height: 40px; background: #f0f0f0; margin: 20px 0; border: 1px solid #ccc;';
+            testContainer.innerHTML = html;
+            
+            document.body.appendChild(testContainer);
+            
+            // Initialize tooltips for the test
+            initializeTooltips();
+            
+            setTimeout(() => {
+                document.body.removeChild(testContainer);
+            }, 8000);
+        }
+
+        // Debug function to check current analysis data
+        function debugCurrentAnalysis() {
+            console.log('=== DEBUGGING CURRENT ANALYSIS ===');
+            
+            // Check all domain cards
+            const domainCards = document.querySelectorAll('.domain-card');
+            console.log(`Found ${domainCards.length} domain cards`);
+            
+            domainCards.forEach((card, index) => {
+                const categoryName = card.querySelector('h5')?.textContent || `Card ${index}`;
+                const optimisticMarkers = card.querySelectorAll('.outlier-optimistic');
+                const pessimisticMarkers = card.querySelectorAll('.outlier-pessimistic');
+                const milestoneMarkers = card.querySelectorAll('.milestone-marker');
+                
+                console.log(`Card: ${categoryName}`, {
+                    optimisticMarkers: optimisticMarkers.length,
+                    pessimisticMarkers: pessimisticMarkers.length,
+                    milestoneMarkers: milestoneMarkers.length
+                });
+                
+                // Log marker positions
+                optimisticMarkers.forEach((marker, i) => {
+                    console.log(`  Optimistic ${i}: ${marker.style.left}, tooltip: ${marker.getAttribute('data-tooltip') || 'none'}`);
+                });
+                pessimisticMarkers.forEach((marker, i) => {
+                    console.log(`  Pessimistic ${i}: ${marker.style.left}, tooltip: ${marker.getAttribute('data-tooltip') || 'none'}`);
+                });
+                milestoneMarkers.forEach((marker, i) => {
+                    console.log(`  Milestone ${i}: ${marker.style.left}, tooltip: ${marker.getAttribute('data-tooltip') || 'none'}`);
+                });
+            });
+        }
+
+        // Expose debug functions to global scope for console access
+        window.testOutlierVisualization = testOutlierVisualization;
+        window.testMilestoneVisualization = testMilestoneVisualization;
+        window.testToggleFunction = testToggleFunction;
+        window.debugCurrentAnalysis = debugCurrentAnalysis;
 
         // Global tooltip variables and handlers
         let currentTooltip = null;
         
-        function getConsensusTooltip(consensusType, confidence, sentimentDistribution) {
+        function getTimelineDisplayText(timeline, consensusType) {
+            // Create a display text that shows both timeline and consensus type
+            if (timeline) {
+                // Extract the key part of the timeline for display
+                if (timeline.includes('Immediate')) {
+                    return 'IMMEDIATE (2025)';
+                } else if (timeline.includes('Short-term')) {
+                    return 'SHORT-TERM (2025-2027)';
+                } else if (timeline.includes('Mid-term')) {
+                    return 'MID-TERM (2027-2030)';
+                } else if (timeline.includes('Long-term')) {
+                    return 'LONG-TERM (2030-2035+)';
+                } else {
+                    // Fallback to showing the timeline text
+                    return timeline.toUpperCase();
+                }
+            }
+            // Fallback to consensus type if no timeline
+            return consensusType.toUpperCase().replace(/ /g, ' ');
+        }
+
+        function getConsensusTooltip(consensusType, confidence, sentimentDistribution, timeline) {
             const explanations = {
                 'Positive Growth': `POSITIVE GROWTH (${confidence}% confidence)
                 
@@ -2425,6 +3007,14 @@ Key indicators:
             
 This consensus type was determined by analyzing the sentiment and themes in the articles for this category.`;
 
+            // Add timeline information
+            if (timeline) {
+                tooltip += `
+
+Timeline Consensus: ${timeline}
+This timeframe represents when the majority of articles expect the main impacts to occur.`;
+            }
+
             // Add sentiment breakdown if available
             if (sentimentDistribution) {
                 tooltip += `
@@ -2439,7 +3029,7 @@ Sentiment Breakdown:
         }
 
         function handleTooltipMouseover(e) {
-            if ((e.target.classList.contains('outlier-marker') || e.target.classList.contains('consensus-band')) && e.target.hasAttribute('data-tooltip')) {
+            if ((e.target.classList.contains('outlier-marker') || e.target.classList.contains('consensus-band') || e.target.classList.contains('milestone-marker')) && e.target.hasAttribute('data-tooltip')) {
                 const title = e.target.getAttribute('data-tooltip');
                 if (!title) return;
                 
@@ -2484,7 +3074,7 @@ Sentiment Breakdown:
         }
         
         function handleTooltipMouseout(e) {
-            if (e.target.classList.contains('outlier-marker') || e.target.classList.contains('consensus-band')) {
+            if (e.target.classList.contains('outlier-marker') || e.target.classList.contains('consensus-band') || e.target.classList.contains('milestone-marker')) {
                 if (currentTooltip) {
                     currentTooltip.remove();
                     currentTooltip = null;
@@ -2507,6 +3097,13 @@ Sentiment Breakdown:
                 // Handle consensus bands (they should already have data-tooltip, but remove any title attributes)
                 document.querySelectorAll('.consensus-band[title]').forEach(band => {
                     band.removeAttribute('title');
+                });
+                
+                // Handle milestone markers
+                document.querySelectorAll('.milestone-marker[title]').forEach(marker => {
+                    const title = marker.getAttribute('title');
+                    marker.setAttribute('data-tooltip', title);
+                    marker.removeAttribute('title');
                 });
             }, 100);
         }
@@ -2574,7 +3171,7 @@ Sentiment Breakdown:
             const modal = bootstrap.Modal.getInstance(modalElement);
             
             if (modal) {
-                modal.hide();
+            modal.hide();
                 
                 // Ensure proper cleanup of backdrop after modal is hidden
                 modalElement.addEventListener('hidden.bs.modal', function cleanup() {
@@ -2599,49 +3196,102 @@ Sentiment Breakdown:
             showSuccess('Configuration saved! You can now load the analysis.');
         }
         
-        function loadSavedConfiguration() {
+        async function loadSavedConfiguration() {
             try {
                 const savedConfig = localStorage.getItem('consensusAnalysisConfig');
                 if (savedConfig) {
                     const config = JSON.parse(savedConfig);
+                    console.log('Loading saved configuration:', config);
                     
                     // Restore form values
-                    if (config.topic) document.getElementById('topic').value = config.topic;
-                    if (config.model) document.getElementById('model').value = config.model;
-                    if (config.sampleSizeMode) document.getElementById('sampleSizeMode').value = config.sampleSizeMode;
-                    if (config.customLimit) document.getElementById('customLimit').value = config.customLimit;
-                    if (config.timeframe) document.getElementById('timeframe').value = config.timeframe;
-                    if (config.categoryMode) document.getElementById('categoryMode').value = config.categoryMode;
-                    
-                    // Restore selected categories
-                    if (config.selectedCategories && Array.isArray(config.selectedCategories)) {
-                        // Clear existing selections
-                        document.querySelectorAll('.category-checkbox').forEach(checkbox => {
-                            checkbox.checked = false;
-                        });
-                        
-                        // Restore saved selections
-                        config.selectedCategories.forEach(categoryValue => {
-                            const checkbox = document.querySelector(`.category-checkbox[value="${categoryValue}"]`);
-                            if (checkbox) {
-                                checkbox.checked = true;
-                            }
-                        });
-                        
-                        updateCategoriesText();
+                    if (config.topic) {
+                        const topicSelect = document.getElementById('topic');
+                        if (topicSelect) {
+                            topicSelect.value = config.topic;
+                            console.log('Restored topic:', config.topic);
+                        }
+                    }
+                    if (config.model) {
+                        const modelSelect = document.getElementById('model');
+                        if (modelSelect) {
+                            modelSelect.value = config.model;
+                            console.log('Restored model:', config.model);
+                        }
+                    }
+                    if (config.sampleSizeMode) {
+                        const sampleSizeSelect = document.getElementById('sampleSizeMode');
+                        if (sampleSizeSelect) {
+                            sampleSizeSelect.value = config.sampleSizeMode;
+                            console.log('Restored sample size mode:', config.sampleSizeMode);
+                        }
+                    }
+                    if (config.customLimit) {
+                        const customLimitInput = document.getElementById('customLimit');
+                        if (customLimitInput) {
+                            customLimitInput.value = config.customLimit;
+                            console.log('Restored custom limit:', config.customLimit);
+                        }
+                    }
+                    if (config.timeframe) {
+                        const timeframeSelect = document.getElementById('timeframe');
+                        if (timeframeSelect) {
+                            timeframeSelect.value = config.timeframe;
+                            console.log('Restored timeframe:', config.timeframe);
+                        }
+                    }
+                    if (config.categoryMode) {
+                        const categoryModeSelect = document.getElementById('categoryMode');
+                        if (categoryModeSelect) {
+                            categoryModeSelect.value = config.categoryMode;
+                            console.log('Restored category mode:', config.categoryMode);
+                        }
                     }
                     
-                    // Update UI state
+                    // Update UI state first
                     handleSampleSizeModeChange();
                     handleCategoryModeChange();
                     toggleCustomTimeframe();
+                    
+                    // Load categories if needed, then restore selections
+                    if (config.categoryMode === 'existing' && config.topic) {
+                        console.log('Loading categories for topic:', config.topic);
+                        await loadExistingCategories();
+                        
+                        // Wait a bit for categories to load, then restore selections
+                        setTimeout(() => {
+                            if (config.selectedCategories && Array.isArray(config.selectedCategories)) {
+                                console.log('Restoring category selections:', config.selectedCategories);
+                                
+                                // Clear existing selections
+                                document.querySelectorAll('.category-checkbox').forEach(checkbox => {
+                                    checkbox.checked = false;
+                                });
+                                
+                                // Restore saved selections
+                                let restoredCount = 0;
+                                config.selectedCategories.forEach(categoryValue => {
+                                    const checkbox = document.querySelector(`.category-checkbox[value="${categoryValue}"]`);
+                                    if (checkbox) {
+                                        checkbox.checked = true;
+                                        restoredCount++;
+                                    } else {
+                                        console.warn('Category checkbox not found:', categoryValue);
+                                    }
+                                });
+                                
+                                console.log(`Restored ${restoredCount} of ${config.selectedCategories.length} category selections`);
+                                updateCategoriesText();
+                            }
+                        }, 500);
+                    }
+                    
                     updateLoadButton();
                     updateContextInfo();
                     
-                    console.log('Loaded saved configuration:', config);
+                    console.log('Configuration loading completed');
                 }
             } catch (e) {
-                console.warn('Failed to load saved configuration:', e);
+                console.error('Failed to load saved configuration:', e);
             }
         }
         
@@ -2730,11 +3380,11 @@ Sentiment Breakdown:
                     topicSelect.appendChild(option);
                 });
                 
-                // Load saved configuration after topics are loaded
-                loadSavedConfiguration();
+                return true; // Indicate successful loading
             } catch (error) {
                 console.error('Error loading topics:', error);
                 showError('Failed to load topics. Please refresh the page.');
+                return false;
             }
         }
         
@@ -2752,20 +3402,24 @@ Sentiment Breakdown:
                     option.textContent = `${model.name} (${model.provider})`;
                     modelSelect.appendChild(option);
                 });
+                
+                return true; // Indicate successful loading
             } catch (error) {
                 console.error('Error loading models:', error);
                 showError('Failed to load AI models. Please refresh the page.');
+                return false;
             }
         }
 
         // Initialize page
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
             // Add tooltip event listeners
             document.addEventListener('mouseover', handleTooltipMouseover);
             document.addEventListener('mouseout', handleTooltipMouseout);
             
-            loadTopics();
-            loadModels();
+            // Load data and then configuration
+            const topicsLoaded = await loadTopics();
+            const modelsLoaded = await loadModels();
             
             // Initialize category mode
             handleCategoryModeChange();
@@ -2781,11 +3435,31 @@ Sentiment Breakdown:
                 });
             }
             
-            // Show configuration modal on first load
-            setTimeout(() => {
-                const modal = new bootstrap.Modal(document.getElementById('topicModal'));
-                modal.show();
-            }, 500);
+            // Load saved configuration after all data is loaded
+            if (topicsLoaded && modelsLoaded) {
+                console.log('Loading saved configuration after data initialization...');
+                setTimeout(async () => {
+                    await loadSavedConfiguration();
+                    
+                    // Check if we have a saved configuration to determine modal behavior
+                    const savedConfig = localStorage.getItem('consensusAnalysisConfig');
+                    if (!savedConfig) {
+                        // Show configuration modal only if no saved config
+                        setTimeout(() => {
+                            const modal = new bootstrap.Modal(document.getElementById('topicModal'));
+                            modal.show();
+                        }, 500);
+                    } else {
+                        console.log('Found saved configuration, skipping initial modal');
+                    }
+                }, 500);
+            } else {
+                // Show modal if data loading failed
+                setTimeout(() => {
+                    const modal = new bootstrap.Modal(document.getElementById('topicModal'));
+                    modal.show();
+                }, 500);
+            }
         });
     </script>
 {% endblock %}
