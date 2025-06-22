@@ -633,6 +633,15 @@ async def run_keyword_monitor():
     logger.info("Keyword monitor background task started")
     _background_task_status["running"] = True
     
+    # Calculate next check time immediately
+    next_check = datetime.now() + timedelta(seconds=monitor.check_interval)
+    _background_task_status["next_check_time"] = next_check
+    
+    logger.info(f"Keyword monitor scheduled - first check in {monitor.check_interval} seconds at {next_check.strftime('%H:%M:%S')}")
+    
+    # Sleep first before starting the checking loop
+    await asyncio.sleep(monitor.check_interval)
+    
     while True:
         try:
             # Check if polling is enabled

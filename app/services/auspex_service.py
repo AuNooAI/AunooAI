@@ -227,32 +227,65 @@ class OptimizedContextManager:
         self.chars_per_token = 4  # Conservative estimate
         
         # Context allocation ratios based on query type
-        self.allocations = {
-            "trend_analysis": {
-                "system_prompt": 0.15,
-                "articles": 0.70,
-                "instructions": 0.10,
-                "response_buffer": 0.05
-            },
-            "detailed_analysis": {
-                "system_prompt": 0.20,
-                "articles": 0.60,
-                "instructions": 0.15,
-                "response_buffer": 0.05
-            },
-            "quick_summary": {
-                "system_prompt": 0.10,
-                "articles": 0.75,
-                "instructions": 0.05,
-                "response_buffer": 0.10
-            },
-            "comprehensive": {
-                "system_prompt": 0.12,
-                "articles": 0.73,
-                "instructions": 0.10,
-                "response_buffer": 0.05
+        # For mega-context models (1M+ tokens), we can be much more generous with articles
+        is_mega_context = model_context_limit >= 500000
+        
+        if is_mega_context:
+            # Mega-context allocations - much more generous for articles
+            self.allocations = {
+                "trend_analysis": {
+                    "system_prompt": 0.05,
+                    "articles": 0.85,
+                    "instructions": 0.05,
+                    "response_buffer": 0.05
+                },
+                "detailed_analysis": {
+                    "system_prompt": 0.08,
+                    "articles": 0.82,
+                    "instructions": 0.05,
+                    "response_buffer": 0.05
+                },
+                "quick_summary": {
+                    "system_prompt": 0.03,
+                    "articles": 0.87,
+                    "instructions": 0.05,
+                    "response_buffer": 0.05
+                },
+                "comprehensive": {
+                    "system_prompt": 0.05,
+                    "articles": 0.85,
+                    "instructions": 0.05,
+                    "response_buffer": 0.05
+                }
             }
-        }
+        else:
+            # Standard allocations for smaller context models
+            self.allocations = {
+                "trend_analysis": {
+                    "system_prompt": 0.15,
+                    "articles": 0.70,
+                    "instructions": 0.10,
+                    "response_buffer": 0.05
+                },
+                "detailed_analysis": {
+                    "system_prompt": 0.20,
+                    "articles": 0.60,
+                    "instructions": 0.15,
+                    "response_buffer": 0.05
+                },
+                "quick_summary": {
+                    "system_prompt": 0.10,
+                    "articles": 0.75,
+                    "instructions": 0.05,
+                    "response_buffer": 0.10
+                },
+                "comprehensive": {
+                    "system_prompt": 0.12,
+                    "articles": 0.73,
+                    "instructions": 0.10,
+                    "response_buffer": 0.05
+                }
+            }
     
     def determine_query_type(self, message: str) -> str:
         """Determine the type of analysis query."""
@@ -586,8 +619,9 @@ class AuspexService:
         self.db = get_database_instance()
         self.tools = get_auspex_tools_service()
         
-        # Initialize context optimization manager
-        self.context_manager = OptimizedContextManager(model_context_limit=16385)  # Default GPT-3.5 limit
+        # Initialize context optimization manager with a reasonable default
+        # This will be updated dynamically based on the actual model used
+        self.context_manager = OptimizedContextManager(model_context_limit=128000)  # Default to GPT-4o limit
         
         self._ensure_default_prompt()
     
@@ -915,7 +949,7 @@ CURRENT SESSION CONTEXT:
                 metadata_filter = {"topic": topic}
                 vector_results = vector_search_articles(
                     query=message,
-                    top_k=100,
+                    top_k=limit,  # Use the actual limit instead of hardcoded 100
                     metadata_filter=metadata_filter
                 )
                 
@@ -1872,8 +1906,21 @@ Article Details:
     def _update_context_manager_for_model(self, model: str):
         """Update context manager with correct model limits."""
         limit = self._get_model_context_limit(model)
-        self.context_manager.context_limit = limit
-        logger.info(f"Updated context manager for model {model} with limit {limit}")
+        
+        # Reinitialize context manager with proper model-aware allocations
+        self.context_manager = OptimizedContextManager(model_context_limit=limit)
+        
+        logger.info(f"Updated context manager for model {model} with limit {limit:,} tokens")
+        
+        # Log the allocations being used
+        is_mega = limit >= 500000
+        allocation_type = "mega-context" if is_mega else "standard"
+        logger.info(f"Using {allocation_type} allocations for {model}")
+        
+        # Log specific allocation for articles
+        sample_allocation = self.context_manager.allocate_context_budget("comprehensive")
+        articles_budget = sample_allocation.get("articles", 0)
+        logger.info(f"Articles budget for comprehensive analysis: {articles_budget:,} tokens ({articles_budget/limit*100:.1f}% of context)")
 
 # Global service instance
 _service_instance = None

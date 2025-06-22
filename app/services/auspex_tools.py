@@ -102,7 +102,7 @@ class AuspexToolsService:
                 metadata_filter = {"topic": topic}
                 vector_results = vector_search_articles(
                     query=query,
-                    top_k=100,
+                    top_k=limit,
                     metadata_filter=metadata_filter
                 )
                 
@@ -486,6 +486,45 @@ Analyzing the {len(articles)} most recent articles
                 "total_articles": 0,
                 "category_distribution": {},
                 "category_percentages": {}
+            }
+
+    async def search_articles_by_categories(self, categories: List[str], 
+                                           topic: str, 
+                                           limit: int = 50,
+                                           days_back: int = 30) -> Dict:
+        """Search articles filtered by specific categories."""
+        try:
+            # Calculate date range
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days_back)
+            
+            articles, total_count = self.db.search_articles(
+                topic=topic,
+                category=categories,
+                pub_date_start=start_date.strftime("%Y-%m-%d"),
+                pub_date_end=end_date.strftime("%Y-%m-%d"),
+                page=1,
+                per_page=limit
+            )
+            
+            result = {
+                "topic": topic,
+                "categories": categories,
+                "total_articles": total_count,
+                "time_period": f"{days_back} days",
+                "articles": articles,
+                "search_method": "category-filtered database search"
+            }
+            
+            return result
+        except Exception as e:
+            logger.error(f"Error searching articles by categories: {e}")
+            return {
+                "error": f"Error searching articles by categories: {str(e)}",
+                "topic": topic,
+                "categories": categories,
+                "total_articles": 0,
+                "articles": []
             }
 
     async def search_articles_by_keywords(self, keywords: List[str], 

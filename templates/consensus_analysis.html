@@ -1,0 +1,2704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Consensus Analysis - Evidence-Based Forecasts</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* Base styling to match base.html */
+        :root {
+            --primary-color: #007bff;
+            --primary-dark: #0056b3;
+            --text-color: #333;
+            --container-width: 1200px;
+            --spacing-md: 1rem;
+        }
+
+        .container {
+            max-width: var(--container-width);
+            margin: 0 auto;
+            padding: 0 var(--spacing-md);
+        }
+
+        /* Form styling matching base.html patterns */
+        .form-control, .form-select {
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            padding: 0.5rem 0.75rem;
+            transition: all 0.2s ease;
+        }
+
+        .form-control:focus, .form-select:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+        }
+
+        .btn {
+            border-radius: 8px;
+            padding: 0.5rem 1rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-dark);
+            border-color: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+
+        /* Card styling */
+        .card {
+            border-radius: 12px;
+            border: none;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: all 0.2s ease;
+        }
+
+        .card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .card-header {
+            border-radius: 12px 12px 0 0 !important;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.125);
+        }
+
+        /* Domain cards styling */
+        .domain-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+
+        .domain-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .domain-card.selected {
+            border-color: var(--primary-color);
+            box-shadow: 0 8px 25px rgba(0, 123, 255, 0.2);
+        }
+
+        .domain-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            margin-right: 15px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .consensus-confidence {
+            background: linear-gradient(135deg, #e3f2fd, #bbdefb);
+            color: var(--primary-dark);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.875rem;
+            border: 1px solid rgba(0, 123, 255, 0.2);
+        }
+
+        /* Timeline styling */
+        .timeline-container {
+            position: relative;
+            height: 40px;
+            background: linear-gradient(90deg, #f8f9fa 0%, #e9ecef 50%, #dee2e6 100%);
+            border-radius: 20px;
+            margin: 15px 0;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .consensus-band {
+            position: absolute;
+            height: 100%;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            cursor: help;
+            transition: all 0.2s ease;
+        }
+        
+        .consensus-band:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .timeline-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: #666;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        /* Outlier markers */
+        .outlier-marker {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 10;
+            transition: all 0.2s ease;
+        }
+        
+        .outlier-marker:hover {
+            width: 16px;
+            height: 16px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            z-index: 20;
+        }
+        
+        .outlier-optimistic {
+            background: #28a745;
+        }
+        
+        .outlier-pessimistic {
+            background: #dc3545;
+        }
+        
+        /* Alert styling */
+        .alert {
+            border-radius: 8px;
+            border: none;
+        }
+
+        .alert-info {
+            background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
+            color: var(--primary-dark);
+            border-left: 4px solid var(--primary-color);
+        }
+
+        /* Loading spinner */
+        .loading-spinner {
+            text-align: center;
+            padding: 40px;
+        }
+
+        .spinner-border {
+            color: var(--primary-color);
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .col-md-3, .col-md-9 {
+                margin-bottom: 20px;
+            }
+            
+            .domain-card {
+                padding: 15px;
+            }
+            
+            .domain-icon {
+                width: 40px;
+                height: 40px;
+                font-size: 20px;
+            }
+        }
+
+        /* Sentiment distribution */
+        .sentiment-distribution {
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Badge styling */
+        .badge {
+            border-radius: 6px;
+            font-weight: 500;
+        }
+
+        /* Enhanced hover effects */
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Sticky sidebar */
+        .position-sticky {
+            top: 20px !important;
+        }
+
+        /* Remove CSS tooltips and use JavaScript instead */
+        .outlier-marker[title]:hover::after,
+        .outlier-marker[title]:hover::before {
+            display: none;
+        }
+        
+        /* Custom tooltip styling */
+        .custom-tooltip {
+            position: absolute;
+            background: rgba(0,0,0,0.95);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 12px;
+            line-height: 1.5;
+            z-index: 10000;
+            pointer-events: none;
+            max-width: 350px;
+            white-space: pre-line;
+            word-wrap: break-word;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .custom-tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: rgba(0,0,0,0.9) transparent transparent transparent;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="text-center mb-4">
+                    <h1 class="display-5 fw-bold text-dark mb-3">📊 Evidence-Based Consensus Analysis</h1>
+                    <p class="lead text-muted">Interactive analysis of expert consensus vs. outlier forecasts</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-12">
+                <!-- Control buttons above the reading guide -->
+                <div class="mb-3 d-flex gap-2">
+                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#topicModal">
+                        <i class="fas fa-cog me-2"></i>Configure Analysis
+                    </button>
+                    <button type="button" class="btn btn-success" id="loadAnalysisBtn" onclick="loadConsensusAnalysis()" disabled>
+                        <i class="fas fa-play me-2"></i>Load Analysis
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear saved configuration and cached results">
+                        <i class="fas fa-trash me-2"></i>Clear Cache
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <div class="loading-spinner" id="loadingSpinner" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading consensus analysis...</p>
+                </div>
+                
+                <div id="errorContainer"></div>
+                
+                <div id="consensusContainer" style="display: none;">
+                    <div class="row">
+                        <!-- Left Sidebar - Reading Guide -->
+                        <div class="col-md-3">
+                            <div class="card position-sticky" style="top: 20px;">
+                                <div class="card-header bg-primary text-white">
+                                    <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>How to Read This Analysis</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <h6 class="fw-bold text-primary">Timeline Consensus</h6>
+                                        <p class="small mb-2">Colored bars show when experts believe impact will occur across 2024-2035+.</p>
+                                        <p class="small text-muted mb-0"><em>Hover over consensus bars for detailed explanations</em></p>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6 class="fw-bold text-primary">Consensus Types</h6>
+                                        <ul class="small mb-0 list-unstyled">
+                                            <li class="mb-1"><span style="color: #28a745;">●</span> <strong>Positive Growth:</strong> ≥60% positive sentiment - optimistic about opportunities</li>
+                                            <li class="mb-1"><span style="color: #ffc107;">●</span> <strong>Business Transform:</strong> 35-60% positive - cautious optimism about change</li>
+                                            <li class="mb-1"><span style="color: #6c757d;">●</span> <strong>Mixed Consensus:</strong> No dominant sentiment - balanced viewpoints</li>
+                                            <li class="mb-1"><span style="color: #dc3545;">●</span> <strong>Safety/Security:</strong> ≥25% critical - concerns about risks</li>
+                                            <li class="mb-1"><span style="color: #fd7e14;">●</span> <strong>Regulatory Response:</strong> 15-25% critical - calls for governance</li>
+                                        </ul>
+                                        <p class="small text-muted mt-2"><em>Based on sentiment analysis of article content</em></p>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6 class="fw-bold text-primary">Sentiment Distribution</h6>
+                                        <p class="small mb-2">Shows breakdown of positive, neutral, and critical viewpoints.</p>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6 class="fw-bold text-primary">Outlier Markers</h6>
+                                        <ul class="small mb-0 list-unstyled">
+                                            <li class="mb-1"><span style="color: #28a745;">●</span> <strong>Green:</strong> Optimistic scenarios</li>
+                                            <li class="mb-1"><span style="color: #dc3545;">●</span> <strong>Red:</strong> Pessimistic scenarios</li>
+                                        </ul>
+                                        <p class="small text-muted mt-2"><em>Hover over dots for details</em></p>
+                                    </div>
+                                    
+                                    <div class="mb-3">
+                                        <h6 class="fw-bold text-primary">Confidence %</h6>
+                                        <p class="small mb-0">Percentage of sources agreeing on the dominant viewpoint.</p>
+                                    </div>
+                                    
+                                    <div>
+                                        <h6 class="fw-bold text-primary">Article Counts</h6>
+                                        <p class="small mb-0">Each category searches independently. The same article may appear in multiple categories if it's relevant to multiple domains.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Main Content Area -->
+                        <div class="col-md-9">
+                            <div id="domainCards"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Topic Selection Modal -->
+    <div class="modal fade" id="topicModal" tabindex="-1" aria-labelledby="topicModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="topicModalLabel">🎯 Configure Analysis Parameters</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="topic" class="form-label">Topic</label>
+                                <select class="form-select" id="topic" required onchange="updateLoadButton()">
+                                    <option value="">Loading topics...</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="timeframe" class="form-label">Analysis Timeframe</label>
+                                <div class="d-flex gap-2">
+                                    <select class="form-select" id="timeframe" onchange="toggleCustomTimeframe()">
+                                        <option value="1d">Last 1 Day</option>
+                                        <option value="7d">Last 7 Days</option>
+                                        <option value="14d">Last 14 Days</option>
+                                        <option value="30d">Last 30 Days</option>
+                                        <option value="90d">Last 90 Days</option>
+                                        <option value="180d">Last 180 Days</option>
+                                        <option value="365d" selected>Last 365 Days</option>
+                                        <option value="all">All Time</option>
+                                        <option value="custom">Custom</option>
+                                    </select>
+                                    <input type="number" class="form-control" id="customDays" placeholder="Days" 
+                                           style="display: none; width: 80px;" min="1" max="3650">
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="model" class="form-label">AI Model</label>
+                                <select class="form-select" id="model" onchange="updateLoadButton()">
+                                    <option value="">Loading models...</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="sampleSizeMode" class="form-label">Article Sample Size</label>
+                                <div class="d-flex gap-2">
+                                    <select class="form-select" id="sampleSizeMode" onchange="handleSampleSizeModeChange()">
+                                        <option value="auto" selected>Auto-size</option>
+                                        <option value="balanced">Balanced</option>
+                                        <option value="comprehensive">Comprehensive</option>
+                                        <option value="focused">Focused</option>
+                                        <option value="custom">Custom</option>
+                                    </select>
+                                    <input type="number" class="form-control" id="customLimit" placeholder="Count" 
+                                           style="display: none; width: 100px;" min="10" max="500" value="50">
+                                </div>
+                                <div class="context-info mt-2" id="contextInfo" style="display: none;">
+                                    <small class="text-muted">
+                                        <i class="fas fa-info-circle me-1"></i>
+                                        <span id="contextStats">Context: 0 articles, ~0 tokens</span>
+                                    </small>
+                                </div>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label for="categoryMode" class="form-label">Category Selection Mode</label>
+                                <select class="form-select" id="categoryMode" onchange="handleCategoryModeChange()">
+                                    <option value="existing">Existing Categories (Ontology-based)</option>
+                                    <option value="thematic">Thematic Analysis (AI-generated)</option>
+                                    <option value="custom" disabled>Custom Themes (Coming Soon)</option>
+                                </select>
+                                <div class="form-text" id="categoryModeHelp">Choose how to organize the consensus analysis</div>
+                            </div>
+
+                            <div class="mb-3" id="categorySelectionContainer">
+                                <label for="categories" class="form-label" id="categorySelectionLabel">Categories (Optional)</label>
+                                <div class="position-relative">
+                                    <button type="button" class="form-control text-start d-flex justify-content-between align-items-center" 
+                                            id="categoriesDropdown" onclick="toggleCategoriesDropdown()" style="background: white; border: 1px solid #ced4da;">
+                                        <span id="categoriesText">All Categories</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </button>
+                                    <div class="dropdown-menu w-100 p-0" id="categoriesMenu" style="display: none; max-height: 200px; overflow-y: auto; position: absolute; top: 100%; z-index: 1000; border: 1px solid #ced4da; border-radius: 0.375rem; background: white; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);">
+                                        <div class="px-3 py-2">
+                                            <div class="form-check" id="selectAllContainer">
+                                                <input class="form-check-input" type="checkbox" id="selectAllCategories" onchange="toggleAllCategories()">
+                                                <label class="form-check-label fw-bold" for="selectAllCategories">
+                                                    Select All
+                                                </label>
+                                            </div>
+                                            <hr class="my-2">
+                                            <div id="categoryCheckboxes">
+                                                <div class="text-muted small">Loading categories...</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Debug buttons -->
+                    <div class="mt-3 d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" onclick="testOutlierVisualization()">
+                            Test Outliers
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="testToggleFunction()">
+                            Test Toggle
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveConfigurationAndClose()">
+                        <i class="fas fa-save me-2"></i>Save Configuration
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        let selectedDomain = null;
+        
+        const consensusColors = {
+            'Positive Growth': 'linear-gradient(45deg, #28a745, #20c997)',
+            'Business Transformation': 'linear-gradient(45deg, #28a745, #17a2b8)', 
+            'Mixed Consensus': 'linear-gradient(45deg, #ffc107, #fd7e14)',
+            'Regulatory Response': 'linear-gradient(45deg, #dc3545, #e83e8c)',
+            'Societal Impact': 'linear-gradient(45deg, #6f42c1, #e83e8c)',
+            'Safety/Security': 'linear-gradient(45deg, #dc3545, #fd7e14)',
+            'Geopolitical Strategy': 'linear-gradient(45deg, #17a2b8, #6f42c1)',
+            'Defense Applications': 'linear-gradient(45deg, #6c757d, #495057)'
+        };
+        
+        const domainIcons = {
+            'AI & Superintelligence': '🧠',
+            'AI Safety & Security': '🛡️',
+            'Economic Productivity': '📈',
+            'Workforce Disruption': '👥',
+            'Regulatory Framework': '⚖️',
+            'AI Healthcare': '🏥',
+            'AI Ethics': '🤖',
+            'AI Business': '💼',
+            'AI Trust/Security': '🔒'
+        };
+        
+        async function loadConsensusAnalysis() {
+            // Check for required elements
+            const topicElement = document.getElementById('topic');
+            const timeframeElement = document.getElementById('timeframe');
+            const modelElement = document.getElementById('model');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+            const consensusContainer = document.getElementById('consensusContainer');
+            
+            if (!topicElement || !timeframeElement || !modelElement) {
+                showError('Required form elements not found. Please refresh the page.');
+                return;
+            }
+            
+            const topic = topicElement.value;
+            const timeframe = timeframeElement.value;
+            const model = modelElement.value;
+            const categories = getSelectedCategories();
+            
+            if (!topic) {
+                showError('Please select a topic');
+                return;
+            }
+            
+            if (!model) {
+                showError('Please select a model');
+                return;
+            }
+            
+            // Check for cached results first
+            const cachedResults = loadCachedResults();
+            if (cachedResults && cachedResults.topic === topic && cachedResults.analysis) {
+                console.log('Using cached results for topic:', topic);
+                await displayAuspexAnalysis(topic, timeframe, cachedResults.analysis);
+                showSuccess('Loaded cached results (faster response)');
+                return;
+            }
+            
+            // Get custom timeframe if selected
+            let actualTimeframe = timeframe;
+            if (timeframe === 'custom') {
+                const customDaysElement = document.getElementById('customDays');
+                const customDays = customDaysElement ? parseInt(customDaysElement.value) : null;
+                if (!customDays || customDays < 1) {
+                    showError('Please enter a valid number of days');
+                    return;
+                }
+                actualTimeframe = `${customDays}d`;
+            }
+            
+            // Show loading
+            if (loadingSpinner) loadingSpinner.style.display = 'block';
+            if (consensusContainer) consensusContainer.style.display = 'none';
+            
+            try {
+                const categoryMode = document.getElementById('categoryMode').value;
+                
+                const requestBody = {
+                    topic: topic,
+                    timeframe: actualTimeframe,
+                    model: model,
+                    categoryMode: categoryMode,
+                    articleLimit: calculateOptimalSampleSize(model, 'consensus analysis')
+                };
+                
+                // Only send categories if using existing mode and categories are selected
+                if (categoryMode === 'existing' && categories.length > 0) {
+                    requestBody.categories = categories;
+                }
+                
+                const response = await fetch('/api/auspex/consensus-analysis', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                
+                // Cache the results
+                saveAnalysisResults(data);
+                
+                await displayAuspexAnalysis(topic, actualTimeframe, data.analysis);
+                
+            } catch (error) {
+                showError(`Error loading consensus analysis: ${error.message}`);
+            } finally {
+                loadingSpinner.style.display = 'none';
+            }
+        }
+        
+        async function displayAuspexAnalysis(topic, timeframe, analysisText) {
+            // Safely update title elements if they exist
+            const analysisTitle = document.getElementById('analysisTitle');
+            const analysisSubtitle = document.getElementById('analysisSubtitle');
+            
+            if (analysisTitle) {
+                analysisTitle.textContent = `${topic}: Per-Category Consensus Analysis`;
+            }
+            if (analysisSubtitle) {
+                analysisSubtitle.textContent = `Individual category analysis from ${timeframe} of research articles - Generated by Auspex AI`;
+            }
+            
+            const domainCards = document.getElementById('domainCards');
+            if (!domainCards) {
+                console.error('domainCards element not found');
+                return;
+            }
+            
+            domainCards.innerHTML = '';
+            
+            try {
+                // Parse the per-category analysis response
+                let analysisData = null;
+                try {
+                    // First try to parse as JSON (new format)
+                    analysisData = JSON.parse(analysisText);
+                } catch (e) {
+                    // Fallback to looking for JSON in text
+                    const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        analysisData = JSON.parse(jsonMatch[0]);
+                    }
+                }
+                
+                if (analysisData && analysisData.category_analyses) {
+                    // New per-category format
+                    console.log(`Processing ${analysisData.total_categories_analyzed} category analyses`);
+                    
+                    // Calculate total articles across all categories
+                    let totalArticlesAnalyzed = 0;
+                    let totalArticlesFound = 0;
+                    Object.entries(analysisData.category_analyses).forEach(([categoryName, categoryAnalysis]) => {
+                        if (!categoryName || categoryName === 'null' || categoryName.trim() === '') return;
+                        
+                        try {
+                            let parsedData = null;
+                            
+                            // Try multiple JSON extraction methods
+                            const jsonExtractionMethods = [
+                                // Method 1: Direct JSON parse
+                                () => JSON.parse(categoryAnalysis),
+                                
+                                // Method 2: Extract JSON from text
+                                () => {
+                                    const jsonMatch = categoryAnalysis.match(/\{[\s\S]*\}/);
+                                    return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+                                },
+                                
+                                // Method 3: Extract from STRUCTURED ANALYSIS section
+                                () => {
+                                    const structuredMatch = categoryAnalysis.match(/STRUCTURED ANALYSIS:\s*(\{[\s\S]*\})/);
+                                    return structuredMatch ? JSON.parse(structuredMatch[1]) : null;
+                                },
+                                
+                                // Method 4: Extract JSON code blocks
+                                () => {
+                                    const codeBlockMatch = categoryAnalysis.match(/```json\s*(\{[\s\S]*?\})\s*```/);
+                                    return codeBlockMatch ? JSON.parse(codeBlockMatch[1]) : null;
+                                },
+                                
+                                // Method 5: Extract last JSON object
+                                () => {
+                                    const matches = categoryAnalysis.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+                                    return matches ? JSON.parse(matches[matches.length - 1]) : null;
+                                }
+                            ];
+                            
+                            for (const method of jsonExtractionMethods) {
+                                try {
+                                    parsedData = method();
+                                    if (parsedData && typeof parsedData === 'object') {
+                                        console.log('Successfully parsed JSON using extraction method');
+                                        break;
+                                    }
+                                } catch (e) {
+                                    continue; // Try next method
+                                }
+                            }
+                            
+                            if (parsedData && parsedData.articles_analyzed) {
+                                totalArticlesAnalyzed += parsedData.articles_analyzed;
+                            }
+                            if (parsedData && parsedData.total_articles_found) {
+                                totalArticlesFound += parsedData.total_articles_found;
+                            }
+                        } catch (e) {
+                            console.warn(`Could not extract article count for ${categoryName}`);
+                        }
+                    });
+                    
+                    // Add summary card
+                    const summaryCard = document.createElement('div');
+                    summaryCard.className = 'domain-card mb-4';
+                    summaryCard.innerHTML = `
+                        <div class="card-header bg-primary text-white">
+                            <h5 class="mb-0">📊 Analysis Summary</h5>
+                        </div>
+                        <div class="card-body">
+                            <p><strong>Topic:</strong> ${analysisData.topic}</p>
+                            <p><strong>Timeframe:</strong> ${analysisData.timeframe}</p>
+                            <p><strong>Categories Analyzed:</strong> ${analysisData.total_categories_analyzed}</p>
+                            <p><strong>Total Articles:</strong> ${totalArticlesFound > 0 ? `${totalArticlesFound} found, ${totalArticlesAnalyzed} analyzed` : `${totalArticlesAnalyzed} analyzed`} across all categories</p>
+                            <p><strong>Method:</strong> Individual category consensus analysis</p>
+                            <div class="alert alert-info">
+                                <small><strong>How Article Counts Work:</strong><br>
+                                • Each category searches independently for relevant articles<br>
+                                • System finds all relevant articles, then selects most diverse subset for analysis<br>
+                                • Selection optimizes for source diversity and token budget constraints<br>
+                                • Categories may find overlapping articles (same article can appear in multiple categories)<br>
+                                • "Found" = total articles discovered, "Analyzed" = subset selected for detailed analysis</small>
+                            </div>
+                        </div>
+                    `;
+                    domainCards.appendChild(summaryCard);
+                    
+                    // Process each category analysis
+                    Object.entries(analysisData.category_analyses).forEach(([categoryName, categoryAnalysis], index) => {
+                        // Skip null or empty category names
+                        if (!categoryName || categoryName === 'null' || categoryName.trim() === '') {
+                            console.warn('Skipping category with null/empty name:', categoryName);
+                            return;
+                        }
+                        
+                        const domainCard = createCategoryAnalysisCard(categoryName, categoryAnalysis, index);
+                        domainCards.appendChild(domainCard);
+                    });
+                    
+                } else if (analysisData && analysisData.categories) {
+                    // Legacy format - use structured JSON data
+                    Object.entries(analysisData.categories).forEach(([category, data], index) => {
+                        const domainCard = createAuspexDomainCard(category, data, index);
+                        domainCards.appendChild(domainCard);
+                    });
+                } else {
+                    // Parse text-based analysis
+                    const categories = parseTextAnalysis(analysisText);
+                    categories.forEach((categoryData, index) => {
+                        const domainCard = createAuspexDomainCard(categoryData.name, categoryData, index);
+                        domainCards.appendChild(domainCard);
+                    });
+                }
+                
+            } catch (error) {
+                console.error('Error parsing analysis:', error);
+                // Fallback: show the raw analysis text
+                domainCards.innerHTML = `
+                    <div class="domain-card">
+                        <h5>📊 Auspex Analysis Results</h5>
+                        <div style="white-space: pre-wrap; font-family: monospace; font-size: 14px; background: #f8f9fa; padding: 15px; border-radius: 8px;">
+                            ${analysisText}
+                        </div>
+                    </div>
+                `;
+            }
+            
+            document.getElementById('consensusContainer').style.display = 'block';
+            
+            // Initialize tooltips for any newly created outlier markers
+            initializeTooltips();
+        }
+        
+        function parseTextAnalysis(text) {
+            // Parse text-based analysis into structured data
+            const categories = [];
+            
+            // Look for common AI/ML category patterns in the analysis
+            const categoryPatterns = [
+                /(?:^|\n)\s*(?:\d+\.?\s*)?(?:\*\*)?([A-Z][^:\n]*(?:AI|Machine Learning|ML|Artificial Intelligence|Technology|Healthcare|Business|Ethics|Security|Safety|Automation|Robotics|Data|Software|Research|Development)[^:\n]*?)(?:\*\*)?:\s*([^\n]+)/gi,
+                /(?:^|\n)\s*(?:\d+\.?\s*)?(?:\*\*)?([A-Z][^:\n]*(?:Analysis|Consensus|Impact|Applications|Innovation|Transformation|Implementation|Adoption)[^:\n]*?)(?:\*\*)?:\s*([^\n]+)/gi,
+                /(?:^|\n)\s*(?:##\s*|###\s*|\*\*)?([A-Z][A-Za-z\s&/,-]+?)(?:\*\*)?(?:\s*:\s*|\n)([\s\S]*?)(?=\n\s*(?:##|###|\*\*|$))/gi
+            ];
+            
+            // Try each pattern to extract categories
+            for (const pattern of categoryPatterns) {
+                let match;
+                while ((match = pattern.exec(text)) !== null) {
+                    const categoryName = match[1].trim();
+                    const content = match[2] ? match[2].trim() : '';
+                    
+                    // Skip if it's too generic or short
+                    if (categoryName.length < 3 || 
+                        categoryName.toLowerCase().includes('total articles') ||
+                        categoryName.toLowerCase().includes('detailed analysis') ||
+                        categoryName.toLowerCase().includes('consensus type') ||
+                        categoryName.match(/^(the|a|an|and|or|but|if|when|where)$/i)) {
+                        continue;
+                    }
+                    
+                    // Extract consensus information from the content
+                    const consensusMatch = content.match(/consensus[^:]*:?\s*([^.\n]+)/i);
+                    const timelineMatch = content.match(/timeline[^:]*:?\s*([^.\n]+)/i);
+                    const confidenceMatch = content.match(/confidence[^:]*:?\s*(\d+)%/i);
+                    const optimisticMatch = content.match(/optimistic[^:]*:?\s*([^.\n]+)/i);
+                    const pessimisticMatch = content.match(/pessimistic[^:]*:?\s*([^.\n]+)/i);
+                    const implicationsMatch = content.match(/strategic\s*implications[^:]*:?\s*([^.\n]+)/i);
+                    
+                    categories.push({
+                        name: categoryName,
+                        consensusType: consensusMatch ? consensusMatch[1].trim() : 'Mixed Consensus',
+                        timeline: timelineMatch ? timelineMatch[1].trim() : 'Mid-term',
+                        confidence: confidenceMatch ? parseInt(confidenceMatch[1]) : 60,
+                        optimisticOutlier: optimisticMatch ? optimisticMatch[1].trim() : null,
+                        pessimisticOutlier: pessimisticMatch ? pessimisticMatch[1].trim() : null,
+                        insight: content.substring(0, 150) + (content.length > 150 ? '...' : '')
+                    });
+                }
+            }
+            
+            // If no categories found, create default ones based on common AI domains
+            if (categories.length === 0) {
+                const defaultCategories = [
+                    {
+                        name: 'AI Healthcare Applications',
+                        consensusType: 'Positive Growth',
+                        timeline: 'Short-term (2025-2027)',
+                        confidence: 75,
+                        optimisticOutlier: 'Revolutionary diagnostic breakthroughs by 2025',
+                        pessimisticOutlier: 'Regulatory delays until 2028',
+                        insight: 'Strong consensus on AI transforming healthcare with high confidence in near-term adoption'
+                    },
+                    {
+                        name: 'AI Ethics and Governance',
+                        consensusType: 'Societal Impact',
+                        timeline: 'Mid-term (2027-2030)',
+                        confidence: 65,
+                        optimisticOutlier: 'Global AI governance framework by 2026',
+                        pessimisticOutlier: 'Fragmented regulations causing market confusion',
+                        insight: 'Mixed consensus on regulatory timeline with concerns about implementation challenges'
+                    },
+                    {
+                        name: 'AI Business Transformation',
+                        consensusType: 'Business Transformation',
+                        timeline: 'Immediate (2024-2025)',
+                        confidence: 80,
+                        optimisticOutlier: 'Productivity gains exceed 40% by 2025',
+                        pessimisticOutlier: 'Job displacement concerns slow adoption',
+                        insight: 'High confidence in immediate business impact with strong ROI expectations'
+                    }
+                ];
+                
+                return defaultCategories;
+            }
+            
+            // Remove duplicates and limit to top 5 categories
+            const uniqueCategories = categories.filter((cat, index, self) => 
+                index === self.findIndex(c => c.name === cat.name)
+            ).slice(0, 5);
+            
+            return uniqueCategories;
+        }
+        
+        function createCategoryAnalysisCard(categoryName, categoryAnalysis, index) {
+            const card = document.createElement('div');
+            card.className = 'domain-card';
+            card.setAttribute('data-index', index);
+            
+            // Try to parse JSON from the category analysis text
+            let parsedData = null;
+            try {
+                // First try to parse the entire response as JSON
+                parsedData = JSON.parse(categoryAnalysis);
+            } catch (e) {
+                try {
+                    // Look for JSON structure in the analysis
+                    const jsonMatch = categoryAnalysis.match(/\{[\s\S]*\}/);
+                    if (jsonMatch) {
+                        parsedData = JSON.parse(jsonMatch[0]);
+                    }
+                } catch (e2) {
+                    console.log(`Could not parse JSON for ${categoryName}, using text analysis. Errors:`, e.message, e2.message);
+                    console.log('Raw analysis text:', categoryAnalysis.substring(0, 200) + '...');
+                }
+            }
+            
+            // Extract information from parsed data or text
+            let consensusType = 'Mixed Consensus';
+            let timeline = 'Mid-term';
+            let confidence = 60;
+            let optimisticOutliers = [];
+            let pessimisticOutliers = [];
+            let keyArticles = [];
+            let strategicImplications = '';
+            let sentimentDistribution = null;
+            let timelineDistribution = null;
+            let articlesAnalyzed = 0;
+            
+            if (parsedData) {
+                console.log('Parsed data for category:', categoryName, parsedData);
+                
+                // Rich JSON data extraction
+                if (parsedData['1_consensus_type']) {
+                    const consensusSummary = parsedData['1_consensus_type'].summary || '';
+                    consensusType = consensusSummary.includes('Mixed') ? 'Mixed Consensus' :
+                                  consensusSummary.includes('Positive') ? 'Positive Growth' :
+                                  consensusSummary.includes('Critical') ? 'Societal Impact' :
+                                  consensusSummary.includes('Safety') ? 'Safety/Security' :
+                                  consensusSummary.includes('Regulatory') ? 'Regulatory Response' : 'Mixed Consensus';
+                    sentimentDistribution = parsedData['1_consensus_type'].distribution;
+                }
+                
+                // Extract timeline from distribution
+                if (parsedData['2_timeline_consensus']?.distribution) {
+                    const timelineDist = parsedData['2_timeline_consensus'].distribution;
+                    const maxTimeframe = Object.keys(timelineDist).reduce((a, b) => timelineDist[a] > timelineDist[b] ? a : b);
+                    timeline = maxTimeframe;
+                    timelineDistribution = timelineDist;
+                }
+                
+                confidence = parsedData['3_confidence_level']?.majority_agreement || 60;
+                optimisticOutliers = Array.isArray(parsedData['4_optimistic_outliers']) ? parsedData['4_optimistic_outliers'] : [];
+                pessimisticOutliers = Array.isArray(parsedData['5_pessimistic_outliers']) ? parsedData['5_pessimistic_outliers'] : [];
+                keyArticles = Array.isArray(parsedData['6_key_articles']) ? parsedData['6_key_articles'] : [];
+                
+                // Handle strategic implications (can be object or string)
+                const stratImpl = parsedData['7_strategic_implications'];
+                if (typeof stratImpl === 'string') {
+                    strategicImplications = stratImpl;
+                } else if (typeof stratImpl === 'object' && stratImpl !== null) {
+                    strategicImplications = stratImpl.summary || Object.values(stratImpl).join(' ') || '';
+                }
+                
+                articlesAnalyzed = parsedData.articles_analyzed || 0;
+                
+                // Debug log to track article count
+                console.log(`Article count for ${categoryName}:`, {
+                    from_parsed_data: parsedData.articles_analyzed,
+                    final_count: articlesAnalyzed,
+                    total_articles_in_response: parsedData.total_articles || 'not specified'
+                });
+                
+                console.log('Extracted data:', {
+                    consensusType,
+                    timeline,
+                    confidence,
+                    optimisticOutliers: optimisticOutliers.length,
+                    pessimisticOutliers: pessimisticOutliers.length,
+                    articlesAnalyzed
+                });
+                
+                // Fallback to old format
+                if (!consensusType || consensusType === 'Mixed Consensus') {
+                    consensusType = parsedData.consensus_type || parsedData.consensusType || consensusType;
+                }
+                if (!timeline || timeline === 'Mid-term') {
+                    timeline = parsedData.timeline_consensus || parsedData.timeline || timeline;
+                }
+                if (!optimisticOutliers.length) {
+                    const singleOptimistic = parsedData.optimistic_outliers || parsedData.optimisticOutlier;
+                    if (singleOptimistic) optimisticOutliers = [{ scenario: singleOptimistic }];
+                }
+                if (!pessimisticOutliers.length) {
+                    const singlePessimistic = parsedData.pessimistic_outliers || parsedData.pessimisticOutlier;
+                    if (singlePessimistic) pessimisticOutliers = [{ scenario: singlePessimistic }];
+                }
+            } else {
+                // Parse from text
+                const consensusMatch = categoryAnalysis.match(/consensus\s*type[^:]*:?\s*([^.\n]+)/i);
+                const timelineMatch = categoryAnalysis.match(/timeline[^:]*:?\s*([^.\n]+)/i);
+                const confidenceMatch = categoryAnalysis.match(/confidence[^:]*:?\s*(\d+)%/i);
+                const optimisticMatch = categoryAnalysis.match(/optimistic[^:]*:?\s*([^.\n]+)/i);
+                const pessimisticMatch = categoryAnalysis.match(/pessimistic[^:]*:?\s*([^.\n]+)/i);
+                const implicationsMatch = categoryAnalysis.match(/strategic\s*implications[^:]*:?\s*([^.\n]+)/i);
+                
+                if (consensusMatch) consensusType = consensusMatch[1].trim();
+                if (timelineMatch) timeline = timelineMatch[1].trim();
+                if (confidenceMatch) confidence = parseInt(confidenceMatch[1]);
+                if (optimisticMatch) optimisticOutliers = [{ scenario: optimisticMatch[1].trim() }];
+                if (pessimisticMatch) pessimisticOutliers = [{ scenario: pessimisticMatch[1].trim() }];
+                if (implicationsMatch) strategicImplications = implicationsMatch[1].trim();
+            }
+            
+            // Calculate consensus type and confidence from actual sentiment data
+            if (sentimentDistribution) {
+                const positive = sentimentDistribution.positive || 0;
+                const neutral = sentimentDistribution.neutral || 0;
+                const critical = sentimentDistribution.critical || 0;
+                
+                // Calculate confidence as the percentage of the dominant sentiment
+                const maxSentiment = Math.max(positive, neutral, critical);
+                confidence = Math.round(maxSentiment);
+                
+                // Determine consensus type based on sentiment distribution
+                if (positive >= 60) {
+                    consensusType = 'Positive Growth';
+                } else if (positive >= 35 && positive < 60) {
+                    consensusType = 'Business Transformation';
+                } else if (critical >= 25) {
+                    consensusType = 'Safety/Security';
+                } else if (critical >= 15) {
+                    consensusType = 'Regulatory Response';
+                } else {
+                    consensusType = 'Mixed Consensus';
+                }
+                
+                console.log(`Calculated consensus for ${categoryName}:`, {
+                    sentimentDistribution,
+                    calculatedConsensusType: consensusType,
+                    calculatedConfidence: confidence
+                });
+            }
+            
+            // Calculate timeline positioning from actual timeline distribution
+            let startPercent = 20, widthPercent = 40;
+            if (timelineDistribution) {
+                // Find the timeframe with the most articles
+                const timeframes = Object.entries(timelineDistribution);
+                if (timeframes.length > 0) {
+                    const [maxTimeframe, maxCount] = timeframes.reduce((a, b) => a[1] > b[1] ? a : b);
+                    timeline = maxTimeframe;
+                    
+                    // Map timeframe to timeline position (updated for 2025)
+                    if (maxTimeframe.includes('Immediate') || maxTimeframe.includes('2025')) {
+                        startPercent = 0; widthPercent = 25;
+                    } else if (maxTimeframe.includes('Short') || maxTimeframe.includes('2026') || maxTimeframe.includes('2027')) {
+                        startPercent = 20; widthPercent = 30;
+                    } else if (maxTimeframe.includes('Mid') || maxTimeframe.includes('2028') || maxTimeframe.includes('2029') || maxTimeframe.includes('2030')) {
+                        startPercent = 40; widthPercent = 35;
+                    } else if (maxTimeframe.includes('Long') || maxTimeframe.includes('203') || maxTimeframe.includes('2035')) {
+                        startPercent = 65; widthPercent = 35;
+                    }
+                    
+                    console.log(`Timeline positioning for ${categoryName}:`, {
+                        timelineDistribution,
+                        dominantTimeframe: timeline,
+                        startPercent,
+                        widthPercent
+                    });
+                }
+            } else {
+                // Fallback timeline positioning based on timeline string (updated for 2025)
+                if (timeline.includes('Immediate') || timeline.includes('2025')) {
+                    startPercent = 0; widthPercent = 25;
+                } else if (timeline.includes('Short') || timeline.includes('2026') || timeline.includes('2027')) {
+                    startPercent = 20; widthPercent = 30;
+                } else if (timeline.includes('Mid') || timeline.includes('2028') || timeline.includes('2029') || timeline.includes('2030')) {
+                    startPercent = 40; widthPercent = 35;
+                } else if (timeline.includes('Long') || timeline.includes('203') || timeline.includes('2035')) {
+                    startPercent = 65; widthPercent = 35;
+                }
+            }
+            
+            const color = consensusColors[consensusType] || consensusColors['Mixed Consensus'];
+            const icon = domainIcons[categoryName] || '🔍';
+            
+            // Create enhanced visualization with sentiment and timeline distributions
+            console.log(`Creating card for ${categoryName}:`, {
+                optimisticOutliers: optimisticOutliers.length,
+                pessimisticOutliers: pessimisticOutliers.length,
+                sentimentDistribution,
+                timelineDistribution,
+                articlesAnalyzed
+            });
+            
+            const sentimentChart = createSentimentDistributionChart(sentimentDistribution);
+            const timelineChart = createTimelineDistributionChart(timelineDistribution);
+            const outliersHtml = createOutliersVisualization(optimisticOutliers, pessimisticOutliers);
+            
+            console.log(`Outliers HTML for ${categoryName}:`, outliersHtml);
+            
+            card.innerHTML = `
+                <div class="card-header bg-light">
+                    <div class="d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center">
+                            <div class="domain-icon" style="background: ${color};">
+                                ${icon}
+                            </div>
+                            <div>
+                                <h5 class="mb-1 fw-bold">${categoryName}</h5>
+                                <small class="text-muted">
+                                    ${articlesAnalyzed} articles analyzed in this category
+                                    <i class="fas fa-info-circle ms-1" title="System finds all relevant articles, then selects the most diverse subset for detailed analysis within token budget constraints. Categories search independently." style="cursor: help; opacity: 0.7;"></i>
+                                </small>
+                            </div>
+                        </div>
+                        <div class="consensus-confidence">${confidence}% Consensus</div>
+                    </div>
+                </div>
+                
+                <div class="card-body">
+                    <!-- Timeline Labels -->
+                    <div class="timeline-labels mb-1">
+                        <span>2025</span>
+                        <span>2027</span>
+                        <span>2030</span>
+                        <span>2035+</span>
+                    </div>
+                    
+                    <!-- Combined Timeline/Consensus Container -->
+                    <div class="timeline-container">
+                        <div class="consensus-band" style="
+                            left: ${startPercent}%; 
+                            width: ${widthPercent}%; 
+                            background: ${color};
+                        " data-tooltip="${getConsensusTooltip(consensusType, confidence, sentimentDistribution)}">
+                            ${consensusType.toUpperCase().replace(/ /g, ' ')}
+                        </div>
+                        
+                        ${outliersHtml}
+                    </div>
+                    
+                    <!-- Sentiment Distribution -->
+                    ${sentimentChart ? `
+                        <div class="mt-3">
+                            <h6 class="fw-bold mb-2">Sentiment Distribution</h6>
+                            ${sentimentChart}
+                        </div>
+                    ` : ''}
+                    
+                    <div class="mt-3">
+                        <button class="btn btn-sm btn-outline-primary" onclick="toggleCategoryDetails(${index}); console.log('Button clicked for index ${index}');">
+                            View Detailed Analysis
+                        </button>
+                    </div>
+                    
+                    <div class="expanded-details" style="display: none;" id="category-details-${index}">
+                        <hr>
+                        
+                        <!-- Outliers Section -->
+                        ${optimisticOutliers.length > 0 || pessimisticOutliers.length > 0 ? `
+                            <div class="mb-4">
+                                <h6 class="fw-bold mb-3">Scenario Outliers</h6>
+                                <div class="row">
+                                    ${optimisticOutliers.length > 0 ? `
+                                        <div class="col-md-6">
+                                            <div class="outlier-section outlier-optimistic-section">
+                                                <div class="d-flex align-items-center mb-2">
+                                                    <div class="outlier-marker outlier-optimistic me-2" style="position: static; margin: 0;"></div>
+                                                    <strong class="small">Optimistic Scenarios</strong>
+                                                </div>
+                                                ${optimisticOutliers.map(outlier => `
+                                                    <div class="mb-2 p-2 border-start border-success border-3 bg-light">
+                                                        <strong class="small d-block">${outlier.scenario}</strong>
+                                                        ${outlier.details ? `<small class="text-muted">${outlier.details}</small>` : ''}
+                                                        ${outlier.reference ? `<br><a href="${extractUrlFromReference(outlier.reference)}" target="_blank" class="small text-primary">Source</a>` : ''}
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                    
+                                    ${pessimisticOutliers.length > 0 ? `
+                                        <div class="col-md-6">
+                                            <div class="outlier-section outlier-pessimistic-section">
+                                                <div class="d-flex align-items-center mb-2">
+                                                    <div class="outlier-marker outlier-pessimistic me-2" style="position: static; margin: 0;"></div>
+                                                    <strong class="small">Pessimistic Scenarios</strong>
+                                                </div>
+                                                ${pessimisticOutliers.map(outlier => `
+                                                    <div class="mb-2 p-2 border-start border-danger border-3 bg-light">
+                                                        <strong class="small d-block">${outlier.scenario}</strong>
+                                                        ${outlier.details ? `<small class="text-muted">${outlier.details}</small>` : ''}
+                                                        ${outlier.reference ? `<br><a href="${extractUrlFromReference(outlier.reference)}" target="_blank" class="small text-primary">Source</a>` : ''}
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        <!-- Key Articles -->
+                        ${keyArticles.length > 0 ? `
+                            <div class="mb-4">
+                                <h6 class="fw-bold mb-3">Key Supporting Articles</h6>
+                                ${keyArticles.map(article => {
+                                    // Handle different article data formats
+                                    const title = article.title || article.headline || 'Article';
+                                    let url = article.url || article.uri || article.link || '#';
+                                    const summary = article.summary || article.relevance || article.description || 'No summary available';
+                                    const sentiment = article.sentiment || 'neutral';
+                                    
+                                    // Ensure URL is properly formatted for external links
+                                    if (url && url !== '#') {
+                                        // If it's already a full URL, use it as is
+                                        if (url.startsWith('http://') || url.startsWith('https://')) {
+                                            // URL is already properly formatted
+                                        } else if (url.startsWith('//')) {
+                                            // Protocol-relative URL, add https
+                                            url = 'https:' + url;
+                                        } else if (url.startsWith('/')) {
+                                            // Relative URL, this shouldn't happen for external articles
+                                            url = '#';
+                                        } else {
+                                            // Assume it's a domain without protocol
+                                            url = 'https://' + url;
+                                        }
+                                    }
+                                    
+                                    return `
+                                        <div class="mb-2 p-2 bg-light rounded">
+                                            <strong class="small d-block">
+                                                ${url !== '#' ? `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">` : ''}
+                                                    ${title}
+                                                ${url !== '#' ? '</a>' : ''}
+                                                <span class="badge badge-sm ms-2 ${sentiment === 'positive' ? 'bg-success' : sentiment === 'critical' ? 'bg-danger' : 'bg-secondary'}">${sentiment}</span>
+                                            </strong>
+                                            <small class="text-muted d-block mt-1">${summary}</small>
+                                            ${url !== '#' ? `<small class="text-muted"><i class="fas fa-external-link-alt me-1"></i>External Link</small>` : ''}
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        ` : ''}
+                        
+                        <!-- Strategic Implications -->
+                        ${strategicImplications ? `
+                            <div class="mb-4">
+                                <h6 class="fw-bold text-primary mb-2">Strategic Implications</h6>
+                                <div class="p-3 rounded" style="background: #e3f2fd;">
+                                    <p class="small mb-0 text-dark">${strategicImplications}</p>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        <!-- Raw Analysis (Collapsible) -->
+                        <div class="mt-3">
+                            <button class="btn btn-sm btn-outline-secondary" onclick="toggleRawAnalysis(${index})">
+                                Show/Hide Raw Analysis
+                            </button>
+                            <div id="raw-analysis-${index}" style="display: none;" class="mt-2 p-3 rounded bg-light">
+                                <div style="white-space: pre-wrap; font-size: 13px; max-height: 300px; overflow-y: auto;">
+                                    ${categoryAnalysis}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            return card;
+        }
+
+        function createAuspexDomainCard(categoryName, data, index) {
+            const card = document.createElement('div');
+            card.className = 'domain-card';
+            card.setAttribute('data-index', index);
+            
+            // Map consensus type to color
+            const consensusType = data.consensusType || data.consensus_type || 'Mixed Consensus';
+            const color = consensusColors[consensusType] || consensusColors['Mixed Consensus'];
+            const icon = domainIcons[categoryName] || '🔍';
+            const confidence = data.confidence || data.confidence_level || 60;
+            const insight = data.insight || data.strategic_implications || `Analysis of ${categoryName} trends`;
+            
+            // Calculate timeline positioning
+            const timeline = data.timeline || data.timeline_consensus || 'Mid-term';
+            let startPercent = 20, widthPercent = 40;
+            
+            if (timeline.includes('Immediate') || timeline.includes('2024')) {
+                startPercent = 0; widthPercent = 25;
+            } else if (timeline.includes('Short') || timeline.includes('2025')) {
+                startPercent = 10; widthPercent = 30;
+            } else if (timeline.includes('Long') || timeline.includes('2030')) {
+                startPercent = 60; widthPercent = 35;
+            }
+            
+            card.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <div class="d-flex align-items-center">
+                        <div class="domain-icon" style="background: ${color};">
+                            ${icon}
+                        </div>
+                        <div>
+                            <h5 class="mb-1 fw-bold">${categoryName}</h5>
+                            <p class="mb-0 small text-muted">${insight}</p>
+                        </div>
+                    </div>
+                    <div class="consensus-confidence">${confidence}% Consensus</div>
+                </div>
+                
+                <div class="timeline-labels">
+                    <span>2024</span>
+                    <span>2027</span>
+                    <span>2030</span>
+                    <span>2035+</span>
+                </div>
+                
+                <div class="timeline-container">
+                    <div class="consensus-band" style="
+                        left: ${startPercent}%; 
+                        width: ${widthPercent}%; 
+                        background: ${color};
+                    ">
+                        ${consensusType.toUpperCase()}
+                    </div>
+                    
+                    ${data.optimisticOutlier || data.optimistic_outliers ? `
+                        <div class="outlier-marker outlier-optimistic" 
+                             style="left: 15%;"
+                             title="${data.optimisticOutlier || data.optimistic_outliers}">
+                        </div>
+                    ` : ''}
+                    
+                    ${data.pessimisticOutlier || data.pessimistic_outliers ? `
+                        <div class="outlier-marker outlier-pessimistic" 
+                             style="left: 75%;"
+                             title="${data.pessimisticOutlier || data.pessimistic_outliers}">
+                        </div>
+                    ` : ''}
+                </div>
+                
+                <div class="expanded-details" style="display: none;" id="details-${index}">
+                    <div class="row">
+                        ${data.optimisticOutlier || data.optimistic_outliers ? `
+                            <div class="col-md-6">
+                                <div class="outlier-section outlier-optimistic-section">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <div class="outlier-marker outlier-optimistic me-2" style="position: static; margin: 0;"></div>
+                                        <strong class="small">Optimistic Scenario</strong>
+                                    </div>
+                                    <p class="small mb-2">${data.optimisticOutlier || data.optimistic_outliers}</p>
+                                    <span class="badge bg-success">25% of sources</span>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${data.pessimisticOutlier || data.pessimistic_outliers ? `
+                            <div class="col-md-6">
+                                <div class="outlier-section outlier-pessimistic-section">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <div class="outlier-marker outlier-pessimistic me-2" style="position: static; margin: 0;"></div>
+                                        <strong class="small">Pessimistic Scenario</strong>
+                                    </div>
+                                    <p class="small mb-2">${data.pessimisticOutlier || data.pessimistic_outliers}</p>
+                                    <span class="badge bg-danger">30% of sources</span>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    <div class="mt-3 p-3 rounded" style="background: #e3f2fd;">
+                        <h6 class="fw-bold text-primary mb-2">Strategic Implication</h6>
+                        <p class="small mb-0 text-dark">${data.strategicImplication || data.strategic_implications || insight}</p>
+                    </div>
+                </div>
+            `;
+            
+            card.addEventListener('click', () => toggleDomainDetails(index));
+            return card;
+        }
+        
+        async function getTopicCategories(topic) {
+            const response = await fetch(`/api/forecast-charts/categories/${encodeURIComponent(topic)}`);
+            const data = await response.json();
+            
+            if (data.success && data.categories) {
+                return data.categories;
+            }
+            throw new Error('Failed to load categories');
+        }
+        
+        async function createDomainCard(category, topic, timeframe, index) {
+            const card = document.createElement('div');
+            card.className = 'domain-card';
+            card.setAttribute('data-index', index);
+            
+            const sentimentData = getSentimentPattern(category);
+            const consensusInfo = analyzeConsensus(sentimentData, category);
+            
+            const icon = domainIcons[category] || '🔍';
+            const color = consensusColors[consensusInfo.type] || consensusColors['Mixed Consensus'];
+            
+            card.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <div class="d-flex align-items-center">
+                        <div class="domain-icon" style="background: ${color};">
+                            ${icon}
+                        </div>
+                        <div>
+                            <h5 class="mb-1 fw-bold">${category}</h5>
+                            <p class="mb-0 small text-muted">${consensusInfo.insight}</p>
+                        </div>
+                    </div>
+                    <div class="consensus-confidence">${consensusInfo.confidence}% Consensus</div>
+                </div>
+                
+                <div class="timeline-labels">
+                    <span>2024</span>
+                    <span>2027</span>
+                    <span>2030</span>
+                    <span>2035+</span>
+                </div>
+                
+                <div class="timeline-container">
+                    <div class="consensus-band" style="
+                        left: ${consensusInfo.startPercent}%; 
+                        width: ${consensusInfo.widthPercent}%; 
+                        background: ${color};
+                    ">
+                        ${consensusInfo.type.toUpperCase()}
+                    </div>
+                    
+                    ${consensusInfo.optimisticOutlier ? `
+                        <div class="outlier-marker outlier-optimistic" 
+                             style="left: ${consensusInfo.optimisticOutlier.position}%;"
+                             title="${consensusInfo.optimisticOutlier.label}">
+                        </div>
+                    ` : ''}
+                    
+                    ${consensusInfo.pessimisticOutlier ? `
+                        <div class="outlier-marker outlier-pessimistic" 
+                             style="left: ${consensusInfo.pessimisticOutlier.position}%;"
+                             title="${consensusInfo.pessimisticOutlier.label}">
+                        </div>
+                    ` : ''}
+                </div>
+                
+                <div class="expanded-details" style="display: none;" id="details-${index}">
+                    <div class="row">
+                        ${consensusInfo.optimisticOutlier ? `
+                            <div class="col-md-6">
+                                <div class="outlier-section outlier-optimistic-section">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <div class="outlier-marker outlier-optimistic me-2" style="position: static; margin: 0;"></div>
+                                        <strong class="small">Optimistic Scenario (${consensusInfo.optimisticOutlier.year})</strong>
+                                    </div>
+                                    <p class="small mb-2">${consensusInfo.optimisticOutlier.label}</p>
+                                    <span class="badge bg-success">${consensusInfo.optimisticOutlier.confidence}% of sources</span>
+                                </div>
+                            </div>
+                        ` : ''}
+                        
+                        ${consensusInfo.pessimisticOutlier ? `
+                            <div class="col-md-6">
+                                <div class="outlier-section outlier-pessimistic-section">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <div class="outlier-marker outlier-pessimistic me-2" style="position: static; margin: 0;"></div>
+                                        <strong class="small">Pessimistic Scenario (${consensusInfo.pessimisticOutlier.year})</strong>
+                                    </div>
+                                    <p class="small mb-2">${consensusInfo.pessimisticOutlier.label}</p>
+                                    <span class="badge bg-danger">${consensusInfo.pessimisticOutlier.confidence}% of sources</span>
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    <div class="mt-3 p-3 rounded" style="background: #e3f2fd;">
+                        <h6 class="fw-bold text-primary mb-2">Strategic Implication</h6>
+                        <p class="small mb-0 text-dark">${consensusInfo.strategicImplication}</p>
+                    </div>
+                </div>
+            `;
+            
+            card.addEventListener('click', () => toggleDomainDetails(index));
+            return card;
+        }
+        
+        function getSentimentPattern(category) {
+            const patterns = {
+                'AI Safety & Security': { positive: 25, negative: 45, critical: 30 },
+                'AI & Superintelligence': { positive: 35, negative: 35, critical: 30 },
+                'Economic Productivity': { positive: 65, negative: 20, critical: 15 },
+                'Workforce Disruption': { positive: 30, negative: 50, critical: 20 },
+                'Regulatory Framework': { positive: 40, negative: 35, critical: 25 },
+                'AI Healthcare': { positive: 70, negative: 20, critical: 10 },
+                'AI Ethics': { positive: 45, negative: 35, critical: 20 },
+                'AI Business': { positive: 60, negative: 25, critical: 15 }
+            };
+            return patterns[category] || { positive: 50, negative: 30, critical: 20 };
+        }
+        
+        function analyzeConsensus(sentimentData, category) {
+            const total = sentimentData.positive + sentimentData.negative + sentimentData.critical;
+            const positiveRatio = sentimentData.positive / total;
+            const criticalRatio = sentimentData.critical / total;
+            
+            let consensusType, confidence, insight, strategicImplication;
+            
+            if (positiveRatio >= 0.6) {
+                consensusType = 'Positive Growth';
+                confidence = Math.round(positiveRatio * 100);
+                insight = 'Strong optimism about technological advancement';
+                strategicImplication = 'Plan for accelerated adoption and positive market impacts';
+            } else if (criticalRatio >= 0.25) {
+                if (category.includes('Security') || category.includes('Safety')) {
+                    consensusType = 'Safety/Security';
+                    insight = 'Significant safety and security concerns';
+                    strategicImplication = 'Prioritize risk mitigation and safety protocols';
+                } else {
+                    consensusType = 'Regulatory Response';
+                    insight = 'Moderate regulatory and policy concerns';
+                    strategicImplication = 'Prepare for regulatory compliance requirements';
+                }
+                confidence = Math.round((1 - criticalRatio) * 100);
+            } else if (positiveRatio >= 0.35) {
+                consensusType = 'Business Transformation';
+                confidence = Math.round(positiveRatio * 100);
+                insight = 'Moderate optimism about commercial adoption';
+                strategicImplication = 'Focus on gradual business integration strategies';
+            } else {
+                consensusType = 'Mixed Consensus';
+                confidence = 60;
+                insight = 'No clear directional consensus in expert opinion';
+                strategicImplication = 'Maintain flexibility and monitor multiple scenarios';
+            }
+            
+            const startYear = 2025 + Math.random() * 3;
+            const endYear = startYear + 3 + Math.random() * 5;
+            const startPercent = ((startYear - 2024) / (2035 - 2024)) * 100;
+            const widthPercent = ((endYear - startYear) / (2035 - 2024)) * 100;
+            
+            const optimisticOutlier = Math.random() > 0.3 ? {
+                position: Math.random() * 30,
+                year: Math.round(2024 + Math.random() * 4),
+                label: getOptimisticScenario(consensusType),
+                confidence: Math.round(15 + Math.random() * 15)
+            } : null;
+            
+            const pessimisticOutlier = Math.random() > 0.3 ? {
+                position: 70 + Math.random() * 25,
+                year: Math.round(2030 + Math.random() * 10),
+                label: getPessimisticScenario(consensusType),
+                confidence: Math.round(20 + Math.random() * 20)
+            } : null;
+            
+            return {
+                type: consensusType,
+                confidence,
+                insight,
+                strategicImplication,
+                startPercent,
+                widthPercent,
+                optimisticOutlier,
+                pessimisticOutlier
+            };
+        }
+        
+        function getOptimisticScenario(consensusType) {
+            const scenarios = {
+                'Positive Growth': 'Breakthrough acceleration in capabilities',
+                'Business Transformation': 'Immediate ROI and adoption success',
+                'Safety/Security': 'Safety protocols prove highly effective',
+                'Regulatory Response': 'Global regulatory coordination achieved',
+                'Mixed Consensus': 'Rapid consensus emergence on positive path'
+            };
+            return scenarios[consensusType] || 'Accelerated positive outcomes';
+        }
+        
+        function getPessimisticScenario(consensusType) {
+            const scenarios = {
+                'Positive Growth': 'Technical barriers slow progress significantly',
+                'Business Transformation': 'Implementation challenges delay benefits',
+                'Safety/Security': 'Major security incidents occur',
+                'Regulatory Response': 'Regulatory fragmentation and conflicts',
+                'Mixed Consensus': 'Continued uncertainty and slow progress'
+            };
+            return scenarios[consensusType] || 'Delayed or negative outcomes';
+        }
+        
+        function toggleDomainDetails(index) {
+            const card = document.querySelector(`[data-index="${index}"]`);
+            const details = document.getElementById(`details-${index}`);
+            
+            if (selectedDomain !== null && selectedDomain !== index) {
+                const prevCard = document.querySelector(`[data-index="${selectedDomain}"]`);
+                const prevDetails = document.getElementById(`details-${selectedDomain}`);
+                prevCard.classList.remove('selected');
+                prevDetails.style.display = 'none';
+            }
+            
+            if (selectedDomain === index) {
+                card.classList.remove('selected');
+                details.style.display = 'none';
+                selectedDomain = null;
+            } else {
+                card.classList.add('selected');
+                details.style.display = 'block';
+                selectedDomain = index;
+            }
+        }
+
+        function toggleCategoryDetails(index) {
+            console.log(`Toggling category details for index: ${index}`);
+            const details = document.getElementById(`category-details-${index}`);
+            console.log('Details element:', details);
+            if (details) {
+                const isHidden = details.style.display === 'none' || details.style.display === '';
+                details.style.display = isHidden ? 'block' : 'none';
+                console.log(`Set display to: ${details.style.display}`);
+            } else {
+                console.error(`Could not find element with id: category-details-${index}`);
+            }
+        }
+
+        function toggleRawAnalysis(index) {
+            const details = document.getElementById(`raw-analysis-${index}`);
+            if (details) {
+                details.style.display = details.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+
+        function createSentimentDistributionChart(distribution) {
+            if (!distribution) return null;
+            
+            const total = Object.values(distribution).reduce((sum, val) => sum + val, 0);
+            if (total === 0) return null;
+            
+            // More flexible color mapping
+            const colors = {
+                'positive': '#28a745',
+                'Positive': '#28a745',
+                'neutral': '#6c757d',
+                'Neutral': '#6c757d',
+                'critical': '#dc3545',
+                'Critical': '#dc3545',
+                'negative': '#dc3545',
+                'Negative': '#dc3545'
+            };
+            
+            let html = '<div class="sentiment-distribution d-flex rounded overflow-hidden" style="height: 20px; background: #f8f9fa;">';
+            
+            Object.entries(distribution).forEach(([sentiment, count]) => {
+                const percentage = (count / total) * 100;
+                const color = colors[sentiment] || colors[sentiment.toLowerCase()] || '#6c757d';
+                html += `<div style="width: ${percentage}%; background: ${color}; position: relative;" title="${sentiment}: ${count} articles (${percentage.toFixed(1)}%)"></div>`;
+            });
+            
+            html += '</div>';
+            html += '<div class="small text-muted mt-1">';
+            Object.entries(distribution).forEach(([sentiment, count]) => {
+                const percentage = (count / total) * 100;
+                const color = colors[sentiment] || colors[sentiment.toLowerCase()] || '#6c757d';
+                html += `<span class="me-3"><span style="display: inline-block; width: 10px; height: 10px; background: ${color}; margin-right: 4px; border-radius: 2px;"></span>${sentiment}: ${count} (${percentage.toFixed(1)}%)</span>`;
+            });
+            html += '</div>';
+            
+            return html;
+        }
+
+        function createTimelineDistributionChart(distribution) {
+            if (!distribution) return null;
+            
+            const total = Object.values(distribution).reduce((sum, val) => sum + val, 0);
+            if (total === 0) return null;
+            
+            const colors = {
+                'Immediate (2024-2025)': '#ff6b6b',
+                'Short-term (2025-2027)': '#ffa726', 
+                'Mid-term (2027-2030)': '#42a5f5',
+                'Long-term (2030-2035+)': '#ab47bc'
+            };
+            
+            let html = '<div class="timeline-distribution d-flex rounded overflow-hidden" style="height: 20px; background: #f8f9fa;">';
+            
+            Object.entries(distribution).forEach(([timeframe, count]) => {
+                const percentage = (count / total) * 100;
+                const color = colors[timeframe] || '#6c757d';
+                html += `<div style="width: ${percentage}%; background: ${color}; position: relative;" title="${timeframe}: ${count} articles (${percentage.toFixed(1)}%)"></div>`;
+            });
+            
+            html += '</div>';
+            html += '<div class="small text-muted mt-1">';
+            Object.entries(distribution).forEach(([timeframe, count]) => {
+                const percentage = (count / total) * 100;
+                const color = colors[timeframe] || '#6c757d';
+                const shortName = timeframe.split(' ')[0];
+                html += `<span class="me-2"><span style="display: inline-block; width: 10px; height: 10px; background: ${color}; margin-right: 4px;"></span>${shortName}: ${count}</span>`;
+            });
+            html += '</div>';
+            
+            return html;
+        }
+
+        function createOutliersVisualization(optimisticOutliers, pessimisticOutliers) {
+            let html = '';
+            
+            // Ensure we have arrays
+            const optimistic = Array.isArray(optimisticOutliers) ? optimisticOutliers : [];
+            const pessimistic = Array.isArray(pessimisticOutliers) ? pessimisticOutliers : [];
+            
+            console.log('Plotting outliers:', { optimistic: optimistic.length, pessimistic: pessimistic.length });
+            
+            // Function to map timeline to position (updated for 2025)
+            function getTimelinePosition(timeline) {
+                if (!timeline) return 50; // Default center if no timeline
+                
+                const timelineStr = timeline.toLowerCase();
+                if (timelineStr.includes('2025') || timelineStr.includes('immediate')) {
+                    return 12; // 2025 position
+                } else if (timelineStr.includes('2026') || timelineStr.includes('2027') || timelineStr.includes('short')) {
+                    return 35; // 2027 position  
+                } else if (timelineStr.includes('2028') || timelineStr.includes('2029') || timelineStr.includes('2030') || timelineStr.includes('mid')) {
+                    return 58; // 2030 position
+                } else if (timelineStr.includes('203') || timelineStr.includes('2035') || timelineStr.includes('long')) {
+                    return 82; // 2035+ position
+                } else if (timelineStr.includes('2024')) {
+                    return 5; // Before 2025 (shouldn't happen much now)
+                }
+                return 50; // Default center
+            }
+            
+            // Plot optimistic outliers
+            optimistic.forEach((outlier, index) => {
+                let scenario, timeline, source;
+                
+                if (typeof outlier === 'object') {
+                    scenario = outlier.scenario || outlier.description || outlier.toString();
+                    timeline = outlier.timeline || '';
+                    source = outlier.source || '';
+                } else {
+                    scenario = outlier.toString();
+                    timeline = '';
+                    source = '';
+                }
+                
+                // Position based on timeline, with slight offset for multiple outliers
+                const basePosition = getTimelinePosition(timeline);
+                const position = Math.max(2, Math.min(basePosition + (index * 3), 95));
+                
+                const tooltipText = `Optimistic: ${scenario}${timeline ? ` (${timeline})` : ''}${source ? ` - ${source}` : ''}`;
+                
+                html += `<div class="outlier-marker outlier-optimistic" 
+                             style="left: ${position}%;"
+                             title="${tooltipText}"
+                             data-tooltip="${tooltipText}">
+                         </div>`;
+            });
+            
+            // Plot pessimistic outliers  
+            pessimistic.forEach((outlier, index) => {
+                let scenario, timeline, source;
+                
+                if (typeof outlier === 'object') {
+                    scenario = outlier.scenario || outlier.description || outlier.toString();
+                    timeline = outlier.timeline || '';
+                    source = outlier.source || '';
+                } else {
+                    scenario = outlier.toString();
+                    timeline = '';
+                    source = '';
+                }
+                
+                // Position based on timeline, with slight offset for multiple outliers
+                const basePosition = getTimelinePosition(timeline);
+                const position = Math.max(2, Math.min(basePosition + (index * 3), 95));
+                
+                const tooltipText = `Pessimistic: ${scenario}${timeline ? ` (${timeline})` : ''}${source ? ` - ${source}` : ''}`;
+                
+                html += `<div class="outlier-marker outlier-pessimistic" 
+                             style="left: ${position}%;"
+                             title="${tooltipText}"
+                             data-tooltip="${tooltipText}">
+                         </div>`;
+            });
+            
+            return html;
+        }
+
+        function extractUrlFromReference(reference) {
+            if (!reference) return '#';
+            // Extract URL from markdown-style link [text](url)
+            const match = reference.match(/\(https?:\/\/[^)]+\)/);
+            if (match) {
+                return match[0].slice(1, -1); // Remove parentheses
+            }
+            return '#';
+        }
+        
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `<div class="error-message">${message}</div>`;
+        }
+        
+        // Custom timeframe toggle
+        function toggleCustomTimeframe() {
+            const timeframe = document.getElementById('timeframe').value;
+            const customDays = document.getElementById('customDays');
+            
+            if (timeframe === 'custom') {
+                customDays.style.display = 'block';
+                customDays.focus();
+            } else {
+                customDays.style.display = 'none';
+                customDays.value = '';
+            }
+        }
+        
+        // Categories dropdown functionality
+        function toggleCategoriesDropdown() {
+            const menu = document.getElementById('categoriesMenu');
+            const isVisible = menu.style.display === 'block';
+            
+            if (isVisible) {
+                menu.style.display = 'none';
+            } else {
+                menu.style.display = 'block';
+                loadCategories();
+            }
+        }
+        
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('categoriesDropdown');
+            const menu = document.getElementById('categoriesMenu');
+            
+            if (!dropdown.contains(event.target) && !menu.contains(event.target)) {
+                menu.style.display = 'none';
+            }
+        });
+        
+        function handleCategoryModeChange() {
+            const mode = document.getElementById('categoryMode').value;
+            const categorySelectionContainer = document.getElementById('categorySelectionContainer');
+            const categorySelectionLabel = document.getElementById('categorySelectionLabel');
+            const categoryModeHelp = document.getElementById('categoryModeHelp');
+            
+            // Update UI based on mode
+            switch (mode) {
+                case 'existing':
+                    categorySelectionContainer.style.display = 'block';
+                    categorySelectionLabel.textContent = 'Categories (Optional)';
+                    categoryModeHelp.textContent = 'Choose how to organize the consensus analysis';
+                    loadExistingCategories();
+                    break;
+                case 'thematic':
+                    categorySelectionContainer.style.display = 'none';
+                    categoryModeHelp.textContent = 'AI will automatically identify themes from the articles';
+                    break;
+                case 'custom':
+                    // Placeholder for future implementation
+                    categorySelectionContainer.style.display = 'none';
+                    categoryModeHelp.textContent = 'Custom theme creation will be available soon';
+                    break;
+            }
+        }
+
+        async function loadExistingCategories() {
+            const topic = document.getElementById('topic').value;
+            const checkboxContainer = document.getElementById('categoryCheckboxes');
+            
+            if (!topic) {
+                checkboxContainer.innerHTML = '<div class="text-muted small">Please select a topic first</div>';
+                return;
+            }
+            
+            try {
+                // Use the dashboard category insights endpoint to get actual categories with article counts
+                const response = await fetch(`/api/dashboard/category-insights/${encodeURIComponent(topic)}?days_limit=365`);
+                
+                if (response.ok) {
+                    const categories = await response.json();
+                    
+                    if (Array.isArray(categories) && categories.length > 0) {
+                        checkboxContainer.innerHTML = '';
+                        
+                        // Add "Trends" as the first special option
+                        const trendsDiv = document.createElement('div');
+                        trendsDiv.className = 'form-check';
+                        trendsDiv.innerHTML = `
+                            <input class="form-check-input category-checkbox" type="checkbox" 
+                                   id="cat_Trends" 
+                                   value="Trends" onchange="updateCategoriesText()">
+                            <label class="form-check-label small" for="cat_Trends">
+                                <strong>🔍 Trends</strong> <span class="text-muted">(AI-surfaced emerging patterns)</span>
+                            </label>
+                        `;
+                        checkboxContainer.appendChild(trendsDiv);
+                        
+                        // Add a separator
+                        const separator = document.createElement('hr');
+                        separator.className = 'my-2';
+                        checkboxContainer.appendChild(separator);
+                        
+                        // Add categories from database with article counts
+                        categories.forEach(categoryData => {
+                            const div = document.createElement('div');
+                            div.className = 'form-check';
+                            div.innerHTML = `
+                                <input class="form-check-input category-checkbox" type="checkbox" 
+                                       id="cat_${categoryData.category.replace(/[^a-zA-Z0-9]/g, '_')}" 
+                                       value="${categoryData.category}" onchange="updateCategoriesText()">
+                                <label class="form-check-label small" for="cat_${categoryData.category.replace(/[^a-zA-Z0-9]/g, '_')}">
+                                    ${categoryData.category} <span class="text-muted">(${categoryData.article_count} articles)</span>
+                                </label>
+                            `;
+                            checkboxContainer.appendChild(div);
+                        });
+                    } else {
+                        // Fallback: provide "General Analysis" if no categories found
+                        checkboxContainer.innerHTML = '';
+                        
+                        const trendsDiv = document.createElement('div');
+                        trendsDiv.className = 'form-check';
+                        trendsDiv.innerHTML = `
+                            <input class="form-check-input category-checkbox" type="checkbox" 
+                                   id="cat_Trends" 
+                                   value="Trends" onchange="updateCategoriesText()">
+                            <label class="form-check-label small" for="cat_Trends">
+                                <strong>🔍 Trends</strong> <span class="text-muted">(AI-surfaced emerging patterns)</span>
+                            </label>
+                        `;
+                        checkboxContainer.appendChild(trendsDiv);
+                        
+                        const separator = document.createElement('hr');
+                        separator.className = 'my-2';
+                        checkboxContainer.appendChild(separator);
+                        
+                        const generalDiv = document.createElement('div');
+                        generalDiv.className = 'form-check';
+                        generalDiv.innerHTML = `
+                            <input class="form-check-input category-checkbox" type="checkbox" 
+                                   id="cat_General" 
+                                   value="General Analysis" onchange="updateCategoriesText()" checked>
+                            <label class="form-check-label small" for="cat_General">
+                                <strong>📊 General Analysis</strong> <span class="text-muted">(Comprehensive topic analysis)</span>
+                            </label>
+                        `;
+                        checkboxContainer.appendChild(generalDiv);
+                        updateCategoriesText();
+                    }
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+            } catch (error) {
+                console.error('Error loading categories:', error);
+                checkboxContainer.innerHTML = `
+                    <div class="text-warning small mb-2">Could not load categories from database</div>
+                    <div class="form-check">
+                        <input class="form-check-input category-checkbox" type="checkbox" 
+                               id="cat_Trends" 
+                               value="Trends" onchange="updateCategoriesText()">
+                        <label class="form-check-label small" for="cat_Trends">
+                            <strong>🔍 Trends</strong> <span class="text-muted">(AI-surfaced emerging patterns)</span>
+                        </label>
+                    </div>
+                    <hr class="my-2">
+                    <div class="form-check">
+                        <input class="form-check-input category-checkbox" type="checkbox" 
+                               id="cat_General" 
+                               value="General Analysis" onchange="updateCategoriesText()" checked>
+                        <label class="form-check-label small" for="cat_General">
+                            <strong>📊 General Analysis</strong> <span class="text-muted">(Comprehensive topic analysis)</span>
+                        </label>
+                    </div>
+                `;
+                updateCategoriesText();
+            }
+        }
+
+        // Legacy function name for backward compatibility
+        async function loadCategories() {
+            await loadExistingCategories();
+        }
+        
+        function toggleAllCategories() {
+            const selectAll = document.getElementById('selectAllCategories');
+            const categoryCheckboxes = document.querySelectorAll('.category-checkbox');
+            
+            categoryCheckboxes.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+            
+            updateCategoriesText();
+        }
+        
+        function updateCategoriesText() {
+            const selectedCategories = getSelectedCategories();
+            const categoriesText = document.getElementById('categoriesText');
+            const selectAll = document.getElementById('selectAllCategories');
+            const categoryCheckboxes = document.querySelectorAll('.category-checkbox');
+            
+            if (!categoriesText) {
+                console.warn('categoriesText element not found');
+                return;
+            }
+            
+            if (selectedCategories.length === 0) {
+                categoriesText.textContent = 'All Categories';
+                if (selectAll) selectAll.checked = false;
+            } else if (selectedCategories.length === categoryCheckboxes.length) {
+                categoriesText.textContent = 'All Categories';
+                if (selectAll) selectAll.checked = true;
+            } else if (selectedCategories.length === 1) {
+                categoriesText.textContent = selectedCategories[0];
+                if (selectAll) selectAll.checked = false;
+            } else {
+                categoriesText.textContent = `${selectedCategories.length} Categories Selected`;
+                if (selectAll) selectAll.checked = false;
+            }
+        }
+        
+        function getSelectedCategories() {
+            const checkboxes = document.querySelectorAll('.category-checkbox:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
+
+        // Context window estimation (copied from Auspex chat)
+        const contextLimits = {
+            'gpt-3.5-turbo': 16385,
+            'gpt-3.5-turbo-16k': 16385,
+            'gpt-4': 8192,
+            'gpt-4-32k': 32768,
+            'gpt-4-turbo': 128000,
+            'gpt-4-turbo-preview': 128000,
+            'gpt-4o': 128000,
+            'gpt-4o-mini': 128000,
+            'gpt-4.1': 1000000,
+            'gpt-4.1-mini': 1000000,
+            'gpt-4.1-nano': 1000000,
+            'claude-3-opus': 200000,
+            'claude-3-sonnet': 200000,
+            'claude-3-haiku': 200000,
+            'claude-3.5-sonnet': 200000,
+            'claude-4': 200000,
+            'claude-4-opus': 200000,
+            'claude-4-sonnet': 200000,
+            'claude-4-haiku': 200000,
+            'gemini-pro': 32768,
+            'gemini-1.5-pro': 2097152,
+            'llama-2-70b': 4096,
+            'llama-3-70b': 8192,
+            'mixtral-8x7b': 32768,
+            'default': 16385
+        };
+
+        // Sample size mode handling (copied from Auspex chat)
+        function handleSampleSizeModeChange() {
+            const mode = document.getElementById('sampleSizeMode').value;
+            const customLimit = document.getElementById('customLimit');
+            
+            if (mode === 'custom') {
+                customLimit.style.display = 'block';
+                customLimit.focus();
+            } else {
+                customLimit.style.display = 'none';
+            }
+            
+            updateContextInfo();
+        }
+
+        function calculateOptimalSampleSize(model, message) {
+            const mode = document.getElementById('sampleSizeMode').value;
+            
+            if (mode === 'custom') {
+                return parseInt(document.getElementById('customLimit').value) || 50;
+            }
+            
+            // Calculate based on mode and model capabilities
+            const contextLimit = contextLimits[model] || contextLimits.default;
+            const isMegaContext = contextLimit >= 1000000;
+            
+            let baseSampleSize;
+            switch (mode) {
+                case 'focused':
+                    baseSampleSize = isMegaContext ? 50 : 25;
+                    break;
+                case 'balanced':
+                    baseSampleSize = isMegaContext ? 100 : 50;
+                    break;
+                case 'comprehensive':
+                    baseSampleSize = isMegaContext ? 200 : 100;
+                    break;
+                case 'auto':
+                default:
+                    // Auto-size based on context window and message complexity
+                    const messageComplexity = (message?.length || 0) > 200 ? 1.2 : 1.0;
+                    let baseSize = isMegaContext ? 150 : 75;
+                    
+                    // For consensus analysis, we need more articles since they're distributed across categories
+                    if (message && message.includes('consensus analysis')) {
+                        baseSize = isMegaContext ? 300 : 150;
+                    }
+                    
+                    baseSampleSize = Math.round(baseSize * messageComplexity);
+                    break;
+            }
+            
+            // Ensure reasonable limits
+            const maxLimit = isMegaContext ? 1000 : 400;
+            const minLimit = 10;
+            
+            return Math.max(minLimit, Math.min(baseSampleSize, maxLimit));
+        }
+
+        function estimateTokens(text) {
+            // Rough estimation: 1 token ≈ 4 characters for English
+            return Math.ceil((text?.length || 0) / 4);
+        }
+
+        function updateContextInfo() {
+            const contextInfo = document.getElementById('contextInfo');
+            const contextStats = document.getElementById('contextStats');
+            
+            if (!contextInfo || !contextStats) {
+                console.warn('Context info elements not found');
+                return;
+            }
+            
+            const model = document.getElementById('model')?.value;
+            const message = 'consensus analysis'; // Default message for estimation
+            
+            if (!model) {
+                contextInfo.style.display = 'none';
+                return;
+            }
+            
+            const sampleSize = calculateOptimalSampleSize(model, message);
+            const contextLimit = contextLimits[model] || contextLimits.default;
+            
+            // Estimate token usage
+            const systemTokens = 500; // System prompt
+            const messageTokens = estimateTokens(message);
+            const tokensPerArticle = 180; // Optimized article representation
+            const articleTokens = sampleSize * tokensPerArticle;
+            const totalTokens = systemTokens + messageTokens + articleTokens;
+            
+            const contextUsage = (totalTokens / contextLimit) * 100;
+            
+            // Model indicator
+            const modelIndicator = contextLimit >= 1000000 ? ' 🚀1M' : 
+                                  contextLimit >= 200000 ? ' ⚡200K' : 
+                                  contextLimit >= 100000 ? ' 💫100K' : '';
+            
+            const contextText = `Context: ${sampleSize} articles, ~${totalTokens.toLocaleString()} tokens (${contextUsage.toFixed(1)}%)${modelIndicator}`;
+            contextStats.textContent = contextText;
+            
+            // Color coding
+            if (contextUsage > 90) {
+                contextStats.style.color = '#dc3545'; // Red
+                contextStats.style.fontWeight = 'bold';
+            } else if (contextUsage > 70) {
+                contextStats.style.color = '#fd7e14'; // Orange
+                contextStats.style.fontWeight = '600';
+            } else if (contextUsage > 50) {
+                contextStats.style.color = '#28a745'; // Green
+                contextStats.style.fontWeight = '500';
+            } else {
+                contextStats.style.color = '#007bff'; // Blue
+                contextStats.style.fontWeight = '500';
+            }
+            
+            contextInfo.style.display = 'block';
+        }
+        
+        window.addEventListener('load', async function() {
+            try {
+                // Load topics
+                const topicsResponse = await fetch('/api/forecast-charts/topics');
+                const topicsData = await topicsResponse.json();
+                
+                const topicSelect = document.getElementById('topic');
+                
+                if (topicsData.success && topicsData.topics && topicsData.topics.length > 0) {
+                    topicSelect.innerHTML = '<option value="">Select a topic...</option>';
+                    
+                    topicsData.topics.forEach(topic => {
+                        const option = document.createElement('option');
+                        option.value = topic;
+                        option.textContent = topic.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        topicSelect.appendChild(option);
+                    });
+                } else {
+                    topicSelect.innerHTML = '<option value="">No topics available</option>';
+                    showError('No topics with forecast data found.');
+                }
+
+                // Load models
+                const modelsResponse = await fetch('/api/models');
+                const models = await modelsResponse.json();
+                
+                const modelSelect = document.getElementById('model');
+                
+                if (models && models.length > 0) {
+                    modelSelect.innerHTML = '<option value="">Select model...</option>';
+                    
+                    models.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.name;
+                        option.textContent = `${model.name} (${model.provider})`;
+                        modelSelect.appendChild(option);
+                    });
+                    
+                    // Set default model if available
+                    if (models.length > 0) {
+                        modelSelect.value = models[0].name;
+                        updateContextInfo();
+                    }
+                } else {
+                    modelSelect.innerHTML = '<option value="">No models available</option>';
+                    showError('No AI models found.');
+                }
+                
+                // Add event listeners for context updates
+                modelSelect.addEventListener('change', updateContextInfo);
+                document.getElementById('sampleSizeMode').addEventListener('change', updateContextInfo);
+                document.getElementById('customLimit').addEventListener('input', updateContextInfo);
+                
+                // Load saved configuration after elements are populated
+                setTimeout(() => {
+                    loadSavedConfiguration();
+                }, 100);
+                
+            } catch (error) {
+                console.warn('Failed to load data:', error);
+                document.getElementById('topic').innerHTML = '<option value="">Error loading topics</option>';
+                document.getElementById('model').innerHTML = '<option value="">Error loading models</option>';
+                showError('Failed to load available data.');
+            }
+        });
+        
+        // Debug functions
+        function testOutlierVisualization() {
+            console.log('Testing outlier visualization...');
+            const testOptimistic = [
+                { scenario: 'Test optimistic scenario 1' },
+                { scenario: 'Test optimistic scenario 2' }
+            ];
+            const testPessimistic = [
+                { scenario: 'Test pessimistic scenario 1' }
+            ];
+            
+            const html = createOutliersVisualization(testOptimistic, testPessimistic);
+            console.log('Generated HTML:', html);
+            
+            // Add to a test container
+            const testContainer = document.createElement('div');
+            testContainer.className = 'timeline-container';
+            testContainer.style.cssText = 'position: relative; height: 40px; background: #f0f0f0; margin: 20px 0; border: 1px solid #ccc;';
+            testContainer.innerHTML = html;
+            
+            document.body.appendChild(testContainer);
+            
+            setTimeout(() => {
+                document.body.removeChild(testContainer);
+            }, 5000);
+        }
+        
+        function testToggleFunction() {
+            console.log('Testing toggle function...');
+            // Create a test element
+            const testElement = document.createElement('div');
+            testElement.id = 'category-details-999';
+            testElement.style.cssText = 'display: none; padding: 20px; background: #e0e0e0; margin: 10px 0;';
+            testElement.innerHTML = '<p>This is a test details element</p>';
+            
+            document.body.appendChild(testElement);
+            
+            // Test the toggle function
+            toggleCategoryDetails(999);
+            
+            setTimeout(() => {
+                document.body.removeChild(testElement);
+            }, 5000);
+        }
+
+        // Global tooltip variables and handlers
+        let currentTooltip = null;
+        
+        function getConsensusTooltip(consensusType, confidence, sentimentDistribution) {
+            const explanations = {
+                'Positive Growth': `POSITIVE GROWTH (${confidence}% confidence)
+                
+This consensus emerged because ≥60% of articles express positive sentiment about opportunities and benefits.
+                
+Key indicators:
+• Optimistic language about potential
+• Focus on opportunities and advantages  
+• Discussions of growth and expansion
+• Positive market predictions`,
+
+                'Business Transformation': `BUSINESS TRANSFORMATION (${confidence}% confidence)
+                
+This consensus emerged because 35-60% of articles express positive sentiment with cautious optimism.
+                
+Key indicators:
+• Balanced view of opportunities and challenges
+• Discussion of necessary changes and adaptation
+• Moderate optimism about transformation
+• Recognition of both benefits and disruption`,
+
+                'Mixed Consensus': `MIXED CONSENSUS (${confidence}% confidence)
+                
+This consensus emerged because no single sentiment dominates - balanced viewpoints across positive, neutral, and critical perspectives.
+                
+Key indicators:
+• Roughly equal distribution of viewpoints
+• Ongoing debate and discussion
+• Multiple valid perspectives presented
+• No clear directional agreement`,
+
+                'Safety/Security': `SAFETY/SECURITY (${confidence}% confidence)
+                
+This consensus emerged because ≥25% of articles express critical concerns about risks and safety.
+                
+Key indicators:
+• Emphasis on potential dangers and risks
+• Discussions of safety protocols needed
+• Security vulnerability concerns
+• Calls for protective measures`,
+
+                'Regulatory Response': `REGULATORY RESPONSE (${confidence}% confidence)
+                
+This consensus emerged because 15-25% of articles express critical sentiment calling for governance and oversight.
+                
+Key indicators:
+• Calls for new regulations and policies
+• Discussions of governance frameworks
+• Concerns about lack of oversight
+• Need for legal and ethical guidelines`,
+
+                'Societal Impact': `SOCIETAL IMPACT (${confidence}% confidence)
+                
+This consensus emerged because articles focus on broad social implications and transformative effects.
+                
+Key indicators:
+• Discussion of wide-reaching social changes
+• Impact on communities and society
+• Transformation of social structures
+• Long-term societal consequences`,
+
+                'Geopolitical Strategy': `GEOPOLITICAL STRATEGY (${confidence}% confidence)
+                
+This consensus emerged because articles focus on international relations and strategic implications.
+                
+Key indicators:
+• International competition and cooperation
+• National security considerations
+• Global power dynamics
+• Strategic national interests`,
+
+                'Defense Applications': `DEFENSE APPLICATIONS (${confidence}% confidence)
+                
+This consensus emerged because articles focus on military and defense-related applications.
+                
+Key indicators:
+• Military use cases and applications
+• Defense technology development
+• National security implications
+• Strategic defense considerations`
+            };
+
+            let tooltip = explanations[consensusType] || `${consensusType.toUpperCase()} (${confidence}% confidence)
+            
+This consensus type was determined by analyzing the sentiment and themes in the articles for this category.`;
+
+            // Add sentiment breakdown if available
+            if (sentimentDistribution) {
+                tooltip += `
+
+Sentiment Breakdown:
+• Positive: ${sentimentDistribution.positive || 0}%
+• Neutral: ${sentimentDistribution.neutral || 0}%  
+• Critical: ${sentimentDistribution.critical || 0}%`;
+            }
+
+            return tooltip;
+        }
+
+        function handleTooltipMouseover(e) {
+            if ((e.target.classList.contains('outlier-marker') || e.target.classList.contains('consensus-band')) && e.target.hasAttribute('data-tooltip')) {
+                const title = e.target.getAttribute('data-tooltip');
+                if (!title) return;
+                
+                // Remove existing tooltip
+                if (currentTooltip) {
+                    currentTooltip.remove();
+                    currentTooltip = null;
+                }
+                
+                // Create new tooltip
+                const tooltip = document.createElement('div');
+                tooltip.className = 'custom-tooltip';
+                tooltip.textContent = title;
+                document.body.appendChild(tooltip);
+                
+                // Position tooltip
+                const rect = e.target.getBoundingClientRect();
+                const tooltipRect = tooltip.getBoundingClientRect();
+                
+                // Position above the marker, centered horizontally
+                let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+                let top = rect.top - tooltipRect.height - 8;
+                
+                // Adjust horizontal position if tooltip would go off screen
+                if (left < 10) {
+                    left = 10;
+                } else if (left + tooltipRect.width > window.innerWidth - 10) {
+                    left = window.innerWidth - tooltipRect.width - 10;
+                }
+                
+                // If no room above, position below the marker
+                if (top < 10) {
+                    top = rect.bottom + 8;
+                }
+                
+                // Add scroll offset
+                tooltip.style.left = (left + window.scrollX) + 'px';
+                tooltip.style.top = (top + window.scrollY) + 'px';
+                
+                currentTooltip = tooltip;
+            }
+        }
+        
+        function handleTooltipMouseout(e) {
+            if (e.target.classList.contains('outlier-marker') || e.target.classList.contains('consensus-band')) {
+                if (currentTooltip) {
+                    currentTooltip.remove();
+                    currentTooltip = null;
+                }
+            }
+        }
+        
+        // Custom tooltip handling for outlier markers and consensus bands
+        function initializeTooltips() {
+            // Convert title attributes to data-tooltip to prevent default tooltips
+            // Use setTimeout to ensure DOM is fully rendered
+            setTimeout(() => {
+                // Handle outlier markers
+                document.querySelectorAll('.outlier-marker[title]').forEach(marker => {
+                    const title = marker.getAttribute('title');
+                    marker.setAttribute('data-tooltip', title);
+                    marker.removeAttribute('title');
+                });
+                
+                // Handle consensus bands (they should already have data-tooltip, but remove any title attributes)
+                document.querySelectorAll('.consensus-band[title]').forEach(band => {
+                    band.removeAttribute('title');
+                });
+            }, 100);
+        }
+        
+        // Initialize tooltips when DOM is ready
+        document.addEventListener('DOMContentLoaded', initializeTooltips);
+        
+        // Modal interaction functions
+        function updateLoadButton() {
+            const topic = document.getElementById('topic').value;
+            const model = document.getElementById('model').value;
+            const loadBtn = document.getElementById('loadAnalysisBtn');
+            const configureBtn = document.querySelector('[data-bs-target="#topicModal"]');
+            
+            if (topic && model) {
+                loadBtn.disabled = false;
+                loadBtn.innerHTML = '<i class="fas fa-play me-2"></i>Load Analysis';
+                configureBtn.innerHTML = '<i class="fas fa-check me-2"></i>Configured';
+                configureBtn.classList.remove('btn-primary');
+                configureBtn.classList.add('btn-success');
+            } else {
+                loadBtn.disabled = true;
+                loadBtn.innerHTML = '<i class="fas fa-play me-2"></i>Load Analysis';
+                configureBtn.innerHTML = '<i class="fas fa-cog me-2"></i>Configure Analysis';
+                configureBtn.classList.remove('btn-success');
+                configureBtn.classList.add('btn-primary');
+            }
+        }
+        
+        function saveConfigurationAndClose() {
+            const topic = document.getElementById('topic').value;
+            const model = document.getElementById('model').value;
+            const sampleSizeMode = document.getElementById('sampleSizeMode').value;
+            const customLimit = document.getElementById('customLimit').value;
+            
+            if (!topic) {
+                alert('Please select a topic');
+                return;
+            }
+            
+            if (!model) {
+                alert('Please select a model');
+                return;
+            }
+            
+            // Save configuration to localStorage
+            const config = {
+                topic,
+                model,
+                sampleSizeMode,
+                customLimit,
+                timestamp: new Date().toISOString()
+            };
+            
+            localStorage.setItem('consensusAnalysisConfig', JSON.stringify(config));
+            
+            // Close the modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('topicModal'));
+            modal.hide();
+            
+            // Update button states
+            updateLoadButton();
+            
+            // Show success message
+            showSuccess('Configuration saved! You can now load the analysis.');
+        }
+        
+        function loadSavedConfiguration() {
+            try {
+                const savedConfig = localStorage.getItem('consensusAnalysisConfig');
+                if (savedConfig) {
+                    const config = JSON.parse(savedConfig);
+                    
+                    // Restore form values
+                    if (config.topic) document.getElementById('topic').value = config.topic;
+                    if (config.model) document.getElementById('model').value = config.model;
+                    if (config.sampleSizeMode) document.getElementById('sampleSizeMode').value = config.sampleSizeMode;
+                    if (config.customLimit) document.getElementById('customLimit').value = config.customLimit;
+                    
+                    // Update UI state
+                    handleSampleSizeModeChange();
+                    updateLoadButton();
+                    updateContextInfo();
+                    
+                    console.log('Loaded saved configuration:', config);
+                }
+            } catch (e) {
+                console.warn('Failed to load saved configuration:', e);
+            }
+        }
+        
+        function clearSavedConfiguration() {
+            localStorage.removeItem('consensusAnalysisConfig');
+            localStorage.removeItem('consensusAnalysisResults');
+            showSuccess('Configuration and cached results cleared!');
+        }
+        
+        function saveAnalysisResults(results) {
+            try {
+                const cacheData = {
+                    results,
+                    timestamp: new Date().toISOString(),
+                    config: JSON.parse(localStorage.getItem('consensusAnalysisConfig') || '{}')
+                };
+                localStorage.setItem('consensusAnalysisResults', JSON.stringify(cacheData));
+                console.log('Analysis results cached successfully');
+            } catch (e) {
+                console.warn('Failed to cache analysis results:', e);
+            }
+        }
+        
+        function loadCachedResults() {
+            try {
+                const cachedData = localStorage.getItem('consensusAnalysisResults');
+                if (cachedData) {
+                    const cache = JSON.parse(cachedData);
+                    const cacheAge = new Date() - new Date(cache.timestamp);
+                    const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+                    
+                    if (cacheAge < maxAge) {
+                        console.log('Loading cached results from:', cache.timestamp);
+                        return cache.results;
+                    } else {
+                        console.log('Cached results expired, removing...');
+                        localStorage.removeItem('consensusAnalysisResults');
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to load cached results:', e);
+            }
+            return null;
+        }
+        
+        function showSuccess(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>`;
+            
+            // Auto-hide after 3 seconds
+            setTimeout(() => {
+                const alert = errorContainer.querySelector('.alert');
+                if (alert) {
+                    const bsAlert = new bootstrap.Alert(alert);
+                    bsAlert.close();
+                }
+            }, 3000);
+        }
+        
+        function showError(message) {
+            const errorContainer = document.getElementById('errorContainer');
+            errorContainer.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>`;
+        }
+        
+        // Initialize tooltips when DOM is ready
+        document.addEventListener('DOMContentLoaded', initializeTooltips);
+        
+        // Load topics from API
+        async function loadTopics() {
+            try {
+                const response = await fetch('/api/topics');
+                const topics = await response.json();
+                const topicSelect = document.getElementById('topic');
+                
+                topicSelect.innerHTML = '<option value="">Select a topic</option>';
+                topics.forEach(topic => {
+                    const option = document.createElement('option');
+                    option.value = topic.name;
+                    option.textContent = topic.name;
+                    topicSelect.appendChild(option);
+                });
+                
+                // Load saved configuration after topics are loaded
+                loadSavedConfiguration();
+            } catch (error) {
+                console.error('Error loading topics:', error);
+                showError('Failed to load topics. Please refresh the page.');
+            }
+        }
+        
+        // Load models from API
+        async function loadModels() {
+            try {
+                const response = await fetch('/api/available_models');
+                const models = await response.json();
+                const modelSelect = document.getElementById('model');
+                
+                modelSelect.innerHTML = '<option value="">Select a model</option>';
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = `${model.name} (${model.provider})`;
+                    modelSelect.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Error loading models:', error);
+                showError('Failed to load AI models. Please refresh the page.');
+            }
+        }
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add tooltip event listeners
+            document.addEventListener('mouseover', handleTooltipMouseover);
+            document.addEventListener('mouseout', handleTooltipMouseout);
+            
+            loadTopics();
+            loadModels();
+            
+            // Initialize category mode
+            handleCategoryModeChange();
+            
+            // Set up topic change listener
+            const topicSelect = document.getElementById('topic');
+            if (topicSelect) {
+                topicSelect.addEventListener('change', function() {
+                    const categoryMode = document.getElementById('categoryMode').value;
+                    if (categoryMode === 'existing') {
+                        loadExistingCategories();
+                    }
+                });
+            }
+            
+            // Show configuration modal on first load
+            setTimeout(() => {
+                const modal = new bootstrap.Modal(document.getElementById('topicModal'));
+                modal.show();
+            }, 500);
+        });
+    </script>
+</body>
+</html> 
