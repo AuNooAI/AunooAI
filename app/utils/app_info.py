@@ -90,21 +90,9 @@ def get_version() -> Optional[str]:
         
         if os.path.exists(version_path):
             logger.debug(f"Version file found at: {version_path}")
-            # Try different encodings to handle potential encoding issues
-            # Put UTF-16 first since that's what the file actually is
-            encodings = ['utf-16', 'utf-8', 'ascii', 'utf-16-le', 'utf-16-be']
-            last_error = None
-            for encoding in encodings:
-                try:
-                    with open(version_path, 'r', encoding=encoding) as f:
-                        version = f.read().strip()
-                        logger.debug(f"Read version using {encoding} encoding: {version}")
-                        return version
-                except UnicodeDecodeError as e:
-                    last_error = e
-                    logger.debug(f"Failed to read version file with {encoding} encoding: {e}")
-                    continue
-            logger.warning(f"Failed to read version file with any encoding. Last error: {last_error}")
+            version = _read_version_file(version_path)
+            if version:
+                return version
         else:
             logger.debug(f"Version file not found at: {version_path}")
             # Try alternate location
@@ -112,25 +100,82 @@ def get_version() -> Optional[str]:
             logger.debug(f"Trying alternate path: {alt_version_path}")
             if os.path.exists(alt_version_path):
                 logger.debug(f"Version file found at alternate path: {alt_version_path}")
-                # Try different encodings for alternate path too
-                encodings = ['utf-16', 'utf-8', 'ascii', 'utf-16-le', 'utf-16-be']
-                last_error = None
-                for encoding in encodings:
-                    try:
-                        with open(alt_version_path, 'r', encoding=encoding) as f:
-                            version = f.read().strip()
-                            logger.debug(f"Read version using {encoding} encoding: {version}")
-                            return version
-                    except UnicodeDecodeError as e:
-                        last_error = e
-                        logger.debug(f"Failed to read version file with {encoding} encoding: {e}")
-                        continue
-                logger.warning(f"Failed to read version file with any encoding. Last error: {last_error}")
+                version = _read_version_file(alt_version_path)
+                if version:
+                    return version
             
     except Exception as e:
         logger.error(f"Error reading version: {str(e)}")
         logger.error(f"Stack trace: {traceback.format_exc()}")
     return None
+
+def _read_version_file(file_path: str) -> Optional[str]:
+    """Read version file with robust encoding detection."""
+    import codecs
+    
+    # First try to detect BOM to determine encoding
+    try:
+        with open(file_path, 'rb') as f:
+            raw_data = f.read()
+            
+        # Check for BOM markers
+        if raw_data.startswith(codecs.BOM_UTF16_LE):
+            encoding = 'utf-16-le'
+            logger.debug(f"Detected UTF-16 LE with BOM")
+        elif raw_data.startswith(codecs.BOM_UTF16_BE):
+            encoding = 'utf-16-be'
+            logger.debug(f"Detected UTF-16 BE with BOM")
+        elif raw_data.startswith(codecs.BOM_UTF8):
+            encoding = 'utf-8-sig'
+            logger.debug(f"Detected UTF-8 with BOM")
+        else:
+            # No BOM detected, try common encodings in order of likelihood
+            encodings_to_try = ['utf-8', 'ascii', 'latin1', 'cp1252']
+            for enc in encodings_to_try:
+                try:
+                    version = raw_data.decode(enc).strip()
+                    if version:
+                        logger.debug(f"Successfully read version using {enc} encoding: {version}")
+                        return _clean_version(version)
+                except UnicodeDecodeError:
+                    continue
+            
+            # If all else fails, try UTF-16 without BOM (might work on some systems)
+            try:
+                version = raw_data.decode('utf-16').strip()
+                if version:
+                    logger.debug(f"Successfully read version using utf-16 without BOM: {version}")
+                    return _clean_version(version)
+            except UnicodeDecodeError:
+                pass
+                
+            logger.warning(f"Could not decode version file with any encoding")
+            return None
+        
+        # If we detected a specific encoding from BOM, use it
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                version = f.read().strip()
+                logger.debug(f"Read version using detected {encoding} encoding: {version}")
+                return _clean_version(version)
+        except Exception as e:
+            logger.warning(f"Failed to read with detected encoding {encoding}: {e}")
+            return None
+            
+    except Exception as e:
+        logger.warning(f"Failed to read version file {file_path}: {e}")
+        return None
+
+def _clean_version(version: str) -> str:
+    """Clean up version string by removing BOM and non-printable characters."""
+    if version and isinstance(version, str):
+        # Remove BOM characters if present
+        version = version.replace('\ufeff', '').replace('\ufffe', '')
+        # Remove any non-printable characters except newlines and spaces
+        version = ''.join(c for c in version if c.isprintable() or c.isspace())
+        # Trim whitespace
+        version = version.strip()
+    return version or 'N/A'
 
 def get_app_info() -> Dict[str, str]:
     """Get all application information."""
@@ -160,14 +205,7 @@ def get_app_info() -> Dict[str, str]:
     
     # Clean up version if it contains BOM or other encoding artifacts
     if version and isinstance(version, str):
-        # Remove BOM characters if present
-        version = version.replace('\ufeff', '').replace('\ufffe', '')
-        # Remove any non-printable characters
-        version = ''.join(c for c in version if c.isprintable())
-        # Trim whitespace
-        version = version.strip()
-        if not version:
-            version = 'N/A'
+        version = _clean_version(version)
     
     logger.debug(f"App Info - Version: {version}, Branch: {branch}, Last Update: {last_update}")
     
