@@ -438,7 +438,22 @@ class FloatingChat {
         this.addToolsConfigEventListeners();
 
         // Use event delegation for buttons that might not be available initially
+        // BUT exclude navigation elements to avoid interfering with Bootstrap dropdowns
         document.addEventListener('click', (e) => {
+            // Don't interfere with navigation dropdowns or any Bootstrap components
+            if (e.target.closest('.navbar') || 
+                e.target.closest('.dropdown-menu') || 
+                e.target.closest('[data-bs-toggle="dropdown"]') ||
+                e.target.closest('.navbar-nav') ||
+                e.target.closest('.nav-item')) {
+                return; // Let Bootstrap handle navigation clicks
+            }
+            
+            // Only handle our specific chat modal buttons
+            if (!e.target.closest('#floatingChatModal')) {
+                return; // Only handle clicks within our chat modal
+            }
+            
             // Check if the clicked element or any of its parents is the toggle sidebar button
             const toggleSidebarBtn = e.target.closest('#toggleSidebar');
             if (toggleSidebarBtn) {
@@ -1728,8 +1743,20 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
     }
 }
 
-// Initialize floating chat when DOM is ready
+// Initialize floating chat when DOM is ready, but only if the required elements exist
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM Content Loaded - Initializing FloatingChat');
-    window.floatingChatInstance = new FloatingChat();
+    console.log('DOM Content Loaded - Checking for FloatingChat elements');
+    
+    // Only initialize if the floating chat button exists
+    const floatingChatBtn = document.getElementById('floatingChatBtn');
+    const floatingChatModal = document.getElementById('floatingChatModal');
+    
+    if (floatingChatBtn && floatingChatModal) {
+        console.log('FloatingChat elements found - Initializing FloatingChat');
+        window.floatingChatInstance = new FloatingChat();
+    } else {
+        console.log('FloatingChat elements not found - Skipping initialization');
+        console.log(`floatingChatBtn: ${floatingChatBtn ? 'found' : 'not found'}`);
+        console.log(`floatingChatModal: ${floatingChatModal ? 'found' : 'not found'}`);
+    }
 });

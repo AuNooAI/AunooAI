@@ -39,6 +39,7 @@ def register_routers(app: FastAPI):
     from app.routes import media_bias_routes
     from app.routes.web_routes import router as web_router
     from app.routes.forecast_chart_routes import router as forecast_chart_router, web_router as forecast_chart_web_router
+    from app.routes.executive_summary_routes import router as executive_summary_router, web_router as executive_summary_web_router
     
     # Register database routes
     app.include_router(database.router)
@@ -110,5 +111,9 @@ def register_routers(app: FastAPI):
     # Forecast chart routes
     app.include_router(forecast_chart_router)
     app.include_router(forecast_chart_web_router)
+    
+    # Executive summary routes (Market Signals & Strategic Risks)
+    app.include_router(executive_summary_router)
+    app.include_router(executive_summary_web_router)
     
     logger.info("All routers registered successfully")

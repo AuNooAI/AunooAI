@@ -169,12 +169,25 @@ class AutomatedIngestService:
                 self.logger.warning(f"Insufficient content for analysis: {uri}")
                 return article_data
             
-            # Default analysis parameters (from research.py)
-            categories = ["Technology", "AI and Machine Learning", "Business", "Science", "Politics", "Health", "Environment", "Finance", "Education", "Social", "Other"]
-            future_signals = ["Breakthrough", "Evolution", "Warning", "Trend", "Disruption"]
-            sentiment_options = ["Positive", "Negative", "Neutral", "Mixed", "Critical"]
-            time_to_impact_options = ["Immediate", "Short-term", "Medium-term", "Long-term", "Uncertain"]
-            driver_types = ["Technology", "Policy", "Economic", "Social", "Environmental"]
+            # Get topic-specific ontology from Research class
+            from app.research import Research
+            research = Research(self.db)
+            
+            # Set topic if available in article data
+            topic = article_data.get('topic', 'AI and Machine Learning')  # Default to AI topic
+            research.set_topic(topic)
+            
+            # Get topic-specific analysis parameters
+            categories = research.CATEGORIES
+            future_signals = research.FUTURE_SIGNALS
+            sentiment_options = research.SENTIMENT
+            time_to_impact_options = research.TIME_TO_IMPACT
+            driver_types = research.DRIVER_TYPES
+            
+            self.logger.debug(f"Using topic-specific ontology for '{topic}':")
+            self.logger.debug(f"  Categories: {categories}")
+            self.logger.debug(f"  Future signals: {future_signals}")
+            self.logger.debug(f"  Sentiment options: {sentiment_options}")
             
             # Perform analysis
             analysis_result = self.article_analyzer.analyze_content(
@@ -208,7 +221,7 @@ class AutomatedIngestService:
                 'analyzed': True
             })
             
-            self.logger.debug(f"Analyzed article {uri}: category={analysis_result.get('category')}, sentiment={analysis_result.get('sentiment')}")
+            self.logger.debug(f"Analyzed article {uri}: category={analysis_result.get('category')}, sentiment={analysis_result.get('sentiment')}, future_signal={analysis_result.get('future_signal')}")
             
             return article_data
             
@@ -435,6 +448,9 @@ class AutomatedIngestService:
 
                     # Step 2: Perform full article analysis (category, sentiment, etc.)
                     self.logger.info(f"🧠 Step 3: Performing LLM analysis...")
+                    # Ensure topic is available for analysis
+                    if not enriched_article.get('topic') and topic:
+                        enriched_article['topic'] = topic
                     enriched_article = self.analyze_article_content(enriched_article)
                     results["enriched"] += 1
                     

@@ -17,6 +17,7 @@ pydantic-settings
 aiohttp
 newsapi
 litellm
+matplotlib
 # Added packages for SSL and auth
 python-jose[cryptography]
 bcrypt==4.0.1 

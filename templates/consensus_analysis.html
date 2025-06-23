@@ -3166,28 +3166,43 @@ Sentiment Breakdown:
             
             localStorage.setItem('consensusAnalysisConfig', JSON.stringify(config));
             
-            // Close the modal with proper cleanup
+            // Improved modal cleanup to prevent backdrop issues
             const modalElement = document.getElementById('topicModal');
-            const modal = bootstrap.Modal.getInstance(modalElement);
             
-            if (modal) {
-            modal.hide();
-                
-                // Ensure proper cleanup of backdrop after modal is hidden
-                modalElement.addEventListener('hidden.bs.modal', function cleanup() {
-                    // Remove any lingering backdrops
+            // Force cleanup of any existing backdrops first
+            const existingBackdrops = document.querySelectorAll('.modal-backdrop');
+            existingBackdrops.forEach(backdrop => backdrop.remove());
+            
+            // Get or create modal instance
+            let modal = bootstrap.Modal.getInstance(modalElement);
+            if (!modal) {
+                modal = new bootstrap.Modal(modalElement);
+            }
+            
+            // Set up one-time cleanup listener before hiding
+            const cleanup = function() {
+                // Force remove any remaining backdrops
+                setTimeout(() => {
                     const backdrops = document.querySelectorAll('.modal-backdrop');
                     backdrops.forEach(backdrop => backdrop.remove());
                     
-                    // Restore body scrolling
+                    // Restore body state
                     document.body.classList.remove('modal-open');
                     document.body.style.removeProperty('overflow');
                     document.body.style.removeProperty('padding-right');
                     
-                    // Remove this event listener
-                    modalElement.removeEventListener('hidden.bs.modal', cleanup);
-                }, { once: true });
-            }
+                    // Remove modal-open class from html element too
+                    document.documentElement.classList.remove('modal-open');
+                }, 100);
+                
+                // Remove this listener
+                modalElement.removeEventListener('hidden.bs.modal', cleanup);
+            };
+            
+            modalElement.addEventListener('hidden.bs.modal', cleanup, { once: true });
+            
+            // Hide the modal
+            modal.hide();
             
             // Update button states
             updateLoadButton();
@@ -3413,6 +3428,27 @@ Sentiment Breakdown:
 
         // Initialize page
         document.addEventListener('DOMContentLoaded', async function() {
+            // Clean up only our modal artifacts from previous page loads, not all Bootstrap components
+            const consensusBackdrops = document.querySelectorAll('.modal-backdrop:not([data-bs-target])');
+            consensusBackdrops.forEach(backdrop => {
+                // Only remove if it's not associated with an active dropdown or other component
+                if (!backdrop.previousElementSibling || 
+                    (backdrop.previousElementSibling.id === 'topicModal' && 
+                     !backdrop.previousElementSibling.classList.contains('show'))) {
+                    backdrop.remove();
+                }
+            });
+            
+            // Only clean up modal-open state if no active modals or dropdowns exist
+            const activeModals = document.querySelectorAll('.modal.show');
+            const activeDropdowns = document.querySelectorAll('.dropdown-menu.show');
+            if (activeModals.length === 0 && activeDropdowns.length === 0) {
+                document.body.classList.remove('modal-open');
+                document.body.style.removeProperty('overflow');
+                document.body.style.removeProperty('padding-right');
+                document.documentElement.classList.remove('modal-open');
+            }
+            
             // Add tooltip event listeners
             document.addEventListener('mouseover', handleTooltipMouseover);
             document.addEventListener('mouseout', handleTooltipMouseout);
@@ -3460,6 +3496,48 @@ Sentiment Breakdown:
                     modal.show();
                 }, 500);
             }
+        });
+        
+        // Add cleanup on page unload for our modals only
+        window.addEventListener('beforeunload', function() {
+            // Only clean up our modal artifacts before page unload
+            const topicModal = document.getElementById('topicModal');
+            if (topicModal && !topicModal.classList.contains('show')) {
+                const topicBackdrops = document.querySelectorAll('.modal-backdrop');
+                topicBackdrops.forEach(backdrop => {
+                    if (backdrop.nextElementSibling === topicModal || 
+                        backdrop.previousElementSibling === topicModal) {
+                        backdrop.remove();
+                    }
+                });
+            }
+        });
+        
+        // Add click event delegation to handle modal backdrop clicks properly
+        // BUT be much more specific to avoid interfering with navigation
+        document.addEventListener('click', function(event) {
+            // ONLY handle our specific modal backdrop - be extremely selective
+            if (event.target.classList.contains('modal-backdrop') && 
+                event.target.getAttribute('data-bs-backdrop') !== null &&
+                event.target.nextElementSibling && 
+                event.target.nextElementSibling.id === 'topicModal') {
+                
+                // This is specifically our topic modal backdrop
+                setTimeout(() => {
+                    event.target.remove();
+                    
+                    // Only remove modal-open if no other modals are active
+                    const activeModals = document.querySelectorAll('.modal.show');
+                    if (activeModals.length === 0) {
+                        document.body.classList.remove('modal-open');
+                        document.body.style.removeProperty('overflow');
+                        document.body.style.removeProperty('padding-right');
+                        document.documentElement.classList.remove('modal-open');
+                    }
+                }, 100);
+            }
+            
+            // Don't handle any other clicks - let Bootstrap handle everything else
         });
     </script>
 {% endblock %}
