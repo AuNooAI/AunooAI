@@ -50,13 +50,21 @@ class Database:
         self.init_db()
 
     def get_connection(self):
-        """Get a thread-local database connection"""
+        """Get a thread-local database connection with optimized settings"""
         thread_id = threading.get_ident()
         
         if thread_id not in self._connections:
             self._connections[thread_id] = sqlite3.connect(self.db_path)
+            
             # Enable foreign key support
             self._connections[thread_id].execute("PRAGMA foreign_keys = ON")
+            
+            # Optimize for concurrent operations
+            self._connections[thread_id].execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging
+            self._connections[thread_id].execute("PRAGMA synchronous = NORMAL")  # Balance safety and speed
+            self._connections[thread_id].execute("PRAGMA cache_size = 10000")  # 10MB cache
+            self._connections[thread_id].execute("PRAGMA temp_store = MEMORY")  # Store temp data in memory
+            self._connections[thread_id].execute("PRAGMA busy_timeout = 30000")  # 30 second timeout
             
         return self._connections[thread_id]
 

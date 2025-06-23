@@ -72,6 +72,7 @@ from app.routes.dataset_routes import router as dataset_router
 from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
 from app.routes.oauth_routes import router as oauth_router
 from app.routes.forecast_chart_routes import router as forecast_chart_router, web_router as forecast_chart_web_router
+from app.routes.websocket_routes import router as websocket_router
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -198,6 +199,7 @@ app.include_router(topic_router)  # Topic routes
 app.include_router(keyword_monitor_router)
 app.include_router(onboarding_router)
 app.include_router(saved_searches_router)  # Saved searches
+app.include_router(websocket_router, prefix="/keyword-monitor")  # WebSocket routes for real-time updates
 app.include_router(forecast_chart_router)  # API routes
 app.include_router(forecast_chart_web_router)  # Web routes
 
@@ -1230,6 +1232,14 @@ async def startup_event():
         logging.getLogger('app.env_loader').setLevel(logging.WARNING)
         logging.getLogger('app.relevance').setLevel(logging.WARNING)
         
+        # Initialize async database
+        try:
+            from app.services.async_db import initialize_async_db
+            await initialize_async_db()
+            logger.info("Async database initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize async database: {e}")
+        
         # Initialize the application
         success = initialize_application()
         if success:
@@ -1261,6 +1271,14 @@ async def shutdown_event():
     try:
         logger = logging.getLogger('main')
         logger.info("Application shutting down...")
+        
+        # Close async database pool
+        try:
+            from app.services.async_db import close_async_db
+            await close_async_db()
+            logger.info("Async database pool closed")
+        except Exception as e:
+            logger.error(f"Failed to close async database pool: {e}")
         
         # Clean up any resources here
         # For example, close database connections, stop background tasks, etc.

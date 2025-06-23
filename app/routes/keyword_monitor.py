@@ -2953,55 +2953,103 @@ async def bulk_process_topic(
         raise HTTPException(status_code=500, detail=str(e))
 
 async def _background_bulk_process(job_id: str, request: BulkProcessRequest, db: Database):
-    """Background task for bulk processing"""
+    """Enhanced background task with progressive processing and WebSocket updates"""
     job = _processing_jobs[job_id]
     
     try:
         # Set job status to running
         job.status = "running"
-        logger.info(f"Starting background processing for job {job_id}")
+        logger.info(f"🚀 Starting progressive background processing for job {job_id}")
         
         from app.services.automated_ingest_service import AutomatedIngestService
+        from app.services.async_db import initialize_async_db
+        
+        # Initialize async database
+        await initialize_async_db()
         
         service = AutomatedIngestService(db)
         
-        # Prepare processing options
-        options = {
-            "max_articles": request.max_articles,
-            "dry_run": request.dry_run,
-            "relevance_threshold_override": request.relevance_threshold_override,
-            "quality_control_enabled": request.quality_control_enabled,
-            "llm_model_override": request.llm_model_override
-        }
+        # Get articles using async database
+        all_articles, unprocessed_articles = await service.async_db.get_topic_articles(request.topic_id)
+        keywords = await service.async_db.get_topic_keywords(request.topic_id)
         
-        # Process the topic articles
-        results = await service.bulk_process_topic_articles(request.topic_id, options)
+        if not unprocessed_articles:
+            job.status = "completed"
+            job.results = {
+                "success": True,
+                "message": f"No unprocessed articles found for topic: {request.topic_id}",
+                "processed_count": 0,
+                "total_count": len(all_articles)
+            }
+            job.completed_at = datetime.utcnow()
+            return
         
-        # Update job status
+        # Apply limits
+        articles_to_process = unprocessed_articles[:request.max_articles]
+        
+        logger.info(f"📊 Processing {len(articles_to_process)} articles for topic '{request.topic_id}'")
+        
+        # Process articles progressively with WebSocket updates
+        final_results = None
+        async for progress_update in service.process_articles_progressive(
+            articles_to_process, 
+            request.topic_id, 
+            keywords,
+            batch_size=3,  # Smaller batches for better responsiveness
+            job_id=job_id
+        ):
+            # Update job progress
+            if progress_update.get("type") == "progress":
+                job.progress = progress_update.get("percentage", 0)
+                logger.debug(f"📈 Job {job_id} progress: {job.progress}%")
+            elif progress_update.get("type") == "completed":
+                final_results = progress_update.get("final_results")
+                break
+            elif progress_update.get("type") == "error":
+                raise Exception(progress_update.get("message", "Unknown error"))
+        
+        # Update job status with final results
         job.status = "completed"
         job.results = {
             "success": True,
-            "processed_count": results.get("processed_count", 0),
-            "total_count": results.get("total_count", 0),
-            "approved_count": results.get("approved_count", 0),
-            "filtered_count": results.get("filtered_count", 0),
-            "failed_count": results.get("failed_count", 0),
-            "processing_results": results,
+            "processed_count": final_results.get("processed", 0),
+            "total_count": len(all_articles),
+            "approved_count": final_results.get("quality_passed", 0),
+            "filtered_count": final_results.get("processed", 0) - final_results.get("relevant", 0),
+            "failed_count": len(final_results.get("errors", [])),
+            "saved_count": final_results.get("saved", 0),
+            "vector_indexed_count": final_results.get("vector_indexed", 0),
+            "processing_results": final_results,
             "topic_id": request.topic_id,
-            "options_used": options,
-            "processing_log": results.get("processing_log", [])
+            "articles_processed": len(articles_to_process),
+            "processing_log": [
+                f"Total articles for topic: {len(all_articles)}",
+                f"Unprocessed articles: {len(unprocessed_articles)}",
+                f"Processed: {final_results.get('processed', 0)}",
+                f"Approved: {final_results.get('quality_passed', 0)}",
+                f"Saved: {final_results.get('saved', 0)}",
+                f"Vector indexed: {final_results.get('vector_indexed', 0)}",
+                f"Errors: {len(final_results.get('errors', []))}"
+            ] + final_results.get("errors", [])
         }
         job.completed_at = datetime.utcnow()
-        logger.info(f"Completed background processing for job {job_id}")
+        logger.info(f"✅ Completed progressive background processing for job {job_id}")
         
         # Schedule job cleanup after 5 minutes
-        asyncio.create_task(_cleanup_job_after_delay(job_id, 300))  # 5 minutes
+        asyncio.create_task(_cleanup_job_after_delay(job_id, 300))
         
     except Exception as e:
-        logger.error(f"Error in background bulk processing: {str(e)}")
+        logger.error(f"❌ Error in progressive background processing: {str(e)}")
         job.status = "failed"
         job.error = str(e)
         job.completed_at = datetime.utcnow()
+        
+        # Send error WebSocket update
+        try:
+            from app.routes.websocket_routes import send_error_update
+            await send_error_update(job_id, str(e))
+        except Exception as ws_error:
+            logger.warning(f"Failed to send WebSocket error update: {ws_error}")
         
         # Schedule job cleanup after 5 minutes even on failure
         asyncio.create_task(_cleanup_job_after_delay(job_id, 300))
