@@ -54,17 +54,31 @@ class Database:
         thread_id = threading.get_ident()
         
         if thread_id not in self._connections:
-            self._connections[thread_id] = sqlite3.connect(self.db_path)
-            
-            # Enable foreign key support
-            self._connections[thread_id].execute("PRAGMA foreign_keys = ON")
-            
-            # Optimize for concurrent operations
-            self._connections[thread_id].execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging
-            self._connections[thread_id].execute("PRAGMA synchronous = NORMAL")  # Balance safety and speed
-            self._connections[thread_id].execute("PRAGMA cache_size = 10000")  # 10MB cache
-            self._connections[thread_id].execute("PRAGMA temp_store = MEMORY")  # Store temp data in memory
-            self._connections[thread_id].execute("PRAGMA busy_timeout = 30000")  # 30 second timeout
+            try:
+                self._connections[thread_id] = sqlite3.connect(self.db_path)
+                
+                # Enable foreign key support
+                self._connections[thread_id].execute("PRAGMA foreign_keys = ON")
+                
+                # Optimize for concurrent operations - with error handling
+                try:
+                    self._connections[thread_id].execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging
+                except sqlite3.DatabaseError as e:
+                    logger.error(f"Failed to set WAL mode: {e}")
+                    logger.error("Database may be corrupted. Run scripts/fix_database_corruption.py to repair.")
+                    raise
+                    
+                self._connections[thread_id].execute("PRAGMA synchronous = NORMAL")  # Balance safety and speed
+                self._connections[thread_id].execute("PRAGMA cache_size = 10000")  # 10MB cache
+                self._connections[thread_id].execute("PRAGMA temp_store = MEMORY")  # Store temp data in memory
+                self._connections[thread_id].execute("PRAGMA busy_timeout = 30000")  # 30 second timeout
+                
+            except sqlite3.DatabaseError as e:
+                logger.error(f"Database connection failed: {e}")
+                logger.error(f"Database path: {self.db_path}")
+                logger.error("This usually indicates database corruption.")
+                logger.error("To fix: python scripts/fix_database_corruption.py")
+                raise
             
         return self._connections[thread_id]
 
