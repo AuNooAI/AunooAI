@@ -75,42 +75,78 @@ def calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', cu
     
     return max(min_limit, min(base_sample_size, max_limit))
 
-def calculate_scenario_positions(scenario_type: str, scenario_index: int, total_of_type: int) -> Dict[str, float]:
-    """Calculate x,y positions for scenarios on the cone with better spacing"""
-    base_positions = {
-        'probable': {'x_start': 25, 'x_end': 60, 'y_center': 50, 'y_spread': 12},
-        'plausible': {'x_start': 30, 'x_end': 70, 'y_center': 40, 'y_spread': 20},
-        'possible': {'x_start': 35, 'x_end': 75, 'y_center': 30, 'y_spread': 30},
-        'preferable': {'x_start': 40, 'x_end': 65, 'y_center': 20, 'y_spread': 15},
-        'wildcard': {'x_start': 60, 'x_end': 80, 'y_center': 70, 'y_spread': 25}
+def calculate_scenario_positions(scenario_type: str, scenario_index: int, total_of_type: int, timeframe: str = None) -> Dict[str, float]:
+    """Calculate x,y positions for scenarios using a clean grid-based layout"""
+    
+    # Determine time period from timeframe
+    time_period = 'mid'  # default
+    if timeframe:
+        if any(year in timeframe for year in ['2025', '2026', '2027']):
+            time_period = 'short'
+        elif any(year in timeframe for year in ['2033', '2034', '2035', '2036', '2037', '2038', '2039', '2040']):
+            time_period = 'long'
+    
+    # Define clean grid positions - 3 columns (time periods) x 5 rows (scenario types)
+    # Each cell is roughly 30% wide x 18% tall with margins
+    
+    # Column positions (time-based)
+    time_columns = {
+        'short': {'x_start': 5, 'x_width': 28},   # Left column: 5-33%
+        'mid': {'x_start': 36, 'x_width': 28},    # Middle column: 36-64%  
+        'long': {'x_start': 67, 'x_width': 28}    # Right column: 67-95%
     }
     
-    pos = base_positions.get(scenario_type, base_positions['plausible'])
+    # Row positions (type-based, top to bottom)
+    type_rows = {
+        'preferable': {'y_start': 2, 'y_height': 16},    # Row 1: 2-18%
+        'probable': {'y_start': 20, 'y_height': 16},     # Row 2: 20-36%
+        'plausible': {'y_start': 38, 'y_height': 16},    # Row 3: 38-54%
+        'possible': {'y_start': 56, 'y_height': 16},     # Row 4: 56-72%
+        'wildcard': {'y_start': 74, 'y_height': 16}      # Row 5: 74-90%
+    }
     
-    # Better distribution logic to avoid overlaps
+    col = time_columns[time_period]
+    row = type_rows.get(scenario_type, type_rows['plausible'])
+    
+    # For multiple scenarios of same type in same time period, stack them vertically
     if total_of_type == 1:
-        x_progress = 0.5
-        y = pos['y_center']
+        # Single scenario - center in the cell
+        x = col['x_start'] + (col['x_width'] / 2)
+        y = row['y_start'] + (row['y_height'] / 2)
     elif total_of_type == 2:
-        x_progress = 0.3 if scenario_index == 0 else 0.7
-        y_offset = (-0.5 + scenario_index) * (pos['y_spread'] * 0.6)
-        y = pos['y_center'] + y_offset
+        # Two scenarios - stack vertically in the cell
+        x = col['x_start'] + (col['x_width'] / 2)
+        if scenario_index == 0:
+            y = row['y_start'] + (row['y_height'] * 0.3)  # Upper third
+        else:
+            y = row['y_start'] + (row['y_height'] * 0.7)  # Lower third
+    elif total_of_type == 3:
+        # Three scenarios - distribute evenly in the cell
+        x = col['x_start'] + (col['x_width'] / 2)
+        if scenario_index == 0:
+            y = row['y_start'] + (row['y_height'] * 0.2)
+        elif scenario_index == 1:
+            y = row['y_start'] + (row['y_height'] * 0.5)
+        else:
+            y = row['y_start'] + (row['y_height'] * 0.8)
     else:
-        x_progress = scenario_index / (total_of_type - 1)
-        # Use sine wave distribution for better visual spacing
-        import math
-        y_offset = math.sin((scenario_index / (total_of_type - 1)) * math.pi - math.pi/2) * (pos['y_spread'] / 2)
-        y = pos['y_center'] + y_offset
+        # More than 3 scenarios - distribute across width and height
+        scenarios_per_row = min(2, total_of_type)
+        row_index = scenario_index // scenarios_per_row
+        col_index = scenario_index % scenarios_per_row
+        
+        # Calculate position within the cell
+        x_offset = (col_index + 0.5) / scenarios_per_row
+        y_offset = (row_index + 0.5) / ((total_of_type + scenarios_per_row - 1) // scenarios_per_row)
+        
+        x = col['x_start'] + (col['x_width'] * x_offset)
+        y = row['y_start'] + (row['y_height'] * y_offset)
     
-    x = pos['x_start'] + (pos['x_end'] - pos['x_start']) * x_progress
+    # Ensure positions stay within bounds
+    x = max(1, min(99, x))
+    y = max(1, min(99, y))
     
-    # Add some randomization to avoid exact overlaps
-    import random
-    random.seed(hash(scenario_type + str(scenario_index)))  # Deterministic randomness
-    x += random.uniform(-2, 2)
-    y += random.uniform(-2, 2)
-    
-    return {'x': max(15, min(85, x)), 'y': max(15, min(85, y))}
+    return {'x': x, 'y': y}
 
 def _extract_from_code_block(text: str) -> str:
     """Extract JSON from ```json code blocks"""
@@ -122,25 +158,63 @@ def _extract_from_code_block(text: str) -> str:
     return ""
 
 def _extract_complete_json(text: str) -> str:
-    """Extract complete JSON object from text"""
-    if '{' in text and '}' in text:
-        json_start = text.find('{')
+    """Extract complete JSON object from text with better handling"""
+    if '{' not in text or '}' not in text:
+        return ""
+    
+    # Find the first opening brace
+    json_start = text.find('{')
+    
+    # Find the matching closing brace by counting braces
+    brace_count = 0
+    json_end = json_start
+    in_string = False
+    escape_next = False
+    
+    for i in range(json_start, len(text)):
+        char = text[i]
         
-        # Find the matching closing brace
-        brace_count = 0
-        json_end = json_start
-        
-        for i in range(json_start, len(text)):
-            if text[i] == '{':
+        if escape_next:
+            escape_next = False
+            continue
+            
+        if char == '\\':
+            escape_next = True
+            continue
+            
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+            
+        if not in_string:
+            if char == '{':
                 brace_count += 1
-            elif text[i] == '}':
+            elif char == '}':
                 brace_count -= 1
                 if brace_count == 0:
                     json_end = i + 1
                     break
+    
+    if json_end > json_start and brace_count == 0:
+        return text[json_start:json_end]
+    
+    # If we couldn't find a complete JSON, try to find the largest valid portion
+    if brace_count > 0:
+        # We have unclosed braces, try to find the last complete object
+        last_complete = json_start
+        temp_count = 0
         
-        if json_end > json_start:
-            return text[json_start:json_end]
+        for i in range(json_start, len(text)):
+            if text[i] == '{':
+                temp_count += 1
+            elif text[i] == '}':
+                temp_count -= 1
+                if temp_count == 0:
+                    last_complete = i + 1
+        
+        if last_complete > json_start:
+            return text[json_start:last_complete]
+    
     return ""
 
 def _clean_and_parse_json(text: str) -> str:
@@ -171,19 +245,45 @@ def _fix_common_json_issues(text: str) -> str:
     if not json_str:
         raise json.JSONDecodeError("No JSON found", "", 0)
     
+    # Check if JSON appears to be truncated
+    if not json_str.rstrip().endswith('}'):
+        # Try to find the last complete object/array
+        last_complete_brace = json_str.rfind('}')
+        if last_complete_brace > 0:
+            # Find the opening brace that matches
+            brace_count = 0
+            for i in range(last_complete_brace, -1, -1):
+                if json_str[i] == '}':
+                    brace_count += 1
+                elif json_str[i] == '{':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        json_str = json_str[:last_complete_brace + 1]
+                        break
+    
     # Fix common issues
     # 1. Remove trailing commas
     json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
     
     # 2. Fix unescaped quotes in strings (basic attempt)
     # This is tricky and not perfect, but handles some cases
-    json_str = re.sub(r'(?<!\\)"(?=[^"]*"[^"]*:)', r'\\"', json_str)
+    lines = json_str.split('\n')
+    fixed_lines = []
+    for line in lines:
+        # Skip lines that are clearly JSON structure
+        if ':' in line and '"' in line:
+            # Try to fix unescaped quotes in values
+            if line.count('"') % 2 != 0:
+                # Odd number of quotes, likely an unescaped quote
+                line = re.sub(r'(?<!\\)"(?![,}\]\s]*$)', r'\\"', line)
+        fixed_lines.append(line)
+    json_str = '\n'.join(fixed_lines)
     
     # 3. Remove comments (// style)
     json_str = re.sub(r'//.*?\n', '\n', json_str)
     
-    # 4. Fix missing quotes around keys
-    json_str = re.sub(r'(\w+)(\s*:)', r'"\1"\2', json_str)
+    # 4. Fix missing quotes around keys (be more careful)
+    json_str = re.sub(r'(\n\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:', r'\1"\2":', json_str)
     
     return json_str
 
@@ -191,160 +291,177 @@ def _create_fallback_response(topic: str, future_horizon: int) -> Dict:
     """Create a fallback response when JSON parsing fails"""
     current_year = datetime.now().year
     
+    # Create scenarios distributed across time periods
+    scenarios = []
+    
+    # Short-term scenarios (2025-2027)
+    short_term_scenarios = [
+        {
+            "type": "probable",
+            "title": f"Continued {topic} Development",
+            "description": "Most likely continuation of current trends in the short term",
+            "timeframe": f"{current_year}-{current_year + 2}",
+            "sentiment": "Neutral-Positive",
+            "drivers": [{"type": "Trend", "description": "Current market momentum"}],
+            "signals": ["Market growth", "Technology adoption"],
+            "probability": "High likelihood",
+            "position": calculate_scenario_positions("probable", 0, 3, f"{current_year}-{current_year + 2}")
+        },
+        {
+            "type": "plausible",
+            "title": f"Accelerated {topic} Innovation",
+            "description": "Faster than expected technological breakthroughs in the short term",
+            "timeframe": f"{current_year + 1}-{current_year + 2}",
+            "sentiment": "Positive",
+            "drivers": [{"type": "Innovation", "description": "Research breakthroughs"}],
+            "signals": ["R&D investment", "Patent filings"],
+            "probability": "Moderate likelihood",
+            "position": calculate_scenario_positions("plausible", 0, 3, f"{current_year + 1}-{current_year + 2}")
+        },
+        {
+            "type": "preferable",
+            "title": f"Sustainable {topic} Development",
+            "description": "Environmentally sustainable and ethical development in the short term",
+            "timeframe": f"{current_year}-{current_year + 2}",
+            "sentiment": "Positive",
+            "drivers": [{"type": "Sustainability", "description": "Environmental focus"}],
+            "signals": ["ESG investments", "Sustainability initiatives"],
+            "probability": "Desired outcome",
+            "position": calculate_scenario_positions("preferable", 0, 2, f"{current_year}-{current_year + 2}")
+        },
+        {
+            "type": "wildcard",
+            "title": f"Unexpected {topic} Crisis",
+            "description": "Unforeseen crisis disrupts the field in the short term",
+            "timeframe": f"{current_year + 1}-{current_year + 2}",
+            "sentiment": "Critical",
+            "drivers": [{"type": "Crisis", "description": "Unexpected event"}],
+            "signals": ["Risk indicators", "Vulnerability assessments"],
+            "probability": "Low but high impact",
+            "position": calculate_scenario_positions("wildcard", 0, 2, f"{current_year + 1}-{current_year + 2}")
+        }
+    ]
+    
+    # Mid-term scenarios (2028-2032)
+    mid_term_scenarios = [
+        {
+            "type": "probable",
+            "title": f"Mainstream {topic} Adoption",
+            "description": "Widespread adoption across industries in the mid-term",
+            "timeframe": f"{current_year + 3}-{current_year + 7}",
+            "sentiment": "Positive",
+            "drivers": [{"type": "Adoption", "description": "Industry acceptance"}],
+            "signals": ["Investment increase", "Regulatory clarity"],
+            "probability": "High likelihood",
+            "position": calculate_scenario_positions("probable", 1, 3, f"{current_year + 3}-{current_year + 7}")
+        },
+        {
+            "type": "plausible",
+            "title": f"Regulatory Challenges for {topic}",
+            "description": "Increased regulatory scrutiny and compliance requirements",
+            "timeframe": f"{current_year + 4}-{current_year + 8}",
+            "sentiment": "Critical",
+            "drivers": [{"type": "Regulation", "description": "Government oversight"}],
+            "signals": ["Policy discussions", "Compliance requirements"],
+            "probability": "Moderate likelihood",
+            "position": calculate_scenario_positions("plausible", 1, 3, f"{current_year + 4}-{current_year + 8}")
+        },
+        {
+            "type": "plausible",
+            "title": f"Global {topic} Competition",
+            "description": "Intensified international competition in the mid-term",
+            "timeframe": f"{current_year + 3}-{current_year + 7}",
+            "sentiment": "Mixed",
+            "drivers": [{"type": "Competition", "description": "Global market dynamics"}],
+            "signals": ["International investments", "Trade policies"],
+            "probability": "Moderate likelihood",
+            "position": calculate_scenario_positions("plausible", 2, 3, f"{current_year + 3}-{current_year + 7}")
+        },
+        {
+            "type": "possible",
+            "title": f"Market Consolidation in {topic}",
+            "description": "Major consolidation reduces market players in the mid-term",
+            "timeframe": f"{current_year + 5}-{current_year + 8}",
+            "sentiment": "Neutral",
+            "drivers": [{"type": "Consolidation", "description": "Market maturation"}],
+            "signals": ["M&A activity", "Market concentration"],
+            "probability": "Lower likelihood",
+            "position": calculate_scenario_positions("possible", 0, 3, f"{current_year + 5}-{current_year + 8}")
+        },
+        {
+            "type": "preferable",
+            "title": f"Inclusive {topic} Access",
+            "description": "Broad, equitable access across all demographics",
+            "timeframe": f"{current_year + 4}-{current_year + 8}",
+            "sentiment": "Positive",
+            "drivers": [{"type": "Inclusion", "description": "Equity focus"}],
+            "signals": ["Accessibility initiatives", "Education programs"],
+            "probability": "Desired outcome",
+            "position": calculate_scenario_positions("preferable", 1, 2, f"{current_year + 4}-{current_year + 8}")
+        }
+    ]
+    
+    # Long-term scenarios (2033+)
+    long_term_scenarios = [
+        {
+            "type": "probable",
+            "title": f"Mature {topic} Market",
+            "description": "Market maturation and standardization in the long term",
+            "timeframe": f"{current_year + 8}-{current_year + future_horizon}",
+            "sentiment": "Neutral",
+            "drivers": [{"type": "Maturation", "description": "Market stabilization"}],
+            "signals": ["Standards development", "Competition increase"],
+            "probability": "High likelihood",
+            "position": calculate_scenario_positions("probable", 2, 3, f"{current_year + 8}-{current_year + future_horizon}")
+        },
+        {
+            "type": "possible",
+            "title": f"Disruptive {topic} Technology",
+            "description": "Breakthrough technology disrupts current approaches in the long term",
+            "timeframe": f"{current_year + 8}-{current_year + future_horizon}",
+            "sentiment": "Mixed",
+            "drivers": [{"type": "Disruption", "description": "Technological breakthrough"}],
+            "signals": ["Research papers", "Startup activity"],
+            "probability": "Lower likelihood",
+            "position": calculate_scenario_positions("possible", 1, 3, f"{current_year + 8}-{current_year + future_horizon}")
+        },
+        {
+            "type": "possible",
+            "title": f"Alternative {topic} Approaches",
+            "description": "Alternative methodologies gain traction in the long term",
+            "timeframe": f"{current_year + 10}-{current_year + future_horizon}",
+            "sentiment": "Positive",
+            "drivers": [{"type": "Alternative", "description": "New approaches"}],
+            "signals": ["Academic research", "Pilot projects"],
+            "probability": "Lower likelihood",
+            "position": calculate_scenario_positions("possible", 2, 3, f"{current_year + 10}-{current_year + future_horizon}")
+        },
+        {
+            "type": "wildcard",
+            "title": f"Paradigm Shift in {topic}",
+            "description": "Fundamental change in understanding or approach in the long term",
+            "timeframe": f"{current_year + 10}-{current_year + future_horizon}",
+            "sentiment": "Mixed",
+            "drivers": [{"type": "Paradigm", "description": "Fundamental shift"}],
+            "signals": ["Theoretical breakthroughs", "Paradigm challenges"],
+            "probability": "Low but transformative",
+            "position": calculate_scenario_positions("wildcard", 1, 2, f"{current_year + 10}-{current_year + future_horizon}")
+        }
+    ]
+    
+    # Combine all scenarios
+    scenarios = short_term_scenarios + mid_term_scenarios + long_term_scenarios
+    
     return {
         "topic": topic,
         "generated_at": datetime.now().isoformat(),
         "future_horizon": f"{future_horizon} years",
-        "scenarios": [
-            {
-                "type": "probable",
-                "title": f"Continued {topic} Development",
-                "description": "Most likely continuation of current trends",
-                "timeframe": f"{current_year}-{current_year + 3}",
-                "sentiment": "Neutral-Positive",
-                "drivers": [{"type": "Trend", "description": "Current market momentum"}],
-                "signals": ["Market growth", "Technology adoption"],
-                "probability": "High likelihood",
-                "position": {"x": 45, "y": 50}
-            },
-            {
-                "type": "probable",
-                "title": f"Mainstream {topic} Adoption",
-                "description": "Widespread adoption across industries",
-                "timeframe": f"{current_year + 1}-{current_year + 4}",
-                "sentiment": "Positive",
-                "drivers": [{"type": "Adoption", "description": "Industry acceptance"}],
-                "signals": ["Investment increase", "Regulatory clarity"],
-                "probability": "High likelihood",
-                "position": {"x": 50, "y": 45}
-            },
-            {
-                "type": "probable",
-                "title": f"Mature {topic} Market",
-                "description": "Market maturation and standardization",
-                "timeframe": f"{current_year + 2}-{current_year + 5}",
-                "sentiment": "Neutral",
-                "drivers": [{"type": "Maturation", "description": "Market stabilization"}],
-                "signals": ["Standards development", "Competition increase"],
-                "probability": "High likelihood",
-                "position": {"x": 40, "y": 52}
-            },
-            {
-                "type": "plausible",
-                "title": f"Accelerated {topic} Innovation",
-                "description": "Faster than expected technological breakthroughs",
-                "timeframe": f"{current_year + 1}-{current_year + 3}",
-                "sentiment": "Positive",
-                "drivers": [{"type": "Innovation", "description": "Research breakthroughs"}],
-                "signals": ["R&D investment", "Patent filings"],
-                "probability": "Moderate likelihood",
-                "position": {"x": 35, "y": 35}
-            },
-            {
-                "type": "plausible",
-                "title": f"Regulatory Challenges for {topic}",
-                "description": "Increased regulatory scrutiny and compliance requirements",
-                "timeframe": f"{current_year + 2}-{current_year + 6}",
-                "sentiment": "Critical",
-                "drivers": [{"type": "Regulation", "description": "Government oversight"}],
-                "signals": ["Policy discussions", "Compliance requirements"],
-                "probability": "Moderate likelihood",
-                "position": {"x": 65, "y": 40}
-            },
-            {
-                "type": "plausible",
-                "title": f"Global {topic} Competition",
-                "description": "Intensified international competition",
-                "timeframe": f"{current_year + 1}-{current_year + 5}",
-                "sentiment": "Mixed",
-                "drivers": [{"type": "Competition", "description": "Global market dynamics"}],
-                "signals": ["International investments", "Trade policies"],
-                "probability": "Moderate likelihood",
-                "position": {"x": 55, "y": 38}
-            },
-            {
-                "type": "possible",
-                "title": f"Disruptive {topic} Technology",
-                "description": "Breakthrough technology disrupts current approaches",
-                "timeframe": f"{current_year + 3}-{current_year + 8}",
-                "sentiment": "Mixed",
-                "drivers": [{"type": "Disruption", "description": "Technological breakthrough"}],
-                "signals": ["Research papers", "Startup activity"],
-                "probability": "Lower likelihood",
-                "position": {"x": 70, "y": 25}
-            },
-            {
-                "type": "possible",
-                "title": f"Market Consolidation in {topic}",
-                "description": "Major consolidation reduces market players",
-                "timeframe": f"{current_year + 4}-{current_year + 8}",
-                "sentiment": "Neutral",
-                "drivers": [{"type": "Consolidation", "description": "Market maturation"}],
-                "signals": ["M&A activity", "Market concentration"],
-                "probability": "Lower likelihood",
-                "position": {"x": 75, "y": 30}
-            },
-            {
-                "type": "possible",
-                "title": f"Alternative {topic} Approaches",
-                "description": "Alternative methodologies gain traction",
-                "timeframe": f"{current_year + 2}-{current_year + 7}",
-                "sentiment": "Positive",
-                "drivers": [{"type": "Alternative", "description": "New approaches"}],
-                "signals": ["Academic research", "Pilot projects"],
-                "probability": "Lower likelihood",
-                "position": {"x": 65, "y": 28}
-            },
-            {
-                "type": "preferable",
-                "title": f"Sustainable {topic} Development",
-                "description": "Environmentally sustainable and ethical development",
-                "timeframe": f"{current_year + 1}-{current_year + 6}",
-                "sentiment": "Positive",
-                "drivers": [{"type": "Sustainability", "description": "Environmental focus"}],
-                "signals": ["ESG investments", "Sustainability initiatives"],
-                "probability": "Desired outcome",
-                "position": {"x": 45, "y": 15}
-            },
-            {
-                "type": "preferable",
-                "title": f"Inclusive {topic} Access",
-                "description": "Broad, equitable access across all demographics",
-                "timeframe": f"{current_year + 2}-{current_year + 7}",
-                "sentiment": "Positive",
-                "drivers": [{"type": "Inclusion", "description": "Equity focus"}],
-                "signals": ["Accessibility initiatives", "Education programs"],
-                "probability": "Desired outcome",
-                "position": {"x": 55, "y": 18}
-            },
-            {
-                "type": "wildcard",
-                "title": f"Unexpected {topic} Crisis",
-                "description": "Unforeseen crisis disrupts the entire field",
-                "timeframe": f"{current_year + 1}-{current_year + 4}",
-                "sentiment": "Critical",
-                "drivers": [{"type": "Crisis", "description": "Unexpected event"}],
-                "signals": ["Risk indicators", "Vulnerability assessments"],
-                "probability": "Low but high impact",
-                "position": {"x": 75, "y": 75}
-            },
-            {
-                "type": "wildcard",
-                "title": f"Paradigm Shift in {topic}",
-                "description": "Fundamental change in understanding or approach",
-                "timeframe": f"{current_year + 3}-{current_year + 10}",
-                "sentiment": "Mixed",
-                "drivers": [{"type": "Paradigm", "description": "Fundamental shift"}],
-                "signals": ["Theoretical breakthroughs", "Paradigm challenges"],
-                "probability": "Low but transformative",
-                "position": {"x": 80, "y": 65}
-            }
-        ],
+        "scenarios": scenarios,
         "timeline": [
             {"year": current_year, "label": "Present"},
-            {"year": current_year + max(1, future_horizon // 4), "label": "Short-term"},
-            {"year": current_year + max(2, future_horizon // 2), "label": "Mid-term"},
-            {"year": current_year + max(3, (future_horizon * 3) // 4), "label": "Long-term"},
+            {"year": current_year + 2, "label": "Short-term"},
+            {"year": current_year + 5, "label": "Mid-term"},
+            {"year": current_year + 8, "label": "Long-term"},
             {"year": current_year + future_horizon, "label": "Horizon"}
         ],
         "summary": {
@@ -354,6 +471,85 @@ def _create_fallback_response(topic: str, future_horizon: int) -> Dict:
         },
         "fallback_used": True
     }
+
+def _attempt_json_completion(text: str) -> str:
+    """Attempt to complete truncated JSON by adding missing closing braces"""
+    if not text.strip():
+        return text
+    
+    # Count unclosed braces and brackets
+    brace_count = 0
+    bracket_count = 0
+    in_string = False
+    escape_next = False
+    
+    for char in text:
+        if escape_next:
+            escape_next = False
+            continue
+            
+        if char == '\\':
+            escape_next = True
+            continue
+            
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+            
+        if not in_string:
+            if char == '{':
+                brace_count += 1
+            elif char == '}':
+                brace_count -= 1
+            elif char == '[':
+                bracket_count += 1
+            elif char == ']':
+                bracket_count -= 1
+    
+    # If we have unclosed structures, try to close them
+    completion = text
+    
+    # Remove any trailing comma that might be incomplete
+    completion = completion.rstrip().rstrip(',')
+    
+    # Close any unclosed strings (basic attempt)
+    if in_string:
+        completion += '"'
+    
+    # Close unclosed brackets first
+    completion += ']' * max(0, bracket_count)
+    
+    # Close unclosed braces
+    completion += '}' * max(0, brace_count)
+    
+    return completion
+
+def _preprocess_response(response: str) -> str:
+    """Remove forbidden fields that cause JSON truncation"""
+    import re
+    
+    # List of forbidden field patterns to remove
+    forbidden_patterns = [
+        r'"generated_at":\s*"[^"]*",?\s*',
+        r'"future_horizon":\s*"[^"]*",?\s*', 
+        r'"drivers":\s*\[[^\]]*\],?\s*',
+        r'"signals":\s*\[[^\]]*\],?\s*',
+        r'"branching_point":\s*"[^"]*",?\s*',
+        r'"probability":\s*"[^"]*",?\s*',
+        r'"timeline":\s*\[[^\]]*\],?\s*',
+        r'"summary":\s*\{[^}]*\},?\s*'
+    ]
+    
+    # Remove each forbidden pattern
+    cleaned = response
+    for pattern in forbidden_patterns:
+        cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL)
+    
+    # Clean up any double commas or trailing commas
+    cleaned = re.sub(r',\s*,', ',', cleaned)
+    cleaned = re.sub(r',(\s*[}\]])', r'\1', cleaned)
+    
+    return cleaned
 
 @router.get("/api/futures-cone/{topic}")
 def generate_futures_cone(
@@ -402,114 +598,134 @@ def generate_futures_cone(
         
         logger.info(f"Found {len(articles)} articles for analysis")
         
-        # Prepare analysis summary
+        # Prepare analysis summary - keep full sample size for GPT-4.1's large context
         analysis_summary = prepare_analysis_summary(articles, topic)
         
-        # Format the prompt using f-string instead of .format()
-        formatted_prompt = f"""## **Generate a Data-Driven Futures Cone Using Analytical Signals**
+        # Format the prompt to request concise responses (input stays full, output gets shorter)
+        formatted_prompt = f"""CRITICAL: You MUST follow the exact JSON format below. Do NOT add any extra fields like "generated_at", "future_horizon", "drivers", "signals", "branching_point", or "probability". 
 
-You are an AI foresight analyst analyzing "{topic}". Generate a structured futures cone with diverse scenario types distributed across probability layers.
+Analyze {len(articles)} articles about "{topic}" and generate exactly 13 scenarios.
 
-**CRITICAL REQUIREMENTS - You MUST generate exactly these scenario counts:**
-- **probable**: Exactly 3 scenarios - Most likely futures, center cone, high confidence
-- **plausible**: Exactly 3 scenarios - Alternative but realistic futures, middle cone area  
-- **possible**: Exactly 3 scenarios - Low-probability but impactful futures, outer cone edges
-- **preferable**: Exactly 2 scenarios - Desired/optimal futures, upper cone area
-- **wildcard**: Exactly 2 scenarios - Disruptive surprise scenarios, extreme edges, unexpected
-
-**Total: 13 scenarios required (3+3+3+2+2=13)**
-
-**Analysis Data:**
-{analysis_summary}
-
-**Output Format - Return ONLY valid JSON (no markdown, no comments, no extra text):**
-{{
-  "topic": "{topic}",
-  "generated_at": "2025-01-25T10:00:00Z",
-  "future_horizon": "{future_horizon} years",
-  "scenarios": [
-    {{
-      "type": "probable",
-      "title": "Main Probable Path 1",
-      "description": "Most likely future based on majority signals",
-      "timeframe": "2025-2030",
-      "sentiment": "Neutral-Positive",
-      "drivers": [{{"type": "Accelerator", "description": "Primary driver"}}],
-      "signals": ["Signal from data"],
-      "branching_point": null,
-      "probability": "High likelihood",
-      "position": {{"x": 45, "y": 48}}
-    }},
-    {{
-      "type": "probable",
-      "title": "Main Probable Path 2",
-      "description": "Second most likely future path",
-      "timeframe": "2025-2030",
-      "sentiment": "Positive",
-      "drivers": [{{"type": "Accelerator", "description": "Secondary driver"}}],
-      "signals": ["Another signal from data"],
-      "branching_point": null,
-      "probability": "High likelihood",
-      "position": {{"x": 50, "y": 45}}
-    }},
-    {{
-      "type": "probable",
-      "title": "Main Probable Path 3",
-      "description": "Third most likely future path",
-      "timeframe": "2025-2030",
-      "sentiment": "Neutral",
-      "drivers": [{{"type": "Accelerator", "description": "Tertiary driver"}}],
-      "signals": ["Third signal from data"],
-      "branching_point": null,
-      "probability": "High likelihood",
-      "position": {{"x": 40, "y": 52}}
-    }},
-    {{
-      "type": "wildcard",
-      "title": "Disruptive Surprise 1",
-      "description": "Low-probability but high-impact surprise scenario",
-      "timeframe": "2027-2035",
-      "sentiment": "Mixed",
-      "drivers": [{{"type": "Disruptor", "description": "Unexpected catalyst"}}],
-      "signals": ["Weak signal from data"],
-      "branching_point": "Critical uncertainty",
-      "probability": "Low but impactful",
-      "position": {{"x": 75, "y": 85}}
-    }},
-    {{
-      "type": "wildcard",
-      "title": "Disruptive Surprise 2",
-      "description": "Second low-probability but high-impact surprise scenario",
-      "timeframe": "2026-2032",
-      "sentiment": "Critical",
-      "drivers": [{{"type": "Disruptor", "description": "Second unexpected catalyst"}}],
-      "signals": ["Another weak signal from data"],
-      "branching_point": "Another critical uncertainty",
-      "probability": "Low but impactful",
-      "position": {{"x": 80, "y": 20}}
-    }}
-  ],
-  "timeline": [
-    {{"year": 2025, "label": "Present"}},
-    {{"year": 2030, "label": "Mid-term"}}
-  ],
-  "summary": {{
-    "total_scenarios": 13,
-    "key_uncertainties": ["Major uncertainties"],
-    "dominant_themes": ["Common themes"]
-  }}
-}}
-
-**CRITICAL: You must generate exactly 13 scenarios total:**
+REQUIRED DISTRIBUTION:
 - 3 probable scenarios
 - 3 plausible scenarios  
 - 3 possible scenarios
 - 2 preferable scenarios
 - 2 wildcard scenarios
 
-Base each scenario on the analysis data provided. Do not generate fewer scenarios.
+ARTICLE DATA:
+{analysis_summary}
 
-**IMPORTANT: Return ONLY the JSON object. No explanations, no markdown formatting, no code blocks. Start with {{ and end with }}.**"""
+FORBIDDEN FIELDS: Do NOT include generated_at, future_horizon, drivers, signals, branching_point, probability, timeline, summary, or any nested objects.
+
+RESPONSE FORMAT - Use EXACTLY this structure with ONLY these 5 fields per scenario:
+
+{{
+  "topic": "{topic}",
+  "scenarios": [
+    {{
+      "type": "probable",
+      "title": "Brief title here",
+      "description": "One sentence description under 40 words.",
+      "timeframe": "2025-2027",
+      "sentiment": "Positive"
+    }},
+    {{
+      "type": "probable",
+      "title": "Second probable scenario",
+      "description": "Another one sentence description under 40 words.",
+      "timeframe": "2028-2032", 
+      "sentiment": "Mixed"
+    }},
+    {{
+      "type": "probable",
+      "title": "Third probable scenario",
+      "description": "Third one sentence description under 40 words.",
+      "timeframe": "2025-2027",
+      "sentiment": "Negative"
+    }},
+    {{
+      "type": "plausible",
+      "title": "First plausible title",
+      "description": "Plausible description under 40 words.",
+      "timeframe": "2028-2032",
+      "sentiment": "Positive"
+    }},
+    {{
+      "type": "plausible", 
+      "title": "Second plausible title",
+      "description": "Another plausible description under 40 words.",
+      "timeframe": "2033-2035",
+      "sentiment": "Mixed"
+    }},
+    {{
+      "type": "plausible",
+      "title": "Third plausible title", 
+      "description": "Third plausible description under 40 words.",
+      "timeframe": "2028-2032",
+      "sentiment": "Positive"
+    }},
+    {{
+      "type": "possible",
+      "title": "First possible title",
+      "description": "Possible scenario description under 40 words.",
+      "timeframe": "2033-2035",
+      "sentiment": "Mixed"
+    }},
+    {{
+      "type": "possible",
+      "title": "Second possible title",
+      "description": "Another possible description under 40 words.",
+      "timeframe": "2028-2032", 
+      "sentiment": "Negative"
+    }},
+    {{
+      "type": "possible",
+      "title": "Third possible title",
+      "description": "Third possible description under 40 words.",
+      "timeframe": "2033-2035",
+      "sentiment": "Positive"
+    }},
+    {{
+      "type": "preferable",
+      "title": "First preferable title",
+      "description": "Preferable outcome description under 40 words.",
+      "timeframe": "2025-2027",
+      "sentiment": "Positive"
+    }},
+    {{
+      "type": "preferable", 
+      "title": "Second preferable title",
+      "description": "Another preferable description under 40 words.",
+      "timeframe": "2028-2032",
+      "sentiment": "Positive"
+    }},
+    {{
+      "type": "wildcard",
+      "title": "First wildcard title",
+      "description": "Disruptive wildcard description under 40 words.",
+      "timeframe": "2025-2027",
+      "sentiment": "Mixed"
+    }},
+    {{
+      "type": "wildcard",
+      "title": "Second wildcard title", 
+      "description": "Another wildcard description under 40 words.",
+      "timeframe": "2033-2035",
+      "sentiment": "Negative"
+    }}
+  ]
+}}
+
+CRITICAL RULES:
+1. Return ONLY the JSON structure shown above
+2. Use ONLY these 5 fields per scenario: type, title, description, timeframe, sentiment  
+3. Do NOT add generated_at, future_horizon, drivers, signals, probability, or any other fields
+4. Keep descriptions under 40 words each
+5. Start response with {{ and end with }}
+6. No explanations, no markdown, no extra text
+
+Generate the JSON now:"""
         
         # Get AI model and generate response
         ai_model = get_ai_model(model)
@@ -521,10 +737,23 @@ Base each scenario on the analysis data provided. Do not generate fewer scenario
         # Generate the futures cone
         response = ai_model.generate_response([{"role": "user", "content": formatted_prompt}])
         
-        # Parse JSON response with robust error handling
+        # Preprocess response to remove forbidden fields that cause truncation
+        response = _preprocess_response(response)
+        logger.info(f"Preprocessed response length: {len(response)} characters")
+        
+        # Parse JSON response with robust error handling and debugging
         try:
             futures_cone_data = None
             json_str = ""
+            
+            # Log response details for debugging
+            logger.info(f"AI response length: {len(response)} characters")
+            logger.info(f"Response ends with: '{response[-50:]}'" if len(response) > 50 else f"Full response: '{response}'")
+            
+            # Check if response appears to be truncated
+            is_truncated = not response.rstrip().endswith('}') and '{' in response
+            if is_truncated:
+                logger.warning("Response appears to be truncated - missing closing brace")
             
             # Try multiple JSON extraction methods
             extraction_methods = [
@@ -533,27 +762,41 @@ Base each scenario on the analysis data provided. Do not generate fewer scenario
                 # Method 2: Find complete JSON object
                 lambda text: _extract_complete_json(text),
                 # Method 3: Clean and parse entire response
-                lambda text: _clean_and_parse_json(text)
+                lambda text: _clean_and_parse_json(text),
+                # Method 4: Attempt to complete truncated JSON
+                lambda text: _attempt_json_completion(_extract_complete_json(text)) if _extract_complete_json(text) else ""
             ]
             
-            for method in extraction_methods:
+            for i, method in enumerate(extraction_methods):
                 try:
                     json_str = method(response)
                     if json_str:
                         futures_cone_data = json.loads(json_str)
-                        logger.info("Successfully parsed JSON using extraction method")
-                        break
-                except (json.JSONDecodeError, AttributeError, IndexError):
+                        logger.info(f"Successfully parsed JSON using extraction method {i+1}")
+                        
+                        # Validate we got the expected structure
+                        if 'scenarios' in futures_cone_data and len(futures_cone_data['scenarios']) > 0:
+                            logger.info(f"Found {len(futures_cone_data['scenarios'])} scenarios in response")
+                            break
+                        else:
+                            logger.warning(f"Method {i+1} parsed JSON but missing scenarios")
+                            futures_cone_data = None
+                except (json.JSONDecodeError, AttributeError, IndexError) as e:
+                    logger.debug(f"Method {i+1} failed: {str(e)}")
                     continue
             
             if not futures_cone_data:
                 # Last resort: try to fix common JSON issues
+                logger.info("Attempting to fix common JSON issues")
                 json_str = _fix_common_json_issues(response)
                 futures_cone_data = json.loads(json_str)
+                logger.info("Successfully fixed and parsed JSON")
             
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse JSON response after all attempts: {e}")
-            logger.error(f"Raw response (first 500 chars): {response[:500]}")
+            logger.error(f"Raw response length: {len(response)}")
+            logger.error(f"Raw response (first 1000 chars): {response[:1000]}")
+            logger.error(f"Raw response (last 500 chars): {response[-500:]}")
             
             # Create a fallback response with minimal scenarios
             futures_cone_data = _create_fallback_response(topic, future_horizon)
@@ -565,7 +808,7 @@ Base each scenario on the analysis data provided. Do not generate fewer scenario
                 detail="Failed to process AI response. Please try again."
             )
         
-        # Post-process scenarios for proper positioning
+        # Post-process scenarios for proper positioning and missing fields
         if 'scenarios' in futures_cone_data:
             scenarios_by_type = {}
             for scenario in futures_cone_data['scenarios']:
@@ -574,12 +817,30 @@ Base each scenario on the analysis data provided. Do not generate fewer scenario
                     scenarios_by_type[scenario_type] = []
                 scenarios_by_type[scenario_type].append(scenario)
             
-            # Recalculate positions
+            # Recalculate positions and add missing fields
             for scenario_type, scenarios in scenarios_by_type.items():
                 for i, scenario in enumerate(scenarios):
-                    if 'position' not in scenario or not scenario['position']:
-                        position = calculate_scenario_positions(scenario_type, i, len(scenarios))
-                        scenario['position'] = position
+                    # Add position
+                    timeframe = scenario.get('timeframe', '')
+                    position = calculate_scenario_positions(scenario_type, i, len(scenarios), timeframe)
+                    scenario['position'] = position
+                    
+                    # Add missing fields for complete structure
+                    if 'drivers' not in scenario:
+                        scenario['drivers'] = [{"type": "Trend", "description": "Based on analysis data"}]
+                    if 'signals' not in scenario:
+                        scenario['signals'] = ["Market indicators", "Technology trends"]
+                    if 'probability' not in scenario:
+                        prob_map = {
+                            'probable': 'High likelihood',
+                            'plausible': 'Moderate likelihood', 
+                            'possible': 'Lower likelihood',
+                            'preferable': 'Desired outcome',
+                            'wildcard': 'Low but impactful'
+                        }
+                        scenario['probability'] = prob_map.get(scenario_type, 'Moderate likelihood')
+                    if 'branching_point' not in scenario:
+                        scenario['branching_point'] = None
         
         # Ensure timeline exists
         if 'timeline' not in futures_cone_data or not futures_cone_data['timeline']:
