@@ -19,7 +19,7 @@ sys.path.append(str(ROOT_DIR))                          # import main.py
 
 load_dotenv()                                           # .env in project root
 
-PORT = int(os.getenv("PORT", 10000))
+PORT = int(os.getenv("PORT", 10002))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "production")    # dev | production
 
 # --------------------------------------------------------------------------- #
@@ -30,7 +30,7 @@ from main import app                                    # ⇐ adjust if app.main
 # Open CORS wide during dev; tighten allow_origins in prod if needed
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://poc.aunoo.ai"] if ENVIRONMENT == "development" else ["https://experimental.aunoo.ai"],
+    allow_origins=["https://staging.aunoo.ai"] if ENVIRONMENT == "development" else ["https://experimental.aunoo.ai"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
