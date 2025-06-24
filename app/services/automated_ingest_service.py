@@ -188,6 +188,11 @@ class AutomatedIngestService:
             from app.research import Research
             research = Research(self.db)
             
+            # Set the AI model to match our auto-ingest model before using Research
+            model_name = self.get_llm_client()
+            research.set_ai_model(model_name)
+            self.logger.info(f"    🤖 Using LLM model: {model_name} for ontology retrieval")
+            
             # Set topic and get dynamic ontology data
             research.set_topic(topic)
             
@@ -780,6 +785,11 @@ class AutomatedIngestService:
             # Get topic-specific ontology dynamically using Research class
             from app.research import Research
             research = Research(self.db)
+            
+            # Set the AI model to match our auto-ingest model before using Research
+            model_name = self.get_llm_client()
+            research.set_ai_model(model_name)
+            self.logger.info(f"    🤖 Using LLM model: {model_name} for ontology retrieval")
             
             # Set topic and get dynamic ontology data asynchronously
             research.set_topic(topic)
@@ -1549,21 +1559,14 @@ class AutomatedIngestService:
             Dictionary mapping URIs to scraped content
         """
         try:
-            # Prepare batch request
-            batch_data = {
-                "urls": uris,
-                "formats": ["markdown"],
-                "onlyMainContent": True,
-                "timeout": 30000,
-                "maxConcurrency": 5  # Limit concurrent requests
-            }
-            
             self.logger.info(f"Submitting batch scrape request for {len(uris)} URLs")
             
-            # Submit batch request using async method
-            batch_response = firecrawl_app.async_batch_scrape_urls(uris, **{
-                k: v for k, v in batch_data.items() if k != 'urls'
-            })
+            # Submit batch request using async method - following Firecrawl documentation
+            # Documentation: https://docs.firecrawl.dev/features/batch-scrape
+            batch_response = firecrawl_app.async_batch_scrape_urls(
+                uris,
+                formats=['markdown']
+            )
             
             if not batch_response or not batch_response.get('success'):
                 self.logger.error(f"Batch scrape failed: {batch_response}")

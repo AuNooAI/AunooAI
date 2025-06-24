@@ -24,13 +24,27 @@ litellm_logger.addHandler(logging.NullHandler())
 # Load environment variables and ensure they're properly set for models
 ensure_model_env_vars()
 
+def get_litellm_config_path():
+    """Get the LiteLLM config path - check environment variable first, then use litellm_config.yaml."""
+    # Check if environment variable specifies a config path
+    env_config_path = os.environ.get('LITELLM_CONFIG_PATH')
+    if env_config_path and os.path.exists(env_config_path):
+        logger.debug(f"Using environment-specified config: {env_config_path}")
+        return env_config_path
+    
+    # Default to litellm_config.yaml
+    config_dir = os.path.join(os.path.dirname(__file__), 'config')
+    config_path = os.path.join(config_dir, 'litellm_config.yaml')
+    logger.debug(f"Using default config: {config_path}")
+    return config_path
+
 def clean_outdated_model_env_vars():
     """
     Remove environment variables for models that are no longer in the config file.
     This ensures that deleted models don't linger in the environment.
     """
     # Load the config file to get the current models
-    config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
+    config_path = get_litellm_config_path()
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
     
@@ -278,9 +292,8 @@ class LiteLLMModel(AIModel):
             logger.error(f"❌ Failed to initialize LiteLLMModel for {model_name}: {str(e)}")
             raise
         
-        # Store this instance and set as current
+        # Store this instance
         LiteLLMModel._instances[model_name] = self
-        LiteLLMModel._current_model = model_name
         logger.debug(f"📝 Stored instance for {model_name}, current instances: {list(LiteLLMModel._instances.keys())}")
 
     @classmethod
@@ -293,8 +306,6 @@ class LiteLLMModel(AIModel):
         else:
             logger.debug(f"♻️ Reusing existing instance for {model_name}")
             instance = cls._instances[model_name]
-            # Update current model
-            cls._current_model = model_name
         return instance
 
     def init_router(self):
@@ -303,8 +314,8 @@ class LiteLLMModel(AIModel):
         # Ensure router is cleared before reinitializing
         self.router = None
         
-        config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
-        logger.debug(f"📖 Loading config from: {config_path}")
+        config_path = get_litellm_config_path()
+        logger.info(f"📖 Loading config from: {config_path}")
         
         try:
             with open(config_path, 'r') as f:
@@ -429,11 +440,9 @@ class LiteLLMModel(AIModel):
             logger.debug(f"📝 Message {i+1} ({msg.get('role', 'unknown')}): {content_preview}")
         
         try:
-            # Always use the current model instance
-            if LiteLLMModel._current_model != self.model_name and not _is_fallback:
-                logger.debug(f"🔄 Model mismatch detected - Instance: {self.model_name}, Current: {LiteLLMModel._current_model}")
-                logger.info(f"↩️ Delegating to current model instance: {LiteLLMModel._current_model}")
-                return LiteLLMModel._instances[LiteLLMModel._current_model].generate_response(messages)
+            # Note: Removed global model delegation logic as it was causing issues
+            # with auto-ingest service where specific models need to be used
+            # Each model instance should handle its own requests
 
             logger.debug(f"🎯 Using router with model: {self.model_name}")
             logger.debug(f"📋 Router model list: {[m.get('model_name', 'unknown') for m in self.router.model_list]}")
@@ -510,7 +519,11 @@ class LiteLLMModel(AIModel):
                 logger.info(f"🔄 Attempting fallback for {self.model_name}")
                 
                 # Get fallbacks configuration
-                config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
+                config_dir = os.path.join(os.path.dirname(__file__), 'config')
+                local_config_path = os.path.join(config_dir, 'litellm_config.yaml.local')
+                default_config_path = os.path.join(config_dir, 'litellm_config.yaml')
+                
+                config_path = local_config_path if os.path.exists(local_config_path) else default_config_path
                 with open(config_path, 'r') as f:
                     config = yaml.safe_load(f)
                 
@@ -678,7 +691,11 @@ def ai_get_available_models():
             - name: The model name (e.g., 'gpt-4o')
             - provider: The provider name (e.g., 'openai', 'anthropic')
     """
-    config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
+    config_dir = os.path.join(os.path.dirname(__file__), 'config')
+    local_config_path = os.path.join(config_dir, 'litellm_config.yaml.local')
+    default_config_path = os.path.join(config_dir, 'litellm_config.yaml')
+    
+    config_path = local_config_path if os.path.exists(local_config_path) else default_config_path
     logger.debug(f"Looking for config file at: {config_path}")
     try:
         with open(config_path, 'r') as f:
