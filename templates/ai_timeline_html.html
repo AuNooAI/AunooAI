@@ -1,0 +1,1389 @@
+{% extends "base.html" %}
+
+{% block title %}AI Impact Timeline - Strategic Planning Horizons{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Light theme styling to match base.html */
+    :root {
+        --primary-color: #FF69B4;
+        --primary-dark: #FF1493;
+        --text-color: #333;
+        --container-width: 1200px;
+        --spacing-md: 1rem;
+        --bg-light: #f8f9fa;
+        --bg-white: #ffffff;
+        --border-color: #dee2e6;
+    }
+
+    body {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        background-color: var(--bg-light);
+        color: var(--text-color);
+        min-height: 100vh;
+    }
+    
+    .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .header {
+        text-align: center;
+        margin-bottom: 40px;
+        animation: fadeInDown 1s ease-out;
+    }
+    
+    .header h1 {
+        font-size: 3rem;
+        color: var(--primary-color);
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+    
+    .header .subtitle {
+        font-size: 1.4rem;
+        color: var(--primary-dark);
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+    
+    .header p {
+        font-size: 1.1rem;
+        color: #6c757d;
+        max-width: 700px;
+        margin: 0 auto;
+    }
+    
+    .timeline-container {
+        background: var(--bg-white);
+        border-radius: 20px;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        padding: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .timeline-header {
+        margin: 2rem 0 3rem 0;
+        position: relative;
+    }
+
+    .year-labels {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #6c7280;
+        margin-bottom: 0.5rem;
+    }
+
+    .timeline-bar {
+        height: 4px;
+        background: linear-gradient(to right, #d1d5db, #6b7280);
+        border-radius: 9999px;
+    }
+
+    .swimlane {
+        margin-bottom: 1.5rem;
+        background: white;
+        border-radius: 0.75rem;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        overflow: visible;
+        transition: box-shadow 0.3s ease;
+    }
+
+    .swimlane:hover {
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+
+    .swimlane-content {
+        display: flex;
+    }
+
+    .category-label {
+        width: 16rem;
+        padding: 1.5rem;
+        color: white;
+        flex-shrink: 0;
+    }
+
+    .category-label h4 {
+        font-weight: bold;
+        font-size: 0.875rem;
+        margin-bottom: 0.25rem;
+    }
+
+    .timeframe {
+        font-size: 0.75rem;
+        opacity: 0.9;
+        margin-bottom: 0.5rem;
+    }
+
+    .description {
+        font-size: 0.75rem;
+        opacity: 0.8;
+        line-height: 1.4;
+    }
+
+    .timeline-track {
+        flex: 1;
+        padding: 1.5rem;
+        background: #f9fafb;
+        position: relative;
+        overflow: visible;
+    }
+
+    .track-container {
+        position: relative;
+        height: 2rem;
+    }
+
+    .track-bg {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        right: 0;
+        height: 8px;
+        background: #e5e7eb;
+        border-radius: 9999px;
+        transform: translateY(-50%);
+    }
+
+    .track-progress {
+        position: absolute;
+        top: 50%;
+        left: 0;
+        height: 8px;
+        border-radius: 9999px;
+        transform: translateY(-50%);
+        opacity: 0.3;
+    }
+
+    .milestone {
+        position: absolute;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 50%;
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        cursor: pointer;
+        transform: translate(-50%, -50%);
+        transition: transform 0.2s ease;
+        top: 50%;
+    }
+
+    .milestone:hover {
+        transform: translate(-50%, -50%) scale(1.25);
+    }
+
+    .milestone-tooltip {
+        position: absolute;
+        bottom: 1.5rem;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #1f2937;
+        color: white;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        font-size: 0.75rem;
+        white-space: normal;
+        max-width: 300px;
+        min-width: 200px;
+        text-align: left;
+        line-height: 1.4;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+        z-index: 1000;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .milestone:hover .milestone-tooltip {
+        opacity: 1;
+    }
+
+    .milestone-tooltip::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 5px solid transparent;
+        border-top-color: #1f2937;
+    }
+
+    /* Color classes */
+    .bg-red-500 { background-color: #ef4444; }
+    .bg-orange-500 { background-color: #f97316; }
+    .bg-blue-500 { background-color: #3b82f6; }
+    .bg-green-500 { background-color: #22c55e; }
+    .bg-purple-500 { background-color: #a855f7; }
+    .bg-indigo-500 { background-color: #6366f1; }
+    .bg-pink-500 { background-color: #ec4899; }
+    .bg-teal-500 { background-color: #14b8a6; }
+
+    .analysis-summary {
+        background: var(--bg-white);
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        padding: 20px;
+        margin-bottom: 24px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    
+    .summary-card {
+        background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 16px;
+        text-align: center;
+        height: 100%;
+        transition: transform 0.2s ease;
+    }
+    
+    .summary-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+    
+    .summary-card h6 {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        font-weight: 600;
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+    
+    .summary-value {
+        color: var(--primary-color);
+        font-size: 1.25rem;
+        font-weight: 700;
+    }
+
+    .insights-card {
+        background: linear-gradient(135deg, #fff7ed, #fef3c7);
+        border-radius: 1rem;
+        padding: 2rem;
+        border-left: 4px solid var(--primary-color);
+        margin-top: 2rem;
+    }
+
+    .insights-title {
+        font-size: 1.5rem;
+        font-weight: bold;
+        color: var(--primary-dark);
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .target-icon {
+        width: 1.5rem;
+        height: 1.5rem;
+        color: var(--primary-color);
+    }
+
+    .insight-item {
+        display: flex;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+        gap: 0.75rem;
+    }
+
+    .insight-dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        background: var(--primary-color);
+        border-radius: 50%;
+        margin-top: 0.375rem;
+        flex-shrink: 0;
+    }
+
+    .legend {
+        margin-top: 2rem;
+        padding: 1rem;
+        background: #f8f9fa;
+        border-radius: 0.5rem;
+        text-align: center;
+    }
+
+    .legend-items {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+        margin-top: 1rem;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+    }
+
+    .legend-color {
+        width: 1rem;
+        height: 1rem;
+        border-radius: 0.25rem;
+    }
+
+    /* Form styling */
+    .form-control, .form-select {
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        padding: 0.5rem 0.75rem;
+        transition: all 0.2s ease;
+        background: var(--bg-white);
+        color: var(--text-color);
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+        background: var(--bg-white);
+        color: var(--text-color);
+    }
+
+    .btn {
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+        background: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    .btn-primary:hover {
+        background: var(--primary-dark);
+        border-color: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .loading-spinner {
+        text-align: center;
+        padding: 40px;
+    }
+    
+    .spinner-border {
+        color: #FF69B4;
+    }
+
+    .modal-content {
+        background: var(--bg-white);
+        border: 1px solid var(--border-color);
+        color: var(--text-color);
+        border-radius: 12px;
+    }
+
+    .modal-header {
+        border-bottom: 1px solid var(--border-color);
+        background: var(--bg-light);
+    }
+
+    .modal-footer {
+        border-top: 1px solid var(--border-color);
+        background: var(--bg-light);
+    }
+
+    .modal-title {
+        color: var(--primary-color);
+        font-weight: 600;
+    }
+
+    .form-label {
+        color: var(--text-color);
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+    }
+
+    .alert {
+        border-radius: 8px;
+        border: none;
+    }
+
+    .alert-success {
+        background: linear-gradient(135deg, #e8f5e8, #f1f8e9);
+        color: #2e7d32;
+        border-left: 4px solid #4caf50;
+    }
+
+    .alert-danger {
+        background: linear-gradient(135deg, #ffebee, #fce4ec);
+        color: #c62828;
+        border-left: 4px solid #f44336;
+    }
+
+    @keyframes fadeInDown {
+        from {
+            opacity: 0;
+            transform: translateY(-30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    @media (max-width: 768px) {
+        .header h1 {
+            font-size: 2rem;
+        }
+        
+        .swimlane-content {
+            flex-direction: column;
+        }
+        
+        .category-label {
+            width: 100%;
+        }
+        
+        .legend-items {
+            flex-direction: column;
+            align-items: center;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header">
+        <h1>AI Impact Timeline</h1>
+        <div class="subtitle" id="topicSubtitle">Configure Analysis Below</div>
+        <p>AI-powered timeline analysis using your article data to generate strategic planning horizons</p>
+    </div>
+    
+    <!-- Control buttons -->
+    <div class="mb-4 d-flex gap-2 justify-content-center">
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#configModal">
+            <i class="fas fa-cog me-2"></i>Configure Analysis
+        </button>
+        <button type="button" class="btn btn-success" id="loadAnalysisBtn" onclick="loadTimelineAnalysis()" disabled>
+            <i class="fas fa-play me-2"></i>Generate Timeline
+        </button>
+        <button type="button" class="btn btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear saved configuration and cached results">
+            <i class="fas fa-trash me-2"></i>Clear Cache
+        </button>
+    </div>
+    
+    <div class="loading-spinner" id="loadingSpinner" style="display: none;">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Generating AI impact timeline analysis...</p>
+    </div>
+    
+    <div id="errorContainer"></div>
+
+    <div id="timelineContainer" class="timeline-container" style="display: none;">
+        <!-- Analysis Summary Section -->
+        <div id="analysisSummary" class="analysis-summary mb-4" style="display: none;">
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="summary-card">
+                        <h6>Articles Analyzed</h6>
+                        <div class="summary-value" id="totalArticles">-</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="summary-card">
+                        <h6>Sentiment</h6>
+                        <div class="summary-value" id="topSentiment">-</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="summary-card">
+                        <h6>Future Signal</h6>
+                        <div class="summary-value" id="topSignal">-</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="summary-card">
+                        <h6>Time to Impact</h6>
+                        <div class="summary-value" id="topTimeImpact">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="timeline-header">
+            <div class="year-labels" id="yearLabels">
+                <!-- Dynamic year labels will be populated here -->
+            </div>
+            <div class="timeline-bar"></div>
+        </div>
+
+        <div id="swimlanes"></div>
+
+        <div class="legend">
+            <p>Hover over timeline points for detailed milestones</p>
+            <div class="legend-items" id="legend-items"></div>
+        </div>
+    </div>
+
+    <div class="insights-card" id="insightsCard">
+        <h3 class="insights-title">
+            <svg class="target-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10"></circle>
+                <circle cx="12" cy="12" r="6"></circle>
+                <circle cx="12" cy="12" r="2"></circle>
+            </svg>
+            Key Strategic Insights
+        </h3>
+        <div id="insightsContent">
+            <!-- Default insights - will be replaced by LLM response -->
+            <div class="insight-item">
+                <div class="insight-dot"></div>
+                <p><strong>Act now</strong> to capture value from immediate productivity gains, address workforce transitions, and shape early regulatory frameworks</p>
+            </div>
+            <div class="insight-item">
+                <div class="insight-dot"></div>
+                <p><strong>Invest for the mid-term</strong> in upskilling, risk management, and sector-specific AI integration (2026-2029 transformation phase)</p>
+            </div>
+            <div class="insight-item">
+                <div class="insight-dot"></div>
+                <p><strong>Prepare for long-term uncertainty</strong> by monitoring AGI developments and ensuring societal resilience to paradigm shifts</p>
+            </div>
+            <div class="insight-item">
+                <div class="insight-dot"></div>
+                <p>AI's most profound impacts will materialize across staggered timelines—immediate business disruption, mid-term societal transformation, long-term AGI governance</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Configuration Modal -->
+<div class="modal fade" id="configModal" tabindex="-1" aria-labelledby="configModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="configModalLabel">⏰ Configure AI Impact Timeline Analysis</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="topic" class="form-label">Topic</label>
+                            <select class="form-select" id="topic" required onchange="updateLoadButton()">
+                                <option value="">Loading topics...</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="timeframe" class="form-label">Analysis Timeframe</label>
+                            <div class="d-flex gap-2">
+                                <select class="form-select" id="timeframe" onchange="toggleCustomTimeframe()">
+                                    <option value="30d">Last 30 Days</option>
+                                    <option value="90d">Last 90 Days</option>
+                                    <option value="180d">Last 180 Days</option>
+                                    <option value="365d" selected>Last 365 Days</option>
+                                    <option value="all">All Time</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="number" class="form-control" id="customDays" placeholder="Days" 
+                                       style="display: none; width: 80px;" min="1" max="3650">
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="model" class="form-label">AI Model</label>
+                            <select class="form-select" id="model" onchange="updateLoadButton()">
+                                <option value="">Loading models...</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="futureHorizon" class="form-label">Future Horizon</label>
+                            <select class="form-select" id="futureHorizon">
+                                <option value="5">5 Years</option>
+                                <option value="10" selected>10 Years</option>
+                                <option value="20">20 Years</option>
+                                <option value="50">50 Years</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="analysisDepth" class="form-label">Analysis Depth</label>
+                            <select class="form-select" id="analysisDepth">
+                                <option value="standard" selected>Standard Analysis</option>
+                                <option value="detailed">Detailed Analysis</option>
+                                <option value="comprehensive">Comprehensive Analysis</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="sampleSizeMode" class="form-label">Article Sample Size</label>
+                            <div class="d-flex gap-2">
+                                <select class="form-select" id="sampleSizeMode" onchange="handleSampleSizeModeChange()">
+                                    <option value="auto" selected>Auto-size</option>
+                                    <option value="balanced">Balanced</option>
+                                    <option value="comprehensive">Comprehensive</option>
+                                    <option value="focused">Focused</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="number" class="form-control" id="customLimit" placeholder="Count" 
+                                       style="display: none; width: 100px;" min="10" max="500" value="50">
+                            </div>
+                            <div class="context-info mt-2" id="contextInfo" style="display: none;">
+                                <small class="text-muted">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    <span id="contextStats">Context: 0 articles, ~0 tokens</span>
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveConfigurationAndClose()">
+                    <i class="fas fa-save me-2"></i>Save Configuration
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Configuration and state management
+let currentAnalysisData = null;
+
+// Context limits for different AI models
+const contextLimits = {
+    'gpt-3.5-turbo': 16385,
+    'gpt-3.5-turbo-16k': 16385,
+    'gpt-4': 8192,
+    'gpt-4-32k': 32768,
+    'gpt-4-turbo': 128000,
+    'gpt-4-turbo-preview': 128000,
+    'gpt-4o': 128000,
+    'gpt-4o-mini': 128000,
+    'gpt-4.1': 1000000,
+    'gpt-4.1-mini': 1000000,
+    'gpt-4.1-nano': 1000000,
+    'claude-3-opus': 200000,
+    'claude-3-sonnet': 200000,
+    'claude-3-haiku': 200000,
+    'claude-3.5-sonnet': 200000,
+    'claude-4': 200000,
+    'claude-4-opus': 200000,
+    'claude-4-sonnet': 200000,
+    'claude-4-haiku': 200000,
+    'gemini-pro': 32768,
+    'gemini-1.5-pro': 2097152,
+    'llama-2-70b': 4096,
+    'llama-3-70b': 8192,
+    'mixtral-8x7b': 32768,
+    'default': 16385
+};
+
+async function loadTimelineAnalysis() {
+    const topicElement = document.getElementById('topic');
+    const timeframeElement = document.getElementById('timeframe');
+    const modelElement = document.getElementById('model');
+    const futureHorizonElement = document.getElementById('futureHorizon');
+    const analysisDepthElement = document.getElementById('analysisDepth');
+    
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const timelineContainer = document.getElementById('timelineContainer');
+    
+    if (!topicElement || !timeframeElement || !modelElement) {
+        showError('Required form elements not found. Please refresh the page.');
+        return;
+    }
+    
+    const topic = topicElement.value;
+    const timeframe = timeframeElement.value;
+    const model = modelElement.value;
+    const futureHorizon = futureHorizonElement ? futureHorizonElement.value : '10';
+    const analysisDepth = analysisDepthElement ? analysisDepthElement.value : 'standard';
+    
+    if (!topic) {
+        showError('Please select a topic');
+        return;
+    }
+    
+    if (!model) {
+        showError('Please select a model');
+        return;
+    }
+    
+    // Check for cached results first
+    const cachedResults = loadCachedResults();
+    if (cachedResults && 
+        cachedResults.config.topic === topic && 
+        cachedResults.config.model === model &&
+        cachedResults.config.futureHorizon === futureHorizon) {
+        console.log('Using cached results for topic:', topic);
+        await displayTimeline(cachedResults.data);
+        showSuccess('Loaded cached results (faster response)');
+        return;
+    }
+    
+    // Get custom timeframe if selected
+    let actualTimeframe = timeframe;
+    if (timeframe === 'custom') {
+        const customDaysElement = document.getElementById('customDays');
+        const customDays = customDaysElement ? parseInt(customDaysElement.value) : null;
+        if (!customDays || customDays < 1) {
+            showError('Please enter a valid number of days');
+            return;
+        }
+        actualTimeframe = customDays;
+    } else {
+        // Convert timeframe format
+        actualTimeframe = parseInt(timeframe.replace('d', '')) || 365;
+    }
+    
+    // Show loading
+    if (loadingSpinner) loadingSpinner.style.display = 'block';
+    if (timelineContainer) timelineContainer.style.display = 'none';
+    
+    try {
+        // Get sample size parameters
+        const sampleSizeMode = document.getElementById('sampleSizeMode').value;
+        const customLimit = document.getElementById('customLimit').value;
+        
+        // Build request parameters
+        const params = new URLSearchParams({
+            timeframe_days: actualTimeframe,
+            model: model,
+            future_horizon: futureHorizon,
+            analysis_depth: analysisDepth,
+            sample_size_mode: sampleSizeMode
+        });
+        
+        // Add custom limit if specified
+        if (sampleSizeMode === 'custom' && customLimit) {
+            params.append('custom_limit', customLimit);
+        }
+        
+        const response = await fetch(`/api/executive-summary/ai-impact-timeline/${encodeURIComponent(topic)}?${params}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // Cache the results
+        saveAnalysisResults(data, {
+            topic,
+            model,
+            timeframe: actualTimeframe,
+            futureHorizon,
+            analysisDepth,
+            sampleSizeMode,
+            customLimit
+        });
+        
+        await displayTimeline(data);
+        
+    } catch (error) {
+        showError(`Error loading timeline analysis: ${error.message}`);
+    } finally {
+        loadingSpinner.style.display = 'none';
+    }
+}
+
+async function displayTimeline(data) {
+    currentAnalysisData = data;
+    
+    // Update subtitle with topic
+    const topicSubtitle = document.getElementById('topicSubtitle');
+    const topic = document.getElementById('topic').value;
+    if (topicSubtitle && topic) {
+        topicSubtitle.textContent = `Timeline for ${topic.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
+    }
+    
+    // Update year labels based on future horizon
+    updateYearLabels();
+    
+    // Update summary data if provided
+    if (data.summary) {
+        updateSummaryData(data.summary);
+    }
+    
+    // Populate swimlanes
+    populateSwimlanes(data.swimlanes || []);
+    
+    // Update insights if provided
+    if (data.insights) {
+        updateInsights(data.insights);
+    }
+    
+    // Show the timeline
+    document.getElementById('timelineContainer').style.display = 'block';
+}
+
+function updateYearLabels() {
+    const currentYear = new Date().getFullYear();
+    const futureHorizon = parseInt(document.getElementById('futureHorizon')?.value || '10');
+    const endYear = currentYear + futureHorizon;
+    
+    const yearLabels = document.getElementById('yearLabels');
+    yearLabels.innerHTML = '';
+    
+    // Generate 6 evenly spaced year labels
+    const yearStep = futureHorizon / 5;
+    for (let i = 0; i <= 5; i++) {
+        const year = currentYear + Math.round(i * yearStep);
+        const span = document.createElement('span');
+        span.textContent = i === 5 ? `${year}+` : year.toString();
+        yearLabels.appendChild(span);
+    }
+}
+
+function getAnalysisForYear(detailedAnalysis, year) {
+    if (!detailedAnalysis) return '';
+    
+    const yearNum = parseInt(year);
+    const currentYear = new Date().getFullYear();
+    
+    // Determine which timeframe this year falls into
+    if (yearNum <= currentYear + 1) {
+        return detailedAnalysis.immediate_short_term || '';
+    } else if (yearNum <= currentYear + 5) {
+        return detailedAnalysis.mid_term || '';
+    } else {
+        return detailedAnalysis.long_term || '';
+    }
+}
+
+function updateSummaryData(summary) {
+    // Show the summary section
+    const summarySection = document.getElementById('analysisSummary');
+    if (summarySection) {
+        summarySection.style.display = 'block';
+    }
+    
+    // Update total articles
+    const totalArticlesElement = document.getElementById('totalArticles');
+    if (totalArticlesElement && summary.total_articles) {
+        totalArticlesElement.textContent = summary.total_articles.toLocaleString();
+    }
+    
+    // Update top sentiment
+    const topSentimentElement = document.getElementById('topSentiment');
+    if (topSentimentElement && summary.sentiment_distribution) {
+        const sentiments = summary.sentiment_distribution;
+        let topSentiment = 'Unknown';
+        let maxPercentage = 0;
+        
+        for (const [key, value] of Object.entries(sentiments)) {
+            const percentage = parseFloat(value.replace(/[~%]/g, ''));
+            if (percentage > maxPercentage) {
+                maxPercentage = percentage;
+                topSentiment = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+        }
+        topSentimentElement.textContent = `${topSentiment} (${maxPercentage}%)`;
+    }
+    
+    // Update top future signal
+    const topSignalElement = document.getElementById('topSignal');
+    if (topSignalElement && summary.future_signal_distribution) {
+        const signals = summary.future_signal_distribution;
+        let topSignal = 'Unknown';
+        let maxPercentage = 0;
+        
+        for (const [key, value] of Object.entries(signals)) {
+            const percentage = parseFloat(value.replace(/[~%]/g, ''));
+            if (percentage > maxPercentage) {
+                maxPercentage = percentage;
+                topSignal = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+        }
+        topSignalElement.textContent = `${topSignal} (${maxPercentage}%)`;
+    }
+    
+    // Update top time to impact
+    const topTimeImpactElement = document.getElementById('topTimeImpact');
+    if (topTimeImpactElement && summary.time_to_impact) {
+        const timeImpacts = summary.time_to_impact;
+        let topTimeImpact = 'Unknown';
+        let maxPercentage = 0;
+        
+        for (const [key, value] of Object.entries(timeImpacts)) {
+            const percentage = parseFloat(value.replace(/[~%()]/g, '').split(' ')[0]);
+            if (percentage > maxPercentage) {
+                maxPercentage = percentage;
+                topTimeImpact = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+            }
+        }
+        topTimeImpactElement.textContent = `${topTimeImpact} (${maxPercentage}%)`;
+    }
+}
+
+function populateSwimlanes(swimlanes) {
+    const swimlanesContainer = document.getElementById('swimlanes');
+    swimlanesContainer.innerHTML = '';
+    
+    swimlanes.forEach(lane => {
+        const swimlaneDiv = document.createElement('div');
+        swimlaneDiv.className = 'swimlane';
+        
+        // Calculate correct positions based on years and dynamic future horizon
+        const currentYear = new Date().getFullYear();
+        const futureHorizon = parseInt(document.getElementById('futureHorizon')?.value || '10');
+        const endYear = currentYear + futureHorizon;
+        
+        const milestones = lane.milestones.map(milestone => {
+            const year = parseInt(milestone.year);
+            let position;
+            
+            // Calculate position based on timeline from current year to future horizon
+            if (year <= currentYear) {
+                position = 0;
+            } else if (year >= endYear) {
+                position = 100;
+            } else {
+                // Linear interpolation between current year and end year
+                position = ((year - currentYear) / (endYear - currentYear)) * 100;
+            }
+            
+            return {
+                ...milestone,
+                calculatedPosition: Math.min(100, Math.max(0, position))
+            };
+        });
+        
+        swimlaneDiv.innerHTML = `
+            <div class="swimlane-content">
+                <div class="category-label ${lane.color}">
+                    <h4>${lane.category}</h4>
+                    <div class="timeframe">${lane.timeframe}</div>
+                    <div class="description">${lane.description}</div>
+                </div>
+                <div class="timeline-track">
+                    <div class="track-container">
+                        <div class="track-bg"></div>
+                        <div class="track-progress ${lane.color}" style="width: ${Math.max(...milestones.map(m => m.calculatedPosition))}%;"></div>
+                        ${milestones.map(milestone => `
+                            <div class="milestone ${lane.color}" style="left: ${milestone.calculatedPosition}%;">
+                                <div class="milestone-tooltip">
+                                    <strong>${milestone.year}: ${milestone.event}</strong>
+                                    ${lane.detailed_analysis ? `<br><br><em>Analysis:</em><br>${getAnalysisForYear(lane.detailed_analysis, milestone.year)}` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        swimlanesContainer.appendChild(swimlaneDiv);
+    });
+}
+
+function updateInsights(insights) {
+    const insightsContent = document.getElementById('insightsContent');
+    
+    if (!insights || !Array.isArray(insights) || insights.length === 0) {
+        console.warn('No insights provided, keeping default insights');
+        return;
+    }
+    
+    // Clear existing content and populate with LLM insights
+    insightsContent.innerHTML = '';
+    
+    insights.forEach(insight => {
+        const insightDiv = document.createElement('div');
+        insightDiv.className = 'insight-item';
+        insightDiv.innerHTML = `
+            <div class="insight-dot"></div>
+            <p>${insight}</p>
+        `;
+        insightsContent.appendChild(insightDiv);
+    });
+    
+    console.log(`Updated insights with ${insights.length} items from LLM response`);
+}
+
+function handleSampleSizeModeChange() {
+    const mode = document.getElementById('sampleSizeMode').value;
+    const customLimit = document.getElementById('customLimit');
+    
+    if (mode === 'custom') {
+        customLimit.style.display = 'block';
+        customLimit.focus();
+    } else {
+        customLimit.style.display = 'none';
+    }
+    
+    updateContextInfo();
+}
+
+function calculateOptimalSampleSize(model, message) {
+    const mode = document.getElementById('sampleSizeMode').value;
+    
+    if (mode === 'custom') {
+        return parseInt(document.getElementById('customLimit').value) || 50;
+    }
+    
+    // Calculate based on mode and model capabilities
+    const contextLimit = contextLimits[model] || contextLimits.default;
+    const isMegaContext = contextLimit >= 1000000;
+    
+    let baseSampleSize;
+    switch (mode) {
+        case 'focused':
+            baseSampleSize = isMegaContext ? 50 : 25;
+            break;
+        case 'balanced':
+            baseSampleSize = isMegaContext ? 100 : 50;
+            break;
+        case 'comprehensive':
+            baseSampleSize = isMegaContext ? 200 : 100;
+            break;
+        case 'auto':
+        default:
+            baseSampleSize = isMegaContext ? 150 : 75;
+            break;
+    }
+    
+    // Ensure reasonable limits
+    const maxLimit = isMegaContext ? 1000 : 400;
+    const minLimit = 20;
+    
+    return Math.max(minLimit, Math.min(baseSampleSize, maxLimit));
+}
+
+function estimateTokens(text) {
+    // Rough estimation: 1 token ≈ 4 characters for English
+    return Math.ceil((text?.length || 0) / 4);
+}
+
+function updateContextInfo() {
+    const contextInfo = document.getElementById('contextInfo');
+    const contextStats = document.getElementById('contextStats');
+    
+    if (!contextInfo || !contextStats) {
+        return;
+    }
+    
+    const model = document.getElementById('model')?.value;
+    const message = 'timeline analysis';
+    
+    if (!model) {
+        contextInfo.style.display = 'none';
+        return;
+    }
+    
+    const sampleSize = calculateOptimalSampleSize(model, message);
+    const contextLimit = contextLimits[model] || contextLimits.default;
+    
+    // Estimate token usage
+    const systemTokens = 800;
+    const messageTokens = estimateTokens(message);
+    const tokensPerArticle = 180;
+    const articleTokens = sampleSize * tokensPerArticle;
+    const totalTokens = systemTokens + messageTokens + articleTokens;
+    
+    const contextUsage = (totalTokens / contextLimit) * 100;
+    
+    // Model indicator
+    const modelIndicator = contextLimit >= 1000000 ? ' 🚀1M' : 
+                          contextLimit >= 200000 ? ' ⚡200K' : 
+                          contextLimit >= 100000 ? ' 💫100K' : '';
+    
+    const contextText = `Context: ${sampleSize} articles, ~${totalTokens.toLocaleString()} tokens (${contextUsage.toFixed(1)}%)${modelIndicator}`;
+    contextStats.textContent = contextText;
+    
+    // Color coding
+    if (contextUsage > 90) {
+        contextStats.style.color = '#dc3545';
+        contextStats.style.fontWeight = 'bold';
+    } else if (contextUsage > 70) {
+        contextStats.style.color = '#fd7e14';
+        contextStats.style.fontWeight = '600';
+    } else if (contextUsage > 50) {
+        contextStats.style.color = '#28a745';
+        contextStats.style.fontWeight = '500';
+    } else {
+        contextStats.style.color = '#007bff';
+        contextStats.style.fontWeight = '500';
+    }
+    
+    contextInfo.style.display = 'block';
+}
+
+function toggleCustomTimeframe() {
+    const timeframe = document.getElementById('timeframe').value;
+    const customDays = document.getElementById('customDays');
+    
+    if (timeframe === 'custom') {
+        customDays.style.display = 'block';
+        customDays.focus();
+    } else {
+        customDays.style.display = 'none';
+        customDays.value = '';
+    }
+}
+
+function updateLoadButton() {
+    const topic = document.getElementById('topic').value;
+    const model = document.getElementById('model').value;
+    const loadBtn = document.getElementById('loadAnalysisBtn');
+    const configureBtn = document.querySelector('[data-bs-target="#configModal"]');
+    
+    if (topic && model) {
+        loadBtn.disabled = false;
+        loadBtn.innerHTML = '<i class="fas fa-play me-2"></i>Generate Timeline';
+        configureBtn.innerHTML = '<i class="fas fa-check me-2"></i>Configured';
+        configureBtn.classList.remove('btn-primary');
+        configureBtn.classList.add('btn-success');
+    } else {
+        loadBtn.disabled = true;
+        loadBtn.innerHTML = '<i class="fas fa-play me-2"></i>Generate Timeline';
+        configureBtn.innerHTML = '<i class="fas fa-cog me-2"></i>Configure Analysis';
+        configureBtn.classList.remove('btn-success');
+        configureBtn.classList.add('btn-primary');
+    }
+}
+
+function saveConfigurationAndClose() {
+    const topic = document.getElementById('topic').value;
+    const model = document.getElementById('model').value;
+    const timeframe = document.getElementById('timeframe').value;
+    const analysisDepth = document.getElementById('analysisDepth').value;
+    const sampleSizeMode = document.getElementById('sampleSizeMode').value;
+    const customLimit = document.getElementById('customLimit').value;
+    
+    if (!topic) {
+        alert('Please select a topic');
+        return;
+    }
+    
+    if (!model) {
+        alert('Please select a model');
+        return;
+    }
+    
+    const config = {
+        topic,
+        model,
+        timeframe,
+        futureHorizon: document.getElementById('futureHorizon').value,
+        analysisDepth,
+        sampleSizeMode,
+        customLimit,
+        timestamp: new Date().toISOString()
+    };
+    
+    // Add custom days if timeframe is custom
+    if (timeframe === 'custom') {
+        const customDays = document.getElementById('customDays').value;
+        if (customDays) {
+            config.customDays = customDays;
+        }
+    }
+    
+    localStorage.setItem('timelineConfig', JSON.stringify(config));
+    
+    // Close modal
+    const modalElement = document.getElementById('configModal');
+    const modal = bootstrap.Modal.getInstance(modalElement);
+    if (modal) {
+        modal.hide();
+    }
+    
+    updateLoadButton();
+    showSuccess('Configuration saved! You can now generate the timeline.');
+}
+
+function saveAnalysisResults(data, config) {
+    try {
+        const cacheData = {
+            data,
+            config,
+            timestamp: new Date().toISOString()
+        };
+        localStorage.setItem('timelineResults', JSON.stringify(cacheData));
+    } catch (e) {
+        console.warn('Failed to cache analysis results:', e);
+    }
+}
+
+function loadCachedResults() {
+    try {
+        const cachedData = localStorage.getItem('timelineResults');
+        if (cachedData) {
+            const cache = JSON.parse(cachedData);
+            const cacheAge = new Date() - new Date(cache.timestamp);
+            const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+            
+            if (cacheAge < maxAge) {
+                return cache;
+            } else {
+                localStorage.removeItem('timelineResults');
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load cached results:', e);
+    }
+    return null;
+}
+
+function restoreConfiguration() {
+    try {
+        const savedConfig = localStorage.getItem('timelineConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            
+            if (config.topic) document.getElementById('topic').value = config.topic;
+            if (config.model) document.getElementById('model').value = config.model;
+            if (config.timeframe) document.getElementById('timeframe').value = config.timeframe;
+            if (config.futureHorizon) document.getElementById('futureHorizon').value = config.futureHorizon;
+            if (config.analysisDepth) document.getElementById('analysisDepth').value = config.analysisDepth;
+            if (config.sampleSizeMode) document.getElementById('sampleSizeMode').value = config.sampleSizeMode;
+            if (config.customLimit) document.getElementById('customLimit').value = config.customLimit;
+            
+            // Handle custom timeframe
+            if (config.timeframe === 'custom' && config.customDays) {
+                document.getElementById('customDays').value = config.customDays;
+                document.getElementById('customDays').style.display = 'block';
+            }
+            
+            // Handle custom sample size
+            if (config.sampleSizeMode === 'custom') {
+                document.getElementById('customLimit').style.display = 'block';
+            }
+            
+            updateLoadButton();
+            updateContextInfo();
+        }
+    } catch (e) {
+        console.warn('Failed to restore configuration:', e);
+    }
+}
+
+function clearSavedConfiguration() {
+    try {
+        localStorage.removeItem('timelineConfig');
+        localStorage.removeItem('timelineResults');
+        showSuccess('Configuration and cached results cleared!');
+        
+        // Reset form
+        document.getElementById('topic').value = '';
+        document.getElementById('model').value = '';
+        document.getElementById('timeframe').value = '365d';
+        document.getElementById('futureHorizon').value = '10';
+        document.getElementById('analysisDepth').value = 'standard';
+        document.getElementById('sampleSizeMode').value = 'auto';
+        document.getElementById('customLimit').value = '50';
+        document.getElementById('customDays').style.display = 'none';
+        document.getElementById('customLimit').style.display = 'none';
+        
+        // Hide timeline
+        document.getElementById('timelineContainer').style.display = 'none';
+        document.getElementById('analysisSummary').style.display = 'none';
+        document.getElementById('topicSubtitle').textContent = 'Configure Analysis Below';
+        
+        updateLoadButton();
+    } catch (e) {
+        console.error('Error clearing configuration:', e);
+        showError('Failed to clear configuration. Please try refreshing the page.');
+    }
+}
+
+function showSuccess(message) {
+    const errorContainer = document.getElementById('errorContainer');
+    errorContainer.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>`;
+    
+    setTimeout(() => {
+        const alert = errorContainer.querySelector('.alert');
+        if (alert) {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }
+    }, 3000);
+}
+
+function showError(message) {
+    const errorContainer = document.getElementById('errorContainer');
+    errorContainer.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>`;
+}
+
+// Initialize page
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        // Load topics
+        const topicsResponse = await fetch('/api/forecast-charts/topics');
+        const topicsData = await topicsResponse.json();
+        
+        const topicSelect = document.getElementById('topic');
+        
+        if (topicsData.success && topicsData.topics && topicsData.topics.length > 0) {
+            topicSelect.innerHTML = '<option value="">Select a topic...</option>';
+            
+            topicsData.topics.forEach(topic => {
+                const option = document.createElement('option');
+                option.value = topic;
+                option.textContent = topic.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                topicSelect.appendChild(option);
+            });
+        } else {
+            topicSelect.innerHTML = '<option value="">No topics available</option>';
+            showError('No topics with forecast data found.');
+        }
+
+        // Load models
+        const modelsResponse = await fetch('/api/models');
+        const models = await modelsResponse.json();
+        
+        const modelSelect = document.getElementById('model');
+        
+        if (models && models.length > 0) {
+            modelSelect.innerHTML = '<option value="">Select model...</option>';
+            
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = `${model.name} (${model.provider})`;
+                modelSelect.appendChild(option);
+            });
+        } else {
+            modelSelect.innerHTML = '<option value="">No models available</option>';
+            showError('No AI models found.');
+        }
+        
+        // Add event listeners for context updates
+        modelSelect.addEventListener('change', updateContextInfo);
+        document.getElementById('sampleSizeMode').addEventListener('change', updateContextInfo);
+        document.getElementById('customLimit').addEventListener('input', updateContextInfo);
+        
+        // Initialize context info
+        updateContextInfo();
+        
+        // Restore saved configuration
+        restoreConfiguration();
+        
+    } catch (error) {
+        console.warn('Failed to load data:', error);
+        showError('Failed to load available data.');
+    }
+});
+</script>
+{% endblock %}

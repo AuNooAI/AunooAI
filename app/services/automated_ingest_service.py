@@ -177,27 +177,41 @@ class AutomatedIngestService:
                 self.logger.warning(f"Insufficient content for analysis: {uri}")
                 return article_data
             
-            # Get topic-specific ontology from Research class
+            # Get topic from article data (don't use hardcoded default)
+            topic = article_data.get('topic')
+            if not topic:
+                self.logger.error(f"No topic specified for article {uri} - cannot determine ontology")
+                return article_data
+            
+            # Get topic-specific ontology dynamically using Research class
             from app.research import Research
             research = Research(self.db)
             
-            # Set topic if available in article data
-            topic = article_data.get('topic', 'AI and Machine Learning')  # Default to AI topic
+            # Set topic and get dynamic ontology data
             research.set_topic(topic)
             
-            # Get topic-specific analysis parameters
-            categories = research.CATEGORIES
-            future_signals = research.FUTURE_SIGNALS
-            sentiment_options = research.SENTIMENT
-            time_to_impact_options = research.TIME_TO_IMPACT
-            driver_types = research.DRIVER_TYPES
+            # Use asyncio to call the async methods for getting ontology data
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             
-            self.logger.debug(f"Using topic-specific ontology for '{topic}':")
+            try:
+                # Get topic-specific analysis parameters dynamically
+                categories = loop.run_until_complete(research.get_categories(topic))
+                future_signals = loop.run_until_complete(research.get_future_signals(topic))
+                sentiment_options = loop.run_until_complete(research.get_sentiments(topic))
+                time_to_impact_options = loop.run_until_complete(research.get_time_to_impact(topic))
+                driver_types = loop.run_until_complete(research.get_driver_types(topic))
+            finally:
+                loop.close()
+            
+            self.logger.debug(f"Using dynamic ontology for topic '{topic}':")
             self.logger.debug(f"  Categories: {categories}")
             self.logger.debug(f"  Future signals: {future_signals}")
             self.logger.debug(f"  Sentiment options: {sentiment_options}")
+            self.logger.debug(f"  Time to impact: {time_to_impact_options}")
+            self.logger.debug(f"  Driver types: {driver_types}")
             
-            # Perform analysis
+            # Perform analysis with dynamic ontology data
             analysis_result = self.article_analyzer.analyze_content(
                 article_text=article_text,
                 title=title,
@@ -715,14 +729,98 @@ class AutomatedIngestService:
         return self.enrich_article_with_bias(article_data)
 
     async def _analyze_article_content_async(self, article_data: Dict[str, Any], topic: str) -> Dict[str, Any]:
-        """Async version of article analysis"""
-        # Set topic if not already present
-        if not article_data.get('topic') and topic:
-            article_data['topic'] = topic
-        
-        # For now, this wraps the sync version in a thread executor
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self.analyze_article_content, article_data)
+        """Async version of article analysis with dynamic ontology fetching"""
+        try:
+            # Initialize article analyzer if not already done
+            if not self.article_analyzer:
+                model_name = self.get_llm_client()
+                ai_model = LiteLLMModel.get_instance(model_name)
+                self.article_analyzer = ArticleAnalyzer(ai_model, use_cache=True)
+            
+            # Prepare content for analysis
+            article_text = article_data.get('summary', '') or article_data.get('content', '')
+            title = article_data.get('title', '')
+            source = article_data.get('news_source', '')
+            uri = article_data.get('uri', '')
+            
+            if not article_text or not title:
+                self.logger.warning(f"Insufficient content for analysis: {uri}")
+                return article_data
+            
+            # Use provided topic or get from article data
+            if not topic:
+                topic = article_data.get('topic')
+            if not topic:
+                self.logger.error(f"No topic specified for article {uri} - cannot determine ontology")
+                return article_data
+            
+            # Set topic if not already present in article data
+            if not article_data.get('topic'):
+                article_data['topic'] = topic
+            
+            # Get topic-specific ontology dynamically using Research class
+            from app.research import Research
+            research = Research(self.db)
+            
+            # Set topic and get dynamic ontology data asynchronously
+            research.set_topic(topic)
+            
+            # Get topic-specific analysis parameters dynamically
+            categories = await research.get_categories(topic)
+            future_signals = await research.get_future_signals(topic)
+            sentiment_options = await research.get_sentiments(topic)
+            time_to_impact_options = await research.get_time_to_impact(topic)
+            driver_types = await research.get_driver_types(topic)
+            
+            self.logger.debug(f"Using dynamic ontology for topic '{topic}':")
+            self.logger.debug(f"  Categories: {categories}")
+            self.logger.debug(f"  Future signals: {future_signals}")
+            self.logger.debug(f"  Sentiment options: {sentiment_options}")
+            self.logger.debug(f"  Time to impact: {time_to_impact_options}")
+            self.logger.debug(f"  Driver types: {driver_types}")
+            
+            # Perform analysis with dynamic ontology data in a thread executor
+            loop = asyncio.get_event_loop()
+            analysis_result = await loop.run_in_executor(
+                None,
+                self.article_analyzer.analyze_content,
+                article_text,
+                title,
+                source,
+                uri,
+                50,  # summary_length
+                "neutral",  # summary_voice
+                "informative",  # summary_type
+                categories,
+                future_signals,
+                sentiment_options,
+                time_to_impact_options,
+                driver_types
+            )
+            
+            # Update article data with analysis results
+            tags = analysis_result.get('tags', [])
+            tags_str = ','.join(tags) if isinstance(tags, list) else str(tags) if tags else None
+            
+            article_data.update({
+                'category': analysis_result.get('category'),
+                'sentiment': analysis_result.get('sentiment'),
+                'future_signal': analysis_result.get('future_signal'),
+                'future_signal_explanation': analysis_result.get('future_signal_explanation'),
+                'sentiment_explanation': analysis_result.get('sentiment_explanation'),
+                'time_to_impact': analysis_result.get('time_to_impact'),
+                'driver_type': analysis_result.get('driver_type'),
+                'tags': tags_str,
+                'analyzed': True
+            })
+            
+            self.logger.debug(f"Async analyzed article {uri}: category={analysis_result.get('category')}, sentiment={analysis_result.get('sentiment')}, future_signal={analysis_result.get('future_signal')}")
+            
+            return article_data
+            
+        except Exception as e:
+            self.logger.error(f"Error in async article analysis: {e}")
+            return article_data
 
     async def _score_article_relevance_async(
         self, 

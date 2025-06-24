@@ -1265,26 +1265,7 @@ function initializeTooltips() {
 
 // Initialize page
 window.addEventListener('load', async function() {
-    // Clean up only our modal artifacts from previous page loads, not all Bootstrap components
-    const marketSignalsBackdrops = document.querySelectorAll('.modal-backdrop:not([data-bs-target])');
-    marketSignalsBackdrops.forEach(backdrop => {
-        // Only remove if it's not associated with an active dropdown or other component
-        if (!backdrop.previousElementSibling || 
-            (backdrop.previousElementSibling.id === 'configModal' && 
-             !backdrop.previousElementSibling.classList.contains('show'))) {
-            backdrop.remove();
-        }
-    });
-    
-    // Only clean up modal-open state if no active modals or dropdowns exist
-    const activeModals = document.querySelectorAll('.modal.show');
-    const activeDropdowns = document.querySelectorAll('.dropdown-menu.show');
-    if (activeModals.length === 0 && activeDropdowns.length === 0) {
-        document.body.classList.remove('modal-open');
-        document.body.style.removeProperty('overflow');
-        document.body.style.removeProperty('padding-right');
-        document.documentElement.classList.remove('modal-open');
-    }
+    // Let Bootstrap handle its own initialization
     
     // Initialize tooltips
     initializeTooltips();

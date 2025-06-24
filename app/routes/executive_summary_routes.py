@@ -487,4 +487,469 @@ async def market_signals_dashboard_index(
     return templates.TemplateResponse("market_signals_dashboard.html", get_template_context(request, {
         "topic_name": None,
         "session": session
-    })) 
+    }))
+
+@web_router.get("/ai-impact-timeline", response_class=HTMLResponse)
+async def ai_impact_timeline_page(
+    request: Request,
+    session: dict = Depends(verify_session)
+):
+    """Render the AI Impact Timeline page."""
+    from app.main import get_template_context
+    return templates.TemplateResponse("ai_timeline_html.html", get_template_context(request, {
+        "session": session
+    }))
+
+@router.get("/ai-impact-timeline/{topic_name}")
+async def get_ai_impact_timeline_analysis(
+    topic_name: str,
+    timeframe_days: int = Query(365, description="Analysis timeframe in days"),
+    model: Optional[str] = Query(None, description="AI model to use for analysis"),
+    future_horizon: int = Query(10, description="Future horizon in years"),
+    analysis_depth: str = Query("standard", description="Analysis depth"),
+    sample_size_mode: str = Query("auto", description="Sample size mode"),
+    custom_limit: Optional[int] = Query(None, description="Custom sample limit"),
+    db: Database = Depends(get_database_instance),
+    research: Research = Depends(get_research),
+    session: dict = Depends(verify_session)
+):
+    """
+    Generate AI impact timeline analysis for a topic using Auspex.
+    """
+    try:
+        logger.info(f"Generating AI impact timeline analysis for topic: {topic_name}")
+        
+        # Calculate optimal sample size
+        optimal_sample_size = _calculate_optimal_sample_size(model or 'gpt-4o', sample_size_mode, custom_limit)
+        logger.info(f"Using sample size: {optimal_sample_size} articles for model: {model}")
+        
+        # Get recent articles for the topic
+        query = """
+        SELECT uri, title, summary, future_signal, sentiment, time_to_impact, 
+               driver_type, category, publication_date, news_source
+        FROM articles 
+        WHERE topic = ? 
+        AND publication_date >= date('now', '-{} days')
+        AND analyzed = 1
+        AND (summary IS NOT NULL AND summary != '')
+        ORDER BY publication_date DESC
+        LIMIT ?
+        """.format(timeframe_days)
+        
+        articles = db.fetch_all(query, (topic_name, optimal_sample_size))
+        
+        if not articles:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"No analyzed articles found for topic: {topic_name}"
+            )
+        
+        logger.info(f"Found {len(articles)} articles for timeline analysis")
+        
+        # Use Auspex to generate the timeline analysis
+        auspex = get_auspex_service()
+        
+        # Prepare the prompt based on "Potential Timing of Major Impacts"
+        timeline_prompt = f"""# AI Impact Timeline Analysis: Potential Timing of Major Impacts
+
+Based on analysis of {len(articles)} recent articles about "{topic_name}", generate a comprehensive strategic planning timeline for major AI impacts following the detailed analysis format.
+
+## Analysis Focus: "Potential Timing of Major Impacts"
+
+**Your task:** Create a detailed timeline analysis with 6-8 impact categories, following the comprehensive structure with specific timing milestones, detailed analysis, and strategic insights.
+
+**Article Data Summary:**
+{_prepare_articles_summary(articles, topic_name)}
+
+## Required Output Format:
+
+```json
+{{
+  "topic": "{topic_name}",
+  "summary": {{
+    "total_articles": {len(articles)},
+    "category_focus": [
+      {{"category": "AI Business & Market Disruption", "count": "~X articles", "description": "Product launches, investment cycles, startup impact"}},
+      {{"category": "AI at Work and Employment", "count": "~X articles", "description": "Job automation, skills shift, labor market changes"}},
+      {{"category": "AI in Software Development", "count": "~X articles", "description": "AI tools adoption, workflow transformation"}},
+      {{"category": "AI and Society", "count": "~X articles", "description": "Societal adaptation, equity, daily life integration"}},
+      {{"category": "The Path to AGI", "count": "~X articles", "description": "AGI milestones, existential risk, paradigm shifts"}},
+      {{"category": "AI Trust, Risk, and Security", "count": "~X articles", "description": "Governance, explainability, safety regimes"}},
+      {{"category": "AI Ethics & Regulation", "count": "~X articles", "description": "Regulatory response, oversight timing"}},
+      {{"category": "AI Healthcare & Science", "count": "~X articles", "description": "Clinical adoption, drug discovery acceleration"}}
+    ],
+    "sentiment_distribution": {{
+      "neutral": "~45%",
+      "positive": "~33%", 
+      "critical_warning": "~13%",
+      "mixed_negative": "~9%"
+    }},
+    "future_signal_distribution": {{
+      "accelerate_breakthrough": "~54%",
+      "evolve_gradually": "~36%",
+      "warning_plateau": "~8%",
+      "none_specified": "~2%"
+    }},
+    "time_to_impact": {{
+      "immediate": "22% (now-12 months)",
+      "short_term": "28% (1-2 years)",
+      "mid_term": "34% (2-5 years)", 
+      "long_term": "16% (5+ years)"
+    }}
+  }},
+  "swimlanes": [
+    {{
+      "category": "AI Business & Market Disruption",
+      "timeframe": "Immediate-Short term (2024-2026)",
+      "color": "bg-red-500",
+      "description": "Generative AI product launches and price wars reshaping tech and SaaS markets",
+      "detailed_analysis": {{
+        "immediate_short_term": "Generative AI product launches (e.g., Llama 3, OpenAI agents) and price wars are reshaping tech and SaaS markets now. Major enterprise adoption and new AI-native startups are expected to dominate between 2024–2026.",
+        "mid_term": "Shift to 'AI-first' business models for Fortune 500s widely predicted by 2027–2028.",
+        "long_term": "Mature AI-driven industries and new market leaders consolidated by early 2030s."
+      }},
+      "milestones": [
+        {{"year": "2024", "event": "AI product launches and price wars", "position": 15}},
+        {{"year": "2025", "event": "Enterprise AI adoption accelerates", "position": 30}},
+        {{"year": "2027", "event": "AI-first business models dominate Fortune 500", "position": 60}},
+        {{"year": "2030", "event": "Industry consolidation around AI leaders", "position": 85}}
+      ]
+    }},
+    {{
+      "category": "AI at Work and Employment", 
+      "timeframe": "Immediate-Long term (2024-2030+)",
+      "color": "bg-orange-500",
+      "description": "Labor market restructuring from automation and AI copilots replacing roles",
+      "detailed_analysis": {{
+        "immediate_short_term": "Layoffs in tech/media/finance underway (2024–2025) as automation and copilots replace entry-level roles.",
+        "mid_term": "Widespread labor market restructuring and mass reskilling to peak between 2026–2029. By 2030, up to 30% of work tasks may be automated in advanced economies.",
+        "long_term": "New professions and AI-augmented jobs stabilize after 2030."
+      }},
+      "milestones": [
+        {{"year": "2024", "event": "Tech/media/finance layoffs accelerate", "position": 10}},
+        {{"year": "2026", "event": "Mass reskilling programs launch", "position": 40}},
+        {{"year": "2029", "event": "30% of work tasks automated", "position": 75}},
+        {{"year": "2031", "event": "New AI-augmented professions stabilize", "position": 90}}
+      ]
+    }}
+  ],
+  "insights": [
+    "Act now to capture value from immediate productivity gains, address workforce transitions, and shape early regulatory frameworks",
+    "Invest for the mid-term in upskilling, risk management, and sector-specific AI integration (2026-2029 transformation phase)",
+    "Prepare for long-term uncertainty by monitoring AGI developments and ensuring societal resilience to paradigm shifts",
+    "AI's most profound impacts will materialize across staggered timelines—immediate business disruption, mid-term societal transformation, long-term AGI governance"
+  ]
+}}
+```
+
+## Detailed Guidelines:
+
+### **Categories to Include (6-8 swimlanes):**
+1. **AI Business & Market Disruption** - Product launches, investment cycles, startup impact
+2. **AI at Work and Employment** - Job automation, skills shift, labor market changes  
+3. **AI in Software Development** - AI tools adoption, workflow transformation
+4. **AI and Society** - Societal adaptation, equity, daily life integration
+5. **The Path to AGI** - AGI milestones, existential risk, paradigm shifts
+6. **AI Trust, Risk, and Security** - Governance, explainability, safety regimes
+7. **AI Ethics & Regulation** - Regulatory response, oversight timing
+8. **AI Healthcare & Science** - Clinical adoption, drug discovery acceleration
+
+### **Timeframe Structure (Analysis Horizon: {future_horizon} years):**
+- **Immediate (now–12 months)**: Current developments and immediate impacts
+- **Short-term (1–2 years)**: Next 1-2 years developments  
+- **Mid-term (2–{int(future_horizon*0.6)} years)**: Mid-range transformation phase
+- **Long-term ({int(future_horizon*0.6)}+ years)**: Long-term paradigm shifts within {future_horizon}-year horizon
+
+### **Milestone Guidelines:**
+- Position scale: 0-100 representing timeline progression from 2024 to 2035+
+- Include specific years and concrete, measurable events
+- Reference real developments when possible from the article data
+- 3-4 milestones per category showing progression
+
+### **Analysis Depth:**
+- Include detailed_analysis for each category with immediate/mid/long-term breakdown
+- Reference specific examples, companies, statistics when available from articles
+- Show progression and causality between timeframes
+
+### **Colors to Use:**
+- bg-red-500 (Business/Market), bg-orange-500 (Employment), bg-blue-500 (Software Dev)
+- bg-green-500 (Society), bg-purple-500 (AGI), bg-indigo-500 (Trust/Security) 
+- bg-pink-500 (Ethics/Regulation), bg-teal-500 (Healthcare/Science)
+
+### **Strategic Insights (4 key insights):**
+1. **Act now** - Immediate actions for productivity gains and regulatory positioning
+2. **Invest for mid-term** - 2026-2029 transformation investments and preparation  
+3. **Prepare for long-term** - AGI monitoring and societal resilience building
+4. **Overall pattern** - Staggered timeline understanding and adaptive strategy
+
+Generate the comprehensive timeline analysis now, ensuring detailed analysis for each category and specific, actionable milestones based on the article evidence:"""
+
+        # Generate the analysis using Auspex
+        # Create temporary chat session for analysis
+        from datetime import datetime
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        chat_id = await auspex.create_chat_session(topic=topic_name, title=f"AI Impact Timeline Analysis {current_time}")
+        
+        result = ""
+        # Use provided model or get first available model
+        selected_model = model
+        if not selected_model:
+            from app.ai_models import get_available_models
+            available_models = get_available_models()
+            if available_models:
+                selected_model = available_models[0]['name']
+            else:
+                raise HTTPException(status_code=500, detail="No AI models available")
+        
+        async for chunk in auspex.chat_with_tools(
+            chat_id=chat_id,
+            message=timeline_prompt,
+            model=selected_model,
+            limit=10,
+            tools_config={"search_articles": False}
+        ):
+            result += chunk
+        
+        auspex.delete_chat_session(chat_id)
+        
+        # Parse the result
+        try:
+            import json
+            import re
+            
+            # Extract JSON from the response
+            json_match = re.search(r'```json\s*(\{.*?\})\s*```', result, re.DOTALL)
+            if json_match:
+                timeline_data = json.loads(json_match.group(1))
+            else:
+                # Try to find JSON without code blocks
+                json_start = result.find('{')
+                json_end = result.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    timeline_data = json.loads(result[json_start:json_end])
+                else:
+                    raise ValueError("No valid JSON found in response")
+            
+            # Add metadata
+            timeline_data.update({
+                'generated_at': datetime.now().isoformat(),
+                'articles_analyzed': len(articles),
+                'timeframe_days': timeframe_days,
+                'model_used': model or 'gpt-4o'
+            })
+            
+            logger.info(f"Successfully generated timeline with {len(timeline_data.get('swimlanes', []))} categories")
+            return timeline_data
+            
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(f"Failed to parse JSON response: {e}")
+            # Return a fallback response with enhanced default data
+            return _create_fallback_timeline_response(topic_name, articles)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating timeline analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+def _calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', custom_limit: int = None) -> int:
+    """Calculate optimal sample size based on model capabilities and mode"""
+    
+    if sample_size_mode == 'custom' and custom_limit:
+        return custom_limit
+    
+    # Context limits for different AI models
+    context_limits = {
+        'gpt-3.5-turbo': 16385,
+        'gpt-4': 8192,
+        'gpt-4-turbo': 128000,
+        'gpt-4o': 128000,
+        'gpt-4o-mini': 128000,
+        'gpt-4.1': 1000000,
+        'claude-3-opus': 200000,
+        'claude-3-sonnet': 200000,
+        'claude-3.5-sonnet': 200000,
+        'default': 16385
+    }
+    
+    context_limit = context_limits.get(model, context_limits['default'])
+    is_mega_context = context_limit >= 1000000
+    
+    if sample_size_mode == 'focused':
+        base_sample_size = 50 if is_mega_context else 25
+    elif sample_size_mode == 'balanced':
+        base_sample_size = 100 if is_mega_context else 50
+    elif sample_size_mode == 'comprehensive':
+        base_sample_size = 200 if is_mega_context else 100
+    else:  # auto or default
+        base_sample_size = 150 if is_mega_context else 75
+    
+    # Ensure reasonable limits
+    max_limit = 1000 if is_mega_context else 400
+    min_limit = 20
+    
+    return max(min_limit, min(base_sample_size, max_limit))
+
+def _prepare_articles_summary(articles, topic_name: str) -> str:
+    """Prepare a structured summary of article data for the timeline prompt"""
+    
+    if not articles:
+        return "No articles available for analysis."
+    
+    # Group articles by categories and extract key information
+    summary_parts = []
+    
+    # Sample of recent articles with key details
+    sample_articles = articles[:20]  # Take top 20 for detailed context
+    
+    summary_parts.append(f"**Recent Article Examples for {topic_name}:**")
+    
+    for i, article in enumerate(sample_articles, 1):
+        title = article[1] if len(article) > 1 else "No title"
+        summary = article[2] if len(article) > 2 else "No summary"
+        future_signal = article[3] if len(article) > 3 else "No signal"
+        sentiment = article[4] if len(article) > 4 else "Neutral"
+        time_to_impact = article[5] if len(article) > 5 else "Unknown"
+        publication_date = article[8] if len(article) > 8 else "Unknown"
+        news_source = article[9] if len(article) > 9 else "Unknown"
+        
+        # Extract first sentence or key point from summary
+        key_point = summary.split('.')[0][:150] + "..." if summary and len(summary) > 150 else summary
+        
+        summary_parts.append(f"""
+{i}. **{title[:80]}{'...' if len(title) > 80 else ''}**
+   - Source: {news_source} ({publication_date[:10] if publication_date else 'Recent'})
+   - Key Point: {key_point}
+   - Future Signal: {future_signal}
+   - Sentiment: {sentiment}
+   - Time to Impact: {time_to_impact}
+""")
+        
+        if i >= 15:  # Limit to prevent token overflow
+            break
+    
+    # Add article statistics
+    total_articles = len(articles)
+    summary_parts.append(f"""
+**Article Analysis Context:**
+- Total articles analyzed: {total_articles}
+- Sample shown above: {min(15, total_articles)} most recent articles
+- Use these examples to ground your timeline analysis in real evidence
+- Reference specific developments, companies, and trends mentioned in articles
+- Ensure milestone timings reflect the evidence from these articles
+""")
+    
+    return "\n".join(summary_parts)
+    
+    # Analyze patterns in the data
+    sentiments = []
+    categories = []
+    drivers = []
+    signals = []
+    time_impacts = []
+    
+    sample_articles = []
+    
+    for article in articles[:30]:  # Limit to avoid token limits
+        if article[4]:  # sentiment
+            sentiments.append(article[4])
+        if article[7]:  # category
+            categories.append(article[7])
+        if article[6]:  # driver_type
+            drivers.append(article[6])
+        if article[3]:  # future_signal
+            signals.append(article[3])
+        if article[5]:  # time_to_impact
+            time_impacts.append(article[5])
+        
+        # Add article summary for context
+        if article[2]:  # summary
+            sample_articles.append(f"- {article[1]}: {article[2][:150]}...")
+    
+    # Count frequencies
+    from collections import Counter
+    sentiment_counts = Counter(sentiments)
+    category_counts = Counter(categories)
+    driver_counts = Counter(drivers)
+    signal_counts = Counter(signals)
+    time_impact_counts = Counter(time_impacts)
+    
+    # Build analysis summary
+    summary = f"""**Data Overview:**
+- Total articles: {len(articles)}
+- Topic: {topic_name}
+- Date range: {articles[-1][8][:10] if articles and articles[-1][8] else 'Unknown'} to {articles[0][8][:10] if articles and articles[0][8] else 'Unknown'}
+
+**Key Patterns:**
+- Sentiments: {', '.join([f"{s}: {c}" for s, c in sentiment_counts.most_common(3)])}
+- Time to Impact: {', '.join([f"{t}: {c}" for t, c in time_impact_counts.most_common(3)])}
+- Future Signals: {', '.join([f"{sig}: {c}" for sig, c in signal_counts.most_common(3)])}
+- Categories: {', '.join([f"{cat}: {c}" for cat, c in category_counts.most_common(3)])}
+
+**Recent Article Highlights:**
+{chr(10).join(sample_articles[:8])}
+"""
+    
+    return summary
+
+def _create_fallback_timeline_response(topic_name: str, articles) -> Dict:
+    """Create a fallback timeline response when AI analysis fails"""
+    
+    return {
+        "topic": topic_name,
+        "swimlanes": [
+            {
+                "category": f"{topic_name} Business Impact",
+                "timeframe": "Immediate-Short term (2024-2026)",
+                "color": "bg-red-500",
+                "description": "Market disruption and business model changes in the short term",
+                "milestones": [
+                    {"year": "2024", "event": "Early Market Signals", "position": 15},
+                    {"year": "2025", "event": "Industry Adoption", "position": 40},
+                    {"year": "2026", "event": "Market Maturation", "position": 65}
+                ]
+            },
+            {
+                "category": f"{topic_name} Technology Evolution",
+                "timeframe": "Mid-term (2026-2030)",
+                "color": "bg-blue-500",
+                "description": "Technological advancement and integration timeline",
+                "milestones": [
+                    {"year": "2026", "event": "Technology Breakthrough", "position": 25},
+                    {"year": "2028", "event": "Widespread Implementation", "position": 60},
+                    {"year": "2030", "event": "Technology Maturity", "position": 85}
+                ]
+            },
+            {
+                "category": f"{topic_name} Regulatory Response",
+                "timeframe": "Short-Long term (2024-2030+)",
+                "color": "bg-purple-500",
+                "description": "Policy and regulatory development timeline",
+                "milestones": [
+                    {"year": "2025", "event": "Initial Frameworks", "position": 20},
+                    {"year": "2027", "event": "Comprehensive Regulation", "position": 55},
+                    {"year": "2030", "event": "Global Standards", "position": 80}
+                ]
+            },
+            {
+                "category": f"{topic_name} Societal Impact",
+                "timeframe": "Long-term (2028-2035+)",
+                "color": "bg-green-500", 
+                "description": "Broader societal and cultural transformation",
+                "milestones": [
+                    {"year": "2028", "event": "Social Adaptation Begins", "position": 35},
+                    {"year": "2032", "event": "Widespread Social Change", "position": 70},
+                    {"year": "2035", "event": "New Social Equilibrium", "position": 90}
+                ]
+            }
+        ],
+        "insights": [
+            "Act now to position for early market opportunities and competitive advantage",
+            "Invest for mid-term technology integration and workforce adaptation",
+            "Prepare for long-term regulatory compliance and societal shifts",
+            "Monitor evolving standards and emerging risks for strategic planning"
+        ],
+        "generated_at": datetime.now().isoformat(),
+        "articles_analyzed": len(articles),
+        "fallback_used": True
+    } 

@@ -345,7 +345,7 @@
         opacity: 0.5;
     }
 
-    /* Ensure modal is properly positioned */
+    /* Ensure modal is properly positioned but allow navbar dropdowns to work */
     .modal {
         z-index: 1055;
     }
@@ -353,6 +353,8 @@
     .modal-backdrop {
         z-index: 1050;
     }
+
+
 
     /* Form labels styling */
     .form-label {
@@ -1260,7 +1262,8 @@ function showError(message) {
 }
 
 // Initialize page
-window.addEventListener('load', async function() {
+document.addEventListener('DOMContentLoaded', async function() {
+    // Let Bootstrap handle its own initialization
     try {
         // Load topics
         const topicsResponse = await fetch('/api/forecast-charts/topics');
@@ -1309,21 +1312,6 @@ window.addEventListener('load', async function() {
         
         // Initialize context info
         updateContextInfo();
-        
-        // Load saved configuration
-        setTimeout(async () => {
-            const configLoaded = await loadSavedConfiguration();
-            
-            const savedConfig = localStorage.getItem('futuresConeConfig');
-            if (!savedConfig) {
-                setTimeout(() => {
-                    const modal = new bootstrap.Modal(document.getElementById('configModal'));
-                    modal.show();
-                }, 500);
-            } else if (configLoaded) {
-                showSuccess('Previous configuration restored automatically');
-            }
-        }, 300);
         
     } catch (error) {
         console.warn('Failed to load data:', error);

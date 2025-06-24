@@ -14,6 +14,9 @@
         .navbar {
             padding: 0.5rem 0;
             background-color: #f8f9fa;
+            /* Ensure navbar always overlays page content */
+            position: relative;
+            z-index: 1100; /* higher than modals (1055) and page elements */
         }
         
         .navbar-content {
@@ -80,6 +83,7 @@
             border-radius: 8px;
             border: none;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            z-index: 1200; /* elevate dropdowns above page elements */
         }
         
         .dropdown-item {
@@ -491,6 +495,8 @@
                             <small class="text-muted"> Executive Summaries</small><br>
                             <li><a class="dropdown-item" href="/market-signals-dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Market signals and strategic risks analysis"><i class="fas fa-chart-line"></i> Market Signals & Strategic Risks</a></li>
                             <li><a class="dropdown-item" href="/consensus-analysis" data-bs-toggle="tooltip" data-bs-placement="right" title="Analyze consensus vs. fringe voices in topics"><i class="fas fa-balance-scale"></i> Consensus vs. Fringe Voices</a></li>
+                            <li><a class="dropdown-item" href="/futures-cone" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-powered futures analysis with probable, plausible, possible, and preferable scenarios"><i class="fas fa-crystal-ball"></i> Futures Cone</a></li>
+                            <li><a class="dropdown-item" href="/ai-impact-timeline" data-bs-toggle="tooltip" data-bs-placement="right" title="Strategic planning horizons for AI impact timing"><i class="fas fa-timeline"></i> Impact Timeline</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <small class="text-muted"> Trend Analysis</small><br>
                             <li><a class="dropdown-item" href="/analytics" data-bs-toggle="tooltip" data-bs-placement="right" title="Visualize trend data and charts"><i class="fas fa-chart-line"></i> Trend Chart Visualizer</a></li>
