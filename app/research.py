@@ -22,7 +22,7 @@ logging.basicConfig(
 class Research:
     DEFAULT_TOPIC = "AI and Machine Learning"
 
-    def __init__(self, db):
+    def __init__(self, db, model_name=None):
         try:
             logger.debug(f"Initializing Research with DB type: {type(db).__name__}")
             
@@ -85,9 +85,11 @@ class Research:
             self.ai_model = None
             self.article_analyzer = None
             
+            # Set AI model - use provided model_name or default to first available
             if self.available_models:
-                self.set_ai_model(self.available_models[0]['name'])
-                logger.info(f"Set default AI model to: {self.available_models[0]['name']}")
+                target_model = model_name if model_name else self.available_models[0]['name']
+                self.set_ai_model(target_model)
+                logger.info(f"Set AI model to: {target_model}")
             else:
                 logger.warning("No AI models are available. Some functionality will be limited.")
                 

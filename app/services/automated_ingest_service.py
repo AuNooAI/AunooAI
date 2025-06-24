@@ -186,11 +186,8 @@ class AutomatedIngestService:
             
             # Get topic-specific ontology dynamically using Research class
             from app.research import Research
-            research = Research(self.db)
-            
-            # Set the AI model to match our auto-ingest model before using Research
             model_name = self.get_llm_client()
-            research.set_ai_model(model_name)
+            research = Research(self.db, model_name=model_name)
             self.logger.info(f"    🤖 Using LLM model: {model_name} for ontology retrieval")
             
             # Set topic and get dynamic ontology data
@@ -784,11 +781,8 @@ class AutomatedIngestService:
             
             # Get topic-specific ontology dynamically using Research class
             from app.research import Research
-            research = Research(self.db)
-            
-            # Set the AI model to match our auto-ingest model before using Research
             model_name = self.get_llm_client()
-            research.set_ai_model(model_name)
+            research = Research(self.db, model_name=model_name)
             self.logger.info(f"    🤖 Using LLM model: {model_name} for ontology retrieval")
             
             # Set topic and get dynamic ontology data asynchronously
