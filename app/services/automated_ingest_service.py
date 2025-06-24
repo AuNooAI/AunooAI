@@ -25,6 +25,7 @@ from app.relevance import RelevanceCalculator
 from app.analyzers.article_analyzer import ArticleAnalyzer
 from app.ai_models import LiteLLMModel
 import asyncio
+import concurrent.futures
 import requests
 from app.config.config import load_config
 import time
@@ -190,19 +191,37 @@ class AutomatedIngestService:
             # Set topic and get dynamic ontology data
             research.set_topic(topic)
             
-            # Use asyncio to call the async methods for getting ontology data
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
+            # Check if we're in an event loop context
             try:
-                # Get topic-specific analysis parameters dynamically
-                categories = loop.run_until_complete(research.get_categories(topic))
-                future_signals = loop.run_until_complete(research.get_future_signals(topic))
-                sentiment_options = loop.run_until_complete(research.get_sentiments(topic))
-                time_to_impact_options = loop.run_until_complete(research.get_time_to_impact(topic))
-                driver_types = loop.run_until_complete(research.get_driver_types(topic))
-            finally:
-                loop.close()
+                # Try to get the running event loop
+                loop = asyncio.get_running_loop()
+                # If we're in an event loop, use thread pool to avoid event loop conflicts
+                
+                def run_async_in_thread(coro_func, *args):
+                    """Helper function to run async function in a new thread with its own event loop"""
+                    return asyncio.run(coro_func(*args))
+                
+                # Use a thread pool to run the async methods
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future_categories = executor.submit(run_async_in_thread, research.get_categories, topic)
+                    future_signals_f = executor.submit(run_async_in_thread, research.get_future_signals, topic)
+                    future_sentiments = executor.submit(run_async_in_thread, research.get_sentiments, topic)
+                    future_time_to_impact = executor.submit(run_async_in_thread, research.get_time_to_impact, topic)
+                    future_driver_types = executor.submit(run_async_in_thread, research.get_driver_types, topic)
+                    
+                    categories = future_categories.result()
+                    future_signals = future_signals_f.result()
+                    sentiment_options = future_sentiments.result()
+                    time_to_impact_options = future_time_to_impact.result()
+                    driver_types = future_driver_types.result()
+                    
+            except RuntimeError:
+                # No event loop running, safe to use asyncio.run
+                categories = asyncio.run(research.get_categories(topic))
+                future_signals = asyncio.run(research.get_future_signals(topic))
+                sentiment_options = asyncio.run(research.get_sentiments(topic))
+                time_to_impact_options = asyncio.run(research.get_time_to_impact(topic))
+                driver_types = asyncio.run(research.get_driver_types(topic))
             
             self.logger.debug(f"Using dynamic ontology for topic '{topic}':")
             self.logger.debug(f"  Categories: {categories}")
@@ -1542,7 +1561,7 @@ class AutomatedIngestService:
             self.logger.info(f"Submitting batch scrape request for {len(uris)} URLs")
             
             # Submit batch request using async method
-            batch_response = firecrawl_app.async_batch_scrape_urls(uris_to_scrape, **{
+            batch_response = firecrawl_app.async_batch_scrape_urls(uris, **{
                 k: v for k, v in batch_data.items() if k != 'urls'
             })
             
