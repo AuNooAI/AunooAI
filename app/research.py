@@ -22,7 +22,7 @@ logging.basicConfig(
 class Research:
     DEFAULT_TOPIC = "AI and Machine Learning"
 
-    def __init__(self, db):
+    def __init__(self, db, model_name=None):
         try:
             logger.debug(f"Initializing Research with DB type: {type(db).__name__}")
             
@@ -85,9 +85,11 @@ class Research:
             self.ai_model = None
             self.article_analyzer = None
             
+            # Set AI model - use provided model_name or default to first available
             if self.available_models:
-                self.set_ai_model(self.available_models[0]['name'])
-                logger.info(f"Set default AI model to: {self.available_models[0]['name']}")
+                target_model = model_name if model_name else self.available_models[0]['name']
+                self.set_ai_model(target_model)
+                logger.info(f"Set AI model to: {target_model}")
             else:
                 logger.warning("No AI models are available. Some functionality will be limited.")
                 
@@ -135,7 +137,11 @@ class Research:
         if self.DEFAULT_TOPIC not in self.topic_configs:
             logger.error(f"Default topic '{self.DEFAULT_TOPIC}' not found in configuration")
             if self.topic_configs:
+                # Use the first available topic as the default
                 self.current_topic = next(iter(self.topic_configs))
+                logger.warning(f"Using '{self.current_topic}' as the default topic instead")
+                logger.info(f"Available topics: {list(self.topic_configs.keys())}")
+                logger.info("To fix this permanently, run: python scripts/restore_default_topic.py")
             else:
                 raise ValueError("No topics found in configuration")
             
@@ -348,30 +354,35 @@ class Research:
                             self.article_analyzer.extract_publication_date(content)
                         )
                         
-                        # Save to database if requested
+                        # Save to database if requested and content was successfully extracted
                         if save_with_topic and content:
                             try:
                                 logger.debug(
                                     f"Saving Bluesky content to database for URI: {uri}"
                                 )
-                                # Create placeholder article entry if needed
+                                
+                                # Extract title from content using helper method
+                                title = self.extract_title_from_content(content, f"Bluesky Post - {self.extract_source(uri)}")
+                                
+                                # Only save if we have real content - no placeholders
                                 cursor = self.db.get_connection().cursor()
                                 cursor.execute(
                                     "SELECT 1 FROM articles WHERE uri = ?", 
                                     (uri,)
                                 )
                                 if not cursor.fetchone():
+                                    # Create real article entry with extracted content
                                     cursor.execute("""
                                         INSERT INTO articles 
-                                        (uri, title, news_source, submission_date, topic, analyzed)
-                                        VALUES (?, 'Placeholder', ?, datetime('now'), ?, ?)
-                                    """, (uri, self.extract_source(uri), 
-                                          self.current_topic, False))
+                                        (uri, title, news_source, submission_date, topic, analyzed, summary)
+                                        VALUES (?, ?, ?, datetime('now'), ?, ?, ?)
+                                    """, (uri, title, self.extract_source(uri), 
+                                          self.current_topic, False, content[:500] + "..." if len(content) > 500 else content))
                                 
                                 # Save raw content
                                 self.db.save_raw_article(uri, content, self.current_topic)
                                 logger.info(
-                                    f"Successfully saved Bluesky content: {self.current_topic}"
+                                    f"Successfully saved Bluesky article with real content: {title}"
                                 )
                             except Exception as save_error:
                                 logger.error(
@@ -432,22 +443,26 @@ class Research:
                         try:
                             logger.debug(f"Attempting to save raw article for URI: {uri} with topic: {self.current_topic}")
                             
-                            # First check if we need to create an entry in articles table
+                            # Extract title from content using helper method
+                            title = self.extract_title_from_content(content, self.extract_source(uri))
+                            
+                            # Only create article entry if we have real content - no placeholders
                             cursor = self.db.get_connection().cursor()
                             cursor.execute("SELECT 1 FROM articles WHERE uri = ?", (uri,))
                             if not cursor.fetchone():
-                                # Create a placeholder entry in the articles table
+                                # Create real article entry with extracted content
                                 cursor.execute("""
-                                    INSERT INTO articles (uri, title, news_source, submission_date, topic, analyzed)
-                                    VALUES (?, 'Placeholder', ?, datetime('now'), ?, ?)
-                                """, (uri, self.extract_source(uri), self.current_topic, False))
-                                logger.debug(f"Created placeholder article for URI: {uri}")
+                                    INSERT INTO articles (uri, title, news_source, submission_date, topic, analyzed, summary)
+                                    VALUES (?, ?, ?, datetime('now'), ?, ?, ?)
+                                """, (uri, title, self.extract_source(uri), self.current_topic, False, 
+                                      content[:500] + "..." if len(content) > 500 else content))
+                                logger.debug(f"Created article entry with real content for URI: {uri}, title: {title}")
                             
                             # Now save the raw article
                             self.db.save_raw_article(uri, content, self.current_topic)
-                            logger.info(f"Successfully saved raw article with topic: {self.current_topic}")
+                            logger.info(f"Successfully saved article with real content: {title}")
                         except Exception as save_error:
-                            logger.error(f"Failed to save raw article to database: {str(save_error)}")
+                            logger.error(f"Failed to save article to database: {str(save_error)}")
                             logger.error(f"This is a database error, but we'll continue with analysis using the scraped content")
                     else:
                         logger.debug(f"Skipping saving raw article with topic (save_with_topic=False)")
@@ -702,8 +717,47 @@ class Research:
         return analysis_result
 
     def extract_source(self, uri):
-        domain = urlparse(uri).netloc
-        return domain.replace('www.', '')
+        parsed = urlparse(uri)
+        return parsed.netloc
+
+    def extract_title_from_content(self, content: str, fallback_source: str = "Unknown") -> str:
+        """Extract a meaningful title from article content."""
+        if not content:
+            return f"Article from {fallback_source}"
+        
+        # Try to use article analyzer if available
+        if hasattr(self, 'article_analyzer') and self.article_analyzer:
+            try:
+                title = self.article_analyzer.extract_title(content)
+                if title and title.strip():
+                    return title.strip()
+            except Exception as e:
+                logger.debug(f"Article analyzer title extraction failed: {e}")
+        
+        # Fallback: extract from content structure
+        lines = content.split('\n')
+        
+        # Look for markdown headers
+        for line in lines[:10]:  # Check first 10 lines
+            line = line.strip()
+            if line.startswith('# ') and len(line) > 2:
+                return line[2:].strip()
+            elif line.startswith('## ') and len(line) > 3:
+                return line[3:].strip()
+        
+        # Look for the first substantial line that's not a URL or date
+        for line in lines[:5]:
+            line = line.strip()
+            if (line and 
+                len(line) > 10 and 
+                not line.startswith('http') and 
+                not line.startswith('Posted on') and
+                not line.startswith('By ') and
+                not line.isdigit()):
+                return line[:100]  # Limit title length
+        
+        # Final fallback
+        return f"Article from {fallback_source}"
 
     async def get_recent_articles(self, limit=10):
         return self.db.get_recent_articles(limit)

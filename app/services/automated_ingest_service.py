@@ -186,11 +186,8 @@ class AutomatedIngestService:
             
             # Get topic-specific ontology dynamically using Research class
             from app.research import Research
-            research = Research(self.db)
-            
-            # Set the AI model to match our auto-ingest model before using Research
             model_name = self.get_llm_client()
-            research.set_ai_model(model_name)
+            research = Research(self.db, model_name=model_name)
             self.logger.info(f"    🤖 Using LLM model: {model_name} for ontology retrieval")
             
             # Set topic and get dynamic ontology data
@@ -784,11 +781,8 @@ class AutomatedIngestService:
             
             # Get topic-specific ontology dynamically using Research class
             from app.research import Research
-            research = Research(self.db)
-            
-            # Set the AI model to match our auto-ingest model before using Research
             model_name = self.get_llm_client()
-            research.set_ai_model(model_name)
+            research = Research(self.db, model_name=model_name)
             self.logger.info(f"    🤖 Using LLM model: {model_name} for ontology retrieval")
             
             # Set topic and get dynamic ontology data asynchronously
@@ -1568,11 +1562,11 @@ class AutomatedIngestService:
                 formats=['markdown']
             )
             
-            if not batch_response or not batch_response.get('success'):
+            if not batch_response or not getattr(batch_response, 'success', False):
                 self.logger.error(f"Batch scrape failed: {batch_response}")
                 return {}
             
-            batch_id = batch_response.get('id')
+            batch_id = getattr(batch_response, 'id', None)
             if not batch_id:
                 self.logger.error("No batch ID returned from Firecrawl")
                 return {}
@@ -1627,27 +1621,45 @@ class AutomatedIngestService:
                     await asyncio.sleep(poll_interval)
                     continue
                 
-                status = status_response.get('status')
+                # Handle both dict and object responses
+                if hasattr(status_response, 'status'):
+                    status = status_response.status
+                    data = getattr(status_response, 'data', [])
+                    error = getattr(status_response, 'error', None)
+                else:
+                    status = status_response.get('status')
+                    data = status_response.get('data', [])
+                    error = status_response.get('error', None)
+                
                 self.logger.debug(f"Batch {batch_id} status: {status}")
                 
                 if status == 'completed':
                     # Get results
                     results = {}
-                    data = status_response.get('data', [])
                     
                     for item in data:
-                        url = item.get('url')
-                        if item.get('success') and 'markdown' in item:
-                            results[url] = item['markdown']
+                        if hasattr(item, 'url'):
+                            url = item.url
+                            success = getattr(item, 'success', False)
+                            markdown = getattr(item, 'markdown', None)
+                            item_error = getattr(item, 'error', None)
+                        else:
+                            url = item.get('url')
+                            success = item.get('success', False)
+                            markdown = item.get('markdown', None)
+                            item_error = item.get('error', None)
+                        
+                        if success and markdown:
+                            results[url] = markdown
                         else:
                             results[url] = None
-                            self.logger.warning(f"Failed to scrape {url}: {item.get('error', 'Unknown error')}")
+                            self.logger.warning(f"Failed to scrape {url}: {item_error or 'Unknown error'}")
                     
                     self.logger.info(f"Batch {batch_id} completed with {len(results)} results")
                     return results
                     
                 elif status == 'failed':
-                    self.logger.error(f"Batch {batch_id} failed: {status_response.get('error', 'Unknown error')}")
+                    self.logger.error(f"Batch {batch_id} failed: {error or 'Unknown error'}")
                     return {}
                     
                 # Still processing, wait before next poll
