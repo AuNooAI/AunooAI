@@ -1811,14 +1811,14 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                             {{ loop.index }}
                                         </span>
                                         {% if alert.matched_keyword %}
-                                            <span class="badge bg-info ms-1" title="{{ alert.matched_keyword }}">
+                                            <span class="badge bg-info ms-1" title="{{ alert.matched_keyword|e }}">
                                                 <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword|truncate(8, True, '...') }}
                                             </span>
                                         {% endif %}
                                         {% if alert.matched_keywords %}
                                             {% for keyword in alert.matched_keywords %}
                                                 {% if keyword and keyword != alert.matched_keyword %}
-                                                <span class="badge bg-info ms-1" title="{{ keyword }}">
+                                                <span class="badge bg-info ms-1" title="{{ keyword|e }}">
                                                     <i class="fas fa-tag me-1"></i>{{ keyword|truncate(8, True, '...') }}
                                                 </span>
                                                 {% endif %}
@@ -2262,14 +2262,14 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     <td>
                                         <div class="tags-column">
                                             {% if alert.matched_keyword %}
-                                                <span class="badge bg-info" title="{{ alert.matched_keyword }}">
+                                                <span class="badge bg-info" title="{{ alert.matched_keyword|e }}">
                                                     <i class="fas fa-tag me-1"></i>{{ alert.matched_keyword|truncate(10, True, '...') }}
                                                 </span>
                                             {% endif %}
                                             {% if alert.matched_keywords %}
                                                 {% for keyword in alert.matched_keywords %}
                                                     {% if keyword and keyword != alert.matched_keyword %}
-                                                    <span class="badge bg-info" title="{{ keyword }}">
+                                                    <span class="badge bg-info" title="{{ keyword|e }}">
                                                         <i class="fas fa-tag me-1"></i>{{ keyword|truncate(10, True, '...') }}
                                                     </span>
                                                     {% endif %}
@@ -4999,22 +4999,24 @@ function updateGroupAlerts(card, data, groupId) {
             });
         }
         
-        if (alert.matched_keyword) {
-            keywordBadges += `<span class="badge bg-info" title="${alert.matched_keyword}">
-                <i class="fas fa-tag me-1"></i>${alert.matched_keyword.length > 10 ? alert.matched_keyword.substring(0, 10) + '...' : alert.matched_keyword}
-            </span>`;
-        }
-        
-        // Process additional keywords if available
-        if (alert.matched_keywords && Array.isArray(alert.matched_keywords)) {
-            alert.matched_keywords.forEach(keyword => {
-                if (keyword && keyword !== alert.matched_keyword) {
-                    keywordBadges += `<span class="badge bg-info ms-1" title="${keyword}">
-                        <i class="fas fa-tag me-1"></i>${keyword.length > 10 ? keyword.substring(0, 10) + '...' : keyword}
-                    </span>`;
-                }
-            });
-        }
+                                if (alert.matched_keyword) {
+                            const escapedKeyword = (alert.matched_keyword || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            keywordBadges += `<span class="badge bg-info" title="${escapedKeyword}">
+                                <i class="fas fa-tag me-1"></i>${alert.matched_keyword.length > 10 ? alert.matched_keyword.substring(0, 10) + '...' : alert.matched_keyword}
+                            </span>`;
+                        }
+                        
+                        // Process additional keywords if available
+                        if (alert.matched_keywords && Array.isArray(alert.matched_keywords)) {
+                            alert.matched_keywords.forEach(keyword => {
+                                if (keyword && keyword !== alert.matched_keyword) {
+                                    const escapedKeyword = (keyword || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                                    keywordBadges += `<span class="badge bg-info ms-1" title="${escapedKeyword}">
+                                        <i class="fas fa-tag me-1"></i>${keyword.length > 10 ? keyword.substring(0, 10) + '...' : keyword}
+                                    </span>`;
+                                }
+                            });
+                        }
         
         // Create media bias badges if available
         let mediaBiasHtml = '';
@@ -5080,15 +5082,15 @@ function updateGroupAlerts(card, data, groupId) {
                     <div class="article-content d-flex flex-column">
                         <div class="mb-1">
                             <div class="d-flex gap-2 align-items-start">
-                                <a href="${alert.article.url}" target="_blank" class="article-title">${alert.article.title}</a>
+                                <a href="${alert.article.url}" target="_blank" class="article-title">${(alert.article.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</a>
                             </div>
-                            <p class="text-muted mb-0 small article-summary">${alert.article.summary}</p>
+                            <p class="text-muted mb-0 small article-summary">${(alert.article.summary || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
                         </div>
                     </div>
                 </td>
                 <td>
                     <div class="source-info small">
-                        <div class="source-name">${alert.article.source}</div>
+                        <div class="source-name">${(alert.article.source || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
                         <div class="text-muted">
                             ${new Date(alert.article.publication_date).toLocaleString()}
                         </div>
@@ -5121,7 +5123,8 @@ function updateGroupAlerts(card, data, groupId) {
                                 
                                 let title = `Topic: ${topicScore} | Keywords: ${keywordScore} | Confidence: ${confidenceScore}`;
                                 if (explanation) {
-                                    title += ` | ${explanation}`;
+                                    const escapedExplanation = (explanation || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                                    title += ` | ${escapedExplanation}`;
                                 }
                                 
                                 let html = `<div class="relevance-scores" title="${title}">
@@ -5167,10 +5170,10 @@ function updateGroupAlerts(card, data, groupId) {
                                 </button>`}
                             <button class="btn btn-sm btn-outline-primary analyze-single-article-btn" 
                                     data-article-url="${alert.article.url}"
-                                    data-article-title="${alert.article.title || ''}"
-                                    data-article-source="${alert.article.source || ''}"
+                                    data-article-title="${(alert.article.title || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}"
+                                    data-article-source="${(alert.article.source || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}"
                                     data-article-topic="${data.topic}"
-                                    data-article-summary="${alert.article.summary || ''}"
+                                    data-article-summary="${(alert.article.summary || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;')}"
                                     title="Analyze article">
                                 <i class="fas fa-microscope"></i>
                             </button>
@@ -5292,7 +5295,7 @@ function updateGroupAlerts(card, data, groupId) {
     
     // Update bulk action buttons only if we have alerts
     if (data.alerts.length > 0) {
-    updateBulkButtons(data.topic, groupId);
+        updateBulkButtons(data.topic, groupId);
     }
 }
 
@@ -6656,7 +6659,7 @@ function editAnalysisResult(index) {
                         <div class="form-text">This is the AI-generated summary that will be saved to the database.</div>
                         ${result.original_summary && result.original_summary !== result.summary ? 
                             `<div class="mt-2">
-                                <small class="text-muted"><strong>Original:</strong> ${result.original_summary}</small>
+                                <small class="text-muted"><b>Original:</b> ${result.original_summary}</small>
                             </div>` : ''}
                     </div>
                     <div class="row">
@@ -6830,8 +6833,8 @@ async function performQualityControl(result, index) {
             } else if (review.recommendation === 'reject' || review.quality_score < 0.3) {
                 updateReviewStatus(index, 'rejected', `Rejected (${scorePercent}%)`, 
                     `${review.explanation}${review.issues_detected.length > 0 ? ' | Issues: ' + review.issues_detected.join(', ') : ''}`);
-        } else {
-                // review or mixed quality
+            } else {
+                // Mixed or flagged review quality
                 updateReviewStatus(index, 'warning', `Flagged (${scorePercent}%)`, 
                     `${review.explanation}${review.issues_detected.length > 0 ? ' | Issues: ' + review.issues_detected.join(', ') : ''}`);
             }
@@ -7366,6 +7369,46 @@ async function loadAvailableModels() {
             }
         }
         
+        // Update Analyze Relevance modal dropdown (modelSelect)
+        const modelSelect = document.getElementById('modelSelect');
+        if (modelSelect) {
+            const currentValue = modelSelect.value;
+            if (models && models.length > 0) {
+                modelSelect.innerHTML = '<option value="">Select a model...</option>';
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = `${model.name} (${model.provider})`;
+                    if (model.name === currentValue) {
+                        option.selected = true;
+                    }
+                    modelSelect.appendChild(option);
+                });
+            } else {
+                modelSelect.innerHTML = '<option value="">No models configured</option>';
+            }
+        }
+        
+        // Update Analyze Selected modal dropdown (analysisModelSelect)
+        const analysisModelSelect = document.getElementById('analysisModelSelect');
+        if (analysisModelSelect) {
+            const currentValue = analysisModelSelect.value;
+            if (models && models.length > 0) {
+                analysisModelSelect.innerHTML = '<option value="">Select a model...</option>';
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = `${model.name} (${model.provider})`;
+                    if (model.name === currentValue) {
+                        option.selected = true;
+                    }
+                    analysisModelSelect.appendChild(option);
+                });
+            } else {
+                analysisModelSelect.innerHTML = '<option value="">No models configured</option>';
+            }
+        }
+        
     } catch (error) {
         console.error('Error loading available models:', error);
         
@@ -7384,6 +7427,29 @@ async function loadAvailableModels() {
         if (bulkModelSelect && bulkModelSelect.children.length <= 1) {
             bulkModelSelect.innerHTML = `
                 <option value="">Use Default</option>
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4o">gpt-4o</option>
+                <option value="claude-3-haiku">claude-3-haiku</option>
+                <option value="claude-3-sonnet">claude-3-sonnet</option>
+            `;
+        }
+        
+        // Fallback for modal dropdowns
+        const modelSelect = document.getElementById('modelSelect');
+        if (modelSelect) {
+            modelSelect.innerHTML = `
+                <option value="">Select a model...</option>
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4o">gpt-4o</option>
+                <option value="claude-3-haiku">claude-3-haiku</option>
+                <option value="claude-3-sonnet">claude-3-sonnet</option>
+            `;
+        }
+        
+        const analysisModelSelect = document.getElementById('analysisModelSelect');
+        if (analysisModelSelect) {
+            analysisModelSelect.innerHTML = `
+                <option value="">Select a model...</option>
                 <option value="gpt-4o-mini">gpt-4o-mini</option>
                 <option value="gpt-4o">gpt-4o</option>
                 <option value="claude-3-haiku">claude-3-haiku</option>
