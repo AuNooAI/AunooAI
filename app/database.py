@@ -1376,22 +1376,10 @@ Remember to cite your sources and provide actionable insights where possible."""
             # Ensure parent article exists before saving raw article
             cursor.execute("SELECT uri FROM articles WHERE uri = ?", (uri,))
             if not cursor.fetchone():
-                logger.info(f"Creating placeholder article for URI: {uri}")
-                try:
-                    # Extract source from URI for placeholder
-                    from urllib.parse import urlparse
-                    parsed_url = urlparse(uri)
-                    source = parsed_url.netloc or "Unknown Source"
-                    
-                    cursor.execute("""
-                        INSERT INTO articles (uri, title, news_source, submission_date, topic, analyzed)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    """, (uri, "Placeholder Article", source, current_time, topic, False))
-                    logger.debug(f"Created placeholder article for URI: {uri}")
-                except Exception as e:
-                    logger.error(f"Failed to create placeholder article for {uri}: {e}")
-                    # If we can't create the placeholder, we can't save the raw article due to FK constraint
-                    raise Exception(f"Cannot save raw article - failed to create placeholder article: {e}")
+                logger.warning(f"No article entry found for URI: {uri}. Raw article will not be saved.")
+                logger.warning("This means content extraction may have failed. Check extraction logic.")
+                # Don't create placeholder - let the calling code handle content extraction first
+                return {"error": "No article entry found - content extraction may have failed"}
             
             cursor.execute("SELECT * FROM raw_articles WHERE uri = ?", (uri,))
             existing_raw_article = cursor.fetchone()
