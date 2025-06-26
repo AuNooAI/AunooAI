@@ -100,6 +100,43 @@ class AuspexToolsService:
             try:
                 # Build metadata filter for vector search
                 metadata_filter = {"topic": topic}
+                
+                # Parse query for date filtering using LLM
+                search_intent_messages = [
+                    {"role": "system", "content": f"""You are an AI assistant that helps search through articles about {topic}.
+Your job is to determine if this query requires date filtering.
+
+Return ONLY a JSON object with date filtering information:
+{{
+    "needs_date_filter": true/false,
+    "date_range_days": number or null
+}}
+
+Examples:
+- "past 7 days" → {{"needs_date_filter": true, "date_range_days": 7}}
+- "last week" → {{"needs_date_filter": true, "date_range_days": 7}}
+- "recent trends" → {{"needs_date_filter": true, "date_range_days": 30}}
+- "what happened yesterday" → {{"needs_date_filter": true, "date_range_days": 1}}
+- "general analysis" → {{"needs_date_filter": false, "date_range_days": null}}"""},
+                    {"role": "user", "content": query}
+                ]
+                
+                ai_model = get_ai_model(model)
+                date_filter_response = ai_model.generate_response(search_intent_messages)
+                
+                try:
+                    date_filter_json = self._extract_json_from_response(date_filter_response)
+                    date_filter_info = json.loads(date_filter_json)
+                    
+                    # Add date filter to vector search if needed
+                    if date_filter_info.get("needs_date_filter") and date_filter_info.get("date_range_days"):
+                        days_back = date_filter_info["date_range_days"]
+                        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+                        metadata_filter["publication_date"] = {"$gte": cutoff_date}
+                        logger.debug(f"Added date filter to vector search: >= {cutoff_date}")
+                except Exception as e:
+                    logger.warning(f"Could not parse date filter from LLM: {e}")
+                
                 vector_results = vector_search_articles(
                     query=query,
                     top_k=limit,
@@ -124,6 +161,34 @@ class AuspexToolsService:
                         })
                 
                 logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
+                
+                # After getting vector_results, filter by date if query mentions time
+                if any(time_word in query.lower() for time_word in ['past', 'last', 'recent', 'days', 'week', 'month', 'yesterday', 'today']):
+                    # Extract date filtering from query
+                    days_back = 30  # default
+                    if 'past 7 days' in query.lower() or 'last week' in query.lower():
+                        days_back = 7
+                    elif 'yesterday' in query.lower():
+                        days_back = 1
+                    elif 'past month' in query.lower() or 'last month' in query.lower():
+                        days_back = 30
+                    
+                    cutoff_date = datetime.now() - timedelta(days=days_back)
+                    
+                    # Filter vector articles by date
+                    filtered_vector_articles = []
+                    for article in vector_articles:
+                        article_date_str = article.get('publication_date', '')
+                        if article_date_str:
+                            try:
+                                article_date = datetime.strptime(article_date_str.split(' ')[0], '%Y-%m-%d')
+                                if article_date >= cutoff_date:
+                                    filtered_vector_articles.append(article)
+                            except:
+                                pass  # Skip articles with invalid dates
+                    
+                    vector_articles = filtered_vector_articles
+                    logger.debug(f"Filtered vector articles by date: {len(vector_articles)} remaining")
                 
             except Exception as e:
                 logger.warning(f"Vector search failed, falling back to SQL search: {e}")
