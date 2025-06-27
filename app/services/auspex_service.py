@@ -1581,7 +1581,16 @@ Please try rephrasing your question or contact support if the issue persists."""
             sent = article.get('sentiment', 'Unknown')
             sentiments[sent] = sentiments.get(sent, 0) + 1
         
-        # Format summary
+        # Build article details string separately to avoid f-string backslash issues
+        article_details = chr(10).join([
+            f"[{i+1}] {article['title'][:100]}..." +
+            "\n    Category: " + article.get('category', 'N/A') + " | Sentiment: " + article.get('sentiment', 'N/A') +
+            f" | Future Signal: {article.get('future_signal', 'N/A')}" +
+            (f" | Similarity: {article.get('similarity_score', 0):.3f}" if 'similarity_score' in article else "") +
+            "\n    Summary: " + article.get('summary', 'No summary')[:200] + "..."
+            for i, article in enumerate(articles[:10])
+        ])
+
         summary = f"""Search Method: {search_type}
 Total Articles: {total_articles}
 Unique Sources: {unique_sources}
@@ -1594,15 +1603,11 @@ Sentiment Distribution:
 {chr(10).join([f"- {sent}: {count} articles ({count/total_articles*100:.1f}%)" for sent, count in sentiments.items()])}
 
 Article Details:
-{chr(10).join([
-    f"[{i+1}] {article['title'][:100]}..." + 
-    f"\\n    Category: {article.get('category', 'N/A')} | Sentiment: {article.get('sentiment', 'N/A')}" +
-    f" | Future Signal: {article.get('future_signal', 'N/A')}" +
-    (f" | Similarity: {article.get('similarity_score', 0):.3f}" if 'similarity_score' in article else "") +
-    f"\\n    Summary: {article.get('summary', 'No summary')[:200]}..."
-    for i, article in enumerate(articles[:10])  # Show first 10 articles
-])}
-{f'\\n... and {len(articles) - 10} more articles' if len(articles) > 10 else ''}"""
+{article_details}"""
+        
+        # Add the "more articles" line outside the f-string
+        if len(articles) > 10:
+            summary += f"\n... and {len(articles) - 10} more articles"
         
         return summary
 

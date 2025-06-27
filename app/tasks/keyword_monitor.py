@@ -293,199 +293,379 @@ class KeywordMonitor:
                 """, (check_start_time, self.collector.requests_today))
                 conn.commit()
                 
+                # Get all keywords grouped by topic
                 cursor.execute("""
-                    SELECT mk.id, mk.keyword, mk.last_checked, kg.topic
+                    SELECT mk.id, mk.keyword, mk.last_checked, kg.topic, kg.id as group_id
                     FROM monitored_keywords mk
                     JOIN keyword_groups kg ON mk.group_id = kg.id
+                    ORDER BY kg.topic, mk.keyword
                 """)
                 keywords = cursor.fetchall()
                 logger.info(f"Found {len(keywords)} keywords to check")
                 
-                for keyword in keywords:
-                    keyword_id, keyword_text, last_checked, topic = keyword
-                    processed_keywords += 1
-                    logger.info(
-                        f"Checking keyword: {keyword_text} (topic: {topic}, "
-                        f"requests_today: {self.collector.requests_today}/100)"
-                    )
-                    
-                    try:
-                        # Calculate start_date based on search_date_range instead of last_checked
-                        start_date = datetime.now() - timedelta(days=self.search_date_range)
-                        
-                        logger.debug(f"Searching for articles with keyword: '{keyword_text}', topic: '{topic}', start_date: {start_date.isoformat()}")
-                        articles = await self.collector.search_articles(
-                            query=keyword_text,
-                            topic=topic,
-                            max_results=self.page_size,
-                            start_date=start_date,  # Use calculated start_date
-                            search_fields=self.search_fields,
-                            language=self.language,
-                            sort_by=self.sort_by
-                        )
-                        
-                        if not articles:
-                            logger.warning(f"No articles found or error occurred for keyword: {keyword_text}")
-                            continue
+                # Check if we're using TheNewsAPI collector for optimization
+                is_thenewsapi = 'TheNewsAPI' in str(type(self.collector))
 
-                        logger.info(f"Found {len(articles)} new articles for keyword: {keyword_text}")
-                        # Log details of first few articles to help debug
-                        for i, article in enumerate(articles[:3]):  # Log up to first 3 articles
-                            logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
-                        
-                        # Process each article
-                        for article in articles:
-                            try:
-                                article_url = article['url'].strip()
-                                
-                                # Log article details for debugging
-                                logger.debug(
-                                    f"Processing article: url={article_url}, "
-                                    f"title={article.get('title', '')}, "
-                                    f"source={article.get('source', '')}, "
-                                    f"published={article.get('published_date', '')}"
-                                )
-                                
-                                # First check if article exists outside transaction
-                                cursor.execute(
-                                    "SELECT uri FROM articles WHERE uri = ?",
-                                    (article_url,)
-                                )
-                                article_exists = cursor.fetchone()
-                                
-                                if article_exists:
-                                    logger.debug(f"Article already exists: {article_url}")
-                                
-                                # Start transaction
-                                conn.execute("BEGIN IMMEDIATE")
-                                
-                                try:
-                                    inserted_new_article = False
-                                    if not article_exists:
-                                        # Save new article
-                                        cursor.execute("""
-                                            INSERT INTO articles (
-                                                uri, title, news_source, publication_date,
-                                                summary, topic, analyzed
-                                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                                        """, (
-                                            article_url,
-                                            article['title'],
-                                            article['source'],
-                                            article['published_date'],
-                                            article.get('summary', ''),  # Use get() with default
-                                            topic,
-                                            False  # Explicitly mark as not analyzed
-                                        ))
-                                        inserted_new_article = True
-                                        logger.info(f"Inserted new article: {article_url}")
-                                    
-                                    # Create alert
-                                    cursor.execute("""
-                                        INSERT INTO keyword_alerts (
-                                            keyword_id, article_uri
-                                        ) VALUES (?, ?)
-                                        ON CONFLICT DO NOTHING
-                                    """, (keyword_id, article_url))
-                                    
-                                    alert_inserted = cursor.rowcount > 0
-                                    
-                                    # Get the group_id for this keyword
-                                    cursor.execute("""
-                                        SELECT group_id FROM monitored_keywords
-                                        WHERE id = ?
-                                    """, (keyword_id,))
-                                    group_id = cursor.fetchone()[0]
-                                    
-                                    # Check if we already have a match for this article in this group
-                                    cursor.execute("""
-                                        SELECT id, keyword_ids FROM keyword_article_matches
-                                        WHERE article_uri = ? AND group_id = ?
-                                    """, (article_url, group_id))
-                                    
-                                    existing_match = cursor.fetchone()
-                                    match_updated = False
-                                    
-                                    if existing_match:
-                                        # Update the existing match with the new keyword
-                                        match_id, keyword_ids = existing_match
-                                        keyword_id_list = keyword_ids.split(',')
-                                        if str(keyword_id) not in keyword_id_list:
-                                            keyword_id_list.append(str(keyword_id))
-                                            updated_keyword_ids = ','.join(keyword_id_list)
-                                            
-                                            cursor.execute("""
-                                                UPDATE keyword_article_matches
-                                                SET keyword_ids = ?
-                                                WHERE id = ?
-                                            """, (updated_keyword_ids, match_id))
-                                            match_updated = True
-                                    else:
-                                        # Create a new match
-                                        cursor.execute("""
-                                            INSERT INTO keyword_article_matches (
-                                                article_uri, keyword_ids, group_id
-                                            ) VALUES (?, ?, ?)
-                                        """, (article_url, str(keyword_id), group_id))
-                                        match_updated = True
-                                    
-                                    # Only count as new if we actually inserted or updated something
-                                    if inserted_new_article or alert_inserted or match_updated:
-                                        new_articles_count += 1
-                                        logger.info(f"Added/updated article: {article_url}")
-                                    
-                                    # Commit transaction
-                                    conn.commit()
-                                    
-                                except Exception as e:
-                                    conn.rollback()
-                                    raise e
-                                
-                            except Exception as e:
-                                logger.error(f"Error processing article {article_url}: {str(e)}")
-                                continue
-                        
-                        # Update last checked timestamp
-                        cursor.execute(
-                            "UPDATE monitored_keywords SET last_checked = ? WHERE id = ?",
-                            (datetime.now().isoformat(), keyword_id)
-                        )
-                        conn.commit()
-                        
-                        # After processing keywords, check and reset counter if needed before updating
-                        self.check_and_reset_counter()
-                        
-                        # Update request count in status
-                        cursor.execute("""
-                            UPDATE keyword_monitor_status 
-                            SET requests_today = ? 
-                            WHERE id = 1
-                        """, (self.collector.requests_today,))
-                        conn.commit()
-                        
-                    except ValueError as e:
-                        if "Rate limit exceeded" in str(e):
-                            error_msg = "NewsAPI daily request limit reached (100/100 requests used)"
-                            logger.error(error_msg)
-                            cursor.execute("""
-                                INSERT OR REPLACE INTO keyword_monitor_status (
-                                    id, last_check_time, last_error, requests_today
-                                ) VALUES (1, ?, ?, ?)
-                            """, (check_start_time, error_msg, self.collector.requests_today))
-                            conn.commit()
-                            raise ValueError(error_msg)
-                        raise
+                if is_thenewsapi:
+                    # Optimize for TheNewsAPI: group keywords by topic and combine them
+                    new_articles_count = await self._check_keywords_optimized(cursor, conn, keywords)
+                else:
+                    # Use original approach for other collectors
+                    new_articles_count = await self._check_keywords_original(cursor, conn, keywords)
                 
-                # Return summary results
+                # Update last checked timestamp for all keywords
+                for keyword_id, _, _, _, _ in keywords:
+                    cursor.execute(
+                        "UPDATE monitored_keywords SET last_checked = ? WHERE id = ?",
+                        (datetime.now().isoformat(), keyword_id)
+                    )
+                conn.commit()
+                
+                # Update request count in status (removed redundant reset call)
+                cursor.execute("""
+                    UPDATE keyword_monitor_status 
+                    SET requests_today = ? 
+                    WHERE id = 1
+                """, (self.collector.requests_today,))
+                conn.commit()
+                
+                logger.info(f"Keyword check completed. New articles found: {new_articles_count}")
                 return {
-                    "success": True, 
+                    "success": True,
                     "new_articles": new_articles_count,
-                    "keywords_processed": processed_keywords
+                    "processed_keywords": len(keywords),
+                    "requests_used": self.collector.requests_today
                 }
                 
         except Exception as e:
-            logger.error(f"Error checking keywords: {str(e)}")
-            return {"success": False, "error": str(e), "new_articles": new_articles_count}
+            logger.error(f"Error during keyword check: {str(e)}")
+            # Update error status
+            try:
+                with self.db.get_connection() as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE keyword_monitor_status 
+                        SET last_error = ? 
+                        WHERE id = 1
+                    """, (str(e),))
+                    conn.commit()
+            except Exception as update_error:
+                logger.error(f"Error updating error status: {str(update_error)}")
+            
+            return {"success": False, "error": str(e), "new_articles": 0}
+
+    async def _check_keywords_optimized(self, cursor, conn, keywords):
+        """Optimized keyword checking for TheNewsAPI collector"""
+        logger.info("Using optimized keyword checking for TheNewsAPI")
+        
+        # Group keywords by topic
+        topic_keywords = {}
+        for keyword_id, keyword_text, last_checked, topic, group_id in keywords:
+            if topic not in topic_keywords:
+                topic_keywords[topic] = []
+            topic_keywords[topic].append({
+                'id': keyword_id,
+                'keyword': keyword_text,
+                'group_id': group_id
+            })
+        
+        new_articles_count = 0
+        
+        for topic, topic_keyword_list in topic_keywords.items():
+            logger.info(f"Processing topic '{topic}' with {len(topic_keyword_list)} keywords")
+            
+            # making quoted keywords and Combine keywords for this topic using OR operator
+            quoted_keywords = [f'"{kw["keyword"]}"' for kw in topic_keyword_list]
+            combined_query = " | ".join(quoted_keywords)
+            logger.info(f"Combined query for topic '{topic}': '{combined_query}'")
+
+            try:
+                # Calculate start_date based on search_date_range
+                start_date = datetime.now() - timedelta(days=self.search_date_range)
+                
+                logger.debug(f"Searching for articles with combined query: '{combined_query}', topic: '{topic}', start_date: {start_date.isoformat()}")
+                articles = await self.collector.search_articles(
+                    query=combined_query,
+                    topic=topic,
+                    max_results=self.page_size,
+                    start_date=start_date,
+                    search_fields=self.search_fields,
+                    language=self.language,
+                    sort_by=self.sort_by
+                )
+                
+                if not articles:
+                    logger.warning(f"No articles found for combined query: {combined_query}")
+                    continue
+
+                logger.info(f"Found {len(articles)} articles for combined query: {combined_query}")
+                
+                # Process each article and determine which keywords it matches
+                for article in articles:
+                    logger.info(f"Processing article: {article}")
+                    try:
+                        article_url = article['url'].strip()
+                        
+                        # Check if article exists outside transaction
+                        cursor.execute(
+                            "SELECT uri FROM articles WHERE uri = ?",
+                            (article_url,)
+                        )
+                        article_exists = cursor.fetchone()
+                        
+                        # Start transaction
+                        conn.execute("BEGIN IMMEDIATE")
+                        
+                        try:
+                            inserted_new_article = False
+                            if not article_exists:
+                                # Save new article
+                                cursor.execute("""
+                                    INSERT INTO articles (
+                                        uri, title, news_source, publication_date,
+                                        summary, topic, analyzed
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """, (
+                                    article_url,
+                                    article['title'],
+                                    article['source'],
+                                    article['published_date'],
+                                    article.get('summary', ''),
+                                    topic,
+                                    False
+                                ))
+                                inserted_new_article = True
+                                logger.info(f"Inserted new article: {article_url}")
+                            
+                            # Determine which keywords this article matches
+                            matched_keywords = []
+                            for kw_info in topic_keyword_list:
+                                keyword_text = kw_info['keyword'].lower()
+                                article_title = article.get('title', '').lower()
+                                article_summary = article.get('summary', '').lower()
+                                
+                                # Test if this keyword matches the article
+                                if keyword_text in article_title or keyword_text in article_summary:
+                                    matched_keywords.append(kw_info)
+                                    logger.debug(f"Article matches keyword '{keyword_text}'")
+                            
+                            # Log if no keywords match, but continue processing the article
+                            if not matched_keywords:
+                                logger.debug(f"No keywords match for article: {article.get('title', '')}")
+                            
+                            # Create alerts and matches for each matched keyword
+                            for kw_info in matched_keywords:
+                                keyword_id = kw_info['id']
+                                group_id = kw_info['group_id']
+                                
+                                # Create alert
+                                cursor.execute("""
+                                    INSERT INTO keyword_alerts (
+                                        keyword_id, article_uri
+                                    ) VALUES (?, ?)
+                                    ON CONFLICT DO NOTHING
+                                """, (keyword_id, article_url))
+                                
+                                # Check if we already have a match for this article in this group
+                                cursor.execute("""
+                                    SELECT id, keyword_ids FROM keyword_article_matches
+                                    WHERE article_uri = ? AND group_id = ?
+                                """, (article_url, group_id))
+                                
+                                existing_match = cursor.fetchone()
+                                
+                                if existing_match:
+                                    # Update the existing match with the new keyword
+                                    match_id, keyword_ids = existing_match
+                                    keyword_id_list = keyword_ids.split(',')
+                                    if str(keyword_id) not in keyword_id_list:
+                                        keyword_id_list.append(str(keyword_id))
+                                        updated_keyword_ids = ','.join(keyword_id_list)
+                                        
+                                        cursor.execute("""
+                                            UPDATE keyword_article_matches
+                                            SET keyword_ids = ?
+                                            WHERE id = ?
+                                        """, (updated_keyword_ids, match_id))
+                                else:
+                                    # Create a new match
+                                    cursor.execute("""
+                                        INSERT INTO keyword_article_matches (
+                                            article_uri, keyword_ids, group_id
+                                        ) VALUES (?, ?, ?)
+                                    """, (article_url, str(keyword_id), group_id))
+                            
+                            # Only count as new if we actually inserted the article
+                            if inserted_new_article:
+                                new_articles_count += 1
+                            
+                            # Commit transaction
+                            conn.commit()
+                            
+                        except Exception as e:
+                            conn.rollback()
+                            raise e
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing article {article_url}: {str(e)}")
+                        continue
+                
+            except Exception as e:
+                logger.error(f"Error processing topic '{topic}': {str(e)}")
+                continue
+        
+        return new_articles_count
+
+    async def _check_keywords_original(self, cursor, conn, keywords):
+        """Original keyword checking approach for other collectors"""
+        logger.info("Using original keyword checking approach")
+        
+        new_articles_count = 0
+        
+        for keyword in keywords:
+            keyword_id, keyword_text, last_checked, topic, group_id = keyword
+            
+            logger.info(
+                f"Checking keyword: {keyword_text} (topic: {topic}, "
+                f"requests_today: {self.collector.requests_today}/100)"
+            )
+            
+            try:
+                # Calculate start_date based on search_date_range instead of last_checked
+                start_date = datetime.now() - timedelta(days=self.search_date_range)
+                
+                logger.debug(f"Searching for articles with keyword: '{keyword_text}', topic: '{topic}', start_date: {start_date.isoformat()}")
+                articles = await self.collector.search_articles(
+                    query=keyword_text,
+                    topic=topic,
+                    max_results=self.page_size,
+                    start_date=start_date,  # Use calculated start_date
+                    search_fields=self.search_fields,
+                    language=self.language,
+                    sort_by=self.sort_by
+                )
+                
+                if not articles:
+                    logger.warning(f"No articles found or error occurred for keyword: {keyword_text}")
+                    continue
+
+                logger.info(f"Found {len(articles)} new articles for keyword: {keyword_text}")
+                # Log details of first few articles to help debug
+                for i, article in enumerate(articles[:3]):  # Log up to first 3 articles
+                    logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
+                
+                # Process each article
+                for article in articles:
+                    try:
+                        article_url = article['url'].strip()
+                        
+                        # Log article details for debugging
+                        logger.debug(
+                            f"Processing article: url={article_url}, "
+                            f"title={article.get('title', '')}, "
+                            f"source={article.get('source', '')}, "
+                            f"published={article.get('published_date', '')}"
+                        )
+                        
+                        # First check if article exists outside transaction
+                        cursor.execute(
+                            "SELECT uri FROM articles WHERE uri = ?",
+                            (article_url,)
+                        )
+                        article_exists = cursor.fetchone()
+                        
+                        if article_exists:
+                            logger.debug(f"Article already exists: {article_url}")
+                        
+                        # Start transaction
+                        conn.execute("BEGIN IMMEDIATE")
+                        
+                        try:
+                            inserted_new_article = False
+                            if not article_exists:
+                                # Save new article
+                                cursor.execute("""
+                                    INSERT INTO articles (
+                                        uri, title, news_source, publication_date,
+                                        summary, topic, analyzed
+                                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                """, (
+                                    article_url,
+                                    article['title'],
+                                    article['source'],
+                                    article['published_date'],
+                                    article.get('summary', ''),  # Use get() with default
+                                    topic,
+                                    False  # Explicitly mark as not analyzed
+                                ))
+                                inserted_new_article = True
+                                logger.info(f"Inserted new article: {article_url}")
+                            
+                            # Create alert
+                            cursor.execute("""
+                                INSERT INTO keyword_alerts (
+                                    keyword_id, article_uri
+                                ) VALUES (?, ?)
+                                ON CONFLICT DO NOTHING
+                            """, (keyword_id, article_url))
+                            
+                            alert_inserted = cursor.rowcount > 0
+                            
+                            # Check if we already have a match for this article in this group
+                            cursor.execute("""
+                                SELECT id, keyword_ids FROM keyword_article_matches
+                                WHERE article_uri = ? AND group_id = ?
+                            """, (article_url, group_id))
+                            
+                            existing_match = cursor.fetchone()
+                            match_updated = False
+                            
+                            if existing_match:
+                                # Update the existing match with the new keyword
+                                match_id, keyword_ids = existing_match
+                                keyword_id_list = keyword_ids.split(',')
+                                if str(keyword_id) not in keyword_id_list:
+                                    keyword_id_list.append(str(keyword_id))
+                                    updated_keyword_ids = ','.join(keyword_id_list)
+                                    
+                                    cursor.execute("""
+                                        UPDATE keyword_article_matches
+                                        SET keyword_ids = ?
+                                        WHERE id = ?
+                                    """, (updated_keyword_ids, match_id))
+                                    match_updated = True
+                            else:
+                                # Create a new match
+                                cursor.execute("""
+                                    INSERT INTO keyword_article_matches (
+                                        article_uri, keyword_ids, group_id
+                                    ) VALUES (?, ?, ?)
+                                """, (article_url, str(keyword_id), group_id))
+                                match_updated = True
+                            
+                            # Only count as new if we actually inserted the article (not just alerts/matches)
+                            if inserted_new_article:
+                                new_articles_count += 1
+                                logger.info(f"Inserted new article: {article_url}")
+                            elif alert_inserted or match_updated:
+                                logger.debug(f"Updated existing article with new alert/match: {article_url}")
+                            
+                            # Commit transaction
+                            conn.commit()
+                            
+                        except Exception as e:
+                            conn.rollback()
+                            raise e
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing article {article_url}: {str(e)}")
+                        continue
+                
+            except Exception as e:
+                logger.error(f"Error processing keyword '{keyword_text}': {str(e)}")
+                continue
+        
+        return new_articles_count
 
 async def run_keyword_monitor():
     """Background task to periodically check keywords"""
