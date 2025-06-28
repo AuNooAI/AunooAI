@@ -719,13 +719,13 @@ async function loadTimelineAnalysis() {
         return;
     }
     
-    // Check for cached results first
-    const cachedResults = loadCachedResults();
-    if (cachedResults && 
-        cachedResults.config.topic === topic && 
-        cachedResults.config.model === model &&
-        cachedResults.config.futureHorizon === futureHorizon) {
-        console.log('Using cached results for topic:', topic);
+    // Get current configuration for caching
+    const currentConfig = getCurrentConfiguration();
+    
+    // Check for cached results first with configuration matching
+    const cachedResults = loadCachedResults(currentConfig);
+    if (cachedResults && cachedResults.data) {
+        console.log('Using cached results for configuration:', currentConfig);
         await displayTimeline(cachedResults.data);
         showSuccess('Loaded cached results (faster response)');
         return;
@@ -781,16 +781,8 @@ async function loadTimelineAnalysis() {
             throw new Error(data.error);
         }
         
-        // Cache the results
-        saveAnalysisResults(data, {
-            topic,
-            model,
-            timeframe: actualTimeframe,
-            futureHorizon,
-            analysisDepth,
-            sampleSizeMode,
-            customLimit
-        });
+        // Cache the results with full configuration
+        saveAnalysisResults(data, currentConfig);
         
         await displayTimeline(data);
         
@@ -1207,31 +1199,111 @@ function saveConfigurationAndClose() {
     showSuccess('Configuration saved! You can now generate the timeline.');
 }
 
+function generateCacheKey(config) {
+    // Create a unique cache key based on all configuration parameters
+    const keyData = {
+        topic: config.topic,
+        timeframe: config.timeframe,
+        customDays: config.customDays,
+        model: config.model,
+        futureHorizon: config.futureHorizon,
+        analysisDepth: config.analysisDepth,
+        sampleSizeMode: config.sampleSizeMode,
+        customLimit: config.customLimit
+    };
+    
+    // Create a hash of the configuration for the cache key
+    const configString = JSON.stringify(keyData);
+    let hash = 0;
+    for (let i = 0; i < configString.length; i++) {
+        const char = configString.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+    }
+    
+    return `timelineResults_${Math.abs(hash)}`;
+}
+
+function getCurrentConfiguration() {
+    const timeframe = document.getElementById('timeframe')?.value || '';
+    let customDays = null;
+    
+    if (timeframe === 'custom') {
+        customDays = document.getElementById('customDays')?.value || null;
+    }
+    
+    return {
+        topic: document.getElementById('topic')?.value || '',
+        timeframe: timeframe,
+        customDays: customDays,
+        model: document.getElementById('model')?.value || '',
+        futureHorizon: document.getElementById('futureHorizon')?.value || '10',
+        analysisDepth: document.getElementById('analysisDepth')?.value || 'standard',
+        sampleSizeMode: document.getElementById('sampleSizeMode')?.value || 'auto',
+        customLimit: document.getElementById('customLimit')?.value || null
+    };
+}
+
 function saveAnalysisResults(data, config) {
     try {
+        const cacheKey = generateCacheKey(config);
         const cacheData = {
             data,
             config,
             timestamp: new Date().toISOString()
         };
-        localStorage.setItem('timelineResults', JSON.stringify(cacheData));
+        
+        localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+        console.log('Analysis results cached successfully with key:', cacheKey);
+        
+        // Clean up old cache entries (keep only the most recent 5)
+        const allKeys = Object.keys(localStorage).filter(key => key.startsWith('timelineResults_'));
+        if (allKeys.length > 5) {
+            // Get timestamps for all cached results
+            const cacheEntries = allKeys.map(key => {
+                try {
+                    const data = JSON.parse(localStorage.getItem(key));
+                    return { key, timestamp: new Date(data.timestamp) };
+                } catch (e) {
+                    return { key, timestamp: new Date(0) }; // Invalid entries get old timestamp
+                }
+            });
+            
+            // Sort by timestamp (newest first) and remove old entries
+            cacheEntries.sort((a, b) => b.timestamp - a.timestamp);
+            cacheEntries.slice(5).forEach(entry => {
+                localStorage.removeItem(entry.key);
+                console.log('Removed old cache entry:', entry.key);
+            });
+        }
     } catch (e) {
         console.warn('Failed to cache analysis results:', e);
     }
 }
 
-function loadCachedResults() {
+function loadCachedResults(config) {
     try {
-        const cachedData = localStorage.getItem('timelineResults');
+        const cacheKey = generateCacheKey(config);
+        const cachedData = localStorage.getItem(cacheKey);
+        
         if (cachedData) {
             const cache = JSON.parse(cachedData);
             const cacheAge = new Date() - new Date(cache.timestamp);
             const maxAge = 24 * 60 * 60 * 1000; // 24 hours
             
             if (cacheAge < maxAge) {
-                return cache;
+                // Verify configuration matches
+                const configMatches = JSON.stringify(cache.config) === JSON.stringify(config);
+                if (configMatches) {
+                    console.log('Loading cached results from:', cache.timestamp);
+                    return cache;
+                } else {
+                    console.log('Configuration mismatch, cache invalid');
+                    localStorage.removeItem(cacheKey);
+                }
             } else {
-                localStorage.removeItem('timelineResults');
+                console.log('Cached results expired, removing...');
+                localStorage.removeItem(cacheKey);
             }
         }
     } catch (e) {
@@ -1275,9 +1347,17 @@ function restoreConfiguration() {
 
 function clearSavedConfiguration() {
     try {
+        // Clear saved configuration
         localStorage.removeItem('timelineConfig');
-        localStorage.removeItem('timelineResults');
-        showSuccess('Configuration and cached results cleared!');
+        
+        // Clear all cached results (they have dynamic keys now)
+        const allKeys = Object.keys(localStorage).filter(key => key.startsWith('timelineResults_'));
+        allKeys.forEach(key => {
+            localStorage.removeItem(key);
+        });
+        
+        console.log('Cleared all saved configuration and cached results');
+        showSuccess(`Configuration and ${allKeys.length} cached result(s) cleared!`);
         
         // Reset form
         document.getElementById('topic').value = '';

@@ -595,10 +595,13 @@ async function loadMarketSignalsAnalysis() {
         return;
     }
     
-    // Check for cached results first
-    const cachedResults = loadCachedResults();
-    if (cachedResults && cachedResults.topic === topic && cachedResults.analysis) {
-        console.log('Using cached results for topic:', topic);
+    // Get current configuration for caching
+    const currentConfig = getCurrentConfiguration();
+    
+    // Check for cached results first with configuration matching
+    const cachedResults = loadCachedResults(currentConfig);
+    if (cachedResults && cachedResults.analysis) {
+        console.log('Using cached results for configuration:', currentConfig);
         await displayMarketSignalsAnalysis(cachedResults.analysis);
         showSuccess('Loaded cached results (faster response)');
         return;
@@ -636,8 +639,8 @@ async function loadMarketSignalsAnalysis() {
             throw new Error(data.error);
         }
         
-        // Cache the results
-        saveAnalysisResults(data, topic);
+        // Cache the results with full configuration
+        saveAnalysisResults(data, currentConfig);
         
         await displayMarketSignalsAnalysis(data);
         
@@ -1116,10 +1119,17 @@ async function loadSavedConfiguration() {
 
 function clearSavedConfiguration() {
     try {
+        // Clear saved configuration
         localStorage.removeItem('marketSignalsConfig');
-        localStorage.removeItem('marketSignalsResults');
+        
+        // Clear all cached results (they have dynamic keys now)
+        const allKeys = Object.keys(localStorage).filter(key => key.startsWith('marketSignalsResults_'));
+        allKeys.forEach(key => {
+            localStorage.removeItem(key);
+        });
+        
         console.log('Cleared all saved configuration and cached results');
-        showSuccess('Configuration and cached results cleared!');
+        showSuccess(`Configuration and ${allKeys.length} cached result(s) cleared!`);
         
         // Reset UI to initial state
         document.getElementById('topic').value = '';
@@ -1129,6 +1139,9 @@ function clearSavedConfiguration() {
         document.getElementById('analysisDepth').value = 'standard';
         document.getElementById('customDays').style.display = 'none';
         document.getElementById('customLimit').style.display = 'none';
+        
+        // Hide results container
+        document.getElementById('marketSignalsContainer').style.display = 'none';
         
         updateLoadButton();
     } catch (e) {
@@ -1187,34 +1200,109 @@ function debugLocalStorage() {
 // Make debug function available globally
 window.debugLocalStorage = debugLocalStorage;
 
-function saveAnalysisResults(results, topic) {
+function generateCacheKey(config) {
+    // Create a unique cache key based on all configuration parameters
+    const keyData = {
+        topic: config.topic,
+        timeframe: config.timeframe,
+        customDays: config.customDays,
+        model: config.model,
+        sampleSizeMode: config.sampleSizeMode,
+        customLimit: config.customLimit,
+        analysisDepth: config.analysisDepth
+    };
+    
+    // Create a hash of the configuration for the cache key
+    const configString = JSON.stringify(keyData);
+    let hash = 0;
+    for (let i = 0; i < configString.length; i++) {
+        const char = configString.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+    }
+    
+    return `marketSignalsResults_${Math.abs(hash)}`;
+}
+
+function getCurrentConfiguration() {
+    const timeframe = document.getElementById('timeframe')?.value || '';
+    let customDays = null;
+    
+    if (timeframe === 'custom') {
+        customDays = document.getElementById('customDays')?.value || null;
+    }
+    
+    return {
+        topic: document.getElementById('topic')?.value || '',
+        timeframe: timeframe,
+        customDays: customDays,
+        model: document.getElementById('model')?.value || '',
+        sampleSizeMode: document.getElementById('sampleSizeMode')?.value || 'auto',
+        customLimit: document.getElementById('customLimit')?.value || null,
+        analysisDepth: document.getElementById('analysisDepth')?.value || 'standard'
+    };
+}
+
+function saveAnalysisResults(results, config) {
     try {
+        const cacheKey = generateCacheKey(config);
         const cacheData = {
             results,
-            topic,
+            config,
             timestamp: new Date().toISOString()
         };
-        localStorage.setItem('marketSignalsResults', JSON.stringify(cacheData));
-        console.log('Analysis results cached successfully');
+        
+        localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+        console.log('Analysis results cached successfully with key:', cacheKey);
+        
+        // Clean up old cache entries (keep only the most recent 5)
+        const allKeys = Object.keys(localStorage).filter(key => key.startsWith('marketSignalsResults_'));
+        if (allKeys.length > 5) {
+            // Get timestamps for all cached results
+            const cacheEntries = allKeys.map(key => {
+                try {
+                    const data = JSON.parse(localStorage.getItem(key));
+                    return { key, timestamp: new Date(data.timestamp) };
+                } catch (e) {
+                    return { key, timestamp: new Date(0) }; // Invalid entries get old timestamp
+                }
+            });
+            
+            // Sort by timestamp (newest first) and remove old entries
+            cacheEntries.sort((a, b) => b.timestamp - a.timestamp);
+            cacheEntries.slice(5).forEach(entry => {
+                localStorage.removeItem(entry.key);
+                console.log('Removed old cache entry:', entry.key);
+            });
+        }
     } catch (e) {
         console.warn('Failed to cache analysis results:', e);
     }
 }
 
-function loadCachedResults() {
+function loadCachedResults(config) {
     try {
-        const cachedData = localStorage.getItem('marketSignalsResults');
+        const cacheKey = generateCacheKey(config);
+        const cachedData = localStorage.getItem(cacheKey);
+        
         if (cachedData) {
             const cache = JSON.parse(cachedData);
             const cacheAge = new Date() - new Date(cache.timestamp);
             const maxAge = 24 * 60 * 60 * 1000; // 24 hours
             
             if (cacheAge < maxAge) {
-                console.log('Loading cached results from:', cache.timestamp);
-                return { analysis: cache.results, topic: cache.topic };
+                // Verify configuration matches
+                const configMatches = JSON.stringify(cache.config) === JSON.stringify(config);
+                if (configMatches) {
+                    console.log('Loading cached results from:', cache.timestamp);
+                    return { analysis: cache.results, config: cache.config };
+                } else {
+                    console.log('Configuration mismatch, cache invalid');
+                    localStorage.removeItem(cacheKey);
+                }
             } else {
                 console.log('Cached results expired, removing...');
-                localStorage.removeItem('marketSignalsResults');
+                localStorage.removeItem(cacheKey);
             }
         }
     } catch (e) {
