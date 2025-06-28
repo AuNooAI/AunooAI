@@ -931,19 +931,43 @@ class FloatingChat {
             }
 
             const data = await response.json();
-            const chatData = {
-                chat_id: this.currentChatId,
-                topic: this.elements.topicSelect.value,
-                model: this.elements.modelSelect.value,
-                exported_at: new Date().toISOString(),
-                messages: data.messages
-            };
+            
+            // Format conversation as Markdown
+            const topic = this.elements.topicSelect.value;
+            const model = this.elements.modelSelect.value;
+            const exportDate = new Date().toLocaleString();
+            
+            let markdownContent = `# Auspex AI Conversation Export\n\n`;
+            markdownContent += `**Topic:** ${topic}\n`;
+            markdownContent += `**AI Model:** ${model}\n`;
+            markdownContent += `**Chat ID:** ${this.currentChatId}\n`;
+            markdownContent += `**Exported:** ${exportDate}\n\n`;
+            markdownContent += `---\n\n`;
+            
+            // Add each message to the markdown
+            data.messages.forEach((message, index) => {
+                const isUser = message.role === 'user';
+                const speaker = isUser ? '👤 **User**' : '🤖 **Auspex AI**';
+                const timestamp = message.timestamp ? new Date(message.timestamp).toLocaleString() : '';
+                
+                markdownContent += `## ${speaker}`;
+                if (timestamp) {
+                    markdownContent += ` *(${timestamp})*`;
+                }
+                markdownContent += `\n\n`;
+                markdownContent += `${message.content}\n\n`;
+                
+                // Add separator between messages (except for the last one)
+                if (index < data.messages.length - 1) {
+                    markdownContent += `---\n\n`;
+                }
+            });
 
-            const blob = new Blob([JSON.stringify(chatData, null, 2)], { type: 'application/json' });
+            const blob = new Blob([markdownContent], { type: 'text/markdown' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `auspex-chat-${this.currentChatId}-${new Date().toISOString().split('T')[0]}.json`;
+            a.download = `auspex-chat-${this.currentChatId}-${new Date().toISOString().split('T')[0]}.md`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

@@ -398,6 +398,68 @@
 
     .alert-success {
         background: linear-gradient(135deg, #e8f5e8, #f1f8e9);
+
+    /* Square button styling */
+    .btn-square {
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: all 0.2s ease;
+    }
+
+    .btn-square:hover {
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        transform: translateY(-1px);
+    }
+
+    .btn-square i {
+        font-size: 14px;
+        margin: 0;
+    }
+
+    /* Button divider */
+    .btn-divider {
+        width: 1px;
+        height: 24px;
+        background: #dee2e6;
+        margin: 0 4px;
+        align-self: center;
+    }
+
+    /* Controls container animation */
+    #controlsContainer {
+        transition: all 0.3s ease;
+        overflow: hidden;
+    }
+
+    #controlsContainer.collapsed {
+        opacity: 0;
+        max-width: 0;
+        margin: 0;
+    }
+
+    /* Toggle button */
+    #toggleControlsBtn {
+        transition: all 0.2s ease;
+    }
+
+    #toggleIcon {
+        transition: transform 0.2s ease;
+    }
+
+    #toggleIcon.rotated {
+        transform: rotate(180deg);
+    }
+
+    /* Hide header subtitle when collapsed */
+    .header-subtitle-hidden {
+        display: none !important;
+    }
         color: #2e7d32;
         border-left: 4px solid #4caf50;
     }
@@ -453,17 +515,31 @@
         <p>AI-powered futures analysis using your article data to generate probable, plausible, possible, preferable, and wildcard scenarios</p>
     </div>
     
-    <!-- Control buttons -->
-    <div class="mb-4 d-flex gap-2 justify-content-center">
-        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#configModal">
-            <i class="fas fa-cog me-2"></i>Configure Analysis
-        </button>
-        <button type="button" class="btn btn-success" id="loadAnalysisBtn" onclick="loadFuturesConeAnalysis()" disabled>
-            <i class="fas fa-play me-2"></i>Generate Futures Cone
-        </button>
-        <button type="button" class="btn btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear saved configuration and cached results">
-            <i class="fas fa-trash me-2"></i>Clear Cache
-        </button>
+    <!-- Collapsible Control Bar -->
+    <div class="mb-4 d-flex justify-content-center">
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleControlsBtn" onclick="toggleControls()" title="Toggle controls">
+                <i class="fas fa-chevron-up" id="toggleIcon"></i>
+            </button>
+            <div id="controlsContainer" class="d-flex gap-1">
+                <button type="button" class="btn btn-sm btn-square btn-primary" data-bs-toggle="modal" data-bs-target="#configModal" title="Configure Analysis">
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-square btn-success" id="loadAnalysisBtn" onclick="loadFuturesConeAnalysis()" disabled title="Generate Futures Cone">
+                    <i class="fas fa-play"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-square btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear Cache">
+                    <i class="fas fa-trash"></i>
+                </button>
+                <div class="btn-divider"></div>
+                <button type="button" class="btn btn-sm btn-square btn-outline-danger" onclick="downloadAsPDF()" title="Download PDF">
+                    <i class="fas fa-file-pdf"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-square btn-outline-info" onclick="downloadAsImage()" title="Download PNG">
+                    <i class="fas fa-image"></i>
+                </button>
+            </div>
+        </div>
     </div>
     
     <div class="loading-spinner" id="loadingSpinner" style="display: none;">
@@ -641,8 +717,318 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Libraries for download functionality -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <script>
+// UI Control Functions
+function toggleControls() {
+    const controlsContainer = document.getElementById('controlsContainer');
+    const toggleIcon = document.getElementById('toggleIcon');
+    // Find the header subtitle
+    const headerSubtitle = document.getElementById('topicSubtitle');
+    
+    const isCollapsed = controlsContainer.classList.contains('collapsed');
+    
+    if (isCollapsed) {
+        // Show controls
+        controlsContainer.classList.remove('collapsed');
+        toggleIcon.classList.remove('rotated');
+        if (headerSubtitle) {
+            headerSubtitle.classList.remove('header-subtitle-hidden');
+        }
+        localStorage.setItem('futuresConeControlsCollapsed', 'false');
+    } else {
+        // Hide controls
+        controlsContainer.classList.add('collapsed');
+        toggleIcon.classList.add('rotated');
+        if (headerSubtitle) {
+            headerSubtitle.classList.add('header-subtitle-hidden');
+        }
+        localStorage.setItem('futuresConeControlsCollapsed', 'true');
+    }
+}
+
+function restoreControlsState() {
+    const isCollapsed = localStorage.getItem('futuresConeControlsCollapsed') === 'true';
+    if (isCollapsed) {
+        const controlsContainer = document.getElementById('controlsContainer');
+        const toggleIcon = document.getElementById('toggleIcon');
+        
+        controlsContainer.classList.add('collapsed');
+        toggleIcon.classList.add('rotated');
+    }
+}
+
+async function autoLoadCachedAnalysis() {
+    try {
+        // Find the most recent cached result
+        const allKeys = Object.keys(localStorage).filter(key => key.startsWith('futuresConeResults_'));
+        
+        if (allKeys.length === 0) {
+            console.log('No cached results found for auto-load');
+            return;
+        }
+
+        // Get the most recent cache entry
+        let latestCache = null;
+        let latestTimestamp = 0;
+        
+        for (const key of allKeys) {
+            try {
+                const cacheData = JSON.parse(localStorage.getItem(key));
+                const timestamp = new Date(cacheData.timestamp).getTime();
+                
+                if (timestamp > latestTimestamp) {
+                    latestTimestamp = timestamp;
+                    latestCache = cacheData;
+                }
+            } catch (e) {
+                console.warn('Invalid cache entry:', key, e);
+            }
+        }
+
+        if (latestCache && latestCache.results && latestCache.results.data) {
+            console.log('Auto-loading cached result from:', latestCache.timestamp);
+            
+            // Display the cached analysis
+            await displayFuturesCone(latestCache.results.data);
+            
+            // Hide the subtitle if controls are collapsed
+            const isCollapsed = localStorage.getItem('futuresConeControlsCollapsed') === 'true';
+            if (isCollapsed) {
+                setTimeout(() => {
+                    const headerSubtitle = document.getElementById('topicSubtitle');
+                    if (headerSubtitle) {
+                        headerSubtitle.classList.add('header-subtitle-hidden');
+                    }
+                }, 100);
+            }
+            
+            console.log('Auto-loaded cached futures cone analysis successfully');
+        } else {
+            console.log('No valid cached results found for auto-load');
+        }
+        
+    } catch (error) {
+        console.error('Error auto-loading cached result:', error);
+    }
+}
+
+// Download Functions
+async function downloadAsPDF() {
+    try {
+        showSuccess('Generating PDF... Please wait.');
+        
+        const { jsPDF } = window.jspdf;
+        const futuresConeContainer = document.getElementById('futuresConeContainer');
+        
+        if (!futuresConeContainer || futuresConeContainer.style.display === 'none') {
+            showError('No futures cone to download. Please generate analysis first.');
+            return;
+        }
+
+        // Create a container with just the title and cone content
+        const exportContainer = document.createElement('div');
+        exportContainer.style.cssText = `
+            background: white;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+        `;
+        
+        // Add title
+        const title = document.createElement('h1');
+        title.style.cssText = `
+            color: #FF69B4;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        `;
+        title.innerHTML = '<i style="margin-right: 10px;">🔮</i>Data-Driven Futures Cone';
+        exportContainer.appendChild(title);
+        
+        // Add subtitle
+        const subtitle = document.createElement('p');
+        subtitle.style.cssText = `
+            color: #666;
+            font-size: 16px;
+            text-align: center;
+            margin-bottom: 30px;
+        `;
+        const topicName = document.getElementById('topic')?.value || 'Selected Topic';
+        subtitle.textContent = `Futures analysis for ${topicName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
+        exportContainer.appendChild(subtitle);
+        
+        // Clone the futures cone content
+        const clonedContent = futuresConeContainer.cloneNode(true);
+        clonedContent.style.display = 'block';
+        exportContainer.appendChild(clonedContent);
+        
+        // Temporarily add to page for rendering
+        exportContainer.style.position = 'absolute';
+        exportContainer.style.left = '-9999px';
+        exportContainer.style.top = '0';
+        document.body.appendChild(exportContainer);
+
+        // Wait for rendering
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Generate canvas
+        const canvas = await html2canvas(exportContainer, {
+            useCORS: true,
+            scale: 1.2,
+            logging: false,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            removeContainer: true
+        });
+
+        // Remove temporary container
+        document.body.removeChild(exportContainer);
+
+        // Create PDF
+        const imgData = canvas.toDataURL('image/png', 0.95);
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        
+        const pdfWidth = 210;
+        const pdfHeight = 297;
+        const imgWidth = pdfWidth - 20;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        
+        const pageHeight = pdfHeight - 20;
+        let y = 10;
+        let remainingHeight = imgHeight;
+        let sourceY = 0;
+
+        // Add pages as needed
+        while (remainingHeight > 0) {
+            const heightToAdd = Math.min(remainingHeight, pageHeight);
+            const sourceHeight = (heightToAdd / imgHeight) * canvas.height;
+            
+            const pageCanvas = document.createElement('canvas');
+            pageCanvas.width = canvas.width;
+            pageCanvas.height = sourceHeight;
+            const pageCtx = pageCanvas.getContext('2d');
+            
+            pageCtx.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sourceHeight);
+            
+            if (sourceY > 0) {
+                pdf.addPage();
+            }
+            
+            const pageImgData = pageCanvas.toDataURL('image/png', 0.95);
+            pdf.addImage(pageImgData, 'PNG', 10, y, imgWidth, heightToAdd);
+            
+            remainingHeight -= heightToAdd;
+            sourceY += sourceHeight;
+            y = 10;
+        }
+
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const filename = `futures-cone-${timestamp}.pdf`;
+        
+        pdf.save(filename);
+        showSuccess('PDF downloaded successfully!');
+        
+    } catch (error) {
+        console.error('Error generating PDF:', error);
+        showError('Failed to generate PDF: ' + error.message);
+    }
+}
+
+async function downloadAsImage() {
+    try {
+        showSuccess('Generating image... Please wait.');
+        
+        const futuresConeContainer = document.getElementById('futuresConeContainer');
+        
+        if (!futuresConeContainer || futuresConeContainer.style.display === 'none') {
+            showError('No futures cone to download. Please generate analysis first.');
+            return;
+        }
+
+        // Create a container with title and cone content
+        const exportContainer = document.createElement('div');
+        exportContainer.style.cssText = `
+            background: white;
+            padding: 30px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+        `;
+        
+        // Add title
+        const title = document.createElement('h1');
+        title.style.cssText = `
+            color: #FF69B4;
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        `;
+        title.innerHTML = '<i style="margin-right: 10px;">🔮</i>Data-Driven Futures Cone';
+        exportContainer.appendChild(title);
+        
+        // Add subtitle
+        const subtitle = document.createElement('p');
+        subtitle.style.cssText = `
+            color: #666;
+            font-size: 18px;
+            text-align: center;
+            margin-bottom: 40px;
+        `;
+        const topicName = document.getElementById('topic')?.value || 'Selected Topic';
+        subtitle.textContent = `Futures analysis for ${topicName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
+        exportContainer.appendChild(subtitle);
+        
+        // Clone the futures cone content
+        const clonedContent = futuresConeContainer.cloneNode(true);
+        clonedContent.style.display = 'block';
+        exportContainer.appendChild(clonedContent);
+        
+        // Temporarily add to page for rendering
+        exportContainer.style.position = 'absolute';
+        exportContainer.style.left = '-9999px';
+        exportContainer.style.top = '0';
+        document.body.appendChild(exportContainer);
+
+        // Wait for rendering
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Generate canvas
+        const canvas = await html2canvas(exportContainer, {
+            useCORS: true,
+            scale: 2,
+            logging: false,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            removeContainer: true
+        });
+
+        // Remove temporary container
+        document.body.removeChild(exportContainer);
+
+        // Create download link
+        const link = document.createElement('a');
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const filename = `futures-cone-${timestamp}.png`;
+        
+        link.download = filename;
+        link.href = canvas.toDataURL('image/png', 0.95);
+        link.click();
+        
+        showSuccess('Image downloaded successfully!');
+        
+    } catch (error) {
+        console.error('Error generating image:', error);
+        showError('Failed to generate image: ' + error.message);
+    }
+}
+
 // Configuration and state management
 let currentAnalysisData = null;
 
@@ -1059,14 +1445,16 @@ function updateLoadButton() {
     
     if (topic && model) {
         loadBtn.disabled = false;
-        loadBtn.innerHTML = '<i class="fas fa-play me-2"></i>Generate Futures Cone';
-        configureBtn.innerHTML = '<i class="fas fa-check me-2"></i>Configured';
+        loadBtn.title = 'Generate Futures Cone';
+        configureBtn.innerHTML = '<i class="fas fa-check"></i>';
+        configureBtn.title = 'Configured';
         configureBtn.classList.remove('btn-primary');
         configureBtn.classList.add('btn-success');
     } else {
         loadBtn.disabled = true;
-        loadBtn.innerHTML = '<i class="fas fa-play me-2"></i>Generate Futures Cone';
-        configureBtn.innerHTML = '<i class="fas fa-cog me-2"></i>Configure Analysis';
+        loadBtn.title = 'Generate Futures Cone';
+        configureBtn.innerHTML = '<i class="fas fa-cog"></i>';
+        configureBtn.title = 'Configure Analysis';
         configureBtn.classList.remove('btn-success');
         configureBtn.classList.add('btn-primary');
     }
@@ -1343,6 +1731,15 @@ function showError(message) {
 // Initialize page
 document.addEventListener('DOMContentLoaded', async function() {
     // Let Bootstrap handle its own initialization
+    
+    // Restore controls state
+    restoreControlsState();
+    
+    // Try to auto-load cached analysis
+    setTimeout(() => {
+        autoLoadCachedAnalysis();
+    }, 500);
+    
     try {
         // Load topics
         const topicsResponse = await fetch('/api/forecast-charts/topics');
@@ -1391,6 +1788,11 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Initialize context info
         updateContextInfo();
+        
+        // Load saved configuration after all data is loaded
+        setTimeout(async () => {
+            await loadSavedConfiguration();
+        }, 500);
         
     } catch (error) {
         console.warn('Failed to load data:', error);

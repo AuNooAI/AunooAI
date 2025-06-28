@@ -426,6 +426,68 @@
             background: linear-gradient(135deg, var(--primary-dark), #C71585);
             transform: translateY(-2px);
         }
+
+        /* Square button styling */
+        .btn-square {
+            width: 38px;
+            height: 38px;
+            padding: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: all 0.2s ease;
+        }
+
+        .btn-square:hover {
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .btn-square i {
+            font-size: 14px;
+            margin: 0;
+        }
+
+        /* Button divider */
+        .btn-divider {
+            width: 1px;
+            height: 24px;
+            background: #dee2e6;
+            margin: 0 4px;
+            align-self: center;
+        }
+
+        /* Controls container animation */
+        #controlsContainer {
+            transition: all 0.3s ease;
+            overflow: hidden;
+        }
+
+        #controlsContainer.collapsed {
+            opacity: 0;
+            max-width: 0;
+            margin: 0;
+        }
+
+        /* Toggle button */
+        #toggleControlsBtn {
+            transition: all 0.2s ease;
+        }
+
+        #toggleIcon {
+            transition: transform 0.2s ease;
+        }
+
+        #toggleIcon.rotated {
+            transform: rotate(180deg);
+        }
+
+        /* Hide analysis summary when collapsed */
+        .analysis-summary-hidden {
+            display: none !important;
+        }
     </style>
 {% endblock %}
 
@@ -447,17 +509,31 @@
         
         <div class="row">
             <div class="col-12">
-                <!-- Control buttons above the reading guide -->
-                <div class="mb-3 d-flex gap-2">
-                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#topicModal">
-                        <i class="fas fa-cog me-2"></i>Configure Analysis
-                    </button>
-                    <button type="button" class="btn btn-success" id="loadAnalysisBtn" onclick="loadConsensusAnalysis()" disabled>
-                        <i class="fas fa-play me-2"></i>Load Analysis
-                    </button>
-                    <button type="button" class="btn btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear saved configuration and cached results">
-                        <i class="fas fa-trash me-2"></i>Clear Cache
-                    </button>
+                <!-- Collapsible Control Bar -->
+                <div class="mb-3">
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleControlsBtn" onclick="toggleControls()" title="Toggle controls">
+                            <i class="fas fa-chevron-up" id="toggleIcon"></i>
+                        </button>
+                        <div id="controlsContainer" class="d-flex gap-1">
+                            <button type="button" class="btn btn-sm btn-square btn-primary" data-bs-toggle="modal" data-bs-target="#topicModal" title="Configure Analysis">
+                                <i class="fas fa-cog"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-square btn-success" id="loadAnalysisBtn" onclick="loadConsensusAnalysis()" disabled title="Load Analysis">
+                                <i class="fas fa-play"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-square btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear Cache">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                            <div class="btn-divider"></div>
+                            <button type="button" class="btn btn-sm btn-square btn-outline-danger" onclick="downloadAsPDF()" title="Download PDF">
+                                <i class="fas fa-file-pdf"></i>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-square btn-outline-info" onclick="downloadAsImage()" title="Download PNG">
+                                <i class="fas fa-image"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -603,6 +679,9 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Libraries for download functionality -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     
     <script>
         let selectedDomain = null;
@@ -2899,6 +2978,357 @@ ${actionableData.description}`;
         window.testToggleFunction = testToggleFunction;
         window.debugCurrentAnalysis = debugCurrentAnalysis;
 
+        // UI Control Functions
+        function toggleControls() {
+            const controlsContainer = document.getElementById('controlsContainer');
+            const toggleIcon = document.getElementById('toggleIcon');
+            // Find the analysis summary card (first card with "Analysis Summary" text)
+            const analysisSummary = Array.from(document.querySelectorAll('.domain-card')).find(card => 
+                card.textContent.includes('Analysis Summary')
+            );
+            
+            const isCollapsed = controlsContainer.classList.contains('collapsed');
+            
+            if (isCollapsed) {
+                // Show controls
+                controlsContainer.classList.remove('collapsed');
+                toggleIcon.classList.remove('rotated');
+                if (analysisSummary) {
+                    analysisSummary.classList.remove('analysis-summary-hidden');
+                }
+                localStorage.setItem('controlsCollapsed', 'false');
+            } else {
+                // Hide controls
+                controlsContainer.classList.add('collapsed');
+                toggleIcon.classList.add('rotated');
+                if (analysisSummary) {
+                    analysisSummary.classList.add('analysis-summary-hidden');
+                }
+                localStorage.setItem('controlsCollapsed', 'true');
+            }
+        }
+
+        function restoreControlsState() {
+            const isCollapsed = localStorage.getItem('controlsCollapsed') === 'true';
+            if (isCollapsed) {
+                const controlsContainer = document.getElementById('controlsContainer');
+                const toggleIcon = document.getElementById('toggleIcon');
+                
+                controlsContainer.classList.add('collapsed');
+                toggleIcon.classList.add('rotated');
+            }
+        }
+
+        async function autoLoadCachedAnalysis() {
+            try {
+                // Find the most recent cached result
+                const allKeys = Object.keys(localStorage).filter(key => key.startsWith('consensusAnalysisResults_'));
+                
+                if (allKeys.length === 0) {
+                    console.log('No cached results found for auto-load');
+                    return;
+                }
+
+                // Get the most recent cache entry
+                let latestCache = null;
+                let latestTimestamp = 0;
+                
+                for (const key of allKeys) {
+                    try {
+                        const cacheData = JSON.parse(localStorage.getItem(key));
+                        const timestamp = new Date(cacheData.timestamp).getTime();
+                        
+                        if (timestamp > latestTimestamp) {
+                            latestTimestamp = timestamp;
+                            latestCache = cacheData;
+                        }
+                    } catch (e) {
+                        console.warn('Invalid cache entry:', key, e);
+                    }
+                }
+
+                if (latestCache) {
+                    console.log('Auto-loading cached result from:', latestCache.timestamp);
+                    const config = latestCache.config;
+                    
+                    // Display the cached analysis
+                    await displayAuspexAnalysis(
+                        config.topic || 'Unknown Topic',
+                        config.timeframe || 'Unknown Timeframe',
+                        latestCache.results
+                    );
+                    
+                    // Hide the analysis summary if controls are collapsed
+                    const isCollapsed = localStorage.getItem('controlsCollapsed') === 'true';
+                    if (isCollapsed) {
+                        setTimeout(() => {
+                            const analysisSummary = Array.from(document.querySelectorAll('.domain-card')).find(card => 
+                                card.textContent.includes('Analysis Summary')
+                            );
+                            if (analysisSummary) {
+                                analysisSummary.classList.add('analysis-summary-hidden');
+                            }
+                        }, 100);
+                    }
+                    
+                    console.log('Auto-loaded cached analysis successfully');
+                } else {
+                    console.log('No valid cached results found for auto-load');
+                }
+                
+            } catch (error) {
+                console.error('Error auto-loading cached result:', error);
+            }
+        }
+
+        // Download Functions
+
+        async function downloadAsPDF() {
+            try {
+                showSuccess('Generating PDF... Please wait.');
+                
+                const { jsPDF } = window.jspdf;
+                const consensusContainer = document.getElementById('consensusContainer');
+                
+                if (!consensusContainer || consensusContainer.style.display === 'none') {
+                    showError('No analysis results to download. Please load an analysis first.');
+                    return;
+                }
+
+                // Create a container with just the title and analysis content
+                const exportContainer = document.createElement('div');
+                exportContainer.style.cssText = `
+                    background: white;
+                    padding: 20px;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    max-width: 1200px;
+                    margin: 0 auto;
+                `;
+                
+                // Add title
+                const title = document.createElement('h1');
+                title.style.cssText = `
+                    color: #FF69B4;
+                    font-size: 28px;
+                    font-weight: bold;
+                    margin-bottom: 10px;
+                    text-align: center;
+                `;
+                title.innerHTML = '<i style="margin-right: 10px;">⚖️</i>Consensus vs. Fringe Voices Analysis';
+                exportContainer.appendChild(title);
+                
+                // Add subtitle if available
+                const subtitle = document.createElement('p');
+                subtitle.style.cssText = `
+                    color: #666;
+                    font-size: 16px;
+                    text-align: center;
+                    margin-bottom: 30px;
+                `;
+                subtitle.textContent = 'Evidence-based analysis showing consensus patterns and outlier perspectives';
+                exportContainer.appendChild(subtitle);
+                
+                // Clone the actual analysis content
+                const domainCards = document.getElementById('domainCards');
+                if (domainCards) {
+                    const clonedContent = domainCards.cloneNode(true);
+                    
+                    // Expand all collapsed sections for export
+                    const expandedDetails = clonedContent.querySelectorAll('.expanded-details');
+                    expandedDetails.forEach(detail => {
+                        detail.style.display = 'block';
+                    });
+                    
+                    // Remove any buttons from the cloned content
+                    const buttons = clonedContent.querySelectorAll('button');
+                    buttons.forEach(btn => btn.remove());
+                    
+                    exportContainer.appendChild(clonedContent);
+                }
+                
+                // Temporarily add to page for rendering
+                exportContainer.style.position = 'absolute';
+                exportContainer.style.left = '-9999px';
+                exportContainer.style.top = '0';
+                document.body.appendChild(exportContainer);
+
+                // Wait for rendering
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Generate canvas from the export container
+                const canvas = await html2canvas(exportContainer, {
+                    useCORS: true,
+                    scale: 1.2,
+                    logging: false,
+                    allowTaint: true,
+                    backgroundColor: '#ffffff',
+                    removeContainer: true
+                });
+
+                // Remove temporary container
+                document.body.removeChild(exportContainer);
+
+                console.log('Canvas dimensions:', { width: canvas.width, height: canvas.height });
+
+                // Create PDF with proper sizing
+                const imgData = canvas.toDataURL('image/png', 0.95);
+                const pdf = new jsPDF('p', 'mm', 'a4');
+                
+                const pdfWidth = 210; // A4 width in mm
+                const pdfHeight = 297; // A4 height in mm
+                const imgWidth = pdfWidth - 20; // Leave margins
+                const imgHeight = (canvas.height * imgWidth) / canvas.width;
+                
+                const pageHeight = pdfHeight - 20; // Leave margins
+                let y = 10; // Top margin
+                let remainingHeight = imgHeight;
+                let sourceY = 0;
+
+                console.log('PDF layout:', { imgWidth, imgHeight, pageHeight });
+
+                // Add pages as needed
+                while (remainingHeight > 0) {
+                    // Calculate how much of the image fits on this page
+                    const heightToAdd = Math.min(remainingHeight, pageHeight);
+                    const sourceHeight = (heightToAdd / imgHeight) * canvas.height;
+                    
+                    // Create a temporary canvas for this page's content
+                    const pageCanvas = document.createElement('canvas');
+                    pageCanvas.width = canvas.width;
+                    pageCanvas.height = sourceHeight;
+                    const pageCtx = pageCanvas.getContext('2d');
+                    
+                    // Draw the portion of the image for this page
+                    pageCtx.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sourceHeight);
+                    
+                    // Add to PDF
+                    if (sourceY > 0) {
+                        pdf.addPage();
+                    }
+                    
+                    const pageImgData = pageCanvas.toDataURL('image/png', 0.95);
+                    pdf.addImage(pageImgData, 'PNG', 10, y, imgWidth, heightToAdd);
+                    
+                    // Update for next page
+                    remainingHeight -= heightToAdd;
+                    sourceY += sourceHeight;
+                    y = 10; // Reset top margin for new pages
+                }
+
+                // Generate filename with timestamp
+                const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+                const filename = `consensus-analysis-${timestamp}.pdf`;
+                
+                pdf.save(filename);
+                showSuccess('PDF of analysis data downloaded successfully!');
+                
+            } catch (error) {
+                console.error('Error generating PDF:', error);
+                showError('Failed to generate PDF: ' + error.message);
+            }
+        }
+
+        async function downloadAsImage() {
+            try {
+                showSuccess('Generating image... Please wait.');
+                
+                const consensusContainer = document.getElementById('consensusContainer');
+                
+                if (!consensusContainer || consensusContainer.style.display === 'none') {
+                    showError('No analysis results to download. Please load an analysis first.');
+                    return;
+                }
+
+                // Create a container with just the title and analysis content
+                const exportContainer = document.createElement('div');
+                exportContainer.style.cssText = `
+                    background: white;
+                    padding: 30px;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    max-width: 1400px;
+                    margin: 0 auto;
+                `;
+                
+                // Add title
+                const title = document.createElement('h1');
+                title.style.cssText = `
+                    color: #FF69B4;
+                    font-size: 32px;
+                    font-weight: bold;
+                    margin-bottom: 10px;
+                    text-align: center;
+                `;
+                title.innerHTML = '<i style="margin-right: 10px;">⚖️</i>Consensus vs. Fringe Voices Analysis';
+                exportContainer.appendChild(title);
+                
+                // Add subtitle if available
+                const subtitle = document.createElement('p');
+                subtitle.style.cssText = `
+                    color: #666;
+                    font-size: 18px;
+                    text-align: center;
+                    margin-bottom: 40px;
+                `;
+                subtitle.textContent = 'Evidence-based analysis showing consensus patterns and outlier perspectives';
+                exportContainer.appendChild(subtitle);
+                
+                // Clone the actual analysis content
+                const domainCards = document.getElementById('domainCards');
+                if (domainCards) {
+                    const clonedContent = domainCards.cloneNode(true);
+                    
+                    // Expand all collapsed sections for export
+                    const expandedDetails = clonedContent.querySelectorAll('.expanded-details');
+                    expandedDetails.forEach(detail => {
+                        detail.style.display = 'block';
+                    });
+                    
+                    // Remove any buttons from the cloned content
+                    const buttons = clonedContent.querySelectorAll('button');
+                    buttons.forEach(btn => btn.remove());
+                    
+                    exportContainer.appendChild(clonedContent);
+                }
+                
+                // Temporarily add to page for rendering
+                exportContainer.style.position = 'absolute';
+                exportContainer.style.left = '-9999px';
+                exportContainer.style.top = '0';
+                document.body.appendChild(exportContainer);
+
+                // Wait for rendering
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Generate canvas from the export container
+                const canvas = await html2canvas(exportContainer, {
+                    useCORS: true,
+                    scale: 2, // Higher resolution for PNG
+                    logging: false,
+                    allowTaint: true,
+                    backgroundColor: '#ffffff',
+                    removeContainer: true
+                });
+
+                // Remove temporary container
+                document.body.removeChild(exportContainer);
+
+                // Create download link
+                const link = document.createElement('a');
+                const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+                const filename = `consensus-analysis-${timestamp}.png`;
+                
+                link.download = filename;
+                link.href = canvas.toDataURL('image/png', 0.95);
+                link.click();
+                
+                showSuccess('Image of analysis data downloaded successfully!');
+                
+            } catch (error) {
+                console.error('Error generating image:', error);
+                showError('Failed to generate image: ' + error.message);
+            }
+        }
+
         // Global tooltip variables and handlers
         let currentTooltip = null;
         
@@ -3123,14 +3553,16 @@ Sentiment Breakdown:
             
             if (topic && model) {
                 loadBtn.disabled = false;
-                loadBtn.innerHTML = '<i class="fas fa-play me-2"></i>Load Analysis';
-                configureBtn.innerHTML = '<i class="fas fa-check me-2"></i>Configured';
+                loadBtn.title = 'Load Analysis';
+                configureBtn.innerHTML = '<i class="fas fa-check"></i>';
+                configureBtn.title = 'Configured';
                 configureBtn.classList.remove('btn-primary');
                 configureBtn.classList.add('btn-success');
             } else {
                 loadBtn.disabled = true;
-                loadBtn.innerHTML = '<i class="fas fa-play me-2"></i>Load Analysis';
-                configureBtn.innerHTML = '<i class="fas fa-cog me-2"></i>Configure Analysis';
+                loadBtn.title = 'Load Analysis';
+                configureBtn.innerHTML = '<i class="fas fa-cog"></i>';
+                configureBtn.title = 'Configure Analysis';
                 configureBtn.classList.remove('btn-success');
                 configureBtn.classList.add('btn-primary');
             }
@@ -3598,6 +4030,14 @@ Sentiment Breakdown:
             // Add tooltip event listeners
             document.addEventListener('mouseover', handleTooltipMouseover);
             document.addEventListener('mouseout', handleTooltipMouseout);
+            
+            // Restore controls state
+            restoreControlsState();
+            
+            // Try to auto-load cached analysis
+            setTimeout(() => {
+                autoLoadCachedAnalysis();
+            }, 500);
             
             // Load data and then configuration
             const topicsLoaded = await loadTopics();

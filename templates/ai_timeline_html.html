@@ -129,7 +129,7 @@
 
     .timeline-track {
         flex: 1;
-        padding: 1.5rem;
+        padding: 5rem 1.5rem 1.5rem 1.5rem;
         background: #f9fafb;
         position: relative;
         overflow: visible;
@@ -137,12 +137,13 @@
 
     .track-container {
         position: relative;
-        height: 2rem;
+        height: 5rem;
+        padding-top: 3rem;
     }
 
     .track-bg {
         position: absolute;
-        top: 50%;
+        top: calc(50% + 1.5rem);
         left: 0;
         right: 0;
         height: 8px;
@@ -153,7 +154,7 @@
 
     .track-progress {
         position: absolute;
-        top: 50%;
+        top: calc(50% + 1.5rem);
         left: 0;
         height: 8px;
         border-radius: 9999px;
@@ -171,11 +172,49 @@
         cursor: pointer;
         transform: translate(-50%, -50%);
         transition: transform 0.2s ease;
-        top: 50%;
+        top: calc(50% + 1.5rem);
     }
 
     .milestone:hover {
         transform: translate(-50%, -50%) scale(1.25);
+    }
+
+    .milestone-label {
+        position: absolute;
+        top: -3.5rem;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(255, 255, 255, 0.95);
+        color: #374151;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.375rem;
+        font-size: 0.65rem;
+        font-weight: 600;
+        white-space: normal;
+        text-align: center;
+        line-height: 1.3;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        border: 1px solid #e5e7eb;
+        z-index: 100;
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .milestone-year {
+        font-weight: 700;
+        color: #1f2937;
+        display: block;
+        margin-bottom: 0.1rem;
+    }
+
+    .milestone-event {
+        font-weight: 500;
+        color: #6b7280;
+        font-size: 0.6rem;
+        display: block;
+        white-space: normal;
+        line-height: 1.2;
     }
 
     .milestone-tooltip {
@@ -431,6 +470,73 @@
             transform: translateY(0);
         }
     }
+
+    /* Square button styling */
+    .btn-square {
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: all 0.2s ease;
+    }
+
+    .btn-square:hover {
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        transform: translateY(-1px);
+    }
+
+    .btn-square i {
+        font-size: 14px;
+        margin: 0;
+    }
+
+    /* Button divider */
+    .btn-divider {
+        width: 1px;
+        height: 24px;
+        background: #dee2e6;
+        margin: 0 4px;
+        align-self: center;
+    }
+
+    /* Controls container animation */
+    #controlsContainer {
+        transition: all 0.3s ease;
+        overflow: hidden;
+    }
+
+    #controlsContainer.collapsed {
+        opacity: 0;
+        max-width: 0;
+        margin: 0;
+    }
+
+    /* Toggle button */
+    #toggleControlsBtn {
+        transition: all 0.2s ease;
+    }
+
+    #toggleIcon {
+        transition: transform 0.2s ease;
+    }
+
+    #toggleIcon.rotated {
+        transform: rotate(180deg);
+    }
+
+    /* Hide header subtitle when collapsed */
+    .header-subtitle-hidden {
+        display: none !important;
+    }
+
+    /* Hide analysis summary when collapsed */
+    .analysis-summary-hidden {
+        display: none !important;
+    }
     
     @media (max-width: 768px) {
         .header h1 {
@@ -461,17 +567,31 @@
         <p>AI-powered timeline analysis using your article data to generate strategic planning horizons</p>
     </div>
     
-    <!-- Control buttons -->
-    <div class="mb-4 d-flex gap-2 justify-content-center">
-        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#configModal">
-            <i class="fas fa-cog me-2"></i>Configure Analysis
-        </button>
-        <button type="button" class="btn btn-success" id="loadAnalysisBtn" onclick="loadTimelineAnalysis()" disabled>
-            <i class="fas fa-play me-2"></i>Generate Timeline
-        </button>
-        <button type="button" class="btn btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear saved configuration and cached results">
-            <i class="fas fa-trash me-2"></i>Clear Cache
-        </button>
+    <!-- Collapsible Control Bar -->
+    <div class="mb-4 d-flex justify-content-center">
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleControlsBtn" onclick="toggleControls()" title="Toggle controls">
+                <i class="fas fa-chevron-up" id="toggleIcon"></i>
+            </button>
+            <div id="controlsContainer" class="d-flex gap-1">
+                <button type="button" class="btn btn-sm btn-square btn-primary" data-bs-toggle="modal" data-bs-target="#configModal" title="Configure Analysis">
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-square btn-success" id="loadAnalysisBtn" onclick="loadTimelineAnalysis()" disabled title="Generate Timeline">
+                    <i class="fas fa-play"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-square btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear Cache">
+                    <i class="fas fa-trash"></i>
+                </button>
+                <div class="btn-divider"></div>
+                <button type="button" class="btn btn-sm btn-square btn-outline-danger" onclick="downloadAsPDF()" title="Download PDF">
+                    <i class="fas fa-file-pdf"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-square btn-outline-info" onclick="downloadAsImage()" title="Download PNG">
+                    <i class="fas fa-image"></i>
+                </button>
+            </div>
+        </div>
     </div>
     
     <div class="loading-spinner" id="loadingSpinner" style="display: none;">
@@ -524,12 +644,12 @@
         <div id="swimlanes"></div>
 
         <div class="legend">
-            <p>Hover over timeline points for detailed milestones</p>
+            <p>Timeline shows milestone years. Hover over points for detailed descriptions and analysis.</p>
             <div class="legend-items" id="legend-items"></div>
         </div>
     </div>
 
-    <div class="insights-card" id="insightsCard">
+    <div class="insights-card" id="insightsCard" style="display: none;">
         <h3 class="insights-title">
             <svg class="target-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <circle cx="12" cy="12" r="10"></circle>
@@ -539,23 +659,7 @@
             Key Strategic Insights
         </h3>
         <div id="insightsContent">
-            <!-- Default insights - will be replaced by LLM response -->
-            <div class="insight-item">
-                <div class="insight-dot"></div>
-                <p><strong>Act now</strong> to capture value from immediate productivity gains, address workforce transitions, and shape early regulatory frameworks</p>
-            </div>
-            <div class="insight-item">
-                <div class="insight-dot"></div>
-                <p><strong>Invest for the mid-term</strong> in upskilling, risk management, and sector-specific AI integration (2026-2029 transformation phase)</p>
-            </div>
-            <div class="insight-item">
-                <div class="insight-dot"></div>
-                <p><strong>Prepare for long-term uncertainty</strong> by monitoring AGI developments and ensuring societal resilience to paradigm shifts</p>
-            </div>
-            <div class="insight-item">
-                <div class="insight-dot"></div>
-                <p>AI's most profound impacts will materialize across staggered timelines—immediate business disruption, mid-term societal transformation, long-term AGI governance</p>
-            </div>
+            <!-- This will be populated with AI-generated insights -->
         </div>
     </div>
 </div>
@@ -803,6 +907,14 @@ async function displayTimeline(data) {
         topicSubtitle.textContent = `Timeline for ${topic.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
     }
     
+    // Check if this is cached data and add indicator
+    if (data.generated_at) {
+        const generatedDate = new Date(data.generated_at).toLocaleString();
+        if (topicSubtitle) {
+            topicSubtitle.innerHTML = `Timeline for ${topic.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} <small style="opacity: 0.7; font-size: 0.8em;">(Generated: ${generatedDate})</small>`;
+        }
+    }
+    
     // Update year labels based on future horizon
     updateYearLabels();
     
@@ -844,6 +956,12 @@ function updateYearLabels() {
 function getAnalysisForYear(detailedAnalysis, year) {
     if (!detailedAnalysis) return '';
     
+    // First check for milestone-specific analysis
+    if (detailedAnalysis.milestone_analysis && detailedAnalysis.milestone_analysis[year]) {
+        return detailedAnalysis.milestone_analysis[year];
+    }
+    
+    // Fall back to timeframe-based analysis if no specific milestone analysis
     const yearNum = parseInt(year);
     const currentYear = new Date().getFullYear();
     
@@ -968,6 +1086,10 @@ function populateSwimlanes(swimlanes) {
                         <div class="track-progress ${lane.color}" style="width: ${Math.max(...milestones.map(m => m.calculatedPosition))}%;"></div>
                         ${milestones.map(milestone => `
                             <div class="milestone ${lane.color}" style="left: ${milestone.calculatedPosition}%;">
+                                <div class="milestone-label">
+                                    <span class="milestone-year">${milestone.year}</span>
+                                    <span class="milestone-event">${milestone.event.length > 25 ? milestone.event.substring(0, 25) + '...' : milestone.event}</span>
+                                </div>
                                 <div class="milestone-tooltip">
                                     <strong>${milestone.year}: ${milestone.event}</strong>
                                     ${lane.detailed_analysis ? `<br><br><em>Analysis:</em><br>${getAnalysisForYear(lane.detailed_analysis, milestone.year)}` : ''}
@@ -985,9 +1107,13 @@ function populateSwimlanes(swimlanes) {
 
 function updateInsights(insights) {
     const insightsContent = document.getElementById('insightsContent');
+    const insightsCard = document.getElementById('insightsCard');
     
     if (!insights || !Array.isArray(insights) || insights.length === 0) {
-        console.warn('No insights provided, keeping default insights');
+        console.warn('No insights provided, hiding insights card');
+        if (insightsCard) {
+            insightsCard.style.display = 'none';
+        }
         return;
     }
     
@@ -1003,6 +1129,11 @@ function updateInsights(insights) {
         `;
         insightsContent.appendChild(insightDiv);
     });
+    
+    // Show the insights card now that we have content
+    if (insightsCard) {
+        insightsCard.style.display = 'block';
+    }
     
     console.log(`Updated insights with ${insights.length} items from LLM response`);
 }
@@ -1136,14 +1267,16 @@ function updateLoadButton() {
     
     if (topic && model) {
         loadBtn.disabled = false;
-        loadBtn.innerHTML = '<i class="fas fa-play me-2"></i>Generate Timeline';
-        configureBtn.innerHTML = '<i class="fas fa-check me-2"></i>Configured';
+        loadBtn.title = 'Generate Timeline';
+        configureBtn.innerHTML = '<i class="fas fa-check"></i>';
+        configureBtn.title = 'Configured';
         configureBtn.classList.remove('btn-primary');
         configureBtn.classList.add('btn-success');
     } else {
         loadBtn.disabled = true;
-        loadBtn.innerHTML = '<i class="fas fa-play me-2"></i>Generate Timeline';
-        configureBtn.innerHTML = '<i class="fas fa-cog me-2"></i>Configure Analysis';
+        loadBtn.title = 'Generate Timeline';
+        configureBtn.innerHTML = '<i class="fas fa-cog"></i>';
+        configureBtn.title = 'Configure Analysis';
         configureBtn.classList.remove('btn-success');
         configureBtn.classList.add('btn-primary');
     }
@@ -1370,9 +1503,10 @@ function clearSavedConfiguration() {
         document.getElementById('customDays').style.display = 'none';
         document.getElementById('customLimit').style.display = 'none';
         
-        // Hide timeline
+        // Hide timeline and insights
         document.getElementById('timelineContainer').style.display = 'none';
         document.getElementById('analysisSummary').style.display = 'none';
+        document.getElementById('insightsCard').style.display = 'none';
         document.getElementById('topicSubtitle').textContent = 'Configure Analysis Below';
         
         updateLoadButton();
@@ -1406,10 +1540,397 @@ function showError(message) {
     </div>`;
 }
 
+// UI Control Functions
+function toggleControls() {
+    const controlsContainer = document.getElementById('controlsContainer');
+    const toggleIcon = document.getElementById('toggleIcon');
+    // Find the header subtitle
+    const headerSubtitle = document.getElementById('topicSubtitle');
+    
+    const isCollapsed = controlsContainer.classList.contains('collapsed');
+    
+    if (isCollapsed) {
+        // Show controls
+        controlsContainer.classList.remove('collapsed');
+        toggleIcon.classList.remove('rotated');
+        if (headerSubtitle) {
+            headerSubtitle.classList.remove('header-subtitle-hidden');
+        }
+        localStorage.setItem('timelineControlsCollapsed', 'false');
+    } else {
+        // Hide controls
+        controlsContainer.classList.add('collapsed');
+        toggleIcon.classList.add('rotated');
+        if (headerSubtitle) {
+            headerSubtitle.classList.add('header-subtitle-hidden');
+        }
+        localStorage.setItem('timelineControlsCollapsed', 'true');
+    }
+}
+
+function restoreControlsState() {
+    const isCollapsed = localStorage.getItem('timelineControlsCollapsed') === 'true';
+    if (isCollapsed) {
+        const controlsContainer = document.getElementById('controlsContainer');
+        const toggleIcon = document.getElementById('toggleIcon');
+        
+        controlsContainer.classList.add('collapsed');
+        toggleIcon.classList.add('rotated');
+    }
+}
+
+async function autoLoadCachedAnalysis() {
+    try {
+        // Find the most recent cached result
+        const allKeys = Object.keys(localStorage).filter(key => key.startsWith('timelineResults_'));
+        
+        if (allKeys.length === 0) {
+            console.log('No cached timeline results found for auto-load');
+            return;
+        }
+
+        // Get the most recent cache entry
+        let latestCache = null;
+        let latestTimestamp = 0;
+        
+        for (const key of allKeys) {
+            try {
+                const cacheData = JSON.parse(localStorage.getItem(key));
+                const timestamp = new Date(cacheData.timestamp).getTime();
+                
+                if (timestamp > latestTimestamp) {
+                    latestTimestamp = timestamp;
+                    latestCache = cacheData;
+                }
+            } catch (e) {
+                console.warn('Invalid cache entry:', key, e);
+            }
+        }
+
+        if (latestCache && latestCache.data) {
+            console.log('Auto-loading cached timeline result from:', latestCache.timestamp);
+            
+            // Restore the configuration from cache
+            if (latestCache.config) {
+                try {
+                    // Set form values from cached config
+                    if (latestCache.config.topic) document.getElementById('topic').value = latestCache.config.topic;
+                    if (latestCache.config.model) document.getElementById('model').value = latestCache.config.model;
+                    if (latestCache.config.timeframe) document.getElementById('timeframe').value = latestCache.config.timeframe;
+                    if (latestCache.config.futureHorizon) document.getElementById('futureHorizon').value = latestCache.config.futureHorizon;
+                    if (latestCache.config.analysisDepth) document.getElementById('analysisDepth').value = latestCache.config.analysisDepth;
+                    if (latestCache.config.sampleSizeMode) document.getElementById('sampleSizeMode').value = latestCache.config.sampleSizeMode;
+                    if (latestCache.config.customLimit) document.getElementById('customLimit').value = latestCache.config.customLimit;
+                    
+                    // Handle custom timeframe
+                    if (latestCache.config.timeframe === 'custom' && latestCache.config.customDays) {
+                        document.getElementById('customDays').value = latestCache.config.customDays;
+                        document.getElementById('customDays').style.display = 'block';
+                    }
+                    
+                    // Handle custom sample size
+                    if (latestCache.config.sampleSizeMode === 'custom') {
+                        document.getElementById('customLimit').style.display = 'block';
+                    }
+                    
+                    console.log('Restored configuration from cache:', latestCache.config);
+                } catch (e) {
+                    console.warn('Failed to restore cached configuration:', e);
+                }
+            }
+            
+            // Display the cached timeline
+            await displayTimeline(latestCache.data);
+            
+            // Update UI state
+            updateLoadButton();
+            updateContextInfo();
+            
+            // Hide the header subtitle if controls are collapsed
+            const isCollapsed = localStorage.getItem('timelineControlsCollapsed') === 'true';
+            if (isCollapsed) {
+                setTimeout(() => {
+                    const headerSubtitle = document.getElementById('topicSubtitle');
+                    if (headerSubtitle) {
+                        headerSubtitle.classList.add('header-subtitle-hidden');
+                    }
+                }, 100);
+            }
+            
+            console.log('Auto-loaded cached timeline successfully');
+            showSuccess('📄 Loaded most recent timeline analysis from cache - ' + new Date(latestCache.timestamp).toLocaleString());
+        } else {
+            console.log('No valid cached timeline results found for auto-load');
+        }
+        
+    } catch (error) {
+        console.error('Error auto-loading cached timeline result:', error);
+    }
+}
+
+// Download Functions
+async function downloadAsPDF() {
+    try {
+        showSuccess('Generating PDF... Please wait.');
+        
+        // Check if html2canvas and jsPDF are available
+        if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+            // Load libraries dynamically
+            await loadDownloadLibraries();
+        }
+        
+        const { jsPDF } = window.jspdf;
+        const timelineContainer = document.getElementById('timelineContainer');
+        
+        if (!timelineContainer || timelineContainer.style.display === 'none') {
+            showError('No timeline to download. Please generate a timeline first.');
+            return;
+        }
+
+        // Create a container with just the title and timeline content
+        const exportContainer = document.createElement('div');
+        exportContainer.style.cssText = `
+            background: white;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+        `;
+        
+        // Add title
+        const title = document.createElement('h1');
+        title.style.cssText = `
+            color: #FF69B4;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        `;
+        title.innerHTML = '<i style="margin-right: 10px;">⏰</i>AI Impact Timeline Analysis';
+        exportContainer.appendChild(title);
+        
+        // Add subtitle if available
+        const subtitle = document.createElement('p');
+        subtitle.style.cssText = `
+            color: #666;
+            font-size: 16px;
+            text-align: center;
+            margin-bottom: 30px;
+        `;
+        subtitle.textContent = 'Strategic planning horizons for AI impact assessment';
+        exportContainer.appendChild(subtitle);
+        
+        // Clone the timeline content
+        const clonedContent = timelineContainer.cloneNode(true);
+        exportContainer.appendChild(clonedContent);
+        
+        // Temporarily add to page for rendering
+        exportContainer.style.position = 'absolute';
+        exportContainer.style.left = '-9999px';
+        exportContainer.style.top = '0';
+        document.body.appendChild(exportContainer);
+
+        // Wait for rendering
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Generate canvas from the export container
+        const canvas = await html2canvas(exportContainer, {
+            useCORS: true,
+            scale: 1.2,
+            logging: false,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            removeContainer: true
+        });
+
+        // Remove temporary container
+        document.body.removeChild(exportContainer);
+
+        // Create PDF
+        const imgData = canvas.toDataURL('image/png', 0.95);
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        
+        const pdfWidth = 210;
+        const pdfHeight = 297;
+        const imgWidth = pdfWidth - 20;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        
+        const pageHeight = pdfHeight - 20;
+        let y = 10;
+        let remainingHeight = imgHeight;
+        let sourceY = 0;
+
+        // Add pages as needed
+        while (remainingHeight > 0) {
+            const heightToAdd = Math.min(remainingHeight, pageHeight);
+            const sourceHeight = (heightToAdd / imgHeight) * canvas.height;
+            
+            const pageCanvas = document.createElement('canvas');
+            pageCanvas.width = canvas.width;
+            pageCanvas.height = sourceHeight;
+            const pageCtx = pageCanvas.getContext('2d');
+            
+            pageCtx.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sourceHeight);
+            
+            if (sourceY > 0) {
+                pdf.addPage();
+            }
+            
+            const pageImgData = pageCanvas.toDataURL('image/png', 0.95);
+            pdf.addImage(pageImgData, 'PNG', 10, y, imgWidth, heightToAdd);
+            
+            remainingHeight -= heightToAdd;
+            sourceY += sourceHeight;
+            y = 10;
+        }
+
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const filename = `ai-timeline-${timestamp}.pdf`;
+        
+        pdf.save(filename);
+        showSuccess('PDF timeline downloaded successfully!');
+        
+    } catch (error) {
+        console.error('Error generating PDF:', error);
+        showError('Failed to generate PDF: ' + error.message);
+    }
+}
+
+async function downloadAsImage() {
+    try {
+        showSuccess('Generating image... Please wait.');
+        
+        // Check if html2canvas is available
+        if (typeof html2canvas === 'undefined') {
+            await loadDownloadLibraries();
+        }
+        
+        const timelineContainer = document.getElementById('timelineContainer');
+        
+        if (!timelineContainer || timelineContainer.style.display === 'none') {
+            showError('No timeline to download. Please generate a timeline first.');
+            return;
+        }
+
+        // Create a container with just the title and timeline content
+        const exportContainer = document.createElement('div');
+        exportContainer.style.cssText = `
+            background: white;
+            padding: 30px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+        `;
+        
+        // Add title
+        const title = document.createElement('h1');
+        title.style.cssText = `
+            color: #FF69B4;
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        `;
+        title.innerHTML = '<i style="margin-right: 10px;">⏰</i>AI Impact Timeline Analysis';
+        exportContainer.appendChild(title);
+        
+        // Add subtitle
+        const subtitle = document.createElement('p');
+        subtitle.style.cssText = `
+            color: #666;
+            font-size: 18px;
+            text-align: center;
+            margin-bottom: 40px;
+        `;
+        subtitle.textContent = 'Strategic planning horizons for AI impact assessment';
+        exportContainer.appendChild(subtitle);
+        
+        // Clone the timeline content
+        const clonedContent = timelineContainer.cloneNode(true);
+        exportContainer.appendChild(clonedContent);
+        
+        // Temporarily add to page for rendering
+        exportContainer.style.position = 'absolute';
+        exportContainer.style.left = '-9999px';
+        exportContainer.style.top = '0';
+        document.body.appendChild(exportContainer);
+
+        // Wait for rendering
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Generate canvas
+        const canvas = await html2canvas(exportContainer, {
+            useCORS: true,
+            scale: 2,
+            logging: false,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            removeContainer: true
+        });
+
+        // Remove temporary container
+        document.body.removeChild(exportContainer);
+
+        // Create download link
+        const link = document.createElement('a');
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const filename = `ai-timeline-${timestamp}.png`;
+        
+        link.download = filename;
+        link.href = canvas.toDataURL('image/png', 0.95);
+        link.click();
+        
+        showSuccess('Image timeline downloaded successfully!');
+        
+    } catch (error) {
+        console.error('Error generating image:', error);
+        showError('Failed to generate image: ' + error.message);
+    }
+}
+
+async function loadDownloadLibraries() {
+    return new Promise((resolve, reject) => {
+        let scriptsLoaded = 0;
+        const totalScripts = 2;
+        
+        function checkComplete() {
+            scriptsLoaded++;
+            if (scriptsLoaded === totalScripts) {
+                resolve();
+            }
+        }
+        
+        // Load html2canvas
+        if (typeof html2canvas === 'undefined') {
+            const script1 = document.createElement('script');
+            script1.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+            script1.onload = checkComplete;
+            script1.onerror = reject;
+            document.head.appendChild(script1);
+        } else {
+            checkComplete();
+        }
+        
+        // Load jsPDF
+        if (typeof window.jspdf === 'undefined') {
+            const script2 = document.createElement('script');
+            script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            script2.onload = checkComplete;
+            script2.onerror = reject;
+            document.head.appendChild(script2);
+        } else {
+            checkComplete();
+        }
+    });
+}
+
 // Initialize page
 document.addEventListener('DOMContentLoaded', async function() {
+    // Restore controls state
+    restoreControlsState();
+    
     try {
-        // Load topics
+        // Load topics first
         const topicsResponse = await fetch('/api/forecast-charts/topics');
         const topicsData = await topicsResponse.json();
         
@@ -1457,8 +1978,13 @@ document.addEventListener('DOMContentLoaded', async function() {
         // Initialize context info
         updateContextInfo();
         
-        // Restore saved configuration
+        // Restore saved configuration first
         restoreConfiguration();
+        
+        // Then try to auto-load cached analysis (after form elements are populated)
+        setTimeout(() => {
+            autoLoadCachedAnalysis();
+        }, 800);
         
     } catch (error) {
         console.warn('Failed to load data:', error);

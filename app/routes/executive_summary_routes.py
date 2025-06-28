@@ -569,90 +569,41 @@ Based on analysis of {len(articles)} recent articles about "{topic_name}", gener
   "summary": {{
     "total_articles": {len(articles)},
     "category_focus": [
-      {{"category": "AI Business & Market Disruption", "count": "~X articles", "description": "Product launches, investment cycles, startup impact"}},
-      {{"category": "AI at Work and Employment", "count": "~X articles", "description": "Job automation, skills shift, labor market changes"}},
-      {{"category": "AI in Software Development", "count": "~X articles", "description": "AI tools adoption, workflow transformation"}},
-      {{"category": "AI and Society", "count": "~X articles", "description": "Societal adaptation, equity, daily life integration"}},
-      {{"category": "The Path to AGI", "count": "~X articles", "description": "AGI milestones, existential risk, paradigm shifts"}},
-      {{"category": "AI Trust, Risk, and Security", "count": "~X articles", "description": "Governance, explainability, safety regimes"}},
-      {{"category": "AI Ethics & Regulation", "count": "~X articles", "description": "Regulatory response, oversight timing"}},
-      {{"category": "AI Healthcare & Science", "count": "~X articles", "description": "Clinical adoption, drug discovery acceleration"}}
+      "[Generate category analysis based on your actual article data - do not copy these examples]"
     ],
     "sentiment_distribution": {{
-      "neutral": "~45%",
-      "positive": "~33%", 
-      "critical_warning": "~13%",
-      "mixed_negative": "~9%"
+      "[Generate based on actual article sentiment analysis]": "[Percentage]"
     }},
     "future_signal_distribution": {{
-      "accelerate_breakthrough": "~54%",
-      "evolve_gradually": "~36%",
-      "warning_plateau": "~8%",
-      "none_specified": "~2%"
+      "[Generate based on actual article future signals]": "[Percentage]"
     }},
     "time_to_impact": {{
-      "immediate": "22% (now-12 months)",
-      "short_term": "28% (1-2 years)",
-      "mid_term": "34% (2-5 years)", 
-      "long_term": "16% (5+ years)"
+      "[Generate based on actual article time to impact data]": "[Percentage]"
     }}
   }},
   "swimlanes": [
-    {{
-      "category": "AI Business & Market Disruption",
-      "timeframe": "Immediate-Short term (2024-2026)",
-      "color": "bg-red-500",
-      "description": "Generative AI product launches and price wars reshaping tech and SaaS markets",
-      "detailed_analysis": {{
-        "immediate_short_term": "Generative AI product launches (e.g., Llama 3, OpenAI agents) and price wars are reshaping tech and SaaS markets now. Major enterprise adoption and new AI-native startups are expected to dominate between 2024–2026.",
-        "mid_term": "Shift to 'AI-first' business models for Fortune 500s widely predicted by 2027–2028.",
-        "long_term": "Mature AI-driven industries and new market leaders consolidated by early 2030s."
-      }},
-      "milestones": [
-        {{"year": "2024", "event": "AI product launches and price wars", "position": 15}},
-        {{"year": "2025", "event": "Enterprise AI adoption accelerates", "position": 30}},
-        {{"year": "2027", "event": "AI-first business models dominate Fortune 500", "position": 60}},
-        {{"year": "2030", "event": "Industry consolidation around AI leaders", "position": 85}}
-      ]
-    }},
-    {{
-      "category": "AI at Work and Employment", 
-      "timeframe": "Immediate-Long term (2024-2030+)",
-      "color": "bg-orange-500",
-      "description": "Labor market restructuring from automation and AI copilots replacing roles",
-      "detailed_analysis": {{
-        "immediate_short_term": "Layoffs in tech/media/finance underway (2024–2025) as automation and copilots replace entry-level roles.",
-        "mid_term": "Widespread labor market restructuring and mass reskilling to peak between 2026–2029. By 2030, up to 30% of work tasks may be automated in advanced economies.",
-        "long_term": "New professions and AI-augmented jobs stabilize after 2030."
-      }},
-      "milestones": [
-        {{"year": "2024", "event": "Tech/media/finance layoffs accelerate", "position": 10}},
-        {{"year": "2026", "event": "Mass reskilling programs launch", "position": 40}},
-        {{"year": "2029", "event": "30% of work tasks automated", "position": 75}},
-        {{"year": "2031", "event": "New AI-augmented professions stabilize", "position": 90}}
-      ]
-    }}
+    "[Generate 6-8 swimlanes based on your analysis of the article data. Each swimlane must have: category, timeframe, color, description, detailed_analysis (immediate_short_term, mid_term, long_term), milestone_analysis (for each milestone year), and milestones array. Use the color scheme: bg-red-500, bg-orange-500, bg-blue-500, bg-green-500, bg-purple-500, bg-indigo-500, bg-pink-500, bg-teal-500]"
   ],
   "insights": [
-    "Act now to capture value from immediate productivity gains, address workforce transitions, and shape early regulatory frameworks",
-    "Invest for the mid-term in upskilling, risk management, and sector-specific AI integration (2026-2029 transformation phase)",
-    "Prepare for long-term uncertainty by monitoring AGI developments and ensuring societal resilience to paradigm shifts",
-    "AI's most profound impacts will materialize across staggered timelines—immediate business disruption, mid-term societal transformation, long-term AGI governance"
+    "[Generate 4 unique insights based on your analysis of the article data - not these examples]",
+    "[Focus on immediate actions executives should take based on the evidence]",
+    "[Address mid-term strategic investments and preparations needed]",
+    "[Provide perspective on long-term implications and monitoring requirements]"
   ]
 }}
 ```
 
 ## Detailed Guidelines:
 
-### **Categories to Include (6-8 swimlanes):**
-1. **AI Business & Market Disruption** - Product launches, investment cycles, startup impact
-2. **AI at Work and Employment** - Job automation, skills shift, labor market changes  
-3. **AI in Software Development** - AI tools adoption, workflow transformation
-4. **AI and Society** - Societal adaptation, equity, daily life integration
-5. **The Path to AGI** - AGI milestones, existential risk, paradigm shifts
-6. **AI Trust, Risk, and Security** - Governance, explainability, safety regimes
-7. **AI Ethics & Regulation** - Regulatory response, oversight timing
-8. **AI Healthcare & Science** - Clinical adoption, drug discovery acceleration
+### **Category Guidelines (6-8 swimlanes):**
+Generate categories based on patterns you find in the article data. Consider areas like:
+- Business and market impacts
+- Employment and workforce changes
+- Technology development and adoption
+- Societal and cultural effects
+- Governance and regulatory responses
+- Sector-specific applications
+- Risk and security considerations
 
 ### **Timeframe Structure (Analysis Horizon: {future_horizon} years):**
 - **Immediate (now–12 months)**: Current developments and immediate impacts
@@ -668,8 +619,10 @@ Based on analysis of {len(articles)} recent articles about "{topic_name}", gener
 
 ### **Analysis Depth:**
 - Include detailed_analysis for each category with immediate/mid/long-term breakdown
+- Include milestone_analysis with specific analysis for each milestone year
 - Reference specific examples, companies, statistics when available from articles
 - Show progression and causality between timeframes
+- Make each milestone analysis unique and evidence-based
 
 ### **Colors to Use:**
 - bg-red-500 (Business/Market), bg-orange-500 (Employment), bg-blue-500 (Software Dev)
@@ -677,12 +630,23 @@ Based on analysis of {len(articles)} recent articles about "{topic_name}", gener
 - bg-pink-500 (Ethics/Regulation), bg-teal-500 (Healthcare/Science)
 
 ### **Strategic Insights (4 key insights):**
-1. **Act now** - Immediate actions for productivity gains and regulatory positioning
-2. **Invest for mid-term** - 2026-2029 transformation investments and preparation  
-3. **Prepare for long-term** - AGI monitoring and societal resilience building
-4. **Overall pattern** - Staggered timeline understanding and adaptive strategy
+CRITICAL REQUIREMENTS:
+1. **No Placeholder Content**: The JSON template above contains placeholder text in brackets - DO NOT copy any of this placeholder text. Generate completely original content.
+2. **Complete JSON Structure**: Generate a full, valid JSON response with all required fields populated with real analysis.
+3. **Evidence-based Analysis**: Base all content on specific findings from the analyzed articles, not generic statements.
+4. **Unique Content**: Every piece of text must be unique - no recycled or repeated analysis across different sections.
+5. **Milestone-Specific Analysis**: Each milestone year requires its own specific analysis based on evidence.
+6. **Topic-Relevant**: All analysis must be directly related to the specific topic being analyzed.
 
-Generate the comprehensive timeline analysis now, ensuring detailed analysis for each category and specific, actionable milestones based on the article evidence:"""
+**STRUCTURE REQUIREMENTS**:
+- Generate 6-8 swimlanes based on actual article analysis
+- Each swimlane needs: category, timeframe, color (from the specified scheme), description, detailed_analysis, milestone_analysis, and milestones
+- Create 4 original strategic insights based on your analysis
+- Provide realistic data distributions based on actual article content
+
+**FINAL INSTRUCTION**: Generate the comprehensive timeline analysis now as a complete, valid JSON response. If you cannot generate meaningful analysis from the article data, do not provide generic content - indicate the specific issue instead.
+
+Your response must be a properly formatted JSON that matches the template structure exactly, with all placeholder text replaced by original analysis based on the article evidence:"""
 
         # Generate the analysis using Auspex
         # Create temporary chat session for analysis
@@ -742,9 +706,8 @@ Generate the comprehensive timeline analysis now, ensuring detailed analysis for
             return timeline_data
             
         except (json.JSONDecodeError, ValueError) as e:
-            logger.warning(f"Failed to parse JSON response: {e}")
-            # Return a fallback response with enhanced default data
-            return _create_fallback_timeline_response(topic_name, articles)
+            logger.error(f"Failed to parse JSON response: {e}")
+            raise HTTPException(status_code=500, detail=f"AI analysis failed to generate valid timeline data: {e}")
         
     except HTTPException:
         raise
@@ -892,64 +855,4 @@ def _prepare_articles_summary(articles, topic_name: str) -> str:
     
     return summary
 
-def _create_fallback_timeline_response(topic_name: str, articles) -> Dict:
-    """Create a fallback timeline response when AI analysis fails"""
-    
-    return {
-        "topic": topic_name,
-        "swimlanes": [
-            {
-                "category": f"{topic_name} Business Impact",
-                "timeframe": "Immediate-Short term (2024-2026)",
-                "color": "bg-red-500",
-                "description": "Market disruption and business model changes in the short term",
-                "milestones": [
-                    {"year": "2024", "event": "Early Market Signals", "position": 15},
-                    {"year": "2025", "event": "Industry Adoption", "position": 40},
-                    {"year": "2026", "event": "Market Maturation", "position": 65}
-                ]
-            },
-            {
-                "category": f"{topic_name} Technology Evolution",
-                "timeframe": "Mid-term (2026-2030)",
-                "color": "bg-blue-500",
-                "description": "Technological advancement and integration timeline",
-                "milestones": [
-                    {"year": "2026", "event": "Technology Breakthrough", "position": 25},
-                    {"year": "2028", "event": "Widespread Implementation", "position": 60},
-                    {"year": "2030", "event": "Technology Maturity", "position": 85}
-                ]
-            },
-            {
-                "category": f"{topic_name} Regulatory Response",
-                "timeframe": "Short-Long term (2024-2030+)",
-                "color": "bg-purple-500",
-                "description": "Policy and regulatory development timeline",
-                "milestones": [
-                    {"year": "2025", "event": "Initial Frameworks", "position": 20},
-                    {"year": "2027", "event": "Comprehensive Regulation", "position": 55},
-                    {"year": "2030", "event": "Global Standards", "position": 80}
-                ]
-            },
-            {
-                "category": f"{topic_name} Societal Impact",
-                "timeframe": "Long-term (2028-2035+)",
-                "color": "bg-green-500", 
-                "description": "Broader societal and cultural transformation",
-                "milestones": [
-                    {"year": "2028", "event": "Social Adaptation Begins", "position": 35},
-                    {"year": "2032", "event": "Widespread Social Change", "position": 70},
-                    {"year": "2035", "event": "New Social Equilibrium", "position": 90}
-                ]
-            }
-        ],
-        "insights": [
-            "Act now to position for early market opportunities and competitive advantage",
-            "Invest for mid-term technology integration and workforce adaptation",
-            "Prepare for long-term regulatory compliance and societal shifts",
-            "Monitor evolving standards and emerging risks for strategic planning"
-        ],
-        "generated_at": datetime.now().isoformat(),
-        "articles_analyzed": len(articles),
-        "fallback_used": True
-    } 
+ 
