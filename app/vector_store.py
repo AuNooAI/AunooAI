@@ -136,6 +136,66 @@ def _get_collection() -> chromadb.Collection:
 # Embedding helpers
 # --------------------------------------------------------------------------------------
 
+def _truncate_text_for_embedding(text: str, max_tokens: int = 8000) -> str:
+    """Truncate text to fit within OpenAI embedding token limits.
+    
+    Uses tiktoken for accurate token counting if available, otherwise falls back
+    to conservative character-based estimation.
+    
+    Args:
+        text: Input text to truncate
+        max_tokens: Maximum tokens allowed (default 8000 for safety buffer)
+    
+    Returns:
+        Truncated text that fits within token limit
+    """
+    try:
+        # Try to use tiktoken for accurate token counting
+        import tiktoken
+        encoding = tiktoken.encoding_for_model("text-embedding-3-small")
+        
+        # Check if text is already within limits
+        tokens = encoding.encode(text)
+        if len(tokens) <= max_tokens:
+            return text
+        
+        # Truncate to max_tokens and decode back to text
+        truncated_tokens = tokens[:max_tokens]
+        truncated_text = encoding.decode(truncated_tokens)
+        
+        logger.debug("Truncated text from %d to %d tokens using tiktoken", 
+                    len(tokens), len(truncated_tokens))
+        return truncated_text
+        
+    except ImportError:
+        # Fallback to character-based estimation if tiktoken not available
+        logger.debug("tiktoken not available, using character-based truncation")
+        
+        # Conservative estimation: 3 characters per token (safer than 4)
+        # This accounts for varying token densities in different texts
+        max_chars = max_tokens * 3
+        
+        if len(text) <= max_chars:
+            return text
+        
+        # Truncate at word boundary when possible
+        truncated = text[:max_chars]
+        last_space = truncated.rfind(' ')
+        if last_space > max_chars * 0.8:  # If we find a space in the last 20%
+            truncated = truncated[:last_space]
+        
+        logger.debug("Truncated text from %d to %d characters (estimated %d tokens)", 
+                    len(text), len(truncated), len(truncated) // 3)
+        return truncated
+        
+    except Exception as exc:
+        # Ultra-safe fallback - very conservative character limit
+        logger.warning("Token truncation failed, using ultra-conservative fallback: %s", exc)
+        safe_chars = 20000  # Very conservative limit
+        if len(text) <= safe_chars:
+            return text
+        return text[:safe_chars]
+
 def _embed_texts(texts: List[str]) -> List[List[float]]:
     """Embed *texts* into vectors.
 
@@ -152,10 +212,8 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
         # Strip whitespace and ensure it's not empty
         cleaned = text.strip()
         if cleaned:  # Only add non-empty strings
-            # Truncate very long texts (OpenAI has an 8191 token limit for text-embedding-3-small)
-            # Roughly 4 chars per token, so limit to ~30000 chars to be safe
-            if len(cleaned) > 30000:
-                cleaned = cleaned[:30000]
+            # Handle token limits for OpenAI text-embedding-3-small (8192 tokens max)
+            cleaned = _truncate_text_for_embedding(cleaned)
             cleaned_texts.append(cleaned)
     
     # Handle empty texts list

@@ -1025,6 +1025,12 @@
                     <button class="quick-filter-btn" onclick="addQuickFilter('', 'has:driver_type')">
                         <i class="fas fa-cogs me-2"></i>has:driver_type
                     </button>
+                    <button class="quick-filter-btn" onclick="addQuickFilter('', 'publication_date>=last_week')">
+                        <i class="fas fa-calendar-week me-2"></i>publication_date>=last_week
+                    </button>
+                    <button class="quick-filter-btn" onclick="addQuickFilter('', 'publication_date>today')">
+                        <i class="fas fa-calendar-day me-2"></i>publication_date>today
+                    </button>
                 </div>
                 
                 <h6 class="text-primary mt-3">Operators</h6>
@@ -1032,6 +1038,17 @@
                     <code>=</code> / <code>equal</code> same as,<br>
                     <code>!=</code> / <code>not&nbsp;equal</code> different from,<br>
                     <code>&gt;</code> <code>&gt;=</code> <code>&lt;</code> <code>&lt;=</code> compare values
+                </p>
+                <h6 class="text-primary mt-3">Time-Based Queries</h6>
+                <p class="mb-1 small">
+                    <code>publication_date&gt;=last_week</code> articles from last week<br>
+                    <code>publication_date&gt;today</code> articles from today<br>
+                    <code>publication_date&lt;=yesterday</code> articles up to yesterday<br>
+                    <code>publication_date&gt;=1640995200</code> articles since timestamp
+                </p>
+                <p class="mb-1 small text-muted">
+                    Use the Time dropdown for quick filters, or type relative dates:<br>
+                    <code>today</code>, <code>yesterday</code>, <code>last_week</code>, <code>last_month</code>, <code>this_week</code>, <code>this_month</code>
                 </p>
                 <h6 class="text-primary mt-3">Logic Operators</h6>
                 <p class="mb-1 small">
@@ -1070,6 +1087,8 @@
                             <code>AI AND category="AI Business" sentiment=Positive</code><br>
                             <code>AI NOT Google has:driver_type</code><br>
                             <code>"artificial intelligence" sort:publication_date:desc limit:50</code><br>
+                            <code>AI AND publication_date>=last_week</code><br>
+                            <code>category="Technology" AND publication_date>today</code><br>
                         </p>
                     </div>
                 </details>
@@ -1151,27 +1170,74 @@
                     </button>
                 </div>
                 
-                <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
-                            id="sortDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="fas fa-sort me-1"></i> Sort
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                        <li><h6 class="dropdown-header">Sort by</h6></li>
-                        <li><button class="dropdown-item" onclick="applySortToSearch('publication_date', 'desc')">
-                            <i class="fas fa-calendar-alt me-2"></i>Date (newest first)
-                        </button></li>
-                        <li><button class="dropdown-item" onclick="applySortToSearch('publication_date', 'asc')">
-                            <i class="fas fa-calendar-alt me-2"></i>Date (oldest first)
-                        </button></li>
-                        <li><hr class="dropdown-divider"></li>
-                        <li><button class="dropdown-item" onclick="applySortToSearch('sentiment')">
-                            <i class="fas fa-smile me-2"></i>Sentiment
-                        </button></li>
-                        <li><button class="dropdown-item" onclick="applySortToSearch('score', 'desc')">
-                            <i class="fas fa-star me-2"></i>Relevance Score
-                        </button></li>
-                    </ul>
+                <div class="btn-group">
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" 
+                                id="sortDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-sort me-1"></i> Sort
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><h6 class="dropdown-header">Sort by</h6></li>
+                            <li><button class="dropdown-item" onclick="applySortToSearch('publication_date', 'desc')">
+                                <i class="fas fa-calendar-alt me-2"></i>Date (newest first)
+                            </button></li>
+                            <li><button class="dropdown-item" onclick="applySortToSearch('publication_date', 'asc')">
+                                <i class="fas fa-calendar-alt me-2"></i>Date (oldest first)
+                            </button></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><button class="dropdown-item" onclick="applySortToSearch('sentiment')">
+                                <i class="fas fa-smile me-2"></i>Sentiment
+                            </button></li>
+                            <li><button class="dropdown-item" onclick="applySortToSearch('score', 'desc')">
+                                <i class="fas fa-star me-2"></i>Relevance Score
+                            </button></li>
+                        </ul>
+                    </div>
+                    
+                    <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-info dropdown-toggle" type="button" 
+                                id="dateFilterDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-clock me-1"></i> Time
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><h6 class="dropdown-header">Time Range</h6></li>
+                            <li><button class="dropdown-item" onclick="applyTimeFilter('last_hour')">
+                                <i class="fas fa-clock me-2"></i>Last Hour
+                            </button></li>
+                            <li><button class="dropdown-item" onclick="applyTimeFilter('last_day')">
+                                <i class="fas fa-calendar-day me-2"></i>Last Day
+                            </button></li>
+                            <li><button class="dropdown-item" onclick="applyTimeFilter('last_week')">
+                                <i class="fas fa-calendar-week me-2"></i>Last Week
+                            </button></li>
+                            <li><button class="dropdown-item" onclick="applyTimeFilter('last_month')">
+                                <i class="fas fa-calendar me-2"></i>Last Month
+                            </button></li>
+                            <li><button class="dropdown-item" onclick="applyTimeFilter('last_3_months')">
+                                <i class="fas fa-calendar me-2"></i>Last 3 Months
+                            </button></li>
+                            <li><button class="dropdown-item" onclick="applyTimeFilter('last_year')">
+                                <i class="fas fa-calendar-alt me-2"></i>Last Year
+                            </button></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><button class="dropdown-item" onclick="applyTimeFilter('today')">
+                                <i class="fas fa-sun me-2"></i>Today
+                            </button></li>
+                            <li><button class="dropdown-item" onclick="applyTimeFilter('yesterday')">
+                                <i class="fas fa-moon me-2"></i>Yesterday
+                            </button></li>
+                            <li><button class="dropdown-item" onclick="applyTimeFilter('this_week')">
+                                <i class="fas fa-calendar-week me-2"></i>This Week
+                            </button></li>
+                            <li><button class="dropdown-item" onclick="applyTimeFilter('this_month')">
+                                <i class="fas fa-calendar me-2"></i>This Month
+                            </button></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><button class="dropdown-item" onclick="clearTimeFilter()">
+                                <i class="fas fa-times me-2"></i>Clear Time Filter
+                            </button></li>
+                        </ul>
+                    </div>
                 </div>
             </div>
             
@@ -1469,7 +1535,6 @@ async function runSearch() {
             
             const res = await fetch(`/api/vector-search?${params.toString()}`);
             data = await res.json();
-            console.log("Received data from API:", data); // Debug: Log received data
             
             // Store the complete search query and params for other components
             // This is critical for sharing the filtered dataset
@@ -1566,30 +1631,113 @@ function parseQuery(q){
     // 2. Simple attribute operators (field op value)
     // ----------------------------------------------
     // Supported ops: = != >= <= > <
-    // We only forward equality to the backend for now – others stay in *cleaned* for full-text search / future use.
-    // Copy of the query to safely scan attribute tokens without mutating in-place
+    // Enhanced to support timestamp-based date filtering
     const scan = cleaned;
-    // Fix: Improved regex to properly handle quoted values and prevent trailing quotes
-    const attrRe = /(\b\w+)\s*(=|!=|>=|<=|>|<)\s*(?:"([^"]*)"|([^\s"]+))/g;
+    // Updated regex to handle quoted values, numbers, and timestamps
+    const attrRe = /(\b\w+)\s*(=|!=|>=|<=|>|<|\$gt|\$gte|\$lt|\$lte)\s*(?:"([^"]*)"|([^\s"]+))/g;
     let match;
     
     while((match = attrRe.exec(scan)) !== null){
         const [full, field, op, quotedVal, unquotedVal] = match;
         // Use the quoted value if it exists, otherwise use the unquoted value
-        const val = quotedVal !== undefined ? quotedVal : unquotedVal;
+        let val = quotedVal !== undefined ? quotedVal : unquotedVal;
         
-        if(op === '='){
+        // Handle timestamp conversion for date fields
+        if (field === 'publication_date' && isDateValue(val)) {
+            val = convertToTimestamp(val);
+            console.log("Converted date value to timestamp:", val);
+        }
+        
+        // Forward all operators to backend for ChromaDB filtering
+        if (op === '=' || op === '!=') {
             metadata[field] = val;
             cleaned = cleaned.replace(full,'').trim();
-            console.log("Found filter:", field, "=", val);
+            console.log("Found filter:", field, op, val);
+        } else if (['>=', '<=', '>', '<', '$gt', '$gte', '$lt', '$lte'].includes(op)) {
+            // Handle comparison operators for ChromaDB
+            const chromaOp = convertToChromaOperator(op);
+            metadata[field] = { [chromaOp]: val };
+            cleaned = cleaned.replace(full,'').trim();
+            console.log("Found comparison filter:", field, chromaOp, val);
         }
     }
     
     console.log("Extracted metadata:", metadata);
     
-    // cluster:n or cluster=n
-    cleaned=cleaned.replace(/\bcluster(?:=|:)(\d+)\b/i,(m,n)=>{extra.cluster=parseInt(n);return '';});
     return {cleaned, metadata};
+}
+
+// Helper function to check if a value represents a date
+function isDateValue(val) {
+    // Check for ISO date format, timestamp, or relative date keywords
+    const isoDateRegex = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2})?/;
+    const timestampRegex = /^\d{10,13}$/; // Unix timestamp (10-13 digits)
+    const relativeDateRegex = /^(today|yesterday|last_\w+|this_\w+)$/i;
+    
+    return isoDateRegex.test(val) || timestampRegex.test(val) || relativeDateRegex.test(val);
+}
+
+// Convert various date formats to timestamp
+function convertToTimestamp(dateValue) {
+    if (typeof dateValue === 'number' || /^\d+$/.test(dateValue)) {
+        // Already a timestamp
+        const timestamp = parseInt(dateValue);
+        // Convert seconds to milliseconds if needed
+        return timestamp < 10000000000 ? timestamp : Math.floor(timestamp / 1000);
+    }
+    
+    if (typeof dateValue === 'string') {
+        // Handle relative dates
+        const now = new Date();
+        
+        switch (dateValue.toLowerCase()) {
+            case 'today':
+                return Math.floor(now.setHours(0, 0, 0, 0) / 1000);
+            case 'yesterday':
+                return Math.floor(new Date(now.setDate(now.getDate() - 1)).setHours(0, 0, 0, 0) / 1000);
+            case 'last_hour':
+                return Math.floor((Date.now() - 60 * 60 * 1000) / 1000);
+            case 'last_day':
+                return Math.floor((Date.now() - 24 * 60 * 60 * 1000) / 1000);
+            case 'last_week':
+                return Math.floor((Date.now() - 7 * 24 * 60 * 60 * 1000) / 1000);
+            case 'last_month':
+                return Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
+            case 'last_3_months':
+                return Math.floor((Date.now() - 90 * 24 * 60 * 60 * 1000) / 1000);
+            case 'last_year':
+                return Math.floor((Date.now() - 365 * 24 * 60 * 60 * 1000) / 1000);
+            case 'this_week':
+                const startOfWeek = new Date(now);
+                startOfWeek.setDate(now.getDate() - now.getDay());
+                return Math.floor(startOfWeek.setHours(0, 0, 0, 0) / 1000);
+            case 'this_month':
+                return Math.floor(new Date(now.getFullYear(), now.getMonth(), 1).getTime() / 1000);
+            default:
+                // Try to parse as ISO date
+                const parsed = new Date(dateValue);
+                if (!isNaN(parsed.getTime())) {
+                    return Math.floor(parsed.getTime() / 1000);
+                }
+        }
+    }
+    
+    return dateValue; // Return as-is if can't convert
+}
+
+// Convert comparison operators to ChromaDB format
+function convertToChromaOperator(op) {
+    const operatorMap = {
+        '>': '$gt',
+        '>=': '$gte',
+        '<': '$lt',
+        '<=': '$lte',
+        '$gt': '$gt',
+        '$gte': '$gte',
+        '$lt': '$lt',
+        '$lte': '$lte'
+    };
+    return operatorMap[op] || op;
 }
 
 // Helper to extract limit & sort tokens; augment parseQuery externally
@@ -1634,9 +1782,11 @@ function renderResults(results, reset = false) {
     // Check current view mode
     const isCompactView = container.classList.contains('view-compact');
     
-    results.forEach(r => {
+            results.forEach(r => {
         const card = document.createElement('div');
         card.className = 'card mb-2 position-relative ps-5';
+        
+
         
         // Selection checkbox
         const checkbox = document.createElement('input');
@@ -1658,7 +1808,26 @@ function renderResults(results, reset = false) {
         const title = r.metadata.title || 'Untitled';
         const link = r.metadata.uri ? `<a href="${r.metadata.uri}" target="_blank" rel="noopener">${title}</a>` : title;
         const summary = (r.metadata.summary || '').slice(0, 160);
-        const pub = r.metadata.publication_date ? new Date(r.metadata.publication_date).toISOString().split('T')[0] : '';
+        
+        // Enhanced publication date handling with better debugging
+        let pub = '';
+        if (r.metadata.publication_date) {
+            try {
+                const pubDate = new Date(r.metadata.publication_date);
+                if (!isNaN(pubDate.getTime())) {
+                    pub = pubDate.toISOString().split('T')[0];
+                } else {
+                    console.warn('📅 Invalid publication date:', r.metadata.publication_date);
+                    pub = r.metadata.publication_date; // Show raw value if it can't be parsed
+                }
+            } catch (e) {
+                console.warn('📅 Error parsing publication date:', r.metadata.publication_date, e);
+                pub = r.metadata.publication_date; // Show raw value if parsing fails
+            }
+        } else {
+            // Show that no date is available
+            pub = 'No date';
+        }
 
         if (isCompactView) {
             // Compact layout - more table-like (no delete button)
@@ -1666,7 +1835,7 @@ function renderResults(results, reset = false) {
                 <div class="d-flex align-items-center justify-content-between w-100">
                     <h6 class="mb-0 flex-grow-1 me-3">${link}</h6>
                     <div class="d-flex align-items-center gap-3 flex-shrink-0">
-                        <small class="text-muted">${pub}</small>
+                        <small class="text-muted ${pub === 'No date' ? 'fst-italic' : ''}">${pub}</small>
                         <small class="text-muted">${r.metadata.news_source || ''}</small>
                         <small class="text-muted">${r.metadata.category || ''}</small>
                         <small class="badge bg-light text-dark">${r.score.toFixed(2)}</small>
@@ -1838,6 +2007,31 @@ function renderMetadata(meta) {
         }
         if (['topic', 'category', 'news_source', 'sentiment', 'driver_type'].includes(k)) {
             val = `<a href="#" class="meta-filter" data-field="${k}" data-val="${v}">${v}</a>`;
+        }
+        // Format publication_date for better readability and make it clickable
+        if (k === 'publication_date' && v) {
+            const date = new Date(v);
+            if (!isNaN(date.getTime())) {
+                // Format as readable date with time
+                const formattedDate = date.toLocaleString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZoneName: 'short'
+                });
+                // Convert to ISO date format for filtering (YYYY-MM-DD)
+                const isoDate = date.toISOString().split('T')[0];
+                val = `<a href="#" class="meta-filter" data-field="${k}" data-val="${isoDate}" title="Click to filter by this date. Raw: ${v}">${formattedDate}</a>`;
+            }
+        }
+        // Format other date-like fields
+        if ((k.includes('date') || k.includes('time')) && v && k !== 'publication_date') {
+            const date = new Date(v);
+            if (!isNaN(date.getTime())) {
+                val = `<span title="Raw: ${v}">${date.toLocaleString()}</span>`;
+            }
         }
         return `<tr><th class='text-end pe-2'>${k}</th><td>${val ?? ''}</td></tr>`;
     }).join('');
@@ -2123,26 +2317,53 @@ function updateActiveChips() {
     Object.entries(metadata).forEach(([field, value]) => {
         const chip = document.createElement('span');
         chip.className = 'filter-chip';
-        chip.innerHTML = `${field}: ${value} <i class="fas fa-times ms-1"></i>`;
-        chip.addEventListener('click', () => {
-            const raw = document.getElementById('searchInput').value;
-            // Carefully remove filter tokens
-            const quotedPattern = `${field}="${value}"`;
-            const unquotedPattern = `${field}=${value}`;
-            const legacyPattern = `filter(${field}="${value}")`;
+        
+        // Special handling for time-based filters
+        if (field === 'publication_date' && typeof value === 'object') {
+            // Handle ChromaDB comparison operators
+            const operator = Object.keys(value)[0];
+            const operatorValue = value[operator];
             
-            let updated = raw;
-            if (raw.includes(quotedPattern)) {
-                updated = updated.replace(quotedPattern, '');
-            } else if (raw.includes(unquotedPattern)) {
-                updated = updated.replace(unquotedPattern, '');
-            } else if (raw.includes(legacyPattern)) {
-                updated = updated.replace(legacyPattern, '');
+            // Convert timestamp back to human-readable format if it's a number
+            let displayValue = operatorValue;
+            if (typeof operatorValue === 'number' || /^\d+$/.test(operatorValue)) {
+                const timestamp = parseInt(operatorValue) * 1000; // Convert to milliseconds
+                const date = new Date(timestamp);
+                displayValue = date.toLocaleDateString();
             }
             
-            document.getElementById('searchInput').value = updated.trim();
-            runSearch();
-        });
+            const operatorSymbol = operator.replace('$', '');
+            chip.innerHTML = `${field} ${operatorSymbol} ${displayValue} <i class="fas fa-times ms-1"></i>`;
+            chip.style.background = '#17a2b8'; // Info color for time filters
+            
+            chip.addEventListener('click', () => {
+                // Clear time filter properly
+                clearTimeFilter();
+            });
+        } else {
+            // Regular field filters
+            chip.innerHTML = `${field}: ${value} <i class="fas fa-times ms-1"></i>`;
+            chip.addEventListener('click', () => {
+                const raw = document.getElementById('searchInput').value;
+                // Carefully remove filter tokens
+                const quotedPattern = `${field}="${value}"`;
+                const unquotedPattern = `${field}=${value}`;
+                const legacyPattern = `filter(${field}="${value}")`;
+                
+                let updated = raw;
+                if (raw.includes(quotedPattern)) {
+                    updated = updated.replace(quotedPattern, '');
+                } else if (raw.includes(unquotedPattern)) {
+                    updated = updated.replace(unquotedPattern, '');
+                } else if (raw.includes(legacyPattern)) {
+                    updated = updated.replace(legacyPattern, '');
+                }
+                
+                document.getElementById('searchInput').value = updated.trim();
+                runSearch();
+            });
+        }
+        
         container.appendChild(chip);
     });
     
@@ -2204,9 +2425,16 @@ function updateAttrSuggestions(facets){
   
   // Add basic operators and field names
   ['keyword=','topic=','category=','sentiment=','driver_type=','future_signal=',
-   'news_source=','has:','similar:','cluster=',
+   'news_source=','publication_date=','publication_date>=','publication_date<=',
+   'publication_date>','publication_date<','has:','similar:','cluster=',
    'sort:','limit:','AND','OR','NOT',
-   '^','!=','>=','<=','>','<'].forEach(addVal);
+   '^','!=','>=','<=','>','<','$gt','$gte','$lt','$lte'].forEach(addVal);
+  
+  // Add time-based keywords and relative dates
+  ['today','yesterday','last_hour','last_day','last_week','last_month','last_3_months',
+   'last_year','this_week','this_month','publication_date>=today',
+   'publication_date>=yesterday','publication_date>=last_week',
+   'publication_date>=last_month','publication_date>today'].forEach(addVal);
   
   // Add properly formatted facet values with quotes
   Object.entries(facets||{}).forEach(([field,vals])=>{
@@ -2622,6 +2850,124 @@ function applySortToSearch(field, dir) {
         const iconClass = direction === 'asc' ? 'fa-sort-amount-up' : 'fa-sort-amount-down';
         sortDropdown.innerHTML = `<i class="fas ${iconClass} me-1"></i> ${field}`;
     }
+}
+
+// Time-based filter functions following ChromaDB cookbook patterns
+function applyTimeFilter(timeRange) {
+    const input = document.getElementById('searchInput');
+    let currentQuery = input.value;
+    
+    // Remove any existing date filters
+    currentQuery = currentQuery.replace(/\bpublication_date\s*[><=!$\w]*\s*\w+/g, '').trim();
+    
+    // Calculate timestamp based on time range
+    const now = Date.now();
+    let timestamp;
+    let filterExpression;
+    
+    switch (timeRange) {
+        case 'last_hour':
+            timestamp = Math.floor((now - 60 * 60 * 1000) / 1000);
+            filterExpression = `publication_date>=${timestamp}`;
+            break;
+        case 'last_day':
+            timestamp = Math.floor((now - 24 * 60 * 60 * 1000) / 1000);
+            filterExpression = `publication_date>=${timestamp}`;
+            break;
+        case 'last_week':
+            timestamp = Math.floor((now - 7 * 24 * 60 * 60 * 1000) / 1000);
+            filterExpression = `publication_date>=${timestamp}`;
+            break;
+        case 'last_month':
+            timestamp = Math.floor((now - 30 * 24 * 60 * 60 * 1000) / 1000);
+            filterExpression = `publication_date>=${timestamp}`;
+            break;
+        case 'last_3_months':
+            timestamp = Math.floor((now - 90 * 24 * 60 * 60 * 1000) / 1000);
+            filterExpression = `publication_date>=${timestamp}`;
+            break;
+        case 'last_year':
+            timestamp = Math.floor((now - 365 * 24 * 60 * 60 * 1000) / 1000);
+            filterExpression = `publication_date>=${timestamp}`;
+            break;
+        case 'today':
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            timestamp = Math.floor(todayStart.getTime() / 1000);
+            filterExpression = `publication_date>=${timestamp}`;
+            break;
+        case 'yesterday':
+            const yesterdayStart = new Date();
+            yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+            yesterdayStart.setHours(0, 0, 0, 0);
+            const yesterdayEnd = new Date(yesterdayStart);
+            yesterdayEnd.setHours(23, 59, 59, 999);
+            const startTs = Math.floor(yesterdayStart.getTime() / 1000);
+            const endTs = Math.floor(yesterdayEnd.getTime() / 1000);
+            filterExpression = `publication_date>=${startTs} AND publication_date<=${endTs}`;
+            break;
+        case 'this_week':
+            const startOfWeek = new Date();
+            startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+            startOfWeek.setHours(0, 0, 0, 0);
+            timestamp = Math.floor(startOfWeek.getTime() / 1000);
+            filterExpression = `publication_date>=${timestamp}`;
+            break;
+        case 'this_month':
+            const startOfMonth = new Date();
+            startOfMonth.setDate(1);
+            startOfMonth.setHours(0, 0, 0, 0);
+            timestamp = Math.floor(startOfMonth.getTime() / 1000);
+            filterExpression = `publication_date>=${timestamp}`;
+            break;
+        default:
+            console.warn('Unknown time range:', timeRange);
+            return;
+    }
+    
+    // Add the time filter to the query
+    const newQuery = currentQuery ? `${currentQuery} ${filterExpression}` : filterExpression;
+    input.value = newQuery.trim();
+    
+    // Update dropdown button to show active filter
+    const dateFilterDropdown = document.getElementById('dateFilterDropdown');
+    if (dateFilterDropdown) {
+        dateFilterDropdown.classList.add('active');
+        
+        // Create a user-friendly display name
+        const displayName = timeRange.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+        dateFilterDropdown.innerHTML = `<i class="fas fa-clock me-1"></i> ${displayName}`;
+    }
+    
+    // Run the search with the time filter
+    runSearch();
+    
+    console.log(`Applied time filter: ${timeRange} (${filterExpression})`);
+}
+
+// Clear time filter
+function clearTimeFilter() {
+    const input = document.getElementById('searchInput');
+    let currentQuery = input.value;
+    
+    // Remove any date-related filters
+    currentQuery = currentQuery.replace(/\bpublication_date\s*[><=!$\w]*\s*[\w"]+/g, '').trim();
+    currentQuery = currentQuery.replace(/\bAND\s+AND\b/g, 'AND').trim(); // Clean up double ANDs
+    currentQuery = currentQuery.replace(/^\s*AND\s+|\s+AND\s*$/g, '').trim(); // Clean up leading/trailing ANDs
+    
+    input.value = currentQuery;
+    
+    // Reset dropdown button
+    const dateFilterDropdown = document.getElementById('dateFilterDropdown');
+    if (dateFilterDropdown) {
+        dateFilterDropdown.classList.remove('active');
+        dateFilterDropdown.innerHTML = `<i class="fas fa-clock me-1"></i> Time`;
+    }
+    
+    // Run search without time filter
+    runSearch();
+    
+    console.log('Cleared time filter');
 }
 
 // Enhanced expand/collapse functionality
@@ -3865,6 +4211,58 @@ function debugSearchResults() {
         .catch(error => {
             console.error('Error fetching vector debug info:', error);
         });
+}
+
+// Add debug function to check publication dates in database
+async function debugPublicationDates() {
+    console.log('📅 PUBLICATION DATE DEBUG:');
+    
+    try {
+        // Check a sample of articles from the database
+        const response = await fetch('/api/search_articles?per_page=10&search_fields=title');
+        const data = await response.json();
+        
+        if (data.articles && data.articles.length > 0) {
+            console.log('📅 Sample articles from database:');
+            data.articles.slice(0, 5).forEach((article, index) => {
+                console.log(`Article ${index + 1}:`, {
+                    title: article.title,
+                    uri: article.uri,
+                    publication_date: article.publication_date,
+                    submission_date: article.submission_date,
+                    has_pub_date: !!article.publication_date,
+                    pub_date_type: typeof article.publication_date
+                });
+            });
+            
+            const withDates = data.articles.filter(a => a.publication_date);
+            const withoutDates = data.articles.filter(a => !a.publication_date);
+            
+            console.log(`📅 Summary: ${withDates.length} with dates, ${withoutDates.length} without dates`);
+        }
+        
+        // Also check vector search results if available
+        if (window.lastResults && window.lastResults.length > 0) {
+            console.log('\n📅 Publication dates in current vector search results:');
+            window.lastResults.slice(0, 5).forEach((result, index) => {
+                console.log(`Vector Result ${index + 1}:`, {
+                    title: result.metadata?.title,
+                    publication_date: result.metadata?.publication_date,
+                    has_pub_date: !!result.metadata?.publication_date,
+                    pub_date_type: typeof result.metadata?.publication_date,
+                    raw_metadata: result.metadata
+                });
+            });
+            
+            const vectorWithDates = window.lastResults.filter(r => r.metadata?.publication_date);
+            const vectorWithoutDates = window.lastResults.filter(r => !r.metadata?.publication_date);
+            
+            console.log(`📅 Vector Summary: ${vectorWithDates.length} with dates, ${vectorWithoutDates.length} without dates`);
+        }
+        
+    } catch (error) {
+        console.error('📅 Error checking publication dates:', error);
+    }
 }
 </script>
 {% endblock %} 
