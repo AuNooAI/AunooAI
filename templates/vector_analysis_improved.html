@@ -3005,7 +3005,20 @@ async function updateScatter(forceRefresh = false){
         window.clusterExplain=data.explain||{};
         window.clusterCentroids=data.centroids||{};
 
-        const custom=pts.map(p=>(window.clusterExplain[p.cluster]||[]).join(', '));
+        const custom=pts.map(p=>{
+            const clusterInfo = window.clusterExplain[p.cluster];
+            if (!clusterInfo) return '';
+            
+            // Handle both old format (array of keywords) and new format (object with title/summary)
+            if (Array.isArray(clusterInfo)) {
+                // Legacy format - just keywords
+                return clusterInfo.join(', ');
+            } else {
+                // New enhanced format - use keywords array or fallback to title
+                const keywords = clusterInfo.keywords || [];
+                return keywords.length > 0 ? keywords.slice(0, 4).join(', ') : (clusterInfo.title || `Topic ${p.cluster}`);
+            }
+        });
 
         let legendItems;
         let colourMap=new Map();
