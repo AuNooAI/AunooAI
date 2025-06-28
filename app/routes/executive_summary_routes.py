@@ -162,16 +162,48 @@ async def _extract_market_signals_from_analytics(analytics_data: Dict, topic_nam
             # Calculate percentage based on total topic signals
             percentage = (signal_count / total_signals * 100) if total_signals > 0 else 0
             
-            # Determine frequency level based on count and percentage
-            if percentage >= 30 or signal_count >= 10:
-                frequency = "High"
-                level = "high"
-            elif percentage >= 15 or signal_count >= 5:
-                frequency = "Moderate" 
-                level = "moderate"
+            # Dynamic frequency determination based on data distribution
+            # Use relative thresholds that adapt to the actual signal distribution
+            num_signals = len(future_signals_data)
+            avg_count = total_signals / num_signals if num_signals > 0 else 0
+            
+            # More stringent and adaptive thresholds
+            if num_signals <= 3:
+                # Few signals: use percentage-based thresholds
+                if percentage >= 40:
+                    frequency = "High"
+                    level = "high"
+                elif percentage >= 20:
+                    frequency = "Moderate"
+                    level = "moderate"
+                else:
+                    frequency = "Low"
+                    level = "low"
+            elif num_signals <= 6:
+                # Medium number of signals: balanced approach
+                if percentage >= 25 or signal_count >= (avg_count * 1.5):
+                    frequency = "High"
+                    level = "high"
+                elif percentage >= 12 or signal_count >= avg_count:
+                    frequency = "Moderate"
+                    level = "moderate"
+                else:
+                    frequency = "Low"
+                    level = "low"
             else:
-                frequency = "Low"
-                level = "low"
+                # Many signals: focus on relative distribution
+                high_threshold = max(15, avg_count * 1.8)  # Significantly above average
+                moderate_threshold = max(8, avg_count * 1.2)  # Above average
+                
+                if percentage >= 20 or signal_count >= high_threshold:
+                    frequency = "High"
+                    level = "high"
+                elif percentage >= 8 or signal_count >= moderate_threshold:
+                    frequency = "Moderate"
+                    level = "moderate"
+                else:
+                    frequency = "Low"
+                    level = "low"
             
             # Determine the most likely time to impact for this signal
             impact = "Short-term"  # Default
