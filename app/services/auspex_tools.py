@@ -102,9 +102,12 @@ class AuspexToolsService:
                 metadata_filter = {"topic": topic}
                 
                 # Parse query for date filtering using LLM
+                vector_date_filter = None  # Initialize date filter variable
                 search_intent_messages = [
                     {"role": "system", "content": f"""You are an AI assistant that helps search through articles about {topic}.
 Your job is to determine if this query requires date filtering.
+
+IMPORTANT: If the query mentions analyzing "articles", "news", or "content" without specifying historical analysis, assume they want RECENT articles (default 14 days).
 
 Return ONLY a JSON object with date filtering information:
 {{
@@ -117,7 +120,12 @@ Examples:
 - "last week" → {{"needs_date_filter": true, "date_range_days": 7}}
 - "recent trends" → {{"needs_date_filter": true, "date_range_days": 30}}
 - "what happened yesterday" → {{"needs_date_filter": true, "date_range_days": 1}}
-- "general analysis" → {{"needs_date_filter": false, "date_range_days": null}}"""},
+- "analyze the provided news articles" → {{"needs_date_filter": true, "date_range_days": 14}}
+- "analyze recent articles" → {{"needs_date_filter": true, "date_range_days": 14}}
+- "current developments" → {{"needs_date_filter": true, "date_range_days": 14}}
+- "latest articles" → {{"needs_date_filter": true, "date_range_days": 7}}
+- "historical analysis of all articles" → {{"needs_date_filter": false, "date_range_days": null}}
+- "comprehensive analysis" → {{"needs_date_filter": true, "date_range_days": 30}}"""},
                     {"role": "user", "content": query}
                 ]
                 
@@ -128,14 +136,21 @@ Examples:
                     date_filter_json = self._extract_json_from_response(date_filter_response)
                     date_filter_info = json.loads(date_filter_json)
                     
-                    # Add date filter to vector search if needed
+                    # ChromaDB DOES support date range operators with proper timestamp format
                     if date_filter_info.get("needs_date_filter") and date_filter_info.get("date_range_days"):
                         days_back = date_filter_info["date_range_days"]
-                        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
-                        metadata_filter["publication_date"] = {"$gte": cutoff_date}
-                        logger.debug(f"Added date filter to vector search: >= {cutoff_date}")
+                        cutoff_datetime = datetime.now() - timedelta(days=days_back)
+                        cutoff_timestamp = int(cutoff_datetime.timestamp())
+                        
+                        # Add timestamp-based date filter to ChromaDB metadata filter
+                        metadata_filter["publication_date_ts"] = {"$gte": cutoff_timestamp}
+                        logger.debug(f"Added ChromaDB date filter: publication_date_ts >= {cutoff_timestamp} ({cutoff_datetime.strftime('%Y-%m-%d')})")
+                        vector_date_filter = None  # No need for post-processing
+                    else:
+                        vector_date_filter = None
                 except Exception as e:
                     logger.warning(f"Could not parse date filter from LLM: {e}")
+                    vector_date_filter = None
                 
                 vector_results = vector_search_articles(
                     query=query,
@@ -162,33 +177,57 @@ Examples:
                 
                 logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
                 
-                # After getting vector_results, filter by date if query mentions time
-                if any(time_word in query.lower() for time_word in ['past', 'last', 'recent', 'days', 'week', 'month', 'yesterday', 'today']):
-                    # Extract date filtering from query
-                    days_back = 30  # default
-                    if 'past 7 days' in query.lower() or 'last week' in query.lower():
+                # Post-processing date filter (fallback for articles without timestamp metadata)
+                time_keywords = ['past', 'last', 'recent', 'days', 'week', 'month', 'yesterday', 'today', 'current', 'latest', 'new']
+                analysis_keywords = ['analyze', 'analysis', 'provided', 'news articles', 'articles', 'developments', 'trends']
+                
+                query_lower = query.lower()
+                has_time_words = any(time_word in query_lower for time_word in time_keywords)
+                has_analysis_words = any(analysis_word in query_lower for analysis_word in analysis_keywords)
+                
+                # Apply fallback date filtering for articles that might lack timestamp metadata
+                if has_time_words or has_analysis_words:
+                    days_back = 14  # Default for analysis requests
+                    
+                    if 'past 7 days' in query_lower or 'last week' in query_lower or 'latest' in query_lower:
                         days_back = 7
-                    elif 'yesterday' in query.lower():
+                    elif 'yesterday' in query_lower:
                         days_back = 1
-                    elif 'past month' in query.lower() or 'last month' in query.lower():
+                    elif 'past month' in query_lower or 'last month' in query_lower:
                         days_back = 30
+                    elif 'comprehensive' in query_lower or 'detailed' in query_lower:
+                        days_back = 30
+                    elif 'recent' in query_lower or 'current' in query_lower:
+                        days_back = 14
                     
                     cutoff_date = datetime.now() - timedelta(days=days_back)
+                    original_count = len(vector_articles)
                     
-                    # Filter vector articles by date
+                    # Filter articles by publication_date string (fallback for articles without timestamp)
                     filtered_vector_articles = []
                     for article in vector_articles:
                         article_date_str = article.get('publication_date', '')
                         if article_date_str:
                             try:
-                                article_date = datetime.strptime(article_date_str.split(' ')[0], '%Y-%m-%d')
+                                if ' ' in article_date_str:
+                                    date_part = article_date_str.split(' ')[0]
+                                else:
+                                    date_part = article_date_str[:10]
+                                
+                                article_date = datetime.strptime(date_part, '%Y-%m-%d')
                                 if article_date >= cutoff_date:
                                     filtered_vector_articles.append(article)
-                            except:
-                                pass  # Skip articles with invalid dates
+                                else:
+                                    logger.debug(f"Fallback filter: excluded article from {date_part}: {article.get('title', 'Unknown')[:50]}...")
+                            except Exception as e:
+                                logger.warning(f"Could not parse date '{article_date_str}' for article {article.get('uri', 'unknown')}: {e}")
+                                filtered_vector_articles.append(article)  # Include on error
+                        else:
+                            filtered_vector_articles.append(article)  # Include articles without dates
                     
-                    vector_articles = filtered_vector_articles
-                    logger.debug(f"Filtered vector articles by date: {len(vector_articles)} remaining")
+                    if original_count != len(filtered_vector_articles):
+                        logger.info(f"Fallback date filtering: {original_count} -> {len(filtered_vector_articles)} articles (past {days_back} days)")
+                        vector_articles = filtered_vector_articles
                 
             except Exception as e:
                 logger.warning(f"Vector search failed, falling back to SQL search: {e}")
@@ -252,6 +291,14 @@ IMPORTANT: You must follow these exact steps in order:
               }}
           ]
       }}
+   
+   b) For general analysis requests (without specific time frame):
+      - Default to recent articles (14 days)
+      - Use broader date range for comprehensive analysis (30 days)
+      Examples:
+      "analyze articles" → date_range: "14"
+      "comprehensive analysis" → date_range: "30"
+      "detailed analysis" → date_range: "30"
 
 Return your search strategy in this format:
 {{
@@ -283,6 +330,21 @@ Return your search strategy in this format:
                     logger.debug(f"Extracted JSON: {json_str}")
                     search_strategy = json.loads(json_str)
                     logger.debug(f"Search strategy: {json.dumps(search_strategy, indent=2)}")
+                    
+                    # Fallback: If no date_range specified but query looks like analysis, add default
+                    query_lower = query.lower()
+                    analysis_terms = ['analyze', 'analysis', 'provided', 'articles', 'news', 'developments']
+                    if any(term in query_lower for term in analysis_terms):
+                        for query_config in search_strategy.get("queries", []):
+                            params = query_config.get("params", {})
+                            if not params.get("date_range"):
+                                # Apply smart defaults based on query content
+                                if 'comprehensive' in query_lower or 'detailed' in query_lower:
+                                    params["date_range"] = "30"
+                                    logger.debug(f"Added 30-day date range for comprehensive analysis")
+                                else:
+                                    params["date_range"] = "14"
+                                    logger.debug(f"Added 14-day date range for general analysis")
                     
                     all_articles = []
                     total_count = 0

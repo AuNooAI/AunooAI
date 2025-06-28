@@ -377,6 +377,34 @@ def upsert_article(article: Dict[str, Any]) -> None:
 
 def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
     """Extract a subset of article fields to use as vector metadata."""
+    from datetime import datetime
+    
+    # Convert publication_date to timestamp for ChromaDB date filtering
+    publication_date = article.get("publication_date")
+    publication_date_timestamp = None
+    
+    if publication_date:
+        try:
+            # Handle different date formats
+            if isinstance(publication_date, str):
+                # Try parsing common date formats
+                if ' ' in publication_date:
+                    # Format like "2025-05-25 12:34:56" or "2025-05-25 12:34:56.123"
+                    date_part = publication_date.split(' ')[0]
+                else:
+                    # Format like "2025-05-25"
+                    date_part = publication_date[:10]
+                
+                # Parse as date and convert to timestamp
+                parsed_date = datetime.strptime(date_part, '%Y-%m-%d')
+                publication_date_timestamp = int(parsed_date.timestamp())
+            elif isinstance(publication_date, datetime):
+                publication_date_timestamp = int(publication_date.timestamp())
+        except Exception as e:
+            logger.warning(f"Could not convert publication_date '{publication_date}' to timestamp: {e}")
+            # Fall back to original string value
+            publication_date_timestamp = publication_date
+    
     meta = {
         "title": article.get("title"),
         "news_source": article.get("news_source"),
@@ -385,7 +413,8 @@ def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
         "sentiment": article.get("sentiment"),
         "time_to_impact": article.get("time_to_impact"),
         "topic": article.get("topic"),
-        "publication_date": article.get("publication_date"),
+        "publication_date": publication_date,  # Keep original for compatibility
+        "publication_date_ts": publication_date_timestamp,  # Add timestamp for filtering
         "tags": article.get("tags"),
         "summary": article.get("summary"),
         "uri": article.get("uri"),
