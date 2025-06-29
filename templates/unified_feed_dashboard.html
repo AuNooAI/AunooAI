@@ -1061,6 +1061,58 @@
         display: none;
     }
 
+    /* Article Hover Details */
+    .feed-item, .column-item {
+        position: relative;
+    }
+
+    .article-hover-details {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background: white;
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+        padding: 16px;
+        z-index: 1000;
+        max-height: 400px;
+        overflow-y: auto;
+        display: none;
+        margin-top: 8px;
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+
+    .feed-item:hover .article-hover-details,
+    .column-item:hover .article-hover-details {
+        display: block;
+    }
+
+    .article-hover-details h6 {
+        color: var(--primary-color);
+        margin-bottom: 8px;
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+
+    .article-hover-details .meta-item {
+        margin-bottom: 6px;
+        font-size: 0.8rem;
+        color: var(--dark-gray);
+    }
+
+    .article-hover-details .content-preview {
+        background: var(--light-gray);
+        padding: 12px;
+        border-radius: 6px;
+        margin: 8px 0;
+        font-size: 0.85rem;
+        max-height: 150px;
+        overflow-y: auto;
+    }
+
     /* Responsive improvements */
     @media (max-width: 1200px) {
         .column-view-container {
@@ -1323,7 +1375,7 @@
             <div class="dashboard-header">
             <div class="d-flex justify-content-between align-items-center">
                 <div>
-                    <h1 class="dashboard-title">Unified Feed Dashboard</h1>
+                    <h1 class="dashboard-title">Horizon Scanner</h1>
                     <p class="dashboard-subtitle" style="color: var(--dark-gray); margin: 8px 0 0 0; font-size: 1.1rem;">Social media and academic content in one place</p>
                 </div>
                 <div class="d-flex gap-2 align-items-center flex-wrap">
@@ -1339,8 +1391,8 @@
 
                     <!-- Auto-refresh controls -->
                     <div class="dropdown">
-                        <button class="btn-tab-control dropdown-toggle" type="button" id="autoRefreshDropdown" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-clock"></i>
+                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="autoRefreshDropdown" data-bs-toggle="dropdown" aria-expanded="false" style="font-size: 0.85rem; padding: 4px 8px;">
+                            <i class="fas fa-clock me-1"></i>
                             <span id="refreshStatusText">Manual</span>
                         </button>
                         <ul class="dropdown-menu" aria-labelledby="autoRefreshDropdown">
@@ -1605,8 +1657,9 @@
                     </button>
                 </div>
                 <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                        <i class="fas fa-cog"></i>
+                    <button class="btn btn-xs btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" id="blueSkyRefreshBtn">
+                        <i class="fas fa-cog me-1"></i>
+                        <span id="blueSkyRefreshStatus">Manual</span>
                     </button>
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="#" onclick="refreshColumn('bluesky')">Refresh</a></li>
@@ -1651,8 +1704,9 @@
                     </button>
                 </div>
                 <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                        <i class="fas fa-cog"></i>
+                    <button class="btn btn-xs btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" id="arXivRefreshBtn">
+                        <i class="fas fa-cog me-1"></i>
+                        <span id="arXivRefreshStatus">Manual</span>
                     </button>
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="#" onclick="refreshColumn('arxiv')">Refresh</a></li>
@@ -1697,8 +1751,9 @@
                     </button>
                 </div>
                 <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                        <i class="fas fa-cog"></i>
+                    <button class="btn btn-xs btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" id="newsRefreshBtn">
+                        <i class="fas fa-cog me-1"></i>
+                        <span id="newsRefreshStatus">Manual</span>
                     </button>
                     <ul class="dropdown-menu">
                         <li><a class="dropdown-item" href="#" onclick="refreshColumn('thenewsapi')">Refresh</a></li>
@@ -1888,6 +1943,12 @@ async function initializeDashboard() {
         // Set up auto-refresh
         if (cachedAutoRefresh > 0) {
             setAutoRefresh(cachedAutoRefresh);
+        } else {
+            // Ensure status text shows "Manual" when no auto-refresh is set
+            const refreshStatusText = document.getElementById('refreshStatusText');
+            if (refreshStatusText) {
+                refreshStatusText.textContent = 'Manual';
+            }
         }
         
         // Set up column auto-refresh
@@ -1896,6 +1957,9 @@ async function initializeDashboard() {
                 setColumnAutoRefresh(sourceType, minutes);
             }
         }
+        
+        // Initialize column refresh status displays
+        initializeColumnRefreshStatuses();
         
         // Mark initialization as complete
         isInitializing = false;
@@ -2323,7 +2387,7 @@ function renderCardItem(item, sourceClass, sourceBadge, publishDate, engagement,
                 ${item.author_handle ? `<div><i class="fab fa-at"></i> ${item.author_handle}</div>` : ''}
             </div>
             
-            ${item.content ? `<div class="feed-item-content" style="color: var(--text-color); line-height: 1.6; margin-bottom: 16px;">${truncateText(item.content, 300)}</div>` : ''}
+            ${item.content ? `<div class="feed-item-content" style="color: var(--text-color); line-height: 1.6; margin-bottom: 16px;">${item.source_type === 'bluesky' ? item.content : truncateText(item.content, 300)}</div>` : ''}
             
             <!-- Media Bias Information (News only) -->
             ${item.source_type === 'thenewsapi' && item.media_bias ? createMediaBiasDisplay(item.media_bias) : ''}
@@ -2360,6 +2424,43 @@ function renderCardItem(item, sourceClass, sourceBadge, publishDate, engagement,
                     ${tags.length > 3 ? `<span style="background: var(--light-gray); color: var(--dark-gray); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; border: 1px solid var(--medium-gray);">+${tags.length - 3} more</span>` : ''}
                 </div>
             </div>
+            
+            <!-- Hover Details -->
+            <div class="article-hover-details">
+                <h6>📖 Full Article Details</h6>
+                <div class="meta-item"><strong>Source:</strong> ${item.source_type.toUpperCase()}</div>
+                ${item.author ? `<div class="meta-item"><strong>Author:</strong> ${item.author}${item.author_handle ? ` (${item.author_handle})` : ''}</div>` : ''}
+                <div class="meta-item"><strong>Published:</strong> ${publishDate}</div>
+                ${item.url ? `<div class="meta-item"><strong>URL:</strong> <a href="${item.url}" target="_blank" style="color: var(--primary-color); word-break: break-all;">${item.url}</a></div>` : ''}
+                
+                ${item.content ? `
+                <div style="margin: 12px 0;">
+                    <strong style="color: var(--primary-color);">Full Content:</strong>
+                    <div class="content-preview">${item.content}</div>
+                </div>` : ''}
+                
+                ${(item.category || item.sentiment || item.future_signal || item.time_to_impact || item.driver_type) ? `
+                <div style="margin-top: 12px;">
+                    <strong style="color: var(--primary-color);">AI Analysis:</strong>
+                    <div style="margin-top: 6px;">
+                        ${item.category ? `<div class="meta-item">Category: ${item.category}</div>` : ''}
+                        ${item.sentiment ? `<div class="meta-item">Sentiment: ${item.sentiment}</div>` : ''}
+                        ${item.future_signal ? `<div class="meta-item">Future Signal: ${item.future_signal}</div>` : ''}
+                        ${item.time_to_impact ? `<div class="meta-item">Time to Impact: ${item.time_to_impact}</div>` : ''}
+                        ${item.driver_type ? `<div class="meta-item">Driver Type: ${item.driver_type}</div>` : ''}
+                    </div>
+                </div>` : ''}
+                
+                ${engagement.likes || engagement.reposts || engagement.replies ? `
+                <div style="margin-top: 12px;">
+                    <strong style="color: var(--primary-color);">Engagement:</strong>
+                    <div style="margin-top: 6px;">
+                        ${engagement.likes ? `<div class="meta-item">❤️ Likes: ${engagement.likes}</div>` : ''}
+                        ${engagement.reposts ? `<div class="meta-item">🔄 Reposts: ${engagement.reposts}</div>` : ''}
+                        ${engagement.replies ? `<div class="meta-item">💬 Replies: ${engagement.replies}</div>` : ''}
+                    </div>
+                </div>` : ''}
+            </div>
         </div>
     `;
 }
@@ -2386,7 +2487,7 @@ function renderCompactItem(item, sourceClass, sourceBadge, sourceIcon, publishDa
             </td>
             <td style="font-size: 0.9rem;">
                 <a href="${item.url}" target="_blank" style="color: #333; text-decoration: none;">${item.title}</a>
-                ${item.content ? `<div style="font-size: 0.7rem; color: #666; margin-top: 2px;">${truncateText(item.content, 100)}</div>` : ''}
+                ${item.content ? `<div style="font-size: 0.7rem; color: #666; margin-top: 2px;">${item.source_type === 'bluesky' ? item.content : truncateText(item.content, 100)}</div>` : ''}
             </td>
             <td style="width: 50px; text-align: center; font-size: 0.75rem;">
                 ${totalEngagement > 0 ? totalEngagement : ''}
@@ -2436,7 +2537,7 @@ function renderTimelineItem(item, sourceClass, sourceBadge, sourceIcon, publishD
                 <a href="${item.url}" target="_blank">${item.title}</a>
             </h3>
             
-            ${item.content ? `<div class="feed-item-content" style="color: var(--text-color); line-height: 1.5; margin-bottom: 12px; font-size: 0.9rem;">${truncateText(item.content, 200)}</div>` : ''}
+            ${item.content ? `<div class="feed-item-content" style="color: var(--text-color); line-height: 1.5; margin-bottom: 12px; font-size: 0.9rem;">${item.source_type === 'bluesky' ? item.content : truncateText(item.content, 200)}</div>` : ''}
             
             ${item.author ? `<div style="font-size: 0.85rem; color: var(--dark-gray); margin-bottom: 8px;"><i class="fas fa-user"></i> ${item.author}${item.author_handle ? ` (${item.author_handle})` : ''}</div>` : ''}
             
@@ -2452,6 +2553,43 @@ function renderTimelineItem(item, sourceClass, sourceBadge, sourceIcon, publishD
                     ${tags.slice(0, 2).map(tag => `<span style="background: var(--light-gray); color: var(--dark-gray); padding: 2px 6px; border-radius: 3px; font-size: 0.75rem;">${tag}</span>`).join('')}
                     ${tags.length > 2 ? `<span style="background: var(--light-gray); color: var(--dark-gray); padding: 2px 6px; border-radius: 3px; font-size: 0.75rem;">+${tags.length - 2}</span>` : ''}
                 </div>
+            </div>
+            
+            <!-- Hover Details -->
+            <div class="article-hover-details">
+                <h6>📖 Full Article Details</h6>
+                <div class="meta-item"><strong>Source:</strong> ${item.source_type.toUpperCase()}</div>
+                ${item.author ? `<div class="meta-item"><strong>Author:</strong> ${item.author}${item.author_handle ? ` (${item.author_handle})` : ''}</div>` : ''}
+                <div class="meta-item"><strong>Published:</strong> ${publishDate}</div>
+                ${item.url ? `<div class="meta-item"><strong>URL:</strong> <a href="${item.url}" target="_blank" style="color: var(--primary-color); word-break: break-all;">${item.url}</a></div>` : ''}
+                
+                ${item.content ? `
+                <div style="margin: 12px 0;">
+                    <strong style="color: var(--primary-color);">Full Content:</strong>
+                    <div class="content-preview">${item.content}</div>
+                </div>` : ''}
+                
+                ${(item.category || item.sentiment || item.future_signal || item.time_to_impact || item.driver_type) ? `
+                <div style="margin-top: 12px;">
+                    <strong style="color: var(--primary-color);">AI Analysis:</strong>
+                    <div style="margin-top: 6px;">
+                        ${item.category ? `<div class="meta-item">Category: ${item.category}</div>` : ''}
+                        ${item.sentiment ? `<div class="meta-item">Sentiment: ${item.sentiment}</div>` : ''}
+                        ${item.future_signal ? `<div class="meta-item">Future Signal: ${item.future_signal}</div>` : ''}
+                        ${item.time_to_impact ? `<div class="meta-item">Time to Impact: ${item.time_to_impact}</div>` : ''}
+                        ${item.driver_type ? `<div class="meta-item">Driver Type: ${item.driver_type}</div>` : ''}
+                    </div>
+                </div>` : ''}
+                
+                ${engagement.likes || engagement.reposts || engagement.replies ? `
+                <div style="margin-top: 12px;">
+                    <strong style="color: var(--primary-color);">Engagement:</strong>
+                    <div style="margin-top: 6px;">
+                        ${engagement.likes ? `<div class="meta-item">❤️ Likes: ${engagement.likes}</div>` : ''}
+                        ${engagement.reposts ? `<div class="meta-item">🔄 Reposts: ${engagement.reposts}</div>` : ''}
+                        ${engagement.replies ? `<div class="meta-item">💬 Replies: ${engagement.replies}</div>` : ''}
+                    </div>
+                </div>` : ''}
             </div>
         </div>
     `;
@@ -4269,6 +4407,48 @@ function setColumnAutoRefresh(sourceType, minutes) {
     } else {
         showSuccess(`${sourceType} column auto-refresh disabled`);
     }
+    
+    // Update column refresh status display
+    updateColumnRefreshStatus(sourceType, minutes);
+}
+
+function updateColumnRefreshStatus(sourceType, minutes) {
+    const statusMap = {
+        'bluesky': 'blueSkyRefreshStatus',
+        'arxiv': 'arXivRefreshStatus', 
+        'thenewsapi': 'newsRefreshStatus'
+    };
+    
+    const statusElement = document.getElementById(statusMap[sourceType]);
+    if (statusElement) {
+        if (minutes === 0) {
+            statusElement.textContent = 'Manual';
+        } else if (minutes < 60) {
+            statusElement.textContent = `${minutes}m`;
+        } else if (minutes === 60) {
+            statusElement.textContent = '1h';
+        } else {
+            statusElement.textContent = `${Math.floor(minutes / 60)}h`;
+        }
+    }
+}
+
+// Initialize column refresh statuses on page load
+function initializeColumnRefreshStatuses() {
+    const settings = JSON.parse(localStorage.getItem(CACHE_KEYS.COLUMN_REFRESH) || '{}');
+    
+    // Update status displays
+    ['bluesky', 'arxiv', 'thenewsapi'].forEach(sourceType => {
+        const minutes = settings[sourceType] || 0;
+        updateColumnRefreshStatus(sourceType, minutes);
+        
+        // Set up intervals if needed
+        if (minutes > 0) {
+            columnAutoRefreshIntervals[sourceType] = setInterval(() => {
+                refreshColumn(sourceType);
+            }, minutes * 60 * 1000);
+        }
+    });
 }
 
 function formatRefreshInterval(minutes) {
@@ -4483,7 +4663,7 @@ function renderColumnItem(item, sourceType) {
                 ${getEngagementDisplay(item.engagement_metrics)}
             </div>
             
-            ${item.content ? `<div class="column-item-content">${truncateText(item.content, 120)}</div>` : ''}
+            ${item.content ? `<div class="column-item-content">${sourceType === 'bluesky' ? item.content : truncateText(item.content, 120)}</div>` : ''}
             
             ${mediaBiasHtml}
             
@@ -4501,6 +4681,43 @@ function renderColumnItem(item, sourceType) {
             
             <div class="tag-input" id="tagInput${item.id}">
                 <input type="text" placeholder="Add tags (comma separated)" onkeypress="handleTagInput(event, ${item.id})">
+            </div>
+            
+            <!-- Hover Details -->
+            <div class="article-hover-details">
+                <h6>📖 Full Article Details</h6>
+                <div class="meta-item"><strong>Source:</strong> ${item.source_type.toUpperCase()}</div>
+                ${item.author ? `<div class="meta-item"><strong>Author:</strong> ${item.author}${item.author_handle ? ` (${item.author_handle})` : ''}</div>` : ''}
+                <div class="meta-item"><strong>Published:</strong> ${publishDate}</div>
+                ${item.url ? `<div class="meta-item"><strong>URL:</strong> <a href="${item.url}" target="_blank" style="color: var(--primary-color); word-break: break-all;">${item.url}</a></div>` : ''}
+                
+                ${item.content ? `
+                <div style="margin: 12px 0;">
+                    <strong style="color: var(--primary-color);">Full Content:</strong>
+                    <div class="content-preview">${item.content}</div>
+                </div>` : ''}
+                
+                ${(item.category || item.sentiment || item.future_signal || item.time_to_impact || item.driver_type) ? `
+                <div style="margin-top: 12px;">
+                    <strong style="color: var(--primary-color);">AI Analysis:</strong>
+                    <div style="margin-top: 6px;">
+                        ${item.category ? `<div class="meta-item">Category: ${item.category}</div>` : ''}
+                        ${item.sentiment ? `<div class="meta-item">Sentiment: ${item.sentiment}</div>` : ''}
+                        ${item.future_signal ? `<div class="meta-item">Future Signal: ${item.future_signal}</div>` : ''}
+                        ${item.time_to_impact ? `<div class="meta-item">Time to Impact: ${item.time_to_impact}</div>` : ''}
+                        ${item.driver_type ? `<div class="meta-item">Driver Type: ${item.driver_type}</div>` : ''}
+                    </div>
+                </div>` : ''}
+                
+                ${item.engagement_metrics && Object.keys(item.engagement_metrics).length > 0 ? `
+                <div style="margin-top: 12px;">
+                    <strong style="color: var(--primary-color);">Engagement:</strong>
+                    <div style="margin-top: 6px;">
+                        ${item.engagement_metrics.likes ? `<div class="meta-item">❤️ Likes: ${item.engagement_metrics.likes}</div>` : ''}
+                        ${item.engagement_metrics.reposts ? `<div class="meta-item">🔄 Reposts: ${item.engagement_metrics.reposts}</div>` : ''}
+                        ${item.engagement_metrics.replies ? `<div class="meta-item">💬 Replies: ${item.engagement_metrics.replies}</div>` : ''}
+                    </div>
+                </div>` : ''}
             </div>
         </div>
     `;
