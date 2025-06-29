@@ -475,12 +475,8 @@
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="intelligenceDropdown">
                             <small class="text-muted"> Daily Insights</small><br>
-                            <li><a class="dropdown-item" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="right" title="News trend and keyword alerts"><i class="fas fa-chart-line"></i> News Trends</a></li>
-                            <li><a class="dropdown-item" href="/dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Social media and academic journal monitoring"><i class="fas fa-newspaper"></i> OSINT Monitoring</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <small class="text-muted"> Ad-Hoc Research</small><br>
-                            <li><a class="dropdown-item" href="/collect" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform ad-hoc search for articles, reports and posts"><i class="fas fa-search"></i> Search</a></li>
-                            <li><a class="dropdown-item" href="/submit-article" data-bs-toggle="tooltip" data-bs-placement="right" title="Submit new articles for analysis"><i class="fas fa-newspaper"></i> Submit Article</a></li>
+                            <li><a class="dropdown-item" href="/unified-feed" data-bs-toggle="tooltip" data-bs-placement="right" title="Social media and academic journal monitoring"><i class="fas fa-newspaper"></i> Vantage Desk</a></li>
+                            <li><a class="dropdown-item" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="right" title="News trend and keyword alerts"><i class="fas fa-chart-line"></i> News Firehose</a></li>
                         </ul>
                     </li>
                     
@@ -489,17 +485,11 @@
                             <i class="fas fa-search"></i> Explore
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="researchDropdown">
-                            <small class="text-muted"> Exploratory Analysis</small><br>
-                            <li><a class="dropdown-item" href="/vector-analysis-improved" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform exploratory vector analysis"><i class="fas fa-vector-square"></i>Exploratory Analysis</a></li>
-                            <li><hr class="dropdown-divider"></li>
                             <small class="text-muted"> Executive Summaries</small><br>
                             <li><a class="dropdown-item" href="/market-signals-dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Market signals and strategic risks analysis"><i class="fas fa-chart-line"></i> Market Signals & Strategic Risks</a></li>
                             <li><a class="dropdown-item" href="/consensus-analysis" data-bs-toggle="tooltip" data-bs-placement="right" title="Analyze consensus vs. fringe voices in topics"><i class="fas fa-balance-scale"></i> Consensus vs. Fringe Voices</a></li>
-                            <li><a class="dropdown-item" href="/futures-cone" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-powered futures analysis with probable, plausible, possible, and preferable scenarios"><i class="fas fa-crystal-ball"></i> Futures Cone</a></li>
-                            <li><a class="dropdown-item" href="/ai-impact-timeline" data-bs-toggle="tooltip" data-bs-placement="right" title="Strategic planning horizons for AI impact timing"><i class="fas fa-timeline"></i> Impact Timeline</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <small class="text-muted"> Trend Analysis</small><br>
-                            <li><a class="dropdown-item" href="/analytics" data-bs-toggle="tooltip" data-bs-placement="right" title="Visualize trend data and charts"><i class="fas fa-chart-line"></i> Trend Chart Visualizer</a></li>
+                            <li><a class="dropdown-item" href="/futures-cone" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-powered futures analysis with probable, plausible, possible, and preferable scenarios"><i class="fas fa-magic"></i> Future Horizons</a></li>
+                            <li><a class="dropdown-item" href="/ai-impact-timeline" data-bs-toggle="tooltip" data-bs-placement="right" title="Strategic planning horizons for AI impact timing"><i class="fas fa-history"></i> Impact Timeline</a></li>
                         </ul>
                     </li>
                     
@@ -525,15 +515,18 @@
                             <small class="text-muted"> Guided Topic Setup</small><br>
                             <li><a class="dropdown-item" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-guided topic setup"><i class="fas fa-tasks"></i> Topic Setup Wizard</a></li>
                             <li><hr class="dropdown-divider"></li>
-                            <small class="text-muted">Knowledge Engineering</small><br>
+                            <small class="text-muted">Context Engineering</small><br>
+                            <li><a class="dropdown-item" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-guided topic setup"><i class="fas fa-tasks"></i> Guided AI Topic Designer</a></li>
                             <li><a class="dropdown-item" href="/promptmanager" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage AI prompts and templates"><i class="fas fa-brain"></i> Prompt Engineering</a></li>
-                            <li><a class="dropdown-item" href="#" id="promptManagerBtn" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage Auspex AI prompts"><i class="fas fa-robot"></i> Auspex Prompts</a></li>
-                            <li><a class="dropdown-item" href="/create_topic" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and manage topics"><i class="fas fa-folder-plus"></i> Topic Management</a></li>
-                            <li><a class="dropdown-item" href="/keyword-monitor" data-bs-toggle="tooltip" data-bs-placement="right" title="Monitor keywords and alerts"><i class="fas fa-search"></i> Keyword Monitoring</a></li>
+                            <li><a class="dropdown-item" href="/create_topic" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and manage topics"><i class="fas fa-folder-plus"></i> Topic Editor</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <small class="text-muted"> Knowledge Management</small><br>
+                            <li><a class="dropdown-item" href="/submit-article" data-bs-toggle="tooltip" data-bs-placement="right" title="Submit new articles for analysis"><i class="fas fa-newspaper"></i> Submit Article</a></li>
+                            <li><a class="dropdown-item" href="/vector-analysis-improved" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform exploratory vector analysis"><i class="fas fa-vector-square"></i>Exploratory Analysis</a></li>
+                            <li><a class="dropdown-item" href="/database-editor" data-bs-toggle="tooltip" data-bs-placement="right" title="Edit database entries"><i class="fas fa-edit"></i> Database Editor</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <small class="text-muted">App Configuration</small><br>
                             <li><a class="dropdown-item" href="/config" data-bs-toggle="tooltip" data-bs-placement="right" title="Configure application settings"><i class="fas fa-sliders-h"></i> App Configuration</a></li>
-                            <li><a class="dropdown-item" href="/database-editor" data-bs-toggle="tooltip" data-bs-placement="right" title="Edit database entries"><i class="fas fa-edit"></i> Database Editor</a></li>
                         </ul>
                     </li>
                     
