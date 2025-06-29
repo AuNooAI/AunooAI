@@ -275,7 +275,11 @@ class ModelBiasArenaService:
                                 "driver_type": parsed_analysis.get("driver_type", ""),
                                 "driver_type_explanation": parsed_analysis.get("driver_type_explanation", ""),
                                 "category": parsed_analysis.get("category", ""),
-                                "category_explanation": parsed_analysis.get("category_explanation", "")
+                                "category_explanation": parsed_analysis.get("category_explanation", ""),
+                                "political_bias": parsed_analysis.get("political_bias", ""),
+                                "political_bias_explanation": parsed_analysis.get("political_bias_explanation", ""),
+                                "factuality": parsed_analysis.get("factuality", ""),
+                                "factuality_explanation": parsed_analysis.get("factuality_explanation", "")
                             }
                             
                             # Store result with extracted fields
@@ -363,8 +367,9 @@ class ModelBiasArenaService:
                     (run_id, article_uri, model_name, response_text, 
                      response_time_ms, sentiment, sentiment_explanation, future_signal, 
                      future_signal_explanation, time_to_impact, time_to_impact_explanation,
-                     driver_type, driver_type_explanation, category, category_explanation)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     driver_type, driver_type_explanation, category, category_explanation,
+                     political_bias, political_bias_explanation, factuality, factuality_explanation)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     run_id, article_uri, model_name, response_text,
                     response_time_ms,
@@ -377,7 +382,11 @@ class ModelBiasArenaService:
                     extracted_fields.get("driver_type"),
                     extracted_fields.get("driver_type_explanation"),
                     extracted_fields.get("category"),
-                    extracted_fields.get("category_explanation")
+                    extracted_fields.get("category_explanation"),
+                    extracted_fields.get("political_bias"),
+                    extracted_fields.get("political_bias_explanation"),
+                    extracted_fields.get("factuality"),
+                    extracted_fields.get("factuality_explanation")
                 ))
                 conn.commit()
         except Exception as e:
@@ -502,7 +511,8 @@ class ModelBiasArenaService:
                     SELECT r.model_name, r.article_uri, r.sentiment, r.sentiment_explanation,
                            r.future_signal, r.future_signal_explanation, r.time_to_impact, 
                            r.time_to_impact_explanation, r.driver_type, r.driver_type_explanation,
-                           r.category, r.category_explanation, r.confidence_score, 
+                           r.category, r.category_explanation, r.political_bias, r.political_bias_explanation,
+                           r.factuality, r.factuality_explanation, r.confidence_score, 
                            r.response_time_ms, r.error_message, r.response_text,
                            maa.article_title, maa.article_summary
                     FROM model_bias_arena_results r
@@ -566,7 +576,7 @@ class ModelBiasArenaService:
     def _build_matrix_data(self, results: List, benchmark_data: Dict) -> Dict[str, Any]:
         """Build matrix data structure for comparison view."""
         try:
-            fields = ["sentiment", "future_signal", "time_to_impact", "driver_type", "category"]
+            fields = ["sentiment", "future_signal", "time_to_impact", "driver_type", "category", "political_bias", "factuality"]
             
             # Group results by article and model
             articles = {}
@@ -575,7 +585,7 @@ class ModelBiasArenaService:
             for row in results:
                 model_name = row[0]
                 article_uri = row[1]
-                article_title = row[16]
+                article_title = row[20]  # maa.article_title is at index 20
                 
                 models.add(model_name)
                 
@@ -599,10 +609,14 @@ class ModelBiasArenaService:
                     "driver_type_explanation": row[9],
                     "category": row[10],
                     "category_explanation": row[11],
-                    "confidence_score": row[12],
-                    "response_time_ms": row[13],
-                    "error_message": row[14],
-                    "response_text": row[15]
+                    "political_bias": row[12],
+                    "political_bias_explanation": row[13],
+                    "factuality": row[14],
+                    "factuality_explanation": row[15],
+                    "confidence_score": row[16],
+                    "response_time_ms": row[17],
+                    "error_message": row[18],
+                    "response_text": row[19]
                 }
             
             # Create field matrices
@@ -672,11 +686,11 @@ class ModelBiasArenaService:
                 stats = model_stats[model_name]
                 stats["total_evaluations"] += 1
                 
-                if row[14]:  # error_message
+                if row[18]:  # error_message (updated index)
                     stats["error_count"] += 1
                 else:
-                    if row[13] is not None:  # response_time_ms
-                        stats["response_times"].append(row[13])
+                    if row[17] is not None:  # response_time_ms (updated index)
+                        stats["response_times"].append(row[17])
             
             # Calculate summary statistics
             for model_name, data in model_stats.items():
@@ -708,7 +722,7 @@ class ModelBiasArenaService:
                 "benchmark_comparison": {}
             }
             
-            fields = ["sentiment", "future_signal", "time_to_impact", "driver_type", "category"]
+            fields = ["sentiment", "future_signal", "time_to_impact", "driver_type", "category", "political_bias", "factuality"]
             models = matrix_data.get("models", [])
             
             for field in fields:

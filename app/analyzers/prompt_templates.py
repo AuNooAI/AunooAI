@@ -79,7 +79,17 @@ class PromptTemplates:
             {driver_types}
             Provide a brief explanation for your classification.
 
-            6. Relevant tags:
+            6. Political Bias:
+            Classify the political bias as one of: Left-leaning, Center-left, Center, Center-right, Right-leaning, Neutral, Mixed
+            Analyze the political perspective, ideological stance, and any partisan framing in the article.
+            Provide a brief explanation for your classification.
+
+            7. Factuality:
+            Classify the factual accuracy and reliability as one of: Very High, High, Mixed, Low, Very Low
+            Evaluate the use of sources, evidence, fact-checking, and overall credibility of the information presented.
+            Provide a brief explanation for your classification.
+
+            8. Relevant tags:
             Generate 3-5 relevant tags for the article. These should be concise keywords or short phrases that capture the main topics or themes of the article.
 
             Format your response as follows:
@@ -94,6 +104,10 @@ class PromptTemplates:
             Time to Impact Explanation: [Your explanation here]
             Driver Type: [Your classification here]
             Driver Type Explanation: [Your explanation here]
+            Political Bias: [Your classification here]
+            Political Bias Explanation: [Your explanation here]
+            Factuality: [Your classification here]
+            Factuality Explanation: [Your explanation here]
             Tags: [tag1, tag2, tag3, ...]
             """
         },

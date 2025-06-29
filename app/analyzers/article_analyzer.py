@@ -233,7 +233,7 @@ Article text:
             # Validate required fields - use case-insensitive comparison
             required_fields = ["Title", "Summary", "Category", "Future Signal", 
                              "Future Signal Explanation", "Sentiment", "Time to Impact", 
-                             "Driver Type", "Tags"]
+                             "Driver Type", "Political Bias", "Factuality", "Tags"]
             
             # Create a case-insensitive mapping of the parsed keys
             parsed_keys_lower = {k.lower(): k for k in cleaned_analysis.keys()}
@@ -262,6 +262,10 @@ Article text:
                 "time to impact explanation": "time_to_impact_explanation",
                 "driver type": "driver_type",
                 "driver type explanation": "driver_type_explanation",
+                "political bias": "political_bias",
+                "political bias explanation": "political_bias_explanation",
+                "factuality": "factuality",
+                "factuality explanation": "factuality_explanation",
                 "tags": "tags",
                 "publication date": "publication_date"
             }
