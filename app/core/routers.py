@@ -37,6 +37,7 @@ def register_routers(app: FastAPI):
     from app.routes.keyword_monitor import router as keyword_monitor_router
     from app.routes.api_routes import router as api_router
     from app.routes import media_bias_routes
+    from app.routes.model_bias_arena_routes import router as model_bias_arena_router
     from app.routes.web_routes import router as web_router
     from app.routes.forecast_chart_routes import router as forecast_chart_router, web_router as forecast_chart_web_router
     from app.routes.executive_summary_routes import router as executive_summary_router, web_router as executive_summary_web_router
@@ -100,6 +101,9 @@ def register_routers(app: FastAPI):
     
     # Media bias routes
     app.include_router(media_bias_routes.router)
+    
+    # Model bias arena routes
+    app.include_router(model_bias_arena_router)
     
     # API routes with prefix
     app.include_router(api_router, prefix="/api")

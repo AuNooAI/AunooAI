@@ -1,0 +1,1710 @@
+{% extends "base.html" %}
+
+{% block title %}AuNoo AI - Model Bias Arena{% endblock %}
+
+{% block extra_js %}
+<!-- Chart.js for visualization -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;
+        --primary-dark: #FF1493;
+        --secondary-color: #32CD32;
+        --secondary-dark: #228B22;
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+        --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        --border-radius: 12px;
+    }
+
+    body {
+        background-color: var(--light-gray);
+    }
+
+    /* Dashboard Layout */
+    .dashboard-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 0 20px;
+    }
+
+    .dashboard-header {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        padding: 24px;
+        margin-bottom: 24px;
+    }
+
+    .dashboard-title {
+        color: var(--primary-color);
+        font-size: 2rem;
+        font-weight: 600;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .dashboard-subtitle {
+        color: var(--text-color);
+        font-size: 1.1rem;
+        margin-top: 8px;
+        opacity: 0.8;
+    }
+
+    /* Cards */
+    .card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        padding: 24px;
+        margin-bottom: 24px;
+        transition: all 0.2s;
+    }
+
+    .card:hover {
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--medium-gray);
+    }
+
+    .card-title {
+        font-size: 1.3rem;
+        font-weight: 600;
+        color: var(--text-color);
+        margin: 0;
+    }
+
+    /* Buttons */
+    .btn-primary {
+        background: var(--primary-color);
+        border: none;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: 500;
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+
+    .btn-primary:hover {
+        background: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+        background: var(--secondary-color);
+        border: none;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: 500;
+        transition: all 0.2s;
+        cursor: pointer;
+    }
+
+    .btn-secondary:hover {
+        background: var(--secondary-dark);
+        transform: translateY(-1px);
+    }
+
+    .btn-danger {
+        background: #dc3545;
+        border: none;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-weight: 500;
+        transition: all 0.2s;
+        cursor: pointer;
+        font-size: 0.9rem;
+    }
+
+    .btn-danger:hover {
+        background: #c82333;
+        transform: translateY(-1px);
+    }
+
+    /* Form Elements */
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 500;
+        color: var(--text-color);
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        font-size: 1rem;
+        transition: border-color 0.2s;
+    }
+
+    .form-control:focus {
+        outline: none;
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(255, 105, 180, 0.1);
+    }
+
+    .form-select {
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
+        background-position: right 12px center;
+        background-repeat: no-repeat;
+        background-size: 16px;
+        padding-right: 40px;
+    }
+
+    /* Multi-select styling */
+    .model-selector {
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 12px;
+        min-height: 120px;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .model-option {
+        display: flex;
+        align-items: center;
+        padding: 8px;
+        margin: 4px 0;
+        border-radius: 6px;
+        transition: background-color 0.2s;
+    }
+
+    .model-option:hover {
+        background-color: var(--light-gray);
+    }
+
+    .model-option input[type="checkbox"] {
+        margin-right: 10px;
+        transform: scale(1.1);
+    }
+
+    /* Table Styling */
+    .results-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+    }
+
+    .results-table th,
+    .results-table td {
+        padding: 12px;
+        text-align: left;
+        border-bottom: 1px solid var(--medium-gray);
+    }
+
+    .results-table th {
+        background-color: var(--light-gray);
+        font-weight: 600;
+        color: var(--text-color);
+    }
+
+    .results-table tr:hover {
+        background-color: rgba(255, 105, 180, 0.05);
+    }
+
+    /* Status badges */
+    .status-badge {
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        text-transform: uppercase;
+    }
+
+    .status-running {
+        background-color: #fef3c7;
+        color: #92400e;
+    }
+
+    .status-completed {
+        background-color: #d1fae5;
+        color: #065f46;
+    }
+
+    .status-failed {
+        background-color: #fee2e2;
+        color: #991b1b;
+    }
+
+    /* Charts container */
+    .charts-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto auto auto;
+        gap: 24px;
+        margin-top: 24px;
+    }
+
+    .chart-container {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        padding: 20px;
+        position: relative;
+        height: 350px;
+    }
+
+    .chart-container.full-width {
+        grid-column: 1 / -1;
+        height: 400px;
+    }
+
+    .chart-container.ranking-table {
+        grid-column: 1 / -1;
+        height: auto;
+        min-height: auto;
+    }
+
+    .chart-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text-color);
+        margin-bottom: 16px;
+        text-align: center;
+    }
+
+    /* Loading states */
+    .loading-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 60px;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid var(--light-gray);
+        border-top: 4px solid var(--primary-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    /* Matrix Analysis Styles */
+    .field-tabs {
+        display: flex;
+        gap: 8px;
+        margin-left: auto;
+    }
+
+    .field-tab {
+        padding: 8px 16px;
+        border: 1px solid var(--medium-gray);
+        background: white;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+    }
+
+    .field-tab:hover {
+        background: var(--light-gray);
+    }
+
+    .field-tab.active {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+
+    .matrix-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+        font-size: 0.9rem;
+    }
+
+    .matrix-table th,
+    .matrix-table td {
+        padding: 8px 12px;
+        text-align: left;
+        border: 1px solid var(--medium-gray);
+        vertical-align: top;
+    }
+
+    .matrix-table th {
+        background: var(--light-gray);
+        font-weight: 600;
+        position: sticky;
+        top: 0;
+        z-index: 2;
+    }
+
+    .matrix-table .article-header {
+        background: var(--light-gray);
+        font-weight: 500;
+        max-width: 200px;
+        position: sticky;
+        left: 0;
+        z-index: 3;
+    }
+
+    .matrix-table .benchmark-column {
+        background: #e8f5e8;
+        font-weight: 500;
+        border-left: 3px solid var(--secondary-color);
+    }
+
+    .matrix-cell {
+        position: relative;
+        min-height: 40px;
+        max-width: 120px;
+    }
+
+    .matrix-cell.consensus {
+        background: #f0f8ff;
+    }
+
+    .matrix-cell.outlier {
+        background: #fff0f0;
+        border-left: 3px solid #ff6b6b;
+    }
+
+    .matrix-cell.error {
+        background: #f5f5f5;
+        color: #999;
+        font-style: italic;
+    }
+
+    .cell-value {
+        font-weight: 500;
+        margin-bottom: 4px;
+    }
+
+    .cell-confidence {
+        font-size: 0.75rem;
+        color: #666;
+        margin-bottom: 2px;
+    }
+
+    .cell-explanation {
+        font-size: 0.75rem;
+        color: #777;
+        max-height: 40px;
+        overflow: hidden;
+        cursor: pointer;
+    }
+
+    .cell-explanation:hover {
+        max-height: none;
+        background: #fafafa;
+        padding: 4px;
+        border-radius: 3px;
+        position: absolute;
+        z-index: 10;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        min-width: 200px;
+    }
+
+    /* Outlier Analysis Styles */
+    .outlier-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-top: 16px;
+    }
+
+    .outlier-summary {
+        background: var(--light-gray);
+        padding: 16px;
+        border-radius: 8px;
+        margin-bottom: 16px;
+    }
+
+    .outlier-model {
+        background: white;
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+
+    .outlier-model.high-outlier {
+        border-left: 4px solid #ff6b6b;
+    }
+
+    .outlier-model.medium-outlier {
+        border-left: 4px solid #ffa726;
+    }
+
+    .outlier-model.low-outlier {
+        border-left: 4px solid #66bb6a;
+    }
+
+    .outlier-score {
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+
+    .outlier-details {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 8px;
+        margin-top: 8px;
+    }
+
+    .outlier-metric {
+        text-align: center;
+        padding: 8px;
+        background: var(--light-gray);
+        border-radius: 4px;
+    }
+
+    .metric-value {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--primary-color);
+    }
+
+    .metric-label {
+        font-size: 0.8rem;
+        color: #666;
+        margin-top: 2px;
+    }
+
+    /* Ranking Table Styles */
+    .rank-1 {
+        background-color: #ffd700;
+        font-weight: bold;
+    }
+
+    .rank-2 {
+        background-color: #c0c0c0;
+        font-weight: bold;
+    }
+
+    .rank-3 {
+        background-color: #cd7f32;
+        font-weight: bold;
+        color: white;
+    }
+
+    .rank-1 td, .rank-2 td, .rank-3 td {
+        border-top: 2px solid #333;
+        border-bottom: 2px solid #333;
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+        .dashboard-container {
+            padding: 0 10px;
+        }
+        
+        .charts-grid {
+            grid-template-columns: 1fr;
+            grid-template-rows: auto;
+        }
+        
+        .chart-container {
+            height: 300px;
+        }
+        
+        .chart-container.full-width,
+        .chart-container.ranking-table {
+            grid-column: 1;
+        }
+    }
+
+    /* Utility classes */
+    .text-center { text-align: center; }
+    .text-muted { color: #6c757d; }
+    .d-none { display: none; }
+    .d-flex { display: flex; }
+    .justify-content-between { justify-content: space-between; }
+    .align-items-center { align-items: center; }
+    .gap-2 { gap: 0.5rem; }
+    .gap-3 { gap: 1rem; }
+    .mb-3 { margin-bottom: 1rem; }
+    .mt-3 { margin-top: 1rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <!-- Header -->
+    <div class="dashboard-header">
+        <h1 class="dashboard-title">
+            <i class="fas fa-balance-scale"></i>
+            Model Bias Arena
+        </h1>
+        <p class="dashboard-subtitle">
+            Monitor and compare bias across different AI models using sample articles
+        </p>
+    </div>
+
+    <!-- Create New Run Section -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Create New Bias Evaluation</h2>
+            <button id="toggleCreateForm" class="btn-primary">
+                <i class="fas fa-plus"></i> New Evaluation
+            </button>
+        </div>
+        
+        <div id="createRunForm" class="d-none">
+            <form id="biasEvaluationForm">
+                <div class="form-group">
+                    <label for="runName" class="form-label">Evaluation Name *</label>
+                    <input type="text" id="runName" class="form-control" required 
+                           placeholder="e.g., AI News Bias Test - January 2024">
+                </div>
+
+                <div class="form-group">
+                    <label for="runDescription" class="form-label">Description</label>
+                    <textarea id="runDescription" class="form-control" rows="3" 
+                              placeholder="Optional description of this bias evaluation"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="benchmarkModel" class="form-label">Benchmark Model *</label>
+                    <select id="benchmarkModel" class="form-control form-select" required>
+                        <option value="">Select benchmark model...</option>
+                    </select>
+                    <small class="text-muted">This model will be used as the reference point for comparison</small>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Comparison Models * (Select 1-5 models)</label>
+                    <div id="modelSelector" class="model-selector">
+                        <!-- Models will be populated here -->
+                    </div>
+                    <small class="text-muted">Select models to compare against the benchmark</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="articleCount" class="form-label">Number of Articles</label>
+                    <input type="number" id="articleCount" class="form-control" 
+                           min="1" max="100" value="25">
+                    <small class="text-muted">Number of random articles to evaluate (1-100)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="topicFilter" class="form-label">Topic Selection <span class="text-danger">*</span></label>
+                    <select id="topicFilter" class="form-control form-select" required>
+                        <option value="">Select a topic to analyze</option>
+                    </select>
+                    <small class="text-muted">Select the topic to focus ontological field analysis on</small>
+                </div>
+                
+                <div class="form-group" id="topicFieldsPreview" style="display: none;">
+                    <label class="form-label">Available Fields for Selected Topic</label>
+                    <div id="availableFields" class="mb-2">
+                        <small class="text-muted">Loading field information...</small>
+                    </div>
+                </div>
+
+                <div class="d-flex gap-3">
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-play"></i> Start Evaluation
+                    </button>
+                    <button type="button" id="previewArticles" class="btn-secondary">
+                        <i class="fas fa-eye"></i> Preview Articles
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Previous Runs Section -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title">Evaluation History</h2>
+            <button id="refreshRuns" class="btn-secondary">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+        
+        <div id="runsContainer">
+            <div class="loading-container">
+                <div class="loading-spinner"></div>
+                <p>Loading evaluations...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div id="resultsSection" class="d-none">
+        <div class="card">
+            <div class="card-header">
+                <h2 class="card-title">Results: <span id="resultsTitle">Loading...</span></h2>
+                <button id="closeResults" class="btn-secondary">
+                    <i class="fas fa-times"></i> Close
+                </button>
+            </div>
+            
+            <div id="resultsContent">
+                <div class="loading-container">
+                    <div class="loading-spinner"></div>
+                    <p>Loading results...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Matrix Analysis Section -->
+        <div id="matrixSection" class="mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Ontological Field Matrix Analysis</h3>
+                    <div class="field-tabs">
+                        <button class="field-tab active" data-field="sentiment">Sentiment</button>
+                        <button class="field-tab" data-field="future_signal">Future Signal</button>
+                        <button class="field-tab" data-field="time_to_impact">Time to Impact</button>
+                        <button class="field-tab" data-field="driver_type">Driver Type</button>
+                        <button class="field-tab" data-field="category">Category</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="matrixContainer">
+                        <!-- Matrix tables will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Outlier Analysis Section -->
+        <div id="outlierSection" class="mb-4">
+            <div class="card">
+                <div class="card-header">
+                    <h3 class="card-title">Model Outlier Analysis</h3>
+                </div>
+                <div class="card-body">
+                    <div id="outlierContainer">
+                        <!-- Outlier analysis will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="charts-grid" id="chartsContainer">
+            <!-- Charts will be populated here -->
+        </div>
+    </div>
+
+    <!-- Article Preview Modal -->
+    <div id="articlePreviewModal" class="modal fade" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Article Preview</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="articlePreviewContent">
+                        <div class="loading-container">
+                            <div class="loading-spinner"></div>
+                            <p>Loading articles...</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Global variables
+let availableModels = [];
+let availableTopics = [];
+let currentRuns = [];
+let chartsInstances = {};
+
+// Initialize the page
+document.addEventListener('DOMContentLoaded', function() {
+    loadAvailableModels();
+    loadTopics();
+    loadRuns();
+    setupEventListeners();
+});
+
+function setupEventListeners() {
+    // Toggle create form
+    document.getElementById('toggleCreateForm').addEventListener('click', function() {
+        const form = document.getElementById('createRunForm');
+        const button = this;
+        if (form.classList.contains('d-none')) {
+            form.classList.remove('d-none');
+            button.innerHTML = '<i class="fas fa-minus"></i> Cancel';
+        } else {
+            form.classList.add('d-none');
+            button.innerHTML = '<i class="fas fa-plus"></i> New Evaluation';
+        }
+    });
+
+    // Form submission
+    document.getElementById('biasEvaluationForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitBiasEvaluation();
+    });
+
+    // Preview articles
+    document.getElementById('previewArticles').addEventListener('click', function() {
+        previewArticles();
+    });
+
+    // Refresh runs
+    document.getElementById('refreshRuns').addEventListener('click', function() {
+        loadRuns();
+    });
+
+    // Close results
+    document.getElementById('closeResults').addEventListener('click', function() {
+        document.getElementById('resultsSection').classList.add('d-none');
+    });
+
+    // Topic selection change
+    document.getElementById('topicFilter').addEventListener('change', function() {
+        const selectedTopic = this.value;
+        if (selectedTopic) {
+            loadTopicFields(selectedTopic);
+        } else {
+            document.getElementById('topicFieldsPreview').style.display = 'none';
+        }
+    });
+}
+
+async function loadAvailableModels() {
+    try {
+        const response = await fetch('/api/model-bias-arena/models');
+        const data = await response.json();
+        
+        availableModels = data.models || [];
+        populateModelSelectors();
+    } catch (error) {
+        console.error('Error loading models:', error);
+        showError('Failed to load available models');
+    }
+}
+
+async function loadTopics() {
+    try {
+        const response = await fetch('/api/model-bias-arena/topics');
+        const data = await response.json();
+        
+        availableTopics = data.topics || [];
+        populateTopicSelector();
+    } catch (error) {
+        console.error('Error loading topics:', error);
+    }
+}
+
+function populateModelSelectors() {
+    // Populate benchmark model selector
+    const benchmarkSelect = document.getElementById('benchmarkModel');
+    benchmarkSelect.innerHTML = '<option value="">Select benchmark model...</option>';
+    
+    // Populate comparison model selector
+    const modelSelector = document.getElementById('modelSelector');
+    modelSelector.innerHTML = '';
+    
+    availableModels.forEach(model => {
+        // Add to benchmark selector
+        const benchmarkOption = document.createElement('option');
+        benchmarkOption.value = model.name;
+        benchmarkOption.textContent = model.display_name;
+        benchmarkSelect.appendChild(benchmarkOption);
+        
+        // Add to comparison selector
+        const comparisonDiv = document.createElement('div');
+        comparisonDiv.className = 'model-option';
+        comparisonDiv.innerHTML = `
+            <input type="checkbox" id="model_${model.name}" value="${model.name}">
+            <label for="model_${model.name}">${model.display_name}</label>
+        `;
+        modelSelector.appendChild(comparisonDiv);
+    });
+}
+
+function populateTopicSelector() {
+    const topicSelect = document.getElementById('topicFilter');
+    topicSelect.innerHTML = '<option value="">Select a topic to analyze</option>';
+    
+    availableTopics.forEach(topic => {
+        const option = document.createElement('option');
+        option.value = topic.name;
+        option.textContent = topic.name;
+        topicSelect.appendChild(option);
+    });
+}
+
+async function loadTopicFields(topicName) {
+    try {
+        document.getElementById('topicFieldsPreview').style.display = 'block';
+        document.getElementById('availableFields').innerHTML = '<small class="text-muted">Loading field information...</small>';
+        
+        // Load categories for the topic
+        const categoriesResponse = await fetch(`/api/categories/${encodeURIComponent(topicName)}`);
+        const categoriesData = await categoriesResponse.json();
+        
+        // Load other topic options (sentiment, signals, etc.)
+        const topicOptionsResponse = await fetch(`/api/topic-options/${encodeURIComponent(topicName)}`);
+        let topicOptions = {};
+        if (topicOptionsResponse.ok) {
+            topicOptions = await topicOptionsResponse.json();
+        }
+        
+        // Display available fields
+        let fieldsHtml = '<div class="row">';
+        
+        // Categories
+        if (categoriesData.categories && categoriesData.categories.length > 0) {
+            fieldsHtml += '<div class="col-md-6"><strong>Categories:</strong><br>';
+            fieldsHtml += '<small class="text-muted">' + categoriesData.categories.slice(0, 5).join(', ');
+            if (categoriesData.categories.length > 5) {
+                fieldsHtml += ` and ${categoriesData.categories.length - 5} more`;
+            }
+            fieldsHtml += '</small></div>';
+        }
+        
+        // Sentiments
+        if (topicOptions.sentiments && topicOptions.sentiments.length > 0) {
+            fieldsHtml += '<div class="col-md-6"><strong>Sentiments:</strong><br>';
+            fieldsHtml += '<small class="text-muted">' + topicOptions.sentiments.join(', ') + '</small></div>';
+        }
+        
+        fieldsHtml += '</div><div class="row">';
+        
+        // Future Signals
+        if (topicOptions.future_signals && topicOptions.future_signals.length > 0) {
+            fieldsHtml += '<div class="col-md-6"><strong>Future Signals:</strong><br>';
+            fieldsHtml += '<small class="text-muted">' + topicOptions.future_signals.join(', ') + '</small></div>';
+        }
+        
+        // Driver Types
+        if (topicOptions.driver_types && topicOptions.driver_types.length > 0) {
+            fieldsHtml += '<div class="col-md-6"><strong>Driver Types:</strong><br>';
+            fieldsHtml += '<small class="text-muted">' + topicOptions.driver_types.join(', ') + '</small></div>';
+        }
+        
+        fieldsHtml += '</div>';
+        
+        if (fieldsHtml === '<div class="row"></div><div class="row"></div>') {
+            fieldsHtml = '<small class="text-muted">No specific field information available for this topic.</small>';
+        }
+        
+        document.getElementById('availableFields').innerHTML = fieldsHtml;
+        
+    } catch (error) {
+        console.error('Error loading topic fields:', error);
+        document.getElementById('availableFields').innerHTML = '<small class="text-danger">Error loading field information</small>';
+    }
+}
+
+async function submitBiasEvaluation() {
+    try {
+        // Get form data
+        const formData = {
+            name: document.getElementById('runName').value,
+            description: document.getElementById('runDescription').value,
+            benchmark_model: document.getElementById('benchmarkModel').value,
+            selected_models: getSelectedModels(),
+            article_count: parseInt(document.getElementById('articleCount').value),
+            topic: document.getElementById('topicFilter').value || null
+        };
+
+        // Validate
+        if (!formData.name || !formData.benchmark_model || formData.selected_models.length === 0) {
+            showError('Please fill in all required fields');
+            return;
+        }
+
+        if (formData.selected_models.length > 5) {
+            showError('Please select no more than 5 comparison models');
+            return;
+        }
+
+        // Submit
+        const response = await fetch('/api/model-bias-arena/runs', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to create evaluation');
+        }
+
+        const result = await response.json();
+        
+        showSuccess('Bias evaluation started successfully!');
+        
+        // Reset form and hide it
+        document.getElementById('biasEvaluationForm').reset();
+        document.getElementById('createRunForm').classList.add('d-none');
+        document.getElementById('toggleCreateForm').innerHTML = '<i class="fas fa-plus"></i> New Evaluation';
+        
+        // Refresh runs list
+        setTimeout(() => loadRuns(), 1000);
+        
+    } catch (error) {
+        console.error('Error submitting evaluation:', error);
+        showError('Failed to create bias evaluation: ' + error.message);
+    }
+}
+
+function getSelectedModels() {
+    const checkboxes = document.querySelectorAll('#modelSelector input[type="checkbox"]:checked');
+    return Array.from(checkboxes).map(cb => cb.value);
+}
+
+async function previewArticles() {
+    try {
+        const count = parseInt(document.getElementById('articleCount').value) || 25;
+        const topic = document.getElementById('topicFilter').value || null;
+        
+        const url = `/api/model-bias-arena/sample-articles?count=${count}${topic ? `&topic=${topic}` : ''}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        displayArticlePreview(data.articles);
+        
+    } catch (error) {
+        console.error('Error previewing articles:', error);
+        showError('Failed to preview articles');
+    }
+}
+
+function displayArticlePreview(articles) {
+    const content = document.getElementById('articlePreviewContent');
+    
+    if (!articles || articles.length === 0) {
+        content.innerHTML = '<p class="text-center text-muted">No articles found with current filters</p>';
+    } else {
+        let html = `<p class="mb-3"><strong>${articles.length} articles</strong> will be used for evaluation:</p>`;
+        html += articles.map(article => `
+            <div class="card mb-2">
+                <div class="card-body p-3">
+                    <h6 class="card-title mb-1">${article.title}</h6>
+                    <small class="text-muted">
+                        ${article.news_source} • ${article.topic} • ${article.category || 'No category'}
+                    </small>
+                    <p class="card-text mt-2" style="font-size: 0.9rem;">
+                        ${article.summary ? article.summary.substring(0, 200) + '...' : 'No summary available'}
+                    </p>
+                </div>
+            </div>
+        `).join('');
+        
+        content.innerHTML = html;
+    }
+    
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('articlePreviewModal'));
+    modal.show();
+}
+
+async function loadRuns() {
+    try {
+        const response = await fetch('/api/model-bias-arena/runs');
+        const data = await response.json();
+        
+        currentRuns = data.runs || [];
+        displayRuns();
+        
+    } catch (error) {
+        console.error('Error loading runs:', error);
+        document.getElementById('runsContainer').innerHTML = 
+            '<p class="text-center text-muted">Failed to load evaluations</p>';
+    }
+}
+
+function displayRuns() {
+    const container = document.getElementById('runsContainer');
+    
+    if (currentRuns.length === 0) {
+        container.innerHTML = '<p class="text-center text-muted">No bias evaluations found. Create your first one above!</p>';
+        return;
+    }
+    
+    let html = `
+        <table class="results-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Models</th>
+                    <th>Articles</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    currentRuns.forEach(run => {
+        const statusClass = `status-${run.status}`;
+        const models = [run.benchmark_model, ...run.selected_models];
+        
+        html += `
+            <tr>
+                <td>
+                    <strong>${run.name}</strong>
+                    ${run.description ? `<br><small class="text-muted">${run.description}</small>` : ''}
+                </td>
+                <td>
+                    <span class="text-muted">Benchmark:</span> ${run.benchmark_model}<br>
+                    <span class="text-muted">Compare:</span> ${run.selected_models.join(', ')}
+                </td>
+                <td>${run.article_count}</td>
+                <td>
+                    <span class="status-badge ${statusClass}">${run.status}</span>
+                </td>
+                <td>${new Date(run.created_at).toLocaleDateString()}</td>
+                <td>
+                    ${run.status === 'completed' ? 
+                        `<button class="btn-primary btn-sm" onclick="viewResults(${run.id})">
+                            <i class="fas fa-chart-bar"></i> View Results
+                        </button>` : ''}
+                    <button class="btn-danger btn-sm" onclick="deleteRun(${run.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+async function viewResults(runId) {
+    try {
+        document.getElementById('resultsSection').classList.remove('d-none');
+        document.getElementById('resultsTitle').textContent = 'Loading...';
+        
+        const response = await fetch(`/api/model-bias-arena/runs/${runId}/results`);
+        const data = await response.json();
+        
+        displayResults(data);
+        
+    } catch (error) {
+        console.error('Error loading results:', error);
+        showError('Failed to load results');
+    }
+}
+
+function displayResults(data) {
+    const runDetails = data.run_details;
+    const statistics = data.statistics;
+    const matrixData = data.matrix_data;
+    const outlierAnalysis = data.outlier_analysis;
+    
+    document.getElementById('resultsTitle').textContent = runDetails.name;
+    
+    // Create summary statistics table
+    let html = `
+        <div class="mb-4">
+            <h4>Summary Statistics</h4>
+            <table class="results-table">
+                <thead>
+                                            <tr>
+                            <th>Model</th>
+                            <th>Response Time (ms)</th>
+                            <th>Success Rate</th>
+                            <th>Evaluations</th>
+                            <th>Outlier Rate</th>
+                        </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    Object.entries(statistics).forEach(([modelName, stats]) => {
+        const outlierScore = outlierAnalysis.model_outlier_scores?.[modelName];
+        const outlierRate = outlierScore ? (outlierScore.outlier_rate * 100).toFixed(1) : 'N/A';
+        
+        html += `
+            <tr>
+                <td><strong>${modelName}</strong></td>
+                <td>${Math.round(stats.mean_response_time)}</td>
+                <td>${(stats.success_rate * 100).toFixed(1)}%</td>
+                <td>${stats.successful_evaluations}/${stats.total_evaluations}</td>
+                <td>${outlierRate}%</td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table></div>';
+    
+    document.getElementById('resultsContent').innerHTML = html;
+    
+    // Display matrix analysis
+    displayMatrixAnalysis(matrixData, outlierAnalysis);
+    
+    // Display outlier analysis
+    displayOutlierAnalysis(outlierAnalysis, runDetails);
+    
+    // Create charts
+    createCharts(statistics, matrixData);
+    
+    // Setup field tab switching
+    setupFieldTabs();
+}
+
+function createCharts(statistics, matrixData) {
+    const container = document.getElementById('chartsContainer');
+    container.innerHTML = '';
+    
+    // Destroy existing charts
+    Object.values(chartsInstances).forEach(chart => chart.destroy());
+    chartsInstances = {};
+    
+    const modelNames = Object.keys(statistics);
+    const colors = ['#FF69B4', '#32CD32', '#FFD700', '#FF6347', '#4169E1', '#9370DB'];
+    
+    // Model Ranking Table (full width)
+    const rankingDiv = document.createElement('div');
+    rankingDiv.className = 'chart-container ranking-table';
+    rankingDiv.innerHTML = '<h3 class="chart-title">Model Performance Rankings</h3><div id="rankingTable"></div>';
+    container.appendChild(rankingDiv);
+    createModelRankingTable(statistics, window.currentOutlierAnalysis);
+    
+    // Response Time Chart (left column)
+    const timeChartDiv = document.createElement('div');
+    timeChartDiv.className = 'chart-container';
+    timeChartDiv.innerHTML = '<h3 class="chart-title">Average Response Time</h3><canvas id="timeChart"></canvas>';
+    container.appendChild(timeChartDiv);
+    
+    const timeCtx = document.getElementById('timeChart').getContext('2d');
+    chartsInstances.timeChart = new Chart(timeCtx, {
+        type: 'bar',
+        data: {
+            labels: modelNames,
+            datasets: [{
+                label: 'Response Time (ms)',
+                data: modelNames.map(name => statistics[name].mean_response_time),
+                backgroundColor: colors.slice(0, modelNames.length),
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Response Time (ms)'
+                    }
+                }
+            }
+        }
+    });
+    
+    // Success Rate vs Outlier Rate Scatter Plot (right column)
+    const scatterChartDiv = document.createElement('div');
+    scatterChartDiv.className = 'chart-container';
+    scatterChartDiv.innerHTML = '<h3 class="chart-title">Success Rate vs Outlier Rate</h3><canvas id="scatterChart"></canvas>';
+    container.appendChild(scatterChartDiv);
+    
+    const outlierAnalysis = window.currentOutlierAnalysis;
+    const scatterCtx = document.getElementById('scatterChart').getContext('2d');
+    chartsInstances.scatterChart = new Chart(scatterCtx, {
+        type: 'scatter',
+        data: {
+            datasets: modelNames.map((name, index) => ({
+                label: name,
+                data: [{
+                    x: statistics[name].success_rate * 100,
+                    y: (outlierAnalysis.model_outlier_scores?.[name]?.outlier_rate || 0) * 100
+                }],
+                backgroundColor: colors[index % colors.length],
+                pointRadius: 8
+            }))
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: {
+                padding: {
+                    top: 10,
+                    right: 15,
+                    bottom: 10,
+                    left: 10
+                }
+            },
+            scales: {
+                x: {
+                    type: 'linear',
+                    position: 'bottom',
+                    title: {
+                        display: true,
+                        text: 'Success Rate (%)'
+                    },
+                    min: 0,
+                    max: 105,
+                    ticks: {
+                        max: 100
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: 'Outlier Rate (%)'
+                    },
+                    min: 0,
+                    max: 105,
+                    ticks: {
+                        max: 100
+                    }
+                }
+            }
+        }
+    });
+    
+    // Field Agreement Radar Chart (left column)
+    const radarChartDiv = document.createElement('div');
+    radarChartDiv.className = 'chart-container';
+    radarChartDiv.innerHTML = '<h3 class="chart-title">Field Agreement with Benchmark</h3><canvas id="radarChart"></canvas>';
+    container.appendChild(radarChartDiv);
+    
+    createFieldAgreementChart(matrixData, colors);
+    
+    // Outlier Rate Comparison (right column)
+    const outlierChartDiv = document.createElement('div');
+    outlierChartDiv.className = 'chart-container';
+    outlierChartDiv.innerHTML = '<h3 class="chart-title">Model Outlier Rates</h3><canvas id="outlierChart"></canvas>';
+    container.appendChild(outlierChartDiv);
+    
+    const outlierCtx = document.getElementById('outlierChart').getContext('2d');
+    chartsInstances.outlierChart = new Chart(outlierCtx, {
+        type: 'bar',
+        data: {
+            labels: modelNames,
+            datasets: [{
+                label: 'Outlier Rate (%)',
+                data: modelNames.map(name => 
+                    (outlierAnalysis.model_outlier_scores?.[name]?.outlier_rate || 0) * 100
+                ),
+                backgroundColor: modelNames.map(name => {
+                    const rate = outlierAnalysis.model_outlier_scores?.[name]?.outlier_rate || 0;
+                    if (rate > 0.3) return '#ff6b6b';
+                    if (rate > 0.15) return '#ffa726';
+                    return '#66bb6a';
+                }),
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Outlier Rate (%)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+async function deleteRun(runId) {
+    if (!confirm('Are you sure you want to delete this evaluation? This action cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/model-bias-arena/runs/${runId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to delete evaluation');
+        }
+        
+        showSuccess('Evaluation deleted successfully');
+        loadRuns();
+        
+    } catch (error) {
+        console.error('Error deleting run:', error);
+        showError('Failed to delete evaluation');
+    }
+}
+
+function displayMatrixAnalysis(matrixData, outlierAnalysis) {
+    if (!matrixData || !matrixData.field_matrices) {
+        document.getElementById('matrixContainer').innerHTML = '<p class="text-muted">No matrix data available</p>';
+        return;
+    }
+    
+    // Store matrix data globally for field switching
+    window.currentMatrixData = matrixData;
+    window.currentOutlierAnalysis = outlierAnalysis;
+    
+    // Display the first field by default (sentiment)
+    displayFieldMatrix('sentiment');
+}
+
+function displayFieldMatrix(fieldName) {
+    const matrixData = window.currentMatrixData;
+    const outlierAnalysis = window.currentOutlierAnalysis;
+    
+    if (!matrixData || !matrixData.field_matrices[fieldName]) {
+        return;
+    }
+    
+    const fieldMatrix = matrixData.field_matrices[fieldName];
+    const models = fieldMatrix.models;
+    const matrix = fieldMatrix.matrix;
+    
+    let html = `
+        <div class="matrix-view">
+            <h5>Field: ${fieldName.replace('_', ' ').toUpperCase()}</h5>
+            <div class="table-responsive">
+                <table class="matrix-table">
+                    <thead>
+                        <tr>
+                            <th class="article-header">Article</th>
+                            <th class="benchmark-column">Benchmark</th>
+    `;
+    
+    // Add model columns
+    models.forEach(model => {
+        html += `<th>${model}</th>`;
+    });
+    
+    html += `
+                        </tr>
+                    </thead>
+                    <tbody>
+    `;
+    
+    // Add matrix rows
+    matrix.forEach((row, rowIndex) => {
+        html += `
+            <tr>
+                <td class="article-header">
+                    <div class="cell-value">${row.article_title}</div>
+                    <small class="text-muted">Article ${rowIndex + 1}</small>
+                </td>
+                <td class="benchmark-column">
+                    <div class="cell-value">${row.benchmark_value || 'Not set'}</div>
+                </td>
+        `;
+        
+        // Add model values
+        models.forEach(model => {
+            const modelData = row.model_values[model];
+            const outlierInfo = outlierAnalysis.outlier_models?.[fieldName]?.[model]?.find(
+                item => item.article_uri === row.article_uri
+            );
+            
+            let cellClass = 'matrix-cell';
+            if (modelData.has_error) {
+                cellClass += ' error';
+            } else if (outlierInfo) {
+                cellClass += ' outlier';
+            } else if (modelData.value === row.benchmark_value) {
+                cellClass += ' consensus';
+            }
+            
+            html += `<td class="${cellClass}">`;
+            
+            if (modelData.has_error) {
+                html += '<div class="cell-value">Error</div>';
+            } else {
+                html += `
+                    <div class="cell-value">${modelData.value || 'No response'}</div>
+                `;
+                
+                if (modelData.explanation) {
+                    html += `<div class="cell-explanation">${modelData.explanation}</div>`;
+                }
+            }
+            
+            html += '</td>';
+        });
+        
+        html += '</tr>';
+    });
+    
+    html += `
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('matrixContainer').innerHTML = html;
+}
+
+function displayOutlierAnalysis(outlierAnalysis, runDetails) {
+    if (!outlierAnalysis || !outlierAnalysis.model_outlier_scores) {
+        document.getElementById('outlierContainer').innerHTML = '<p class="text-muted">No outlier analysis available</p>';
+        return;
+    }
+    
+    const modelScores = outlierAnalysis.model_outlier_scores;
+    const benchmarkModel = runDetails.benchmark_model;
+    
+    let html = `
+        <div class="outlier-summary">
+            <h5>Overall Outlier Analysis</h5>
+            <p>Models are analyzed for how often they disagree with the consensus across all fields. 
+            Higher outlier rates indicate models that frequently provide different responses than the majority.</p>
+        </div>
+        
+        <div class="outlier-grid">
+    `;
+    
+    // Sort models by outlier rate
+    const sortedModels = Object.entries(modelScores).sort((a, b) => b[1].outlier_rate - a[1].outlier_rate);
+    
+    sortedModels.forEach(([modelName, scores]) => {
+        const outlierRate = (scores.outlier_rate * 100).toFixed(1);
+        let outlierClass = 'low-outlier';
+        if (scores.outlier_rate > 0.3) outlierClass = 'high-outlier';
+        else if (scores.outlier_rate > 0.15) outlierClass = 'medium-outlier';
+        
+        const isBenchmark = modelName === benchmarkModel;
+        
+        html += `
+            <div class="outlier-model ${outlierClass}">
+                <div class="outlier-score">
+                    ${modelName} ${isBenchmark ? '(Benchmark)' : ''}
+                    <span style="float: right;">${outlierRate}% outlier</span>
+                </div>
+                <div class="outlier-details">
+                    <div class="outlier-metric">
+                        <div class="metric-value">${scores.outlier_count}</div>
+                        <div class="metric-label">Disagreements</div>
+                    </div>
+                    <div class="outlier-metric">
+                        <div class="metric-value">${scores.total_articles}</div>
+                        <div class="metric-label">Articles</div>
+                    </div>
+                    <div class="outlier-metric">
+                        <div class="metric-value">${scores.is_outlier ? 'Yes' : 'No'}</div>
+                        <div class="metric-label">Is Outlier</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    
+    // Add field-specific outlier details
+    html += '<div class="mt-4"><h6>Field-Specific Outliers</h6>';
+    
+    Object.entries(outlierAnalysis.outlier_models).forEach(([field, fieldOutliers]) => {
+        if (Object.keys(fieldOutliers).length > 0) {
+            html += `<div class="mb-3"><strong>${field.replace('_', ' ').toUpperCase()}:</strong> `;
+            
+            Object.entries(fieldOutliers).forEach(([model, outliers]) => {
+                html += `${model} (${outliers.length} disagreements), `;
+            });
+            
+            html = html.slice(0, -2) + '</div>'; // Remove trailing comma
+        }
+    });
+    
+    html += '</div>';
+    
+    document.getElementById('outlierContainer').innerHTML = html;
+}
+
+function setupFieldTabs() {
+    document.querySelectorAll('.field-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            // Update active tab
+            document.querySelectorAll('.field-tab').forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+            
+            // Display selected field matrix
+            const fieldName = this.getAttribute('data-field');
+            displayFieldMatrix(fieldName);
+        });
+    });
+}
+
+function createModelRankingTable(statistics, outlierAnalysis) {
+    const modelNames = Object.keys(statistics);
+    
+    // Calculate ranking scores for each model
+    const modelScores = modelNames.map(name => {
+        const stats = statistics[name];
+        const outlierScore = outlierAnalysis.model_outlier_scores?.[name];
+        
+        // Calculate composite score (lower is better)
+        // Factors: response time (normalized), outlier rate, inverse success rate
+        const normalizedResponseTime = stats.mean_response_time / 10000; // Normalize to 0-1 range
+        const outlierRate = outlierScore?.outlier_rate || 0;
+        const failureRate = 1 - stats.success_rate;
+        
+        const compositeScore = (normalizedResponseTime * 0.3) + (outlierRate * 0.4) + (failureRate * 0.3);
+        
+        return {
+            name: name,
+            responseTime: Math.round(stats.mean_response_time),
+            successRate: (stats.success_rate * 100).toFixed(1),
+            outlierRate: (outlierRate * 100).toFixed(1),
+            evaluations: `${stats.successful_evaluations}/${stats.total_evaluations}`,
+            compositeScore: compositeScore,
+            rank: 0 // Will be set after sorting
+        };
+    });
+    
+    // Sort by composite score (lower is better) and assign ranks
+    modelScores.sort((a, b) => a.compositeScore - b.compositeScore);
+    modelScores.forEach((model, index) => {
+        model.rank = index + 1;
+    });
+    
+    // Create table HTML
+    let html = `
+        <table class="results-table">
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Model</th>
+                    <th>Response Time (ms)</th>
+                    <th>Success Rate</th>
+                    <th>Outlier Rate</th>
+                    <th>Evaluations</th>
+                    <th>Score</th>
+                </tr>
+            </thead>
+            <tbody>
+    `;
+    
+    modelScores.forEach(model => {
+        const rankClass = model.rank <= 3 ? `rank-${model.rank}` : '';
+        html += `
+            <tr class="${rankClass}">
+                <td><strong>#${model.rank}</strong></td>
+                <td><strong>${model.name}</strong></td>
+                <td>${model.responseTime}</td>
+                <td>${model.successRate}%</td>
+                <td>${model.outlierRate}%</td>
+                <td>${model.evaluations}</td>
+                <td>${model.compositeScore.toFixed(3)}</td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table>';
+    
+    document.getElementById('rankingTable').innerHTML = html;
+}
+
+function createFieldAgreementChart(matrixData, colors) {
+    if (!matrixData || !matrixData.field_matrices) {
+        return;
+    }
+    
+    const fields = ["sentiment", "future_signal", "time_to_impact", "driver_type", "category"];
+    const models = matrixData.models || [];
+    
+    // Calculate agreement rates for each model and field
+    const agreementData = models.map((model, modelIndex) => {
+        const fieldAgreements = fields.map(field => {
+            const fieldMatrix = matrixData.field_matrices[field];
+            if (!fieldMatrix || !fieldMatrix.matrix) return 0;
+            
+            let agreements = 0;
+            let total = 0;
+            
+            fieldMatrix.matrix.forEach(row => {
+                const modelData = row.model_values[model];
+                if (modelData && !modelData.has_error) {
+                    total++;
+                    if (modelData.value === row.benchmark_value) {
+                        agreements++;
+                    }
+                }
+            });
+            
+            return total > 0 ? (agreements / total) * 100 : 0;
+        });
+        
+        return {
+            label: model,
+            data: fieldAgreements,
+            backgroundColor: colors[modelIndex % colors.length] + '40', // Add transparency
+            borderColor: colors[modelIndex % colors.length],
+            borderWidth: 2
+        };
+    });
+    
+    const radarCtx = document.getElementById('radarChart').getContext('2d');
+    chartsInstances.radarChart = new Chart(radarCtx, {
+        type: 'radar',
+        data: {
+            labels: fields.map(f => f.replace('_', ' ').toUpperCase()),
+            datasets: agreementData
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                r: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: {
+                        display: true,
+                        text: 'Agreement with Benchmark (%)'
+                    }
+                }
+            },
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+}
+
+function showSuccess(message) {
+    // You can implement your preferred notification system here
+    alert(message);
+}
+
+function showError(message) {
+    // You can implement your preferred notification system here
+    alert('Error: ' + message);
+}
+</script>
+{% endblock %} 

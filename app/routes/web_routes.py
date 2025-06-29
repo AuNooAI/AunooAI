@@ -129,3 +129,24 @@ async def feed_group_manager(
             "session": request.session,
             "error": "Could not load feed group manager."
         }) 
+
+
+@router.get("/model-bias-arena", response_class=HTMLResponse)
+async def model_bias_arena_page(
+    request: Request, 
+    session=Depends(verify_session)
+):
+    """Serves the model bias arena interface."""
+    try:
+        logger.info("Loading model bias arena")
+        return templates.TemplateResponse("model_bias_arena.html", {
+            "request": request,
+            "session": request.session
+        })
+    except Exception as e:
+        logger.error(f"Error loading model bias arena: {e}", exc_info=True)
+        return templates.TemplateResponse("model_bias_arena.html", {
+            "request": request,
+            "session": request.session,
+            "error": "Could not load model bias arena."
+        })
