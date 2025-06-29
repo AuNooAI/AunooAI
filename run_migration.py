@@ -59,6 +59,7 @@ def run_migration(migration_file, db_path=None):
         if conn:
             conn.close()
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run database migrations")
     parser.add_argument("migration_file", help="Path to migration SQL file")

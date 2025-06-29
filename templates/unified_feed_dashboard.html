@@ -241,6 +241,48 @@
         color: #0085ff;
     }
 
+    /* TheNewsAPI-specific styling */
+    .feed-item.thenewsapi-item {
+        border-left: 4px solid #1e7e34;
+        background: linear-gradient(90deg, rgba(30, 126, 52, 0.03) 0%, rgba(255, 255, 255, 1) 15%);
+        position: relative;
+    }
+
+    .feed-item.thenewsapi-item::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 3px;
+        background: repeating-linear-gradient(
+            to bottom,
+            #1e7e34 0px,
+            #1e7e34 4px,
+            transparent 4px,
+            transparent 8px
+        );
+        opacity: 0.3;
+    }
+
+    .feed-item.thenewsapi-item:hover {
+        box-shadow: 0 4px 12px rgba(30, 126, 52, 0.15);
+        border-left-color: #28a745;
+    }
+
+    .feed-item.thenewsapi-item.starred {
+        border-left: 4px solid var(--primary-color);
+        background: linear-gradient(90deg, rgba(255, 105, 180, 0.05) 0%, rgba(30, 126, 52, 0.03) 50%, rgba(255, 255, 255, 1) 80%);
+    }
+
+    .feed-item.thenewsapi-item .feed-item-title a {
+        color: #155724;
+    }
+
+    .feed-item.thenewsapi-item .feed-item-title a:hover {
+        color: #1e7e34;
+    }
+
     /* Source badges */
     .source-badge {
         display: inline-flex;
@@ -265,6 +307,12 @@
         background: linear-gradient(135deg, #0085ff, #00a3ff);
         color: white;
         border: 1px solid #0070d9;
+    }
+
+    .source-badge.thenewsapi {
+        background: linear-gradient(135deg, #1e7e34, #28a745);
+        color: white;
+        border: 1px solid #1c6c32;
     }
 
     .source-badge i {
@@ -292,6 +340,16 @@
         pointer-events: none;
     }
 
+    .feed-item.thenewsapi-item::after {
+        content: '📰';
+        position: absolute;
+        top: 15px;
+        right: 15px;
+        font-size: 1.2rem;
+        opacity: 0.1;
+        pointer-events: none;
+    }
+
     /* Enhanced hover effects */
     .feed-item.arxiv-item:hover::after {
         opacity: 0.2;
@@ -300,6 +358,12 @@
     }
 
     .feed-item.bluesky-item:hover::after {
+        opacity: 0.2;
+        transform: scale(1.1);
+        transition: all 0.2s ease;
+    }
+
+    .feed-item.thenewsapi-item:hover::after {
         opacity: 0.2;
         transform: scale(1.1);
         transition: all 0.2s ease;
@@ -423,54 +487,156 @@
         gap: 8px;
     }
 
-    /* Layout Modes */
-    .layout-compact .feed-item {
-        padding: 12px;
-        margin-bottom: 8px;
-    }
-
-    .layout-compact .feed-item-title {
-        font-size: 1rem;
-        margin-bottom: 6px;
-    }
-
-    .layout-compact .feed-item-content {
-        font-size: 0.85rem;
-        max-height: 3em;
+    /* Layout Modes - Compact Table */
+    .layout-compact .compact-table {
+        border-radius: 8px;
         overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     }
 
+    .layout-compact .compact-table th {
+        background: #f8f9fa !important;
+        border-bottom: 2px solid #dee2e6 !important;
+        position: sticky;
+        top: 0;
+        z-index: 10;
+    }
+
+    .layout-compact .compact-table tr {
+        background: white;
+        transition: background-color 0.15s ease;
+    }
+
+    .layout-compact .compact-table tr:hover {
+        background: #f8f9fa !important;
+    }
+
+    .layout-compact .compact-table tr:nth-child(even) {
+        background: #fafafa;
+    }
+
+    .layout-compact .compact-table tr:nth-child(even):hover {
+        background: #f0f0f0 !important;
+    }
+
+    .layout-compact .compact-table td {
+        padding: 8px;
+        vertical-align: middle;
+        border-bottom: 1px solid #eee;
+    }
+
+    .layout-compact .compact-table td a {
+        color: #333;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .layout-compact .compact-table td a:hover {
+        color: #007bff;
+        text-decoration: underline;
+    }
+
+    .layout-compact .compact-table .compact-row.starred {
+        background: #fff3cd !important;
+    }
+
+    .layout-compact .compact-table .compact-row.starred:hover {
+        background: #ffeaa7 !important;
+    }
+
+    /* Hide additional elements in compact mode */
+    .layout-compact .feed-item::before {
+        display: none !important;
+    }
+
+    .layout-compact .feed-item .badge {
+        display: none !important;
+    }
+
+    /* Timeline Layout */
     .layout-timeline {
         position: relative;
-        padding-left: 40px;
+        padding-left: 50px;
+        background: linear-gradient(135deg, #fafbfc, #ffffff);
     }
 
     .layout-timeline::before {
         content: '';
         position: absolute;
-        left: 20px;
+        left: 25px;
         top: 0;
         bottom: 0;
-        width: 2px;
-        background: var(--medium-gray);
+        width: 3px;
+        background: linear-gradient(180deg, var(--primary-color), var(--secondary-color));
+        border-radius: 2px;
+        opacity: 0.3;
     }
 
     .layout-timeline .feed-item {
         position: relative;
-        margin-left: 20px;
+        margin-left: 25px;
+        margin-bottom: 24px;
+        padding: 16px 20px;
+        border-radius: 12px;
+        background: white;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        border: 1px solid var(--light-gray);
     }
 
     .layout-timeline .feed-item::before {
         content: '';
         position: absolute;
-        left: -30px;
-        top: 20px;
-        width: 12px;
-        height: 12px;
+        left: -37px;
+        top: 15px;
+        width: 14px;
+        height: 14px;
         border-radius: 50%;
-        background: var(--primary-color);
-        border: 3px solid white;
-        box-shadow: 0 0 0 1px var(--medium-gray);
+        background: white;
+        border: 3px solid var(--primary-color);
+        box-shadow: 0 0 0 3px rgba(255, 105, 180, 0.1);
+        z-index: 2;
+    }
+
+    /* Source-specific timeline markers */
+    .layout-timeline .feed-item.arxiv-item::before {
+        border-color: #b31b1b;
+        box-shadow: 0 0 0 3px rgba(179, 27, 27, 0.1);
+    }
+
+    .layout-timeline .feed-item.bluesky-item::before {
+        border-color: #0085ff;
+        box-shadow: 0 0 0 3px rgba(0, 133, 255, 0.1);
+    }
+
+    .layout-timeline .feed-item.thenewsapi-item::before {
+        border-color: #1e7e34;
+        box-shadow: 0 0 0 3px rgba(30, 126, 52, 0.1);
+    }
+
+    .layout-timeline .feed-item:hover {
+        transform: translateX(4px);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        border-color: var(--primary-color);
+    }
+
+    .layout-timeline .feed-item:hover::before {
+        transform: scale(1.2);
+        box-shadow: 0 0 0 6px rgba(255, 105, 180, 0.15);
+    }
+
+    /* Timeline date headers */
+    .timeline-date-header {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        padding: 8px 16px;
+        margin: 0 -20px 16px -20px;
+        border-bottom: 1px solid var(--light-gray);
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: var(--primary-color);
     }
 
     /* Search highlighting */
@@ -617,6 +783,7 @@
                         <option value="">All Sources</option>
                         <option value="bluesky">🐦 Bluesky Social</option>
                         <option value="arxiv">📚 ArXiv Academic</option>
+                        <option value="thenewsapi">📰 News Articles</option>
                     </select>
                 </div>
                 <div class="feed-filter">
@@ -758,6 +925,7 @@ let allFeedItems = []; // Store all items for client-side filtering
 let currentPage = 0;
 let hasMoreItems = true;
 let showHidden = false;
+let isInitializing = true;
 let currentFilters = {
     source: '',
     sort: 'publication_date',
@@ -807,7 +975,7 @@ function setupInfiniteScroll() {
             // Check if user scrolled to near bottom (within 200px)
             const nearBottom = scrollTop + clientHeight >= scrollHeight - 200;
             
-            if (nearBottom && hasMoreItems && !isLoading) {
+            if (nearBottom && hasMoreItems && !isLoading && !isInitializing) {
                 isLoading = true;
                 showInfiniteScrollLoader();
                 loadMoreItems().finally(() => {
@@ -835,7 +1003,7 @@ function setupInfiniteScroll() {
             const windowHeight = window.innerHeight;
             const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
             
-            if (scrollTop + windowHeight >= documentHeight - 300 && hasMoreItems && !isLoading) {
+            if (scrollTop + windowHeight >= documentHeight - 300 && hasMoreItems && !isLoading && !isInitializing) {
                 isLoading = true;
                 showInfiniteScrollLoader();
                 loadMoreItems().finally(() => {
@@ -864,28 +1032,41 @@ function hideInfiniteScrollLoader() {
 
 async function initializeDashboard() {
     try {
-        // Load cached preferences
+        // Load cached preferences first
         loadCachedPreferences();
         
+        // Apply cached layout immediately after preferences load
+        const layoutSelector = document.getElementById('layoutMode');
+        if (layoutSelector && currentFilters.layout) {
+            layoutSelector.value = currentFilters.layout;
+            console.log('Initial layout set to:', currentFilters.layout);
+        }
+        
         await loadFeedGroups();
+        console.log('DEBUG: Loaded feed groups:', feedGroups);
+        
         if (feedGroups.length > 0) {
             // Use cached last group or default to first
             const lastGroup = localStorage.getItem(CACHE_KEYS.LAST_GROUP);
             currentFeedGroup = lastGroup ? parseInt(lastGroup) : feedGroups[0].id;
+            console.log('DEBUG: Selected feed group on init:', currentFeedGroup);
+            console.log('DEBUG: Last group from cache:', lastGroup);
+            
             await renderFeedTabs();
             await loadFeedItems();
         } else {
+            console.log('DEBUG: No feed groups found');
             renderEmptyState();
         }
         
-        // Apply cached layout
-        if (currentFilters.layout) {
-            document.getElementById('layoutMode').value = currentFilters.layout;
-            changeLayout();
-        }
+        // Mark initialization as complete
+        isInitializing = false;
+        console.log('DEBUG: Initialization complete, infinite scroll enabled');
     } catch (error) {
         console.error('Error initializing dashboard:', error);
         showError('Failed to load dashboard. Please refresh the page.');
+        // Mark initialization as complete even on error
+        isInitializing = false;
     }
 }
 
@@ -902,6 +1083,17 @@ function loadCachedPreferences() {
             document.getElementById('itemsPerPage').value = currentFilters.limit || 50;
             document.getElementById('searchInput').value = currentFilters.search || '';
             document.getElementById('starredFilter').value = currentFilters.starred || '';
+            
+            // Apply layout mode if saved
+            const layoutSelector = document.getElementById('layoutMode');
+            if (layoutSelector && currentFilters.layout) {
+                layoutSelector.value = currentFilters.layout;
+                // Also apply the layout class to the container
+                const feedItemsContainer = document.getElementById('feedItems');
+                if (feedItemsContainer) {
+                    feedItemsContainer.className = `feed-items layout-${currentFilters.layout}`;
+                }
+            }
         }
     } catch (error) {
         console.error('Error loading cached preferences:', error);
@@ -1045,6 +1237,7 @@ function refreshTabCounters() {
 }
 
 async function switchFeedGroup(groupId) {
+    console.log('DEBUG: Switching to feed group:', groupId);
     currentFeedGroup = groupId;
     currentPage = 0;
     hasMoreItems = true;
@@ -1086,10 +1279,18 @@ async function loadFeedItems(append = false) {
             endpoint = `/api/feed-groups/${currentFeedGroup}/feed`;
         }
         
+        console.log('DEBUG: Loading feed items from endpoint:', endpoint);
+        console.log('DEBUG: Current feed group:', currentFeedGroup);
+        console.log('DEBUG: CurrentPage:', currentPage, 'Limit:', currentFilters.limit, 'Offset:', currentPage * currentFilters.limit);
+        console.log('DEBUG: Params:', params.toString());
+        console.log('DEBUG: Current filters:', currentFilters);
+        
         const response = await fetch(`${endpoint}?${params}`);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         
         const data = await response.json();
+        console.log('DEBUG: Received data:', data);
+        console.log('DEBUG: Items count:', data.items ? data.items.length : 0);
         
         if (append) {
             feedItems = [...feedItems, ...data.items];
@@ -1098,6 +1299,9 @@ async function loadFeedItems(append = false) {
             feedItems = data.items;
             allFeedItems = data.items; // Store all items for client-side filtering
         }
+        
+        console.log('DEBUG: Final feedItems count:', feedItems.length);
+        console.log('DEBUG: Final allFeedItems count:', allFeedItems.length);
         
         hasMoreItems = data.has_more;
         renderFeedItems();
@@ -1112,7 +1316,15 @@ async function loadFeedItems(append = false) {
 function renderFeedItems() {
     const container = document.getElementById('feedItems');
     
+    // Ensure layout class is applied to container
+    const layout = currentFilters.layout || 'cards';
+    container.className = `feed-items layout-${layout}`;
+    
+    console.log('DEBUG: Rendering feed items, count:', feedItems.length);
+    console.log('DEBUG: Sample of feedItems:', feedItems.slice(0, 2));
+    
     if (feedItems.length === 0) {
+        console.log('DEBUG: No feed items to render, showing empty state');
         container.innerHTML = `
             <div style="text-align: center; padding: 60px 20px; color: var(--dark-gray);">
                 <i class="fas fa-rss" style="font-size: 3rem; color: var(--medium-gray); margin-bottom: 16px;"></i>
@@ -1122,12 +1334,42 @@ function renderFeedItems() {
                     <i class="fas fa-download"></i>
                     Collect Items
                 </button>
+                <button class="btn-tab-control" onclick="debugCompactView()">
+                    <i class="fas fa-bug"></i>
+                    Debug Compact
+                </button>
             </div>
         `;
         return;
     }
     
-    container.innerHTML = feedItems.map(item => renderFeedItem(item)).join('');
+    console.log('DEBUG: Rendering', feedItems.length, 'items');
+    
+    // Check if we're in compact mode and need to wrap in a table
+    const layoutMode = currentFilters.layout || 'cards';
+    if (layoutMode === 'compact') {
+        const tableHeader = `
+            <table class="compact-table" style="width: 100%; border-collapse: collapse; background: white;">
+                <thead>
+                    <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                        <th style="width: 30px; padding: 8px; text-align: center; font-size: 0.75rem; color: #666; font-weight: 600;">☑</th>
+                        <th style="width: 30px; padding: 8px; text-align: center; font-size: 0.75rem; color: #666; font-weight: 600;">SRC</th>
+                        <th style="width: 80px; padding: 8px; text-align: left; font-size: 0.75rem; color: #666; font-weight: 600;">DATE</th>
+                        <th style="padding: 8px; text-align: left; font-size: 0.75rem; color: #666; font-weight: 600;">TITLE</th>
+                        <th style="width: 50px; padding: 8px; text-align: center; font-size: 0.75rem; color: #666; font-weight: 600;">ENG</th>
+                        <th style="width: 80px; padding: 8px; text-align: center; font-size: 0.75rem; color: #666; font-weight: 600;">ACTIONS</th>
+                    </tr>
+                </thead>
+                <tbody>
+        `;
+        const tableFooter = `
+                </tbody>
+            </table>
+        `;
+        container.innerHTML = tableHeader + feedItems.map(item => renderFeedItem(item)).join('') + tableFooter;
+    } else {
+        container.innerHTML = feedItems.map(item => renderFeedItem(item)).join('');
+    }
 }
 
 function renderFeedItem(item) {
@@ -1136,16 +1378,59 @@ function renderFeedItem(item) {
         'No date';
     
     // Enhanced source badges with proper icons and styling
-    const sourceBadge = item.source_type === 'arxiv' ? 
-        '<div class="source-badge arxiv"><i class="fas fa-university"></i> ArXiv</div>' :
-        '<div class="source-badge bluesky"><i class="fab fa-twitter"></i> Bluesky</div>';
+    let sourceBadge;
+    let sourceIcon;
+    if (item.source_type === 'arxiv') {
+        sourceBadge = '<div class="source-badge arxiv"><i class="fas fa-university"></i> ArXiv</div>';
+        sourceIcon = '<i class="fas fa-university"></i>';
+    } else if (item.source_type === 'bluesky') {
+        sourceBadge = '<div class="source-badge bluesky"><i class="fab fa-twitter"></i> Bluesky</div>';
+        sourceIcon = '<i class="fab fa-twitter"></i>';
+    } else if (item.source_type === 'thenewsapi') {
+        sourceBadge = '<div class="source-badge thenewsapi"><i class="fas fa-newspaper"></i> News</div>';
+        sourceIcon = '<i class="fas fa-newspaper"></i>';
+    } else {
+        sourceBadge = '<div class="source-badge"><i class="fas fa-globe"></i> Unknown</div>';
+        sourceIcon = '<i class="fas fa-globe"></i>';
+    }
     
     const engagement = item.engagement_metrics || {};
     const tags = item.tags || [];
     
     // Add source-specific CSS classes
-    const sourceClass = item.source_type === 'arxiv' ? 'arxiv-item' : 'bluesky-item';
+    let sourceClass;
+    if (item.source_type === 'arxiv') {
+        sourceClass = 'arxiv-item';
+    } else if (item.source_type === 'bluesky') {
+        sourceClass = 'bluesky-item';
+    } else if (item.source_type === 'thenewsapi') {
+        sourceClass = 'thenewsapi-item';
+    } else {
+        sourceClass = 'unknown-item';
+    }
     
+    // Get current layout mode
+    const layoutMode = currentFilters.layout || 'cards';
+    
+    // Debug: Log layout mode for first item only
+    if (item.id === feedItems[0]?.id) {
+        console.log('Rendering items with layout mode:', layoutMode, 'for item:', item.title.substring(0, 50));
+    }
+    
+    // Render different layouts
+    if (layoutMode === 'compact') {
+        console.log('DEBUG: Rendering compact item for:', item.title.substring(0, 30));
+        return renderCompactItem(item, sourceClass, sourceBadge, sourceIcon, publishDate, engagement, tags);
+    } else if (layoutMode === 'timeline') {
+        console.log('DEBUG: Rendering timeline item for:', item.title.substring(0, 30));
+        return renderTimelineItem(item, sourceClass, sourceBadge, sourceIcon, publishDate, engagement, tags);
+    } else {
+        console.log('DEBUG: Rendering card item for:', item.title.substring(0, 30));
+        return renderCardItem(item, sourceClass, sourceBadge, publishDate, engagement, tags);
+    }
+}
+
+function renderCardItem(item, sourceClass, sourceBadge, publishDate, engagement, tags) {
     return `
         <div class="feed-item ${sourceClass}${item.is_starred ? ' starred' : ''}" data-item-id="${item.id}" style="animation: fadeIn 0.3s ease-in;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
@@ -1189,7 +1474,7 @@ function renderFeedItem(item) {
                 ${item.author_handle ? `<div><i class="fab fa-at"></i> ${item.author_handle}</div>` : ''}
             </div>
             
-            ${item.content ? `<div style="color: var(--text-color); line-height: 1.6; margin-bottom: 16px;">${truncateText(item.content, 300)}</div>` : ''}
+            ${item.content ? `<div class="feed-item-content" style="color: var(--text-color); line-height: 1.6; margin-bottom: 16px;">${truncateText(item.content, 300)}</div>` : ''}
             
             <!-- Analysis Metadata Badges -->
             ${(item.category || item.sentiment || item.future_signal || item.time_to_impact || item.driver_type) ? `
@@ -1214,6 +1499,117 @@ function renderFeedItem(item) {
             </div>
         </div>
     `;
+}
+
+function renderCompactItem(item, sourceClass, sourceBadge, sourceIcon, publishDate, engagement, tags) {
+    const totalEngagement = (engagement.likes || 0) + (engagement.reposts || 0) + (engagement.replies || 0);
+    
+    // Get source color for the row border
+    let borderColor = '#999';
+    if (sourceClass.includes('bluesky')) borderColor = '#0085ff';
+    else if (sourceClass.includes('arxiv')) borderColor = '#b31b1b';
+    else if (sourceClass.includes('thenewsapi')) borderColor = '#1e7e34';
+    
+    return `
+        <tr class="compact-row ${sourceClass}${item.is_starred ? ' starred' : ''}" data-item-id="${item.id}" style="border-left: 3px solid ${borderColor};">
+            <td style="width: 30px; text-align: center;">
+                <input type="checkbox" class="item-checkbox" data-item-id="${item.id}" onchange="updateSelectedCount()">
+            </td>
+            <td style="width: 30px; text-align: center; font-size: 0.9rem;">
+                ${sourceIcon}
+            </td>
+            <td style="width: 80px; font-size: 0.75rem; color: #666; white-space: nowrap;">
+                ${publishDate}
+            </td>
+            <td style="font-size: 0.9rem;">
+                <a href="${item.url}" target="_blank" style="color: #333; text-decoration: none;">${item.title}</a>
+                ${item.content ? `<div style="font-size: 0.7rem; color: #666; margin-top: 2px;">${truncateText(item.content, 100)}</div>` : ''}
+            </td>
+            <td style="width: 50px; text-align: center; font-size: 0.75rem;">
+                ${totalEngagement > 0 ? totalEngagement : ''}
+            </td>
+            <td style="width: 80px; text-align: center;">
+                <button onclick="toggleStar(${item.id}, ${!item.is_starred})" style="padding: 2px 6px; margin-right: 4px; border: none; border-radius: 3px; background: ${item.is_starred ? '#007bff' : '#f8f9fa'}; color: ${item.is_starred ? 'white' : '#333'}; cursor: pointer; font-size: 0.75rem;">★</button>
+                <button onclick="hideItem(${item.id})" style="padding: 2px 6px; border: none; border-radius: 3px; background: #f8f9fa; color: #333; cursor: pointer; font-size: 0.75rem;">×</button>
+            </td>
+        </tr>
+    `;
+}
+
+function renderTimelineItem(item, sourceClass, sourceBadge, sourceIcon, publishDate, engagement, tags) {
+    const publishedDate = item.publication_date ? new Date(item.publication_date) : new Date();
+    const timeAgo = getTimeAgo(publishedDate);
+    
+    return `
+        <div class="feed-item ${sourceClass}${item.is_starred ? ' starred' : ''}" data-item-id="${item.id}" style="animation: fadeIn 0.3s ease-in;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                <div style="display: flex; align-items: center; gap: 10px; font-size: 0.85rem; color: var(--dark-gray);">
+                    <input type="checkbox" class="item-checkbox" data-item-id="${item.id}" onchange="updateSelectedCount()" style="margin-right: 4px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        ${sourceIcon}
+                        <span style="font-weight: 500;">${item.source_type.toUpperCase()}</span>
+                    </div>
+                    <span>•</span>
+                    <span style="color: ${item.group_color}; font-weight: 500; font-size: 0.8rem;">${item.group_name}</span>
+                    <span>•</span>
+                    <span style="font-size: 0.8rem; color: var(--dark-gray);">${timeAgo}</span>
+                </div>
+                
+                <div style="display: flex; gap: 6px;">
+                    <button onclick="toggleStar(${item.id}, ${!item.is_starred})" 
+                            style="padding: 4px 8px; border: none; border-radius: 4px; background: ${item.is_starred ? 'var(--primary-color)' : 'var(--light-gray)'}; color: ${item.is_starred ? 'white' : 'var(--dark-gray)'}; cursor: pointer; font-size: 0.8rem;"
+                            title="${item.is_starred ? 'Unstar' : 'Star'} item">
+                        <i class="fas fa-star"></i>
+                    </button>
+                    <button onclick="hideItem(${item.id})" 
+                            style="padding: 4px 8px; border: none; border-radius: 4px; background: var(--light-gray); color: var(--dark-gray); cursor: pointer; font-size: 0.8rem;"
+                            title="Hide item">
+                        <i class="fas fa-eye-slash"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <h3 class="feed-item-title" style="margin-bottom: 8px; font-size: 1.1rem; line-height: 1.4;">
+                <a href="${item.url}" target="_blank">${item.title}</a>
+            </h3>
+            
+            ${item.content ? `<div class="feed-item-content" style="color: var(--text-color); line-height: 1.5; margin-bottom: 12px; font-size: 0.9rem;">${truncateText(item.content, 200)}</div>` : ''}
+            
+            ${item.author ? `<div style="font-size: 0.85rem; color: var(--dark-gray); margin-bottom: 8px;"><i class="fas fa-user"></i> ${item.author}${item.author_handle ? ` (${item.author_handle})` : ''}</div>` : ''}
+            
+            <!-- Quick metadata and engagement -->
+            <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.8rem; color: var(--dark-gray);">
+                <div style="display: flex; gap: 12px;">
+                    ${engagement.likes ? `<span><i class="fas fa-heart" style="color: var(--primary-color);"></i> ${engagement.likes}</span>` : ''}
+                    ${engagement.reposts ? `<span><i class="fas fa-retweet" style="color: var(--primary-color);"></i> ${engagement.reposts}</span>` : ''}
+                    ${engagement.replies ? `<span><i class="fas fa-reply" style="color: var(--primary-color);"></i> ${engagement.replies}</span>` : ''}
+                </div>
+                
+                <div style="display: flex; gap: 4px;">
+                    ${tags.slice(0, 2).map(tag => `<span style="background: var(--light-gray); color: var(--dark-gray); padding: 2px 6px; border-radius: 3px; font-size: 0.75rem;">${tag}</span>`).join('')}
+                    ${tags.length > 2 ? `<span style="background: var(--light-gray); color: var(--dark-gray); padding: 2px 6px; border-radius: 3px; font-size: 0.75rem;">+${tags.length - 2}</span>` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function getTimeAgo(date) {
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+    
+    if (diffMins < 60) {
+        return diffMins <= 0 ? 'Just now' : `${diffMins}m ago`;
+    } else if (diffHours < 24) {
+        return `${diffHours}h ago`;
+    } else if (diffDays < 7) {
+        return `${diffDays}d ago`;
+    } else {
+        return date.toLocaleDateString();
+    }
 }
 
 function truncateText(text, maxLength) {
@@ -1298,6 +1694,110 @@ async function collectFeedItems() {
     }
 }
 
+function debugCompactView() {
+    console.log('DEBUG: === COMPACT VIEW DEBUG ===');
+    console.log('DEBUG: currentFilters.layout:', currentFilters.layout);
+    console.log('DEBUG: feedItems.length:', feedItems.length);
+    
+    const layoutSelector = document.getElementById('layoutMode');
+    console.log('DEBUG: Layout selector value:', layoutSelector?.value);
+    
+    const feedContainer = document.getElementById('feedItems');
+    console.log('DEBUG: Feed container classes:', feedContainer?.className);
+    console.log('DEBUG: Feed container children count:', feedContainer?.children?.length);
+    
+    if (feedItems.length > 0) {
+        console.log('DEBUG: Sample feed item:', feedItems[0]);
+        
+        // Force set to compact mode
+        layoutSelector.value = 'compact';
+        currentFilters.layout = 'compact';
+        feedContainer.className = 'feed-items layout-compact';
+        
+        console.log('DEBUG: Forced compact mode, re-rendering...');
+        renderFeedItems();
+        
+        // Add test text to check visibility
+        setTimeout(() => {
+            const compactRows = document.querySelectorAll('.compact-row');
+            console.log('DEBUG: Found', compactRows.length, 'compact rows');
+            
+            if (compactRows.length > 0) {
+                const firstRow = compactRows[0];
+                console.log('DEBUG: First row HTML:', firstRow.outerHTML);
+                
+                const titleCol = firstRow.querySelector('.compact-title-col');
+                const link = firstRow.querySelector('.compact-link');
+                const preview = firstRow.querySelector('.compact-preview');
+                
+                console.log('DEBUG: Title column:', titleCol?.innerText);
+                console.log('DEBUG: Link text:', link?.innerText);
+                console.log('DEBUG: Preview text:', preview?.innerText);
+                
+                // Force visible test text
+                if (link) {
+                    link.innerText = 'TEST TITLE - VISIBLE?';
+                    link.style.color = 'red';
+                    link.style.fontSize = '16px';
+                    console.log('DEBUG: Added test text to link');
+                }
+                
+                if (preview) {
+                    preview.innerText = 'TEST PREVIEW - VISIBLE?';
+                    preview.style.color = 'blue';
+                    preview.style.fontSize = '14px';
+                    console.log('DEBUG: Added test text to preview');
+                }
+            }
+        }, 200);
+        
+        // Check styles after render
+        setTimeout(() => {
+            const firstItem = document.querySelector('.feed-item');
+            const compactItem = document.querySelector('.compact-item');
+            
+            console.log('DEBUG: First item (.feed-item):', firstItem?.className);
+            console.log('DEBUG: First compact item (.compact-item):', compactItem?.className);
+            
+            if (firstItem) {
+                const styles = window.getComputedStyle(firstItem);
+                console.log('DEBUG: .feed-item computed styles:', {
+                    display: styles.display,
+                    padding: styles.padding,
+                    maxHeight: styles.maxHeight,
+                    minHeight: styles.minHeight,
+                    marginBottom: styles.marginBottom,
+                    borderLeft: styles.borderLeft,
+                    background: styles.background
+                });
+            }
+            
+            if (compactItem) {
+                const compactStyles = window.getComputedStyle(compactItem);
+                console.log('DEBUG: .compact-item computed styles:', {
+                    display: compactStyles.display,
+                    padding: compactStyles.padding,
+                    maxHeight: compactStyles.maxHeight,
+                    minHeight: compactStyles.minHeight,
+                    marginBottom: compactStyles.marginBottom,
+                    borderLeft: compactStyles.borderLeft
+                });
+            }
+            
+            // Check if layout-compact class is on container
+            console.log('DEBUG: Container has layout-compact class:', feedContainer.classList.contains('layout-compact'));
+            
+            // Check actual HTML structure
+            if (firstItem) {
+                console.log('DEBUG: First item HTML (first 200 chars):', firstItem.outerHTML.substring(0, 200));
+            }
+        }, 100);
+    } else {
+        console.log('DEBUG: No feed items available - try loading items first');
+        showError('No feed items available. Try collecting items first.');
+    }
+}
+
 function applyFilters() {
     // Update filters from UI
     currentFilters.source = document.getElementById('sourceFilter').value;
@@ -1309,15 +1809,23 @@ function applyFilters() {
     currentFilters.minEngagement = document.getElementById('engagementFilter')?.value || '';
     currentFilters.starred = document.getElementById('starredFilter').value;
     
+    // Preserve layout mode
+    const layoutSelector = document.getElementById('layoutMode');
+    if (layoutSelector) {
+        currentFilters.layout = layoutSelector.value;
+    }
+    
     // Save to cache
     savePreferencesToCache();
+    
+    // Always reset pagination when applying filters
+    currentPage = 0;
+    hasMoreItems = true;
     
     // Apply client-side filtering if we have items, otherwise reload
     if (allFeedItems.length > 0) {
         applyClientSideFilters();
     } else {
-        currentPage = 0;
-        hasMoreItems = true;
         loadFeedItems();
     }
 }
@@ -1462,14 +1970,33 @@ function toggleCustomizePanel() {
 
 function changeLayout() {
     const layout = document.getElementById('layoutMode').value;
+    console.log('DEBUG: Changing layout to:', layout);
+    
     currentFilters.layout = layout;
     savePreferencesToCache();
     
     const feedItemsContainer = document.getElementById('feedItems');
     feedItemsContainer.className = `feed-items layout-${layout}`;
+    console.log('DEBUG: Applied layout class:', feedItemsContainer.className);
+    console.log('DEBUG: Container classes after change:', feedItemsContainer.classList);
+    console.log('DEBUG: feedItems.length:', feedItems.length);
     
     // Re-render items with new layout
     renderFeedItems();
+    
+    // Debug: Check if compact styles are being applied
+    if (layout === 'compact') {
+        console.log('DEBUG: Compact layout selected, checking if styles are applied');
+        setTimeout(() => {
+            const firstItem = document.querySelector('.feed-item');
+            if (firstItem) {
+                const styles = window.getComputedStyle(firstItem);
+                console.log('DEBUG: First item computed styles - padding:', styles.padding, 'max-height:', styles.maxHeight);
+            } else {
+                console.log('DEBUG: No feed items found after layout change');
+            }
+        }, 100);
+    }
 }
 
 function saveCustomizations() {
@@ -1524,6 +2051,8 @@ function toggleHiddenItems() {
 
 async function loadMoreItems() {
     if (hasMoreItems) {
+        console.log('DEBUG: loadMoreItems() called - incrementing currentPage from', currentPage, 'to', currentPage + 1);
+        console.trace('DEBUG: Stack trace for loadMoreItems() call');
         currentPage++;
         await loadFeedItems(true);
     }

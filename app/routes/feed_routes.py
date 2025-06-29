@@ -36,7 +36,7 @@ class UpdateFeedGroupRequest(BaseModel):
     is_active: Optional[bool] = Field(None, description="Active status")
 
 class AddSourceRequest(BaseModel):
-    source_type: str = Field(..., pattern=r"^(bluesky|arxiv)$", 
+    source_type: str = Field(..., pattern=r"^(bluesky|arxiv|thenewsapi)$", 
                             description="Type of source")
     keywords: List[str] = Field(..., min_items=0, max_items=20, 
                                description="List of keywords for this source")
@@ -399,7 +399,7 @@ async def get_unified_feed(
         if source_types:
             source_type_list = [x.strip() for x in source_types.split(",") if x.strip()]
             # Validate source types
-            valid_types = ["bluesky", "arxiv"]
+            valid_types = ["bluesky", "arxiv", "thenewsapi"]
             invalid_types = [t for t in source_type_list if t not in valid_types]
             if invalid_types:
                 raise HTTPException(

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from app.database import Database
 from app.collectors.arxiv_collector import ArxivCollector
 from app.collectors.bluesky_collector import BlueskyCollector
+from app.collectors.thenewsapi_collector import TheNewsAPICollector
 from app.services.feed_group_service import FeedGroupService
 
 # Configure logging
@@ -73,6 +74,13 @@ class UnifiedFeedService:
         except Exception as e:
             logger.warning(f"Failed to initialize Bluesky collector: {str(e)}")
             self.bluesky_collector = None
+            
+        try:
+            self.thenewsapi_collector = TheNewsAPICollector()
+            logger.info("TheNewsAPI collector initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize TheNewsAPI collector: {str(e)}")
+            self.thenewsapi_collector = None
         
         logger.info("UnifiedFeedService initialized")
 
@@ -137,6 +145,14 @@ class UnifiedFeedService:
                         group_id, keywords, max_items_per_source
                     )
                     collection_results["academic_journals"] += items_collected
+                    total_collected += items_collected
+                    
+                elif source_type == "thenewsapi" and self.thenewsapi_collector:
+                    # Collect from TheNewsAPI
+                    items_collected = await self._collect_thenewsapi_items(
+                        group_id, keywords, max_items_per_source
+                    )
+                    collection_results["news_sources"] = collection_results.get("news_sources", 0) + items_collected
                     total_collected += items_collected
                 
                 else:
@@ -282,6 +298,66 @@ class UnifiedFeedService:
             logger.error(f"Error extracting ArXiv source ID: {str(e)}")
             return None
 
+    async def _collect_thenewsapi_items(self, group_id: int, keywords: List[str], max_items: int) -> int:
+        """Collect items from TheNewsAPI for given keywords."""
+        try:
+            items_collected = 0
+            
+            # Get TheNewsAPI source settings for this group to determine date range
+            thenewsapi_source_settings = self._get_thenewsapi_source_settings(group_id)
+            
+            for keyword in keywords:
+                try:
+                    # Calculate date range based on source settings
+                    start_date, end_date = self._calculate_date_range(thenewsapi_source_settings)
+                    
+                    # Search TheNewsAPI for this keyword
+                    articles = await self.thenewsapi_collector.search_articles(
+                        query=keyword,
+                        topic=None,  # No specific topic categorization
+                        max_results=max_items // len(keywords),  # Distribute across keywords
+                        start_date=start_date,
+                        end_date=end_date,
+                        sort_by="published_at"
+                    )
+                    
+                    for article in articles:
+                        # Extract source ID from TheNewsAPI data
+                        source_id = self._extract_thenewsapi_source_id(article)
+                        if not source_id:
+                            continue
+                        
+                        # Convert to feed item
+                        feed_item = self._convert_thenewsapi_to_feed_item(
+                            article, group_id, source_id
+                        )
+                        
+                        # Save to database
+                        if await self._save_feed_item(feed_item):
+                            items_collected += 1
+                    
+                    logger.info(f"Collected {len(articles)} TheNewsAPI items for keyword '{keyword}'")
+                    
+                except Exception as e:
+                    logger.error(f"Error collecting TheNewsAPI items for keyword '{keyword}': {str(e)}")
+                    continue
+            
+            return items_collected
+            
+        except Exception as e:
+            logger.error(f"Error in TheNewsAPI collection: {str(e)}")
+            return 0
+
+    def _extract_thenewsapi_source_id(self, article: Dict) -> Optional[str]:
+        """Extract unique source ID from TheNewsAPI article data."""
+        try:
+            # Use URL as the unique identifier for news articles
+            return article.get("url", "")
+            
+        except Exception as e:
+            logger.error(f"Error extracting TheNewsAPI source ID: {str(e)}")
+            return None
+
     def _convert_bluesky_to_feed_item(self, article: Dict, group_id: int, source_id: str) -> FeedItem:
         """Convert Bluesky article to FeedItem."""
         # Extract engagement metrics
@@ -341,6 +417,35 @@ class UnifiedFeedService:
             title=article.get("title", ""),
             content=article.get("summary", ""),
             author=", ".join(article.get("authors", [])),
+            url=article.get("url", ""),
+            publication_date=pub_date,
+            tags=tags
+        )
+
+    def _convert_thenewsapi_to_feed_item(self, article: Dict, group_id: int, source_id: str) -> FeedItem:
+        """Convert TheNewsAPI article to FeedItem."""
+        # Parse publication date
+        pub_date = None
+        if article.get("published_date"):
+            try:
+                pub_date = datetime.fromisoformat(article["published_date"])
+            except ValueError:
+                pass
+        
+        # Extract keywords as tags
+        raw_data = article.get("raw_data", {})
+        tags = raw_data.get("keywords", [])
+        
+        # Get the source name from the article
+        source_name = article.get("source", "")
+        
+        return FeedItem(
+            source_type="thenewsapi",
+            source_id=source_id,
+            group_id=group_id,
+            title=article.get("title", ""),
+            content=article.get("summary", ""),
+            author=", ".join(article.get("authors", [])) if article.get("authors") else source_name,
             url=article.get("url", ""),
             publication_date=pub_date,
             tags=tags
@@ -431,6 +536,32 @@ class UnifiedFeedService:
                     
         except Exception as e:
             logger.error(f"Error getting ArXiv source settings for group {group_id}: {str(e)}")
+            return {"date_range_days": 7, "custom_start_date": None, "custom_end_date": None}
+
+    def _get_thenewsapi_source_settings(self, group_id: int) -> Dict[str, Any]:
+        """Get TheNewsAPI source settings for a group."""
+        try:
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT date_range_days, custom_start_date, custom_end_date
+                    FROM feed_group_sources
+                    WHERE group_id = ? AND source_type = 'thenewsapi'
+                    LIMIT 1
+                """, (group_id,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        "date_range_days": result[0] or 7,
+                        "custom_start_date": result[1],
+                        "custom_end_date": result[2]
+                    }
+                else:
+                    return {"date_range_days": 7, "custom_start_date": None, "custom_end_date": None}
+                    
+        except Exception as e:
+            logger.error(f"Error getting TheNewsAPI source settings for group {group_id}: {str(e)}")
             return {"date_range_days": 7, "custom_start_date": None, "custom_end_date": None}
 
     def _calculate_date_range(self, source_settings: Dict[str, Any]) -> tuple:

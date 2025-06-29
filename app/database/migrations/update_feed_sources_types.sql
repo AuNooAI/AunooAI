@@ -9,7 +9,7 @@
 CREATE TABLE feed_group_sources_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     group_id INTEGER NOT NULL,
-    source_type TEXT NOT NULL CHECK (source_type IN ('bluesky', 'arxiv')),
+    source_type TEXT NOT NULL CHECK (source_type IN ('bluesky', 'arxiv', 'thenewsapi')),
     keywords TEXT NOT NULL, -- JSON array of keywords
     enabled BOOLEAN DEFAULT TRUE,
     last_checked TIMESTAMP,
@@ -32,7 +32,7 @@ SELECT
     last_checked, 
     created_at
 FROM feed_group_sources
-WHERE source_type IN ('social_media', 'academic_journals', 'bluesky', 'arxiv');
+WHERE source_type IN ('social_media', 'academic_journals', 'bluesky', 'arxiv', 'thenewsapi');
 
 -- Drop old table
 DROP TABLE feed_group_sources;
@@ -47,7 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_feed_group_sources_source_type ON feed_group_sour
 -- Also update feed_items table constraint to match our supported types
 CREATE TABLE feed_items_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_type TEXT NOT NULL CHECK (source_type IN ('bluesky', 'arxiv')),
+    source_type TEXT NOT NULL CHECK (source_type IN ('bluesky', 'arxiv', 'thenewsapi')),
     source_id TEXT NOT NULL, -- unique ID from source
     group_id INTEGER NOT NULL,
     title TEXT NOT NULL,
@@ -68,7 +68,7 @@ CREATE TABLE feed_items_new (
 );
 
 -- Copy existing data from feed_items
-INSERT INTO feed_items_new SELECT * FROM feed_items WHERE source_type IN ('bluesky', 'arxiv');
+INSERT INTO feed_items_new SELECT * FROM feed_items WHERE source_type IN ('bluesky', 'arxiv', 'thenewsapi');
 
 -- Drop old table
 DROP TABLE feed_items;
@@ -80,4 +80,5 @@ ALTER TABLE feed_items_new RENAME TO feed_items;
 CREATE INDEX IF NOT EXISTS idx_feed_items_group_id ON feed_items(group_id);
 CREATE INDEX IF NOT EXISTS idx_feed_items_source_type ON feed_items(source_type);
 CREATE INDEX IF NOT EXISTS idx_feed_items_publication_date ON feed_items(publication_date);
-CREATE INDEX IF NOT EXISTS idx_feed_items_is_hidden ON feed_items(is_hidden); 
+CREATE INDEX IF NOT EXISTS idx_feed_items_is_hidden ON feed_items(is_hidden);
+CREATE INDEX IF NOT EXISTS idx_feed_items_is_starred ON feed_items(is_starred); 

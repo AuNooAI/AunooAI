@@ -346,6 +346,10 @@
         background: #0085ff;
     }
 
+    .source-thenewsapi {
+        background: #1e7e34;
+    }
+
     .keywords-input {
         width: 100%;
         padding: 8px 12px;
@@ -857,6 +861,10 @@ function renderGroupEditor(group, sources) {
                         <i class="fas fa-graduation-cap"></i>
                         Add ArXiv
                     </button>
+                    <button class="btn btn-secondary" onclick="addSource('thenewsapi')">
+                        <i class="fas fa-newspaper"></i>
+                        Add News
+                    </button>
                 </div>
             </div>
             <div class="sources-container" id="sourcesContainer">
@@ -893,7 +901,7 @@ function renderSources(sources) {
             <div style="text-align: center; padding: 40px 20px; color: var(--dark-gray);">
                 <i class="fas fa-rss" style="font-size: 2rem; color: var(--medium-gray); margin-bottom: 12px;"></i>
                 <h4>No Sources Configured</h4>
-                <p>Add Bluesky or ArXiv sources to start collecting content.</p>
+                <p>Add Bluesky, ArXiv, or News sources to start collecting content.</p>
             </div>
         `;
     }
@@ -903,7 +911,7 @@ function renderSources(sources) {
             <div class="source-header">
                 <div class="source-type">
                     <div class="source-icon source-${source.source_type}">
-                        ${source.source_type === 'arxiv' ? 'A' : 'B'}
+                        ${source.source_type === 'arxiv' ? 'A' : (source.source_type === 'bluesky' ? 'B' : 'N')}
                     </div>
                     <span>${source.source_type.charAt(0).toUpperCase() + source.source_type.slice(1)}</span>
                 </div>
@@ -1026,7 +1034,7 @@ async function loadFeedPreview() {
             <div style="border: 1px solid var(--medium-gray); border-radius: 8px; padding: 16px; margin-bottom: 12px;">
                 <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.9rem; color: var(--dark-gray);">
                     <div class="source-icon source-${item.source_type}" style="width: 16px; height: 16px; font-size: 0.7rem;">
-                        ${item.source_type === 'arxiv' ? 'A' : 'B'}
+                        ${item.source_type === 'arxiv' ? 'A' : (item.source_type === 'bluesky' ? 'B' : 'N')}
                     </div>
                     <span>${item.source_type.toUpperCase()}</span>
                     <span>•</span>

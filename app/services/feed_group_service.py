@@ -428,7 +428,7 @@ class FeedGroupService:
         try:
             logger.info(f"Adding {source_type} source to feed group {group_id}")
             
-            valid_source_types = ['bluesky', 'arxiv']
+            valid_source_types = ['bluesky', 'arxiv', 'thenewsapi']
             if source_type not in valid_source_types:
                 return {
                     "success": False,

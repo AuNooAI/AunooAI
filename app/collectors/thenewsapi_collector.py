@@ -163,6 +163,15 @@ class TheNewsAPICollector(ArticleCollector):
                         parsed_url = urlparse(article['url'])
                         source_name = parsed_url.netloc.replace('www.', '')
                     
+                    # Handle keywords - TheNewsAPI can return them as strings or arrays
+                    keywords = article.get('keywords', [])
+                    if isinstance(keywords, str):
+                        # Split comma-separated string into array and clean up
+                        keywords = [k.strip() for k in keywords.split(',') if k.strip()]
+                    elif not isinstance(keywords, list):
+                        # Ensure it's a list
+                        keywords = []
+
                     return {
                         'title': article['title'],
                         'content': article.get('snippet', ''),
@@ -173,7 +182,7 @@ class TheNewsAPICollector(ArticleCollector):
                         'raw_data': {
                             'source': article.get('source'),
                             'image_url': article.get('image_url'),
-                            'keywords': article.get('keywords', []),
+                            'keywords': keywords,
                             'categories': article.get('categories', []),
                             'locale': article.get('locale')
                         }
@@ -206,6 +215,15 @@ class TheNewsAPICollector(ArticleCollector):
         # Log the extracted source name
         logger.debug(f"Extracted source name for article '{article.get('title', '')}': {source_name}")
 
+        # Handle keywords - TheNewsAPI can return them as strings or arrays
+        keywords = article.get('keywords', [])
+        if isinstance(keywords, str):
+            # Split comma-separated string into array and clean up
+            keywords = [k.strip() for k in keywords.split(',') if k.strip()]
+        elif not isinstance(keywords, list):
+            # Ensure it's a list
+            keywords = []
+
         return {
             'title': article['title'],
             'summary': article.get('description', '') or article.get('snippet', ''),
@@ -217,6 +235,6 @@ class TheNewsAPICollector(ArticleCollector):
             'raw_data': {
                 'source': source,
                 'image_url': article.get('image_url'),
-                'keywords': article.get('keywords', []),
+                'keywords': keywords,
             }
         } 
