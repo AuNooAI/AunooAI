@@ -2,6 +2,11 @@
 
 {% block title %}AuNoo AI - Vantage Desk{% endblock %}
 
+{% block extra_js %}
+<!-- Chart.js for sentiment distribution chart -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+{% endblock %}
+
 {% block extra_css %}
 <style>
     :root {
@@ -1366,6 +1371,225 @@
     .feed-column-content::-webkit-scrollbar-thumb:hover {
         background-color: var(--dark-gray);
     }
+
+    /* Smart Clustering Styles */
+    .clustering-section {
+        animation: slideDown 0.3s ease-out;
+    }
+
+    @keyframes slideDown {
+        from {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .insight-item-card {
+        background: white;
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 16px;
+        margin: 8px;
+        flex: 1;
+        min-width: 300px;
+        max-width: 400px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: all 0.2s ease;
+        position: relative;
+    }
+
+    .insight-item-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .insight-item-card .badge {
+        font-size: 0.7rem;
+        padding: 3px 8px;
+    }
+
+    .thematic-cluster {
+        background: linear-gradient(135deg, rgba(255, 105, 180, 0.1) 0%, rgba(255, 255, 255, 1) 100%);
+        border-left: 4px solid var(--primary-color);
+    }
+
+    .sentiment-cluster {
+        background: linear-gradient(135deg, rgba(50, 205, 50, 0.1) 0%, rgba(255, 255, 255, 1) 100%);
+        border-left: 4px solid var(--secondary-color);
+    }
+
+    .temporal-cluster {
+        background: linear-gradient(135deg, rgba(52, 152, 219, 0.1) 0%, rgba(255, 255, 255, 1) 100%);
+        border-left: 4px solid #3498db;
+    }
+
+    .source-cluster {
+        background: linear-gradient(135deg, rgba(155, 89, 182, 0.1) 0%, rgba(255, 255, 255, 1) 100%);
+        border-left: 4px solid #9b59b6;
+    }
+
+    .cluster-article-list {
+        max-height: 200px;
+        overflow-y: auto;
+        border-top: 1px solid var(--medium-gray);
+        margin-top: 12px;
+        padding-top: 12px;
+    }
+
+    .cluster-article-item {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        font-size: 0.85rem;
+    }
+
+    .cluster-article-item:last-child {
+        border-bottom: none;
+    }
+
+    .cluster-article-item a {
+        color: var(--text-color);
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .cluster-article-item a:hover {
+        color: var(--primary-color);
+        text-decoration: underline;
+    }
+    
+    /* Enhanced Cluster Article Display */
+    .cluster-filter-controls {
+        border-bottom: 1px solid #e9ecef;
+        padding-bottom: 10px;
+        margin-bottom: 10px;
+    }
+    
+    .cluster-article-item {
+        padding: 12px;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        background: #fafafa;
+        transition: all 0.2s ease;
+    }
+    
+    .cluster-article-item:hover {
+        background: #f0f8ff;
+        border-color: #3498db;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(52, 152, 219, 0.1);
+    }
+    
+    .cluster-actions {
+        border-top: 1px solid #e9ecef;
+        padding-top: 10px;
+        margin-top: 10px;
+    }
+    
+    .cluster-actions .btn {
+        margin-right: 8px;
+        font-size: 0.8rem;
+    }
+    
+    .article-actions {
+        display: flex;
+        gap: 5px;
+    }
+    
+    .cluster-article-list {
+        border-top: 2px solid #e9ecef;
+        padding-top: 15px;
+        max-height: none; /* Override previous restriction */
+    }
+
+    .cluster-stats {
+        display: flex;
+        gap: 16px;
+        margin-top: 12px;
+        font-size: 0.8rem;
+        color: var(--dark-gray);
+    }
+
+    .cluster-stat {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+
+    .temporal-timeline {
+        position: relative;
+        padding: 20px 0;
+    }
+
+    .temporal-timeline::before {
+        content: '';
+        position: absolute;
+        left: 20px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: linear-gradient(to bottom, var(--primary-color), var(--secondary-color));
+    }
+
+    .temporal-event {
+        position: relative;
+        padding: 16px 0 16px 50px;
+        margin-bottom: 16px;
+    }
+
+    .temporal-event::before {
+        content: '';
+        position: absolute;
+        left: 14px;
+        top: 24px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--primary-color);
+        border: 2px solid white;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .temporal-event-immediate::before { background: #e74c3c; }
+    .temporal-event-short::before { background: #f39c12; }
+    .temporal-event-medium::before { background: #3498db; }
+    .temporal-event-long::before { background: #9b59b6; }
+
+    .source-authority-bar {
+        height: 4px;
+        background: var(--medium-gray);
+        border-radius: 2px;
+        overflow: hidden;
+        margin: 8px 0;
+    }
+
+    .source-authority-fill {
+        height: 100%;
+        background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+        transition: width 0.3s ease;
+    }
+
+    .clustering-loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 40px;
+        color: var(--dark-gray);
+    }
+
+    .clustering-loading i {
+        animation: spin 1s linear infinite;
+        margin-right: 8px;
+    }
+
+    @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
 </style>
 {% endblock %}
 
@@ -1407,6 +1631,10 @@
                         </ul>
                     </div>
 
+                    <button class="btn-tab-control btn-success" onclick="toggleSmartClustering()" id="smartClusteringBtn" title="Toggle AI-powered content clustering and analysis">
+                        <i class="fas fa-brain"></i>
+                        Smart Clustering
+                    </button>
                     <button class="btn-tab-control btn-warning" onclick="showOnlyStarredItems()" title="Quick filter to show only starred items">
                         <i class="fas fa-star"></i>
                         View Starred
@@ -1483,6 +1711,13 @@
                         <option value="publication_date">Newest First</option>
                         <option value="created_at">Recently Added</option>
                         <option value="engagement">Most Popular</option>
+                    </select>
+                </div>
+                <div class="feed-filter">
+                    <label for="topicFilter">Topic:</label>
+                    <select id="topicFilter" class="filter-select" onchange="applyFilters()">
+                        <option value="">All Topics</option>
+                        <!-- Topics will be populated dynamically -->
                     </select>
                 </div>
             </div>
@@ -1590,6 +1825,7 @@
                         <option value="cards">Cards</option>
                         <option value="compact">Compact</option>
                         <option value="timeline">Timeline</option>
+                        <option value="topic-grouped">Group by Topic</option>
                     </select>
                 </div>
             </div>
@@ -1602,6 +1838,145 @@
                     <i class="fas fa-undo"></i>
                     Reset
                 </button>
+            </div>
+        </div>
+
+        <!-- Smart Clustering Section -->
+        <div class="clustering-section" id="clusteringSection" style="display: none; margin-bottom: 24px; background: white; border-radius: var(--border-radius); box-shadow: var(--card-shadow); padding: 24px;">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">
+                    <i class="fas fa-brain me-2" style="color: var(--primary-color);"></i>
+                    Smart Content Clustering
+                </h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" onclick="refreshClustering()" id="refreshClusteringBtn">
+                        <i class="fas fa-sync-alt me-1"></i>
+                        Refresh Analysis
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleClusteringView()" id="toggleClusteringBtn">
+                        <i class="fas fa-eye-slash me-1"></i>
+                        Hide Clustering
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Clustering Tabs -->
+            <ul class="nav nav-tabs nav-fill mb-3" id="clusteringTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active" id="thematic-clustering-tab" data-bs-toggle="tab" data-bs-target="#thematic-clustering-content" type="button" role="tab" aria-controls="thematic-clustering-content" aria-selected="true" title="Group articles by themes and topics">
+                        <i class="fas fa-sitemap me-1"></i>
+                        Thematic Clusters
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="sentiment-clustering-tab" data-bs-toggle="tab" data-bs-target="#sentiment-clustering-content" type="button" role="tab" aria-controls="sentiment-clustering-content" aria-selected="false" title="Group articles by sentiment and impact">
+                        <i class="fas fa-chart-line me-1"></i>
+                        Sentiment Analysis
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="temporal-clustering-tab" data-bs-toggle="tab" data-bs-target="#temporal-clustering-content" type="button" role="tab" aria-controls="temporal-clustering-content" aria-selected="false" title="Timeline-based clustering with future impact">
+                        <i class="fas fa-clock me-1"></i>
+                        Temporal Impact
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link" id="source-clustering-tab" data-bs-toggle="tab" data-bs-target="#source-clustering-content" type="button" role="tab" aria-controls="source-clustering-content" aria-selected="false" title="Group articles by source type and authority">
+                        <i class="fas fa-layer-group me-1"></i>
+                        Source Analysis
+                    </button>
+                </li>
+            </ul>
+            
+            <!-- Clustering Content -->
+            <div class="tab-content" id="clusteringTabContent">
+                <!-- Thematic Clustering -->
+                <div class="tab-pane fade show active" id="thematic-clustering-content" role="tabpanel" aria-labelledby="thematic-clustering-tab">
+                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="thematic-insights-container">
+                        <div class="loading-indicator w-100 text-center">
+                            <i class="fas fa-brain me-2"></i>
+                            Analyzing themes and topics...
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Sentiment Clustering -->
+                <div class="tab-pane fade" id="sentiment-clustering-content" role="tabpanel" aria-labelledby="sentiment-clustering-tab">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div id="sentiment-insights-container">
+                                <div class="loading-indicator text-center">
+                                    <i class="fas fa-chart-line me-2"></i>
+                                    Analyzing sentiment patterns...
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="sentiment-summary-card" style="background: var(--light-gray); border-radius: 8px; padding: 16px;">
+                                <h6 class="mb-3">Sentiment Distribution</h6>
+                                <div id="sentiment-chart-container" style="height: 200px;">
+                                    <canvas id="sentimentDistributionChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Temporal Clustering -->
+                <div class="tab-pane fade" id="temporal-clustering-content" role="tabpanel" aria-labelledby="temporal-clustering-tab">
+                    <div class="temporal-analysis-controls mb-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="d-flex gap-3 align-items-center">
+                                <label for="timeHorizonSelect" class="form-label mb-0">Time Horizon:</label>
+                                <select class="form-select form-select-sm" id="timeHorizonSelect" style="width: auto;" onchange="updateTemporalClustering()">
+                                    <option value="immediate">Immediate (0-6 months)</option>
+                                    <option value="short" selected>Short-term (6-18 months)</option>
+                                    <option value="medium">Medium-term (1-3 years)</option>
+                                    <option value="long">Long-term (3-10 years)</option>
+                                </select>
+                            </div>
+                            <div class="analysis-depth-control">
+                                <label for="analysisDepthSelect" class="form-label mb-0 me-2">Analysis Depth:</label>
+                                <select class="form-select form-select-sm" id="analysisDepthSelect" style="width: auto;" onchange="updateTemporalClustering()">
+                                    <option value="quick">Quick Analysis</option>
+                                    <option value="standard" selected>Standard Analysis</option>
+                                    <option value="deep">Deep Analysis</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="temporal-insights-container">
+                        <div class="loading-indicator text-center">
+                            <i class="fas fa-clock me-2"></i>
+                            Analyzing temporal impact patterns...
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Source Clustering -->
+                <div class="tab-pane fade" id="source-clustering-content" role="tabpanel" aria-labelledby="source-clustering-tab">
+                    <div class="row">
+                        <div class="col-md-9">
+                            <div id="source-insights-container">
+                                <div class="loading-indicator text-center">
+                                    <i class="fas fa-layer-group me-2"></i>
+                                    Analyzing source patterns and authority...
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="source-metrics-card" style="background: var(--light-gray); border-radius: 8px; padding: 16px;">
+                                <h6 class="mb-3">Source Metrics</h6>
+                                <div id="source-metrics-content">
+                                    <div class="text-muted text-center">
+                                        <i class="fas fa-chart-pie"></i>
+                                        <div>Loading metrics...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -2253,7 +2628,7 @@ function renderFeedItems() {
     
     console.log('DEBUG: Rendering', feedItems.length, 'items');
     
-    // Check if we're in compact mode and need to wrap in a table
+    // Check layout mode and render accordingly
     const layoutMode = currentFilters.layout || 'cards';
     if (layoutMode === 'compact') {
         const tableHeader = `
@@ -2275,9 +2650,213 @@ function renderFeedItems() {
             </table>
         `;
         container.innerHTML = tableHeader + feedItems.map(item => renderFeedItem(item)).join('') + tableFooter;
+    } else if (layoutMode === 'topic-grouped') {
+        renderTopicGroupedView(container);
     } else {
         container.innerHTML = feedItems.map(item => renderFeedItem(item)).join('');
     }
+}
+
+function renderTopicGroupedView(container) {
+    // Group articles by topic
+    const topicGroups = {};
+    
+    feedItems.forEach(item => {
+        const topic = item.topic || item.category || 'Uncategorized';
+        if (!topicGroups[topic]) {
+            topicGroups[topic] = [];
+        }
+        topicGroups[topic].push(item);
+    });
+    
+    // Sort topics by article count (descending)
+    const sortedTopics = Object.keys(topicGroups).sort((a, b) => 
+        topicGroups[b].length - topicGroups[a].length
+    );
+    
+    // Render grouped view
+    let html = '<div class="topic-grouped-container">';
+    
+    sortedTopics.forEach(topic => {
+        const articles = topicGroups[topic];
+        const topicColor = getTopicColor(topic);
+        
+        html += `
+            <div class="topic-group" style="margin-bottom: 32px; background: white; border-radius: 8px; box-shadow: var(--card-shadow); overflow: hidden;">
+                <div class="topic-header" style="background: linear-gradient(135deg, ${topicColor}, ${adjustBrightness(topicColor, -20)}); color: white; padding: 16px 20px; display: flex; justify-content: between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <h4 style="margin: 0; font-weight: 600;">
+                            <i class="fas fa-layer-group me-2"></i>
+                            ${topic}
+                        </h4>
+                        <span class="badge bg-light text-dark" style="font-size: 0.8rem; padding: 4px 8px;">${articles.length} articles</span>
+                    </div>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-sm btn-light" onclick="toggleTopicGroup('${topic}')" title="Collapse/Expand">
+                            <i class="fas fa-chevron-up"></i>
+                        </button>
+                        <button class="btn btn-sm btn-light" onclick="selectAllInTopic('${topic}')" title="Select All in Topic">
+                            <i class="fas fa-check-square"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="topic-content" id="topic-${topic.replace(/[^a-zA-Z0-9]/g, '')}" style="padding: 0;">
+                    ${articles.map(item => `
+                        <div style="border-bottom: 1px solid #f0f0f0; padding: 16px 20px;">
+                            ${renderTopicGroupItemCompact(item)}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    });
+    
+    html += '</div>';
+    container.innerHTML = html;
+    
+    // Update topic filter dropdown
+    updateTopicFilterOptions(sortedTopics);
+}
+
+function renderTopicGroupItemCompact(item) {
+    const publishDate = item.publication_date ? 
+        new Date(item.publication_date).toLocaleDateString() : 
+        'No date';
+    
+    // Enhanced source badges
+    let sourceBadge, sourceIcon;
+    if (item.source_type === 'arxiv') {
+        sourceBadge = '<span class="badge bg-danger" style="font-size: 0.7rem;"><i class="fas fa-university me-1"></i>ArXiv</span>';
+        sourceIcon = '<i class="fas fa-university text-danger"></i>';
+    } else if (item.source_type === 'bluesky') {
+        sourceBadge = '<span class="badge bg-primary" style="font-size: 0.7rem;"><i class="fab fa-twitter me-1"></i>Bluesky</span>';
+        sourceIcon = '<i class="fab fa-twitter text-primary"></i>';
+    } else if (item.source_type === 'thenewsapi') {
+        sourceBadge = '<span class="badge bg-success" style="font-size: 0.7rem;"><i class="fas fa-newspaper me-1"></i>News</span>';
+        sourceIcon = '<i class="fas fa-newspaper text-success"></i>';
+    } else {
+        sourceBadge = '<span class="badge bg-secondary" style="font-size: 0.7rem;"><i class="fas fa-globe me-1"></i>Unknown</span>';
+        sourceIcon = '<i class="fas fa-globe text-secondary"></i>';
+    }
+    
+    const engagement = item.engagement_metrics || {};
+    
+    return `
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 40px;">
+                <input type="checkbox" class="item-checkbox" data-item-id="${item.id}" onchange="updateSelectedCount()" style="margin: 0;">
+                ${sourceIcon}
+            </div>
+            <div style="flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;">
+                    ${sourceBadge}
+                    <span style="color: ${item.group_color}; font-weight: 500; font-size: 0.8rem;">${item.group_name}</span>
+                    <span style="color: var(--dark-gray); font-size: 0.8rem;">${publishDate}</span>
+                    ${item.is_starred ? '<i class="fas fa-star text-warning" title="Starred"></i>' : ''}
+                </div>
+                <h6 style="margin: 0 0 8px 0; line-height: 1.3;">
+                    <a href="${item.url}" target="_blank" style="text-decoration: none; color: var(--text-color); font-weight: 500;">
+                        ${item.title}
+                    </a>
+                </h6>
+                ${item.author ? `<div style="font-size: 0.8rem; color: var(--dark-gray); margin-bottom: 4px;"><i class="fas fa-user me-1"></i>${item.author}${item.author_handle ? ` (${item.author_handle})` : ''}</div>` : ''}
+                ${item.content ? `<div style="font-size: 0.85rem; color: var(--text-color); line-height: 1.4; margin-bottom: 8px;">${truncateText(item.content, 150)}</div>` : ''}
+                
+                <!-- Engagement and Tags -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 8px;">
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        ${engagement.likes ? `<span style="font-size: 0.75rem; color: var(--dark-gray);"><i class="fas fa-heart text-danger me-1"></i>${engagement.likes}</span>` : ''}
+                        ${engagement.reposts ? `<span style="font-size: 0.75rem; color: var(--dark-gray);"><i class="fas fa-retweet text-success me-1"></i>${engagement.reposts}</span>` : ''}
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                        <button style="padding: 4px 8px; border: none; border-radius: 4px; background: ${item.is_starred ? 'var(--primary-color)' : 'var(--light-gray)'}; color: ${item.is_starred ? 'white' : 'var(--dark-gray)'}; cursor: pointer; font-size: 0.75rem;" 
+                                onclick="toggleStar(${item.id}, ${!item.is_starred})" title="${item.is_starred ? 'Unstar' : 'Star'} item">
+                            <i class="fas fa-star"></i>
+                        </button>
+                        <button style="padding: 4px 8px; border: none; border-radius: 4px; background: #9966CC; color: white; cursor: pointer; font-size: 0.75rem;" 
+                                onclick="enrichSingleArticle(${item.id})" title="Enrich article">
+                            <i class="fas fa-brain"></i>
+                        </button>
+                        <button style="padding: 4px 8px; border: none; border-radius: 4px; background: var(--light-gray); color: var(--dark-gray); cursor: pointer; font-size: 0.75rem;" 
+                                onclick="hideItem(${item.id})" title="Hide item">
+                            <i class="fas fa-eye-slash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function getTopicColor(topic) {
+    // Generate consistent colors for topics
+    const colors = [
+        '#FF6B35', '#F7931E', '#FFD23F', '#06FFA5', 
+        '#118AB2', '#073B4C', '#8E44AD', '#E74C3C',
+        '#2ECC71', '#F39C12', '#9B59B6', '#34495E'
+    ];
+    
+    let hash = 0;
+    for (let i = 0; i < topic.length; i++) {
+        hash = topic.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    return colors[Math.abs(hash) % colors.length];
+}
+
+function adjustBrightness(hex, percent) {
+    // Remove the hash if it exists
+    hex = hex.replace(/^#/, '');
+    
+    // Parse r, g, b values
+    const num = parseInt(hex, 16);
+    const amt = Math.round(2.55 * percent);
+    const R = (num >> 16) + amt;
+    const G = (num >> 8 & 0x00FF) + amt;
+    const B = (num & 0x0000FF) + amt;
+    
+    return '#' + (0x1000000 + (R < 255 ? R < 1 ? 0 : R : 255) * 0x10000 +
+                  (G < 255 ? G < 1 ? 0 : G : 255) * 0x100 +
+                  (B < 255 ? B < 1 ? 0 : B : 255))
+                  .toString(16).slice(1);
+}
+
+function toggleTopicGroup(topic) {
+    const content = document.getElementById(`topic-${topic.replace(/[^a-zA-Z0-9]/g, '')}`);
+    const isVisible = content.style.display !== 'none';
+    content.style.display = isVisible ? 'none' : 'block';
+    
+    // Update chevron icon
+    const button = event.target.closest('button');
+    const icon = button.querySelector('i');
+    icon.className = isVisible ? 'fas fa-chevron-down' : 'fas fa-chevron-up';
+}
+
+function selectAllInTopic(topic) {
+    const topicContainer = document.getElementById(`topic-${topic.replace(/[^a-zA-Z0-9]/g, '')}`);
+    const checkboxes = topicContainer.querySelectorAll('.item-checkbox');
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = !allChecked;
+    });
+    
+    updateSelectedCount();
+}
+
+function updateTopicFilterOptions(topics) {
+    const topicFilter = document.getElementById('topicFilter');
+    if (!topicFilter) return;
+    
+    // Clear existing options except "All Topics"
+    topicFilter.innerHTML = '<option value="">All Topics</option>';
+    
+    // Add topic options
+    topics.forEach(topic => {
+        const option = document.createElement('option');
+        option.value = topic;
+        option.textContent = topic;
+        topicFilter.appendChild(option);
+    });
 }
 
 function renderFeedItem(item) {
@@ -2809,6 +3388,7 @@ function applyFilters() {
     currentFilters.author = document.getElementById('authorFilter')?.value || '';
     currentFilters.minEngagement = document.getElementById('engagementFilter')?.value || '';
     currentFilters.starred = document.getElementById('starredFilter').value;
+    currentFilters.topic = document.getElementById('topicFilter').value;
     
     // Preserve layout mode
     const layoutSelector = document.getElementById('layoutMode');
@@ -2884,6 +3464,11 @@ function applyClientSideFilters() {
             const total = (engagement.likes || 0) + (engagement.reposts || 0) + (engagement.replies || 0);
             return total >= minEngagement;
         });
+    }
+    
+    // Apply topic filter
+    if (currentFilters.topic) {
+        filteredItems = filteredItems.filter(item => item.topic === currentFilters.topic);
     }
     
     // Apply sorting
@@ -3017,7 +3602,8 @@ function resetCustomizations() {
         author: '',
         minEngagement: '',
         starred: '',
-        layout: 'cards'
+        layout: 'cards',
+        topic: ''
     };
     
     // Clear cache
@@ -3033,6 +3619,7 @@ function resetCustomizations() {
     if (document.getElementById('authorFilter')) document.getElementById('authorFilter').value = '';
     if (document.getElementById('engagementFilter')) document.getElementById('engagementFilter').value = '';
     document.getElementById('layoutMode').value = 'cards';
+    document.getElementById('topicFilter').value = '';
     
     // Apply changes
     changeLayout();
@@ -5723,6 +6310,578 @@ function sanitizeForCSV(text) {
         .replace(/[\u2026]/g, '...') // Ellipsis
         .replace(/[^\x00-\x7F]/g, '?'); // Replace other non-ASCII with ?
 }
+
+// === Smart Clustering Functions ===
+
+// Global variables for clustering
+let clusteringEnabled = false;
+let currentClusteringData = null;
+let sentimentChartInstance = null;
+
+// Toggle Smart Clustering view
+function toggleSmartClustering() {
+    const section = document.getElementById('clusteringSection');
+    const btn = document.getElementById('smartClusteringBtn');
+    
+    if (clusteringEnabled) {
+        // Hide clustering
+        section.style.display = 'none';
+        btn.classList.remove('btn-success');
+        btn.classList.add('btn-outline-success');
+        btn.innerHTML = '<i class="fas fa-brain"></i> Smart Clustering';
+        clusteringEnabled = false;
+    } else {
+        // Show clustering
+        section.style.display = 'block';
+        btn.classList.remove('btn-outline-success');
+        btn.classList.add('btn-success');
+        btn.innerHTML = '<i class="fas fa-brain"></i> Hide Clustering';
+        clusteringEnabled = true;
+        
+        // Load initial clustering data
+        loadThematicClustering();
+    }
+}
+
+// Toggle clustering view (from within clustering section)
+function toggleClusteringView() {
+    toggleSmartClustering();
+}
+
+// Refresh all clustering analyses
+function refreshClustering() {
+    const activeTab = document.querySelector('#clusteringTabs .nav-link.active').id;
+    
+    switch (activeTab) {
+        case 'thematic-clustering-tab':
+            loadThematicClustering();
+            break;
+        case 'sentiment-clustering-tab':
+            loadSentimentClustering();
+            break;
+        case 'temporal-clustering-tab':
+            loadTemporalClustering();
+            break;
+        case 'source-clustering-tab':
+            loadSourceClustering();
+            break;
+    }
+}
+
+// Load thematic clustering analysis
+async function loadThematicClustering() {
+    const container = document.getElementById('thematic-insights-container');
+    container.innerHTML = '<div class="loading-indicator w-100 text-center"><i class="fas fa-brain me-2"></i>Analyzing themes and topics...</div>';
+    
+    try {
+        // Get current feed group
+        const activeTab = document.querySelector('.feed-tab.active');
+        const feedGroupId = activeTab ? activeTab.dataset.groupId : null;
+        
+        const params = new URLSearchParams();
+        if (feedGroupId) params.set('feed_group_id', feedGroupId);
+        params.set('limit', '100'); // Analyze more items for better clustering
+        
+        const response = await fetch(`/api/feed-clustering/thematic?${params.toString()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        renderThematicClusters(data);
+        
+    } catch (error) {
+        console.error('Error loading thematic clustering:', error);
+        container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">Failed to load thematic analysis. Please try again.</div>';
+    }
+}
+
+// Render thematic clusters
+function renderThematicClusters(clusters) {
+    const container = document.getElementById('thematic-insights-container');
+    container.innerHTML = '';
+    
+    if (!clusters || clusters.length === 0) {
+        container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No thematic clusters found for current feed items.</div>';
+        return;
+    }
+    
+    clusters.forEach((cluster, index) => {
+        const card = document.createElement('div');
+        card.className = 'insight-item-card thematic-cluster';
+        card.id = `cluster-${index}`;
+        
+        // Source diversity indicators
+        const sourceTypes = cluster.source_types || [];
+        const sourceBadges = sourceTypes.map(type => {
+            const color = type === 'arxiv' ? 'primary' : 
+                         type === 'bluesky' ? 'info' : 
+                         type === 'thenewsapi' ? 'success' : 'secondary';
+            return `<span class="badge bg-${color} me-1">${type.toUpperCase()}</span>`;
+        }).join('');
+        
+        // Article filtering controls
+        const filterControls = `
+            <div class="cluster-filter-controls mb-2" style="display: none;" id="filter-controls-${index}">
+                <div class="d-flex align-items-center gap-2 mb-2">
+                    <small class="text-muted">Filter by source:</small>
+                    <select class="form-select form-select-sm" style="width: auto;" onchange="filterClusterArticles(${index}, this.value)">
+                        <option value="">All sources</option>
+                        ${sourceTypes.map(type => `<option value="${type}">${type.toUpperCase()}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+        `;
+        
+        // Articles list (initially hidden)
+        let articlesHtml = `
+            <div class="cluster-article-list" id="articles-list-${index}" style="display: none;">
+                ${filterControls}
+                <div class="cluster-articles-container" id="articles-container-${index}">
+        `;
+        
+        if (cluster.articles && cluster.articles.length > 0) {
+            cluster.articles.forEach((article, articleIndex) => {
+                const pubDate = article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'N/A';
+                const sourceColor = article.source_type === 'arxiv' ? 'primary' : 
+                                   article.source_type === 'bluesky' ? 'info' : 
+                                   article.source_type === 'thenewsapi' ? 'success' : 'secondary';
+                
+                articlesHtml += `
+                    <div class="cluster-article-item" data-source="${article.source_type}" data-cluster="${index}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <a href="${article.url}" target="_blank" rel="noopener" class="text-decoration-none">
+                                    <strong>${article.title || 'Untitled Article'}</strong>
+                                </a>
+                                <div class="text-muted small mt-1">
+                                    <span class="badge bg-${sourceColor} me-2">${article.source_type?.toUpperCase() || 'Unknown'}</span>
+                                    <i class="fas fa-calendar me-1"></i>${pubDate}
+                                    ${article.author ? `<i class="fas fa-user ms-2 me-1"></i>${article.author}` : ''}
+                                </div>
+                                ${article.content ? `<p class="small text-muted mt-1 mb-0">${article.content.substring(0, 200)}...</p>` : ''}
+                            </div>
+                            <div class="article-actions">
+                                <button class="btn btn-sm btn-outline-primary" onclick="selectSingleArticle(${article.id || articleIndex})" title="Select Article">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+        }
+        articlesHtml += '</div></div>';
+        
+        const stats = `
+            <div class="cluster-stats">
+                <div class="cluster-stat">
+                    <i class="fas fa-file-alt"></i>
+                    <span>${cluster.article_count || cluster.articles?.length || 0} articles</span>
+                </div>
+                <div class="cluster-stat">
+                    <i class="fas fa-percentage"></i>
+                    <span>${Math.round((cluster.confidence || 0) * 100)}% confidence</span>
+                </div>
+                <div class="cluster-stat">
+                    <i class="fas fa-layer-group"></i>
+                    <span>${cluster.source_diversity || 1} sources</span>
+                </div>
+            </div>
+        `;
+        
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0 text-primary">${cluster.theme_name || `Theme ${index + 1}`}</h6>
+                <div class="d-flex align-items-center gap-2">
+                    ${sourceBadges}
+                    <span class="badge bg-info">Thematic</span>
+                </div>
+            </div>
+            <p class="mb-2 small">${cluster.theme_summary || cluster.description || 'No summary available for this theme.'}</p>
+            ${stats}
+            <div class="cluster-actions mt-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="toggleClusterArticles(${index})">
+                    <i class="fas fa-eye"></i> <span id="toggle-text-${index}">Show Articles</span>
+                </button>
+                <button class="btn btn-sm btn-outline-success" onclick="selectAllClusterArticles(${index})">
+                    <i class="fas fa-check-square"></i> Select All
+                </button>
+            </div>
+            ${articlesHtml}
+        `;
+        
+        container.appendChild(card);
+    });
+}
+
+// Load sentiment clustering analysis
+async function loadSentimentClustering() {
+    const container = document.getElementById('sentiment-insights-container');
+    container.innerHTML = '<div class="loading-indicator text-center"><i class="fas fa-chart-line me-2"></i>Analyzing sentiment patterns...</div>';
+    
+    try {
+        const activeTab = document.querySelector('.feed-tab.active');
+        const feedGroupId = activeTab ? activeTab.dataset.groupId : null;
+        
+        const params = new URLSearchParams();
+        if (feedGroupId) params.set('feed_group_id', feedGroupId);
+        
+        const response = await fetch(`/api/feed-clustering/sentiment?${params.toString()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        renderSentimentClusters(data);
+        
+    } catch (error) {
+        console.error('Error loading sentiment clustering:', error);
+        container.innerHTML = '<div class="text-muted p-2 small text-center">Failed to load sentiment analysis. Please try again.</div>';
+    }
+}
+
+// Render sentiment clusters
+function renderSentimentClusters(data) {
+    const container = document.getElementById('sentiment-insights-container');
+    container.innerHTML = '';
+    
+    if (!data || !data.clusters) {
+        container.innerHTML = '<div class="text-muted p-2 small text-center">No sentiment data available.</div>';
+        return;
+    }
+    
+    // Render sentiment clusters
+    data.clusters.forEach(cluster => {
+        const card = document.createElement('div');
+        card.className = 'insight-item-card sentiment-cluster mb-3';
+        
+        const sentimentColor = cluster.sentiment === 'positive' ? '#2ecc71' : 
+                              cluster.sentiment === 'negative' ? '#e74c3c' : '#95a5a6';
+        
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0" style="color: ${sentimentColor};">
+                    <i class="fas fa-${cluster.sentiment === 'positive' ? 'smile' : cluster.sentiment === 'negative' ? 'frown' : 'meh'}"></i>
+                    ${cluster.sentiment.charAt(0).toUpperCase() + cluster.sentiment.slice(1)} Sentiment
+                </h6>
+                <span class="badge" style="background-color: ${sentimentColor};">${cluster.article_count} articles</span>
+            </div>
+            <p class="mb-2 small">${cluster.summary || 'Cluster summary not available.'}</p>
+            <div class="progress mb-2" style="height: 6px;">
+                <div class="progress-bar" style="width: ${cluster.percentage}%; background-color: ${sentimentColor};"></div>
+            </div>
+            <small class="text-muted">${cluster.percentage}% of analyzed content</small>
+        `;
+        
+        container.appendChild(card);
+    });
+    
+    // Update sentiment chart
+    updateSentimentChart(data.distribution);
+}
+
+// Update sentiment distribution chart
+function updateSentimentChart(distribution) {
+    const ctx = document.getElementById('sentimentDistributionChart');
+    if (!ctx) return;
+    
+    if (sentimentChartInstance) {
+        sentimentChartInstance.destroy();
+    }
+    
+    sentimentChartInstance = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Positive', 'Negative', 'Neutral'],
+            datasets: [{
+                data: [
+                    distribution.positive || 0,
+                    distribution.negative || 0,
+                    distribution.neutral || 0
+                ],
+                backgroundColor: ['#2ecc71', '#e74c3c', '#95a5a6'],
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        fontSize: 12,
+                        padding: 10
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Load temporal clustering analysis
+async function loadTemporalClustering() {
+    const container = document.getElementById('temporal-insights-container');
+    const timeHorizon = document.getElementById('timeHorizonSelect').value;
+    const analysisDepth = document.getElementById('analysisDepthSelect').value;
+    
+    container.innerHTML = '<div class="loading-indicator text-center"><i class="fas fa-clock me-2"></i>Analyzing temporal impact patterns...</div>';
+    
+    try {
+        const activeTab = document.querySelector('.feed-tab.active');
+        const feedGroupId = activeTab ? activeTab.dataset.groupId : null;
+        
+        const params = new URLSearchParams();
+        if (feedGroupId) params.set('feed_group_id', feedGroupId);
+        params.set('time_horizon', timeHorizon);
+        params.set('analysis_depth', analysisDepth);
+        
+        const response = await fetch(`/api/feed-clustering/temporal?${params.toString()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        renderTemporalClusters(data);
+        
+    } catch (error) {
+        console.error('Error loading temporal clustering:', error);
+        container.innerHTML = '<div class="text-muted p-2 small text-center">Failed to load temporal analysis. Please try again.</div>';
+    }
+}
+
+// Update temporal clustering when controls change
+function updateTemporalClustering() {
+    if (clusteringEnabled && document.getElementById('temporal-clustering-tab').classList.contains('active')) {
+        loadTemporalClustering();
+    }
+}
+
+// Render temporal clusters
+function renderTemporalClusters(data) {
+    const container = document.getElementById('temporal-insights-container');
+    container.innerHTML = '';
+    
+    if (!data || !data.timeline_events) {
+        container.innerHTML = '<div class="text-muted p-2 small text-center">No temporal patterns identified.</div>';
+        return;
+    }
+    
+    const timeline = document.createElement('div');
+    timeline.className = 'temporal-timeline';
+    
+    data.timeline_events.forEach(event => {
+        const eventDiv = document.createElement('div');
+        eventDiv.className = `temporal-event temporal-event-${event.impact_timeframe || 'short'}`;
+        
+        eventDiv.innerHTML = `
+            <div class="temporal-cluster">
+                <h6 class="mb-2 text-primary">${event.title || 'Temporal Event'}</h6>
+                <p class="mb-2 small">${event.description || 'No description available.'}</p>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="badge bg-warning">${event.impact_timeframe || 'Unknown'} Impact</span>
+                    <span class="text-muted small">${event.article_count || 0} related articles</span>
+                </div>
+                <div class="small text-muted">
+                    <i class="fas fa-bolt me-1"></i>Impact Level: ${event.impact_level || 'Medium'}
+                </div>
+            </div>
+        `;
+        
+        timeline.appendChild(eventDiv);
+    });
+    
+    container.appendChild(timeline);
+}
+
+// Load source clustering analysis
+async function loadSourceClustering() {
+    const container = document.getElementById('source-insights-container');
+    container.innerHTML = '<div class="loading-indicator text-center"><i class="fas fa-layer-group me-2"></i>Analyzing source patterns and authority...</div>';
+    
+    try {
+        const activeTab = document.querySelector('.feed-tab.active');
+        const feedGroupId = activeTab ? activeTab.dataset.groupId : null;
+        
+        const params = new URLSearchParams();
+        if (feedGroupId) params.set('feed_group_id', feedGroupId);
+        
+        const response = await fetch(`/api/feed-clustering/sources?${params.toString()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        renderSourceClusters(data);
+        
+    } catch (error) {
+        console.error('Error loading source clustering:', error);
+        container.innerHTML = '<div class="text-muted p-2 small text-center">Failed to load source analysis. Please try again.</div>';
+    }
+}
+
+// Render source clusters
+function renderSourceClusters(data) {
+    const container = document.getElementById('source-insights-container');
+    const metricsContainer = document.getElementById('source-metrics-content');
+    
+    container.innerHTML = '';
+    
+    if (!data || !data.clusters) {
+        container.innerHTML = '<div class="text-muted p-2 small text-center">No source clustering data available.</div>';
+        return;
+    }
+    
+    // Render source clusters
+    data.clusters.forEach(cluster => {
+        const card = document.createElement('div');
+        card.className = 'insight-item-card source-cluster mb-3';
+        
+        const authorityScore = Math.round((cluster.authority_score || 0.5) * 100);
+        
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0 text-primary">
+                    <i class="fas fa-${cluster.source_type === 'arxiv' ? 'graduation-cap' : cluster.source_type === 'bluesky' ? 'comments' : 'newspaper'}"></i>
+                    ${cluster.source_name || cluster.source_type || 'Unknown Source'}
+                </h6>
+                <span class="badge bg-secondary">${cluster.article_count} articles</span>
+            </div>
+            <p class="mb-2 small">${cluster.description || 'Source analysis not available.'}</p>
+            <div class="mb-2">
+                <small class="text-muted">Authority Score</small>
+                <div class="source-authority-bar">
+                    <div class="source-authority-fill" style="width: ${authorityScore}%;"></div>
+                </div>
+                <small class="text-muted">${authorityScore}/100</small>
+            </div>
+            <div class="cluster-stats">
+                <div class="cluster-stat">
+                    <i class="fas fa-eye"></i>
+                    <span>${cluster.avg_engagement || 0} avg views</span>
+                </div>
+                <div class="cluster-stat">
+                    <i class="fas fa-clock"></i>
+                    <span>${cluster.recency || 'Unknown'} recency</span>
+                </div>
+            </div>
+        `;
+        
+        container.appendChild(card);
+    });
+    
+    // Update source metrics
+    if (data.metrics && metricsContainer) {
+        metricsContainer.innerHTML = `
+            <div class="mb-2">
+                <div class="d-flex justify-content-between">
+                    <small>Academic Sources</small>
+                    <small>${data.metrics.academic_percentage || 0}%</small>
+                </div>
+                <div class="progress mb-2" style="height: 4px;">
+                    <div class="progress-bar bg-success" style="width: ${data.metrics.academic_percentage || 0}%;"></div>
+                </div>
+            </div>
+            <div class="mb-2">
+                <div class="d-flex justify-content-between">
+                    <small>Social Media</small>
+                    <small>${data.metrics.social_percentage || 0}%</small>
+                </div>
+                <div class="progress mb-2" style="height: 4px;">
+                    <div class="progress-bar bg-info" style="width: ${data.metrics.social_percentage || 0}%;"></div>
+                </div>
+            </div>
+            <div class="mb-2">
+                <div class="d-flex justify-content-between">
+                    <small>News Sources</small>
+                    <small>${data.metrics.news_percentage || 0}%</small>
+                </div>
+                <div class="progress mb-2" style="height: 4px;">
+                    <div class="progress-bar bg-warning" style="width: ${data.metrics.news_percentage || 0}%;"></div>
+                </div>
+            </div>
+            <hr>
+            <div class="text-center">
+                <small class="text-muted">Overall Authority: <strong>${Math.round((data.metrics.overall_authority || 0.5) * 100)}/100</strong></small>
+            </div>
+        `;
+    }
+}
+
+// Add event listeners for clustering tabs
+document.addEventListener('DOMContentLoaded', function() {
+    // Add clustering tab event listeners
+    document.getElementById('thematic-clustering-tab').addEventListener('click', function() {
+        if (clusteringEnabled) setTimeout(loadThematicClustering, 100);
+    });
+    
+    document.getElementById('sentiment-clustering-tab').addEventListener('click', function() {
+        if (clusteringEnabled) setTimeout(loadSentimentClustering, 100);
+    });
+    
+    document.getElementById('temporal-clustering-tab').addEventListener('click', function() {
+        if (clusteringEnabled) setTimeout(loadTemporalClustering, 100);
+    });
+    
+    document.getElementById('source-clustering-tab').addEventListener('click', function() {
+        if (clusteringEnabled) setTimeout(loadSourceClustering, 100);
+    });
+});
+
+// Clustering article management functions
+function toggleClusterArticles(clusterIndex) {
+    const articlesList = document.getElementById(`articles-list-${clusterIndex}`);
+    const filterControls = document.getElementById(`filter-controls-${clusterIndex}`);
+    const toggleText = document.getElementById(`toggle-text-${clusterIndex}`);
+    
+    if (articlesList.style.display === 'none') {
+        articlesList.style.display = 'block';
+        filterControls.style.display = 'block';
+        toggleText.textContent = 'Hide Articles';
+    } else {
+        articlesList.style.display = 'none';
+        filterControls.style.display = 'none';
+        toggleText.textContent = 'Show Articles';
+    }
+}
+
+function filterClusterArticles(clusterIndex, sourceType) {
+    const container = document.getElementById(`articles-container-${clusterIndex}`);
+    const articles = container.querySelectorAll('.cluster-article-item');
+    
+    articles.forEach(article => {
+        const articleSource = article.dataset.source;
+        if (!sourceType || articleSource === sourceType) {
+            article.style.display = 'block';
+        } else {
+            article.style.display = 'none';
+        }
+    });
+}
+
+function selectAllClusterArticles(clusterIndex) {
+    const container = document.getElementById(`articles-container-${clusterIndex}`);
+    const articles = container.querySelectorAll('.cluster-article-item');
+    
+    articles.forEach(article => {
+        if (article.style.display !== 'none') {
+            const button = article.querySelector('button');
+            if (button) {
+                button.click(); // Trigger the select single article function
+            }
+        }
+    });
+    
+    showSuccess(`Selected visible articles from cluster`);
+}
+
+function selectSingleArticle(articleId) {
+    // Find the article in the current feed items
+    const article = feedItems.find(item => item.id === articleId);
+    if (article) {
+        // Add to selected articles if not already selected
+        if (!selectedArticles.some(selected => selected.id === articleId)) {
+            selectedArticles.push(article);
+            updateSelectedArticlesDisplay();
+            showSuccess(`Added "${article.title}" to selection`);
+        } else {
+            showInfo('Article already selected');
+        }
+    }
+}
+
 </script>
 
 <!-- Enrichment Results Modal -->

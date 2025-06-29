@@ -42,6 +42,7 @@ def register_routers(app: FastAPI):
     from app.routes.executive_summary_routes import router as executive_summary_router, web_router as executive_summary_web_router
     from app.routes.futures_cone_routes import router as futures_cone_router
     from app.routes.feed_routes import router as feed_router
+    from app.routes.feed_clustering_routes import router as feed_clustering_router
     
     # Register database routes
     app.include_router(database.router)
@@ -123,5 +124,8 @@ def register_routers(app: FastAPI):
     
     # Feed system routes
     app.include_router(feed_router)
+    
+    # Feed clustering routes
+    app.include_router(feed_clustering_router)
     
     logger.info("All routers registered successfully")
