@@ -8,6 +8,7 @@ Provides REST API endpoints for the unified feed system including:
 - Feed item actions (hide, star)
 """
 
+import json
 import logging
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
@@ -375,7 +376,7 @@ async def delete_source(
 
 @router.get("/unified-feed", response_model=UnifiedFeedResponse)
 async def get_unified_feed(
-    limit: int = Query(50, ge=1, le=200, description="Number of items to return"),
+    limit: int = Query(50, ge=1, le=1000, description="Number of items to return"),
     offset: int = Query(0, ge=0, description="Number of items to skip"),
     group_ids: Optional[str] = Query(None, description="Comma-separated group IDs to filter by"),
     source_types: Optional[str] = Query(None, description="Comma-separated source types to filter by"),
@@ -431,7 +432,7 @@ async def get_unified_feed(
 @router.get("/feed-groups/{group_id}/feed", response_model=UnifiedFeedResponse)
 async def get_group_feed(
     group_id: int,
-    limit: int = Query(50, ge=1, le=200, description="Number of items to return"),
+    limit: int = Query(50, ge=1, le=1000, description="Number of items to return"),
     offset: int = Query(0, ge=0, description="Number of items to skip"),
     source_types: Optional[str] = Query(None, description="Comma-separated source types to filter by"),
     include_hidden: bool = Query(False, description="Include hidden items"),
@@ -528,6 +529,80 @@ async def star_feed_item(
         logger.error(f"API: Error starring feed item {item_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to star item: {str(e)}")
 
+@router.post("/feed-items/{item_id}/tags")
+async def add_tags_to_feed_item(
+    item_id: int,
+    tags_data: dict = Body(..., description="Tags data"),
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """Add tags to a feed item."""
+    try:
+        logger.info(f"API: Adding tags to feed item {item_id}")
+        
+        tags = tags_data.get("tags", [])
+        if not tags or not isinstance(tags, list):
+            raise HTTPException(status_code=400, detail="Tags must be provided as a list")
+        
+        # Clean and validate tags
+        clean_tags = []
+        for tag in tags:
+            if isinstance(tag, str) and tag.strip():
+                clean_tag = tag.strip()[:50]  # Limit tag length
+                if clean_tag not in clean_tags:  # Avoid duplicates
+                    clean_tags.append(clean_tag)
+        
+        if not clean_tags:
+            raise HTTPException(status_code=400, detail="No valid tags provided")
+        
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT tags FROM feed_items WHERE id = ?", (item_id,))
+            result = cursor.fetchone()
+            
+            if not result:
+                raise HTTPException(status_code=404, detail="Feed item not found")
+            
+            # Get existing tags
+            existing_tags_str = result[0] or ""
+            existing_tags = []
+            
+            if existing_tags_str:
+                try:
+                    existing_tags = json.loads(existing_tags_str) if existing_tags_str.startswith('[') else existing_tags_str.split(',')
+                except (json.JSONDecodeError, AttributeError):
+                    existing_tags = existing_tags_str.split(',') if existing_tags_str else []
+            
+            # Combine with new tags (avoiding duplicates)
+            all_tags = list(existing_tags)
+            for tag in clean_tags:
+                if tag not in all_tags:
+                    all_tags.append(tag)
+            
+            # Update database
+            tags_json = json.dumps(all_tags)
+            cursor.execute("""
+                UPDATE feed_items 
+                SET tags = ?, updated_at = CURRENT_TIMESTAMP 
+                WHERE id = ?
+            """, (tags_json, item_id))
+            
+            conn.commit()
+            
+            logger.info(f"API: Added tags {clean_tags} to feed item {item_id}")
+            return {
+                "success": True,
+                "message": f"Added {len(clean_tags)} tags to item",
+                "tags_added": clean_tags,
+                "total_tags": len(all_tags)
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"API: Error adding tags to feed item: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to add tags: {str(e)}")
+
 # Feed Collection Endpoint (for manual/scheduled collection)
 
 @router.post("/feed-groups/{group_id}/collect")
@@ -583,6 +658,62 @@ async def collect_all_groups(
     except Exception as e:
         logger.error(f"API: Error collecting for all groups: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to collect items: {str(e)}")
+
+@router.post("/feed-collection/collect")
+async def collect_by_source(
+    source_type: str = Query(..., pattern=r"^(bluesky|arxiv|thenewsapi)$", description="Source type to collect"),
+    max_items: int = Query(20, ge=1, le=100, description="Maximum items to collect"),
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """Collect items for a specific source type across all active groups."""
+    try:
+        logger.info(f"API: Collecting {source_type} items across all groups")
+        
+        feed_service = UnifiedFeedService(db)
+        
+        # Collect from all active groups for this source type
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT DISTINCT g.id, g.name
+                FROM feed_keyword_groups g
+                JOIN feed_group_sources s ON g.id = s.group_id
+                WHERE g.is_active = 1 AND s.source_type = ? AND s.enabled = 1
+            """, (source_type,))
+            
+            groups = cursor.fetchall()
+            
+        if not groups:
+            return {
+                "success": True,
+                "message": f"No active groups configured for {source_type}",
+                "items_collected": 0
+            }
+        
+        total_collected = 0
+        
+        for group_id, group_name in groups:
+            try:
+                result = await feed_service.collect_feed_items_for_group(group_id, max_items)
+                if result["success"]:
+                    total_collected += result.get("items_collected", 0)
+                    logger.info(f"Collected {result.get('items_collected', 0)} items for group {group_name}")
+            except Exception as e:
+                logger.error(f"Error collecting for group {group_name}: {str(e)}")
+                continue
+        
+        logger.info(f"API: Total collected {total_collected} {source_type} items")
+        return {
+            "success": True,
+            "message": f"Collected {total_collected} {source_type} items from {len(groups)} groups",
+            "items_collected": total_collected,
+            "groups_processed": len(groups)
+        }
+        
+    except Exception as e:
+        logger.error(f"API: Error collecting {source_type} items: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to collect {source_type} items: {str(e)}")
 
 # Stats endpoint
 @router.get("/feed-groups/{group_id}/stats")

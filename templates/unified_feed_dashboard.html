@@ -813,10 +813,273 @@
         padding: 0.35em 0.6em;
     }
 
+    /* Column View Layout */
+    .column-view-container {
+        display: none;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 20px;
+        margin-top: 20px;
+        max-height: 85vh;
+    }
+
+    .column-view-container.active {
+        display: grid;
+    }
+
+    .feed-column {
+        border: 1px solid var(--medium-gray);
+        border-radius: var(--border-radius);
+        background: white;
+        box-shadow: var(--card-shadow);
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+    }
+
+    .feed-column-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--medium-gray);
+        background: var(--light-gray);
+        border-radius: var(--border-radius) var(--border-radius) 0 0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .column-bulk-actions {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+
+    .column-bulk-actions .btn {
+        padding: 2px 6px;
+        font-size: 11px;
+        border-radius: 3px;
+        line-height: 1.2;
+    }
+
+    .column-item-checkbox {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 5;
+        opacity: 0.7;
+        transition: opacity 0.2s;
+    }
+
+    .column-item-checkbox input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+        margin: 0;
+    }
+
+    .column-item:hover .column-item-checkbox {
+        opacity: 1;
+    }
+
+    .column-item.selected {
+        background: #e7f3ff;
+        border-color: #0d6efd;
+    }
+
+    .feed-column-title {
+        font-weight: 600;
+        color: var(--primary-color);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .feed-column-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 16px;
+        min-height: 0;
+    }
+
+    .column-item {
+        background: white;
+        border: 1px solid var(--light-gray);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 12px;
+        transition: all 0.2s;
+        position: relative;
+    }
+
+    .column-item:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        border-color: var(--primary-color);
+    }
+
+    .column-item.starred {
+        border-left: 4px solid var(--primary-color);
+        background: linear-gradient(90deg, rgba(255, 105, 180, 0.05) 0%, rgba(255, 255, 255, 1) 20%);
+    }
+
+    .column-item-title {
+        font-size: 0.95rem;
+        font-weight: 600;
+        line-height: 1.4;
+        margin-bottom: 8px;
+    }
+
+    .column-item-title a {
+        color: var(--text-color);
+        text-decoration: none;
+    }
+
+    .column-item-title a:hover {
+        color: var(--primary-color);
+    }
+
+    .column-item-meta {
+        font-size: 0.8rem;
+        color: var(--dark-gray);
+        margin-bottom: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .column-item-content {
+        font-size: 0.85rem;
+        line-height: 1.4;
+        color: var(--text-color);
+        margin-bottom: 8px;
+    }
+
+    .column-item-actions {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        display: flex;
+        gap: 4px;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+
+    .column-item:hover .column-item-actions {
+        opacity: 1;
+    }
+
+    .column-action-btn {
+        width: 24px;
+        height: 24px;
+        border: none;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.9);
+        color: var(--dark-gray);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+        transition: all 0.2s;
+    }
+
+    .column-action-btn:hover {
+        background: var(--primary-color);
+        color: white;
+    }
+
+    .column-action-btn.starred {
+        background: var(--primary-color);
+        color: white;
+    }
+
+    /* Media Bias Styling */
+    .bias-badge {
+        display: inline-block;
+        padding: 0.15rem 0.4rem;
+        border-radius: 8px;
+        font-size: 0.65rem;
+        font-weight: 500;
+        margin-right: 4px;
+    }
+
+    .bias-left { background-color: #3373CC; color: white; }
+    .bias-left-center { background-color: #6699EE; color: white; }
+    .bias-least-biased, .bias-center { background-color: #88CC88; color: black; }
+    .bias-right-center { background-color: #FF9966; color: black; }
+    .bias-right { background-color: #CC3333; color: white; }
+    .bias-pro-science { background-color: #9966CC; color: white; }
+    .bias-conspiracy-pseudoscience { background-color: #666666; color: white; }
+    .bias-questionable { background-color: #222222; color: white; }
+    .bias-satire { background-color: #CCBB33; color: black; }
+
+    .factual-very-high { background-color: #006600; color: white; }
+    .factual-high, .factual-mostly-factual { background-color: #339933; color: white; }
+    .factual-mixed { background-color: #CCCC00; color: black; }
+    .factual-low, .factual-very-low { background-color: #CC0000; color: white; }
+
+    /* Tag styles */
+    .article-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 8px;
+    }
+
+    .article-tag {
+        background: var(--light-gray);
+        color: var(--dark-gray);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.7rem;
+        border: 1px solid var(--medium-gray);
+    }
+
+    .tag-input {
+        display: none;
+        margin-top: 8px;
+    }
+
+    .tag-input input {
+        width: 100%;
+        padding: 4px 8px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    /* Hide tab view when column view is active */
+    .view-tabs .feed-tabs-container,
+    .view-tabs .feed-content {
+        display: block;
+    }
+
+    .view-columns .feed-tabs-container,
+    .view-columns .feed-content {
+        display: none;
+    }
+
     /* Responsive improvements */
+    @media (max-width: 1200px) {
+        .column-view-container {
+            grid-template-columns: 1fr 1fr;
+        }
+        
+        .feed-column:nth-child(3) {
+            grid-column: 1 / -1;
+        }
+    }
+
     @media (max-width: 768px) {
         .dashboard-container {
             padding: 0 16px;
+        }
+
+        .column-view-container {
+            grid-template-columns: 1fr;
+            gap: 12px;
         }
 
         .feed-tabs {
@@ -850,34 +1113,263 @@
             font-size: 0.8rem;
         }
     }
+
+    /* Media Bias Badges */
+    .bias-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.7rem;
+        font-weight: 500;
+        text-transform: uppercase;
+        color: white;
+        margin-right: 4px;
+        background: #6c757d;
+    }
+
+    /* Bias-specific colors */
+    .bias-left { background: #007bff; }
+    .bias-left-center { background: #17a2b8; }
+    .bias-least-biased { background: #28a745; }
+    .bias-right-center { background: #fd7e14; }
+    .bias-right { background: #dc3545; }
+    .bias-mixed { background: #6f42c1; }
+    .bias-satire { background: #e83e8c; }
+    .bias-questionable { background: #6c757d; }
+
+    /* Factual reporting colors */
+    .factual-very-high { background: #28a745; }
+    .factual-high { background: #20c997; }
+    .factual-mostly-factual { background: #17a2b8; }
+    .factual-mixed { background: #fd7e14; }
+    .factual-low { background: #dc3545; }
+    .factual-very-low { background: #6c757d; }
+
+    /* Article Tags */
+    .article-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-bottom: 8px;
+    }
+
+    .article-tag {
+        background: var(--light-gray);
+        color: var(--dark-gray);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+    }
+
+    /* Tag Input */
+    .tag-input {
+        display: none;
+        margin-top: 8px;
+    }
+
+    .tag-input input {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+
+    /* Column Item Styles */
+    .column-item {
+        border: 1px solid var(--light-gray);
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 12px;
+        background: white;
+        position: relative;
+        transition: all 0.2s ease;
+    }
+
+    .column-item:hover {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        border-color: var(--primary-color);
+    }
+
+    .column-item.starred {
+        border-color: var(--accent-color);
+        background: linear-gradient(135deg, #fff 0%, #fff9c4 100%);
+    }
+
+    .column-item-actions {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        display: flex;
+        gap: 4px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    .enrichment-indicator {
+        position: absolute;
+        top: -2px;
+        right: -2px;
+        width: 12px;
+        height: 12px;
+        background: #28a745;
+        border-radius: 50%;
+        border: 2px solid white;
+        z-index: 10;
+    }
+
+    .enrichment-badges .badge {
+        font-size: 0.7rem;
+        padding: 2px 6px;
+        margin-right: 2px;
+    }
+
+    .column-item:hover .column-item-actions {
+        opacity: 1;
+    }
+
+    .column-action-btn {
+        background: white;
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+        padding: 4px 6px;
+        cursor: pointer;
+        font-size: 0.8rem;
+        color: var(--dark-gray);
+        transition: all 0.2s ease;
+    }
+
+    .column-action-btn:hover {
+        background: var(--light-gray);
+        color: var(--primary-color);
+    }
+
+    .column-action-btn.starred {
+        background: var(--accent-color);
+        color: white;
+        border-color: var(--accent-color);
+    }
+
+    .column-item-title {
+        font-weight: 600;
+        margin-bottom: 8px;
+        padding-right: 80px;
+        line-height: 1.3;
+    }
+
+    .column-item-title a {
+        color: var(--text-color);
+        text-decoration: none;
+    }
+
+    .column-item-title a:hover {
+        color: var(--primary-color);
+    }
+
+    .column-item-meta {
+        display: flex;
+        gap: 12px;
+        font-size: 0.8rem;
+        color: var(--dark-gray);
+        margin-bottom: 8px;
+        flex-wrap: wrap;
+    }
+
+    .column-item-content {
+        font-size: 0.9rem;
+        color: var(--text-color);
+        line-height: 1.4;
+        margin-bottom: 8px;
+    }
+
+    /* Column infinite scroll styles */
+    .column-loading {
+        padding: 10px;
+        text-align: center;
+        border-top: 1px solid var(--light-gray);
+        background: rgba(0, 0, 0, 0.02);
+    }
+
+    .feed-column-content {
+        max-height: calc(100vh - 200px);
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--medium-gray) transparent;
+    }
+
+    .feed-column-content::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .feed-column-content::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .feed-column-content::-webkit-scrollbar-thumb {
+        background-color: var(--medium-gray);
+        border-radius: 3px;
+    }
+
+    .feed-column-content::-webkit-scrollbar-thumb:hover {
+        background-color: var(--dark-gray);
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="dashboard-container mt-4">
     <!-- Dashboard Header -->
-    <div class="dashboard-header">
-        <div class="d-flex justify-content-between align-items-center">
-            <div>
-                <h1 class="dashboard-title">Unified Feed Dashboard</h1>
-                <p class="dashboard-subtitle" style="color: var(--dark-gray); margin: 8px 0 0 0; font-size: 1.1rem;">Social media and academic content in one place</p>
-            </div>
-            <div class="d-flex gap-2">
-                <button class="btn-tab-control btn-warning" onclick="showOnlyStarredItems()" title="Quick filter to show only starred items">
-                    <i class="fas fa-star"></i>
-                    View Starred
-                </button>
-                <button class="btn-tab-control" onclick="refreshCurrentFeed()">
-                    <i class="fas fa-sync-alt"></i>
-                    Refresh
-                </button>
-                <button class="btn-tab-control btn-primary-control" onclick="window.location.href='/feed-manager'">
-                    <i class="fas fa-cog"></i>
-                    Manage Groups
-                </button>
+            <div class="dashboard-header">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h1 class="dashboard-title">Unified Feed Dashboard</h1>
+                    <p class="dashboard-subtitle" style="color: var(--dark-gray); margin: 8px 0 0 0; font-size: 1.1rem;">Social media and academic content in one place</p>
+                </div>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <!-- View Mode Toggle -->
+                    <div class="btn-group" role="group" aria-label="View Mode">
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="tabViewBtn" onclick="switchViewMode('tabs')" title="Tab View">
+                            <i class="fas fa-folder"></i>
+                        </button>
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="columnViewBtn" onclick="switchViewMode('columns')" title="Column View">
+                            <i class="fas fa-columns"></i>
+                        </button>
+                    </div>
+
+                    <!-- Auto-refresh controls -->
+                    <div class="dropdown">
+                        <button class="btn-tab-control dropdown-toggle" type="button" id="autoRefreshDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-clock"></i>
+                            <span id="refreshStatusText">Manual</span>
+                        </button>
+                        <ul class="dropdown-menu" aria-labelledby="autoRefreshDropdown">
+                            <li><a class="dropdown-item" href="#" onclick="setAutoRefresh(0)">Manual Refresh</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="setAutoRefresh(5)">Every 5 minutes</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setAutoRefresh(15)">Every 15 minutes</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setAutoRefresh(30)">Every 30 minutes</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setAutoRefresh(60)">Every hour</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setAutoRefresh(720)">Every 12 hours</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="setAutoRefresh(1440)">Every 24 hours</a></li>
+                        </ul>
+                    </div>
+
+                    <button class="btn-tab-control btn-warning" onclick="showOnlyStarredItems()" title="Quick filter to show only starred items">
+                        <i class="fas fa-star"></i>
+                        View Starred
+                    </button>
+                    <button class="btn-tab-control" onclick="refreshCurrentFeed()">
+                        <i class="fas fa-sync-alt"></i>
+                        Refresh
+                    </button>
+                    <button class="btn-tab-control btn-primary-control" onclick="window.location.href='/feed-manager'">
+                        <i class="fas fa-cog"></i>
+                        Manage Groups
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
 
     <!-- Feed Group Tabs -->
     <div class="feed-tabs-container">
@@ -1006,7 +1498,7 @@
                 </button>
 
                 <!-- Status Display -->
-                <div class="status-display" style="margin-left: auto; font-size: 0.85rem; color: var(--medium-gray); display: flex; align-items: center; gap: 8px;">
+                <div class="status-display" style="margin-left: auto; font-size: 0.85rem; color: var(--dark-gray); display: flex; align-items: center; gap: 8px;">
                     <span><i class="fas fa-check-square"></i> <span id="selectedCount">0</span> selected</span>
                     <span><i class="fas fa-star"></i> <span id="starredCount">0</span> starred</span>
                     <span><i class="fas fa-info-circle"></i> <span id="totalStarredCount">0</span> total starred</span>
@@ -1073,7 +1565,7 @@
         <!-- Infinite Scroll Loading Indicator -->
         <div class="text-center p-4" id="infiniteScrollLoader" style="display: none;">
             <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
-            <p class="mt-2 text-muted">Loading more articles...</p>
+                            <p class="mt-2" style="color: var(--dark-gray);">Loading more articles...</p>
         </div>
 
         <!-- Load More Button (fallback) -->
@@ -1082,6 +1574,147 @@
                 <i class="fas fa-chevron-down"></i>
                 Load More Items
             </button>
+        </div>
+    </div>
+
+    <!-- Column View -->
+    <div class="column-view-container" id="columnViewContainer">
+        <div class="feed-column" id="blueSkyColumn">
+            <div class="feed-column-header">
+                <div class="feed-column-title">
+                    <i class="fab fa-twitter" style="color: #0085ff;"></i>
+                    Bluesky Social
+                    <span class="badge bg-primary" id="blueSkyCount">0</span>
+                    <span class="badge bg-secondary ms-1" id="blueSkySelectedCount" style="display: none;">0 selected</span>
+                </div>
+                <div class="column-bulk-actions" id="blueSkyBulkActions" style="display: none;">
+                    <button class="btn btn-xs btn-outline-primary" onclick="toggleColumnSelectAll('bluesky')" title="Select All">
+                        <i class="fas fa-check-square"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-info" onclick="enrichColumnSelected('bluesky')" title="Enrich Selected">
+                        <i class="fas fa-brain"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-warning" onclick="sendColumnSelectedToAuspex('bluesky')" title="Send to Auspex">
+                        <i class="fas fa-comment-dots"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-secondary" onclick="hideColumnSelected('bluesky')" title="Hide Selected">
+                        <i class="fas fa-eye-slash"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-danger" onclick="deleteColumnSelected('bluesky')" title="Delete Selected">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" onclick="refreshColumn('bluesky')">Refresh</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="collectColumn('bluesky')">Collect New</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><h6 class="dropdown-header">Auto-refresh</h6></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('bluesky', 0)">Manual</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('bluesky', 5)">5 minutes</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('bluesky', 15)">15 minutes</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('bluesky', 30)">30 minutes</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="feed-column-content" id="blueSkyContent">
+                                    <div class="text-center p-4" style="color: var(--dark-gray);">Loading Bluesky posts...</div>
+            </div>
+        </div>
+
+        <div class="feed-column" id="arXivColumn">
+            <div class="feed-column-header">
+                <div class="feed-column-title">
+                    <i class="fas fa-university" style="color: #b31b1b;"></i>
+                    ArXiv Academic
+                    <span class="badge bg-primary" id="arXivCount">0</span>
+                    <span class="badge bg-secondary ms-1" id="arXivSelectedCount" style="display: none;">0 selected</span>
+                </div>
+                <div class="column-bulk-actions" id="arXivBulkActions" style="display: none;">
+                    <button class="btn btn-xs btn-outline-primary" onclick="toggleColumnSelectAll('arxiv')" title="Select All">
+                        <i class="fas fa-check-square"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-info" onclick="enrichColumnSelected('arxiv')" title="Enrich Selected">
+                        <i class="fas fa-brain"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-warning" onclick="sendColumnSelectedToAuspex('arxiv')" title="Send to Auspex">
+                        <i class="fas fa-comment-dots"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-secondary" onclick="hideColumnSelected('arxiv')" title="Hide Selected">
+                        <i class="fas fa-eye-slash"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-danger" onclick="deleteColumnSelected('arxiv')" title="Delete Selected">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" onclick="refreshColumn('arxiv')">Refresh</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="collectColumn('arxiv')">Collect New</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><h6 class="dropdown-header">Auto-refresh</h6></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('arxiv', 0)">Manual</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('arxiv', 15)">15 minutes</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('arxiv', 30)">30 minutes</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('arxiv', 60)">1 hour</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="feed-column-content" id="arXivContent">
+                                    <div class="text-center p-4" style="color: var(--dark-gray);">Loading ArXiv papers...</div>
+            </div>
+        </div>
+
+        <div class="feed-column" id="newsColumn">
+            <div class="feed-column-header">
+                <div class="feed-column-title">
+                    <i class="fas fa-newspaper" style="color: #1e7e34;"></i>
+                    News Articles
+                    <span class="badge bg-primary" id="newsCount">0</span>
+                    <span class="badge bg-secondary ms-1" id="newsSelectedCount" style="display: none;">0 selected</span>
+                </div>
+                <div class="column-bulk-actions" id="newsBulkActions" style="display: none;">
+                    <button class="btn btn-xs btn-outline-primary" onclick="toggleColumnSelectAll('thenewsapi')" title="Select All">
+                        <i class="fas fa-check-square"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-info" onclick="enrichColumnSelected('thenewsapi')" title="Enrich Selected">
+                        <i class="fas fa-brain"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-warning" onclick="sendColumnSelectedToAuspex('thenewsapi')" title="Send to Auspex">
+                        <i class="fas fa-comment-dots"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-secondary" onclick="hideColumnSelected('thenewsapi')" title="Hide Selected">
+                        <i class="fas fa-eye-slash"></i>
+                    </button>
+                    <button class="btn btn-xs btn-outline-danger" onclick="deleteColumnSelected('thenewsapi')" title="Delete Selected">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                    <ul class="dropdown-menu">
+                        <li><a class="dropdown-item" href="#" onclick="refreshColumn('thenewsapi')">Refresh</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="collectColumn('thenewsapi')">Collect New</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><h6 class="dropdown-header">Auto-refresh</h6></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('thenewsapi', 0)">Manual</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('thenewsapi', 15)">15 minutes</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('thenewsapi', 30)">30 minutes</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="setColumnAutoRefresh('thenewsapi', 60)">1 hour</a></li>
+                    </ul>
+                </div>
+            </div>
+            <div class="feed-column-content" id="newsContent">
+                                    <div class="text-center p-4" style="color: var(--dark-gray);">Loading news articles...</div>
+            </div>
         </div>
     </div>
 </div>
@@ -1096,6 +1729,18 @@ let currentPage = 0;
 let hasMoreItems = true;
 let showHidden = false;
 let isInitializing = true;
+let currentViewMode = 'tabs'; // 'tabs' or 'columns'
+let autoRefreshInterval = null;
+let autoRefreshMinutes = 0;
+let columnAutoRefreshIntervals = {}; // Track per-column refresh intervals
+let columnScrollbackLimits = { bluesky: 1000, arxiv: 250, thenewsapi: 250 };
+let columnItems = { bluesky: [], arxiv: [], thenewsapi: [] };
+let columnOffsets = { bluesky: 0, arxiv: 0, thenewsapi: 0 }; // Track pagination offset for each column
+let columnHasMore = { bluesky: true, arxiv: true, thenewsapi: true }; // Track if more items available
+let columnLoading = { bluesky: false, arxiv: false, thenewsapi: false }; // Track loading state
+let columnSelectedItems = { bluesky: [], arxiv: [], thenewsapi: [] }; // Track selected items per column
+let mediabiasCache = {}; // Cache for media bias data
+const COLUMN_BATCH_SIZE = 50; // Items to load per batch for infinite scroll
 let currentFilters = {
     source: '',
     sort: 'publication_date',
@@ -1113,7 +1758,10 @@ const CACHE_KEYS = {
     LAYOUT: 'aunoo_feed_layout',
     HIDDEN_ITEMS: 'aunoo_hidden_items',
     STARRED_ITEMS: 'aunoo_starred_items',
-    LAST_GROUP: 'aunoo_last_group'
+    LAST_GROUP: 'aunoo_last_group',
+    VIEW_MODE: 'aunoo_view_mode',
+    AUTO_REFRESH: 'aunoo_auto_refresh',
+    COLUMN_REFRESH: 'aunoo_column_refresh'
 };
 
 // Debounce utility
@@ -1205,6 +1853,11 @@ async function initializeDashboard() {
         // Load cached preferences first
         loadCachedPreferences();
         
+        // Load view mode and auto-refresh settings
+        const cachedViewMode = localStorage.getItem(CACHE_KEYS.VIEW_MODE) || 'tabs';
+        const cachedAutoRefresh = parseInt(localStorage.getItem(CACHE_KEYS.AUTO_REFRESH) || '0');
+        const cachedColumnRefresh = JSON.parse(localStorage.getItem(CACHE_KEYS.COLUMN_REFRESH) || '{}');
+        
         // Apply cached layout immediately after preferences load
         const layoutSelector = document.getElementById('layoutMode');
         if (layoutSelector && currentFilters.layout) {
@@ -1227,6 +1880,21 @@ async function initializeDashboard() {
         } else {
             console.log('DEBUG: No feed groups found');
             renderEmptyState();
+        }
+        
+        // Set up view mode
+        switchViewMode(cachedViewMode);
+        
+        // Set up auto-refresh
+        if (cachedAutoRefresh > 0) {
+            setAutoRefresh(cachedAutoRefresh);
+        }
+        
+        // Set up column auto-refresh
+        for (const [sourceType, minutes] of Object.entries(cachedColumnRefresh)) {
+            if (minutes > 0) {
+                setColumnAutoRefresh(sourceType, minutes);
+            }
         }
         
         // Mark initialization as complete
@@ -1470,6 +2138,12 @@ async function loadFeedItems(append = false) {
             allFeedItems = data.items; // Store all items for client-side filtering
         }
         
+        // Enrich news items with media bias
+        const newsItems = feedItems.filter(item => item.source_type === 'thenewsapi');
+        if (newsItems.length > 0) {
+            await enrichNewsWithMediaBias(newsItems);
+        }
+        
         console.log('DEBUG: Final feedItems count:', feedItems.length);
         console.log('DEBUG: Final allFeedItems count:', allFeedItems.length);
         
@@ -1627,6 +2301,11 @@ function renderCardItem(item, sourceClass, sourceBadge, publishDate, engagement,
                         <i class="fas fa-star"></i>
                     </button>
                     <button style="padding: 6px 10px; border: none; border-radius: 6px; background: var(--light-gray); color: var(--dark-gray); cursor: pointer; font-size: 0.85rem; transition: all 0.2s;" 
+                            onclick="showTagInput(${item.id})"
+                            title="Tag item">
+                        <i class="fas fa-tag"></i>
+                    </button>
+                    <button style="padding: 6px 10px; border: none; border-radius: 6px; background: var(--light-gray); color: var(--dark-gray); cursor: pointer; font-size: 0.85rem; transition: all 0.2s;" 
                             onclick="hideItem(${item.id})"
                             title="Hide item">
                         <i class="fas fa-eye-slash"></i>
@@ -1646,6 +2325,9 @@ function renderCardItem(item, sourceClass, sourceBadge, publishDate, engagement,
             
             ${item.content ? `<div class="feed-item-content" style="color: var(--text-color); line-height: 1.6; margin-bottom: 16px;">${truncateText(item.content, 300)}</div>` : ''}
             
+            <!-- Media Bias Information (News only) -->
+            ${item.source_type === 'thenewsapi' && item.media_bias ? createMediaBiasDisplay(item.media_bias) : ''}
+            
             <!-- Analysis Metadata Badges -->
             ${(item.category || item.sentiment || item.future_signal || item.time_to_impact || item.driver_type) ? `
             <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--light-gray);">
@@ -1655,6 +2337,17 @@ function renderCardItem(item, sourceClass, sourceBadge, publishDate, engagement,
                 ${item.time_to_impact ? `<span class="badge bg-success" style="font-size: 0.75rem; font-weight: 500;"><i class="fas fa-clock me-1"></i>${item.time_to_impact}</span>` : ''}
                 ${item.driver_type ? `<span class="badge bg-dark" style="font-size: 0.75rem; font-weight: 500;"><i class="fas fa-cogs me-1"></i>${item.driver_type}</span>` : ''}
             </div>` : ''}
+            
+            <!-- Tags Section -->
+            ${(item.tags && item.tags.length > 0) ? `
+            <div class="article-tags" style="margin-bottom: 12px;">
+                ${item.tags.slice(0, 5).map(tag => `<span class="article-tag">${tag}</span>`).join('')}
+                ${item.tags.length > 5 ? `<span class="article-tag">+${item.tags.length - 5} more</span>` : ''}
+            </div>` : ''}
+            
+            <div class="tag-input" id="tagInput${item.id}" style="margin-bottom: 12px;">
+                <input type="text" placeholder="Add tags (comma separated)" onkeypress="handleTagInput(event, ${item.id})" style="width: 100%; padding: 6px 8px; border: 1px solid var(--medium-gray); border-radius: 4px; font-size: 0.85rem;">
+            </div>
             
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--light-gray); flex-wrap: wrap; gap: 12px;">
                 <div style="display: flex; gap: 16px; flex-wrap: wrap;">
@@ -3480,6 +4173,862 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// ======================
+// VIEW MODE FUNCTIONS
+// ======================
+
+function switchViewMode(mode) {
+    currentViewMode = mode;
+    localStorage.setItem(CACHE_KEYS.VIEW_MODE, mode);
+    
+    const dashboardContainer = document.querySelector('.dashboard-container');
+    const columnViewContainer = document.getElementById('columnViewContainer');
+    const tabViewBtn = document.getElementById('tabViewBtn');
+    const columnViewBtn = document.getElementById('columnViewBtn');
+    
+    if (mode === 'columns') {
+        dashboardContainer.classList.remove('view-tabs');
+        dashboardContainer.classList.add('view-columns');
+        columnViewContainer.classList.add('active');
+        
+        tabViewBtn.classList.remove('btn-primary');
+        tabViewBtn.classList.add('btn-outline-primary');
+        columnViewBtn.classList.remove('btn-outline-primary');
+        columnViewBtn.classList.add('btn-primary');
+        
+        // Load column data
+        loadColumnView();
+    } else {
+        dashboardContainer.classList.remove('view-columns');
+        dashboardContainer.classList.add('view-tabs');
+        columnViewContainer.classList.remove('active');
+        
+        columnViewBtn.classList.remove('btn-primary');
+        columnViewBtn.classList.add('btn-outline-primary');
+        tabViewBtn.classList.remove('btn-outline-primary');
+        tabViewBtn.classList.add('btn-primary');
+    }
+}
+
+// ======================
+// AUTO-REFRESH FUNCTIONS
+// ======================
+
+function setAutoRefresh(minutes) {
+    // Clear existing interval
+    if (autoRefreshInterval) {
+        clearInterval(autoRefreshInterval);
+        autoRefreshInterval = null;
+    }
+    
+    autoRefreshMinutes = minutes;
+    localStorage.setItem(CACHE_KEYS.AUTO_REFRESH, minutes.toString());
+    
+    const refreshStatusText = document.getElementById('refreshStatusText');
+    
+    if (minutes === 0) {
+        refreshStatusText.textContent = 'Manual';
+    } else {
+        const text = minutes < 60 ? `${minutes}m` : 
+                     minutes === 60 ? '1h' :
+                     minutes === 720 ? '12h' :
+                     minutes === 1440 ? '24h' : `${minutes}m`;
+        refreshStatusText.textContent = text;
+        
+        // Set up interval
+        autoRefreshInterval = setInterval(() => {
+            if (currentViewMode === 'tabs') {
+                refreshCurrentFeed();
+            } else {
+                refreshAllColumns();
+            }
+        }, minutes * 60 * 1000);
+    }
+    
+    showSuccess(`Auto-refresh set to ${minutes === 0 ? 'manual' : formatRefreshInterval(minutes)}`);
+}
+
+function setColumnAutoRefresh(sourceType, minutes) {
+    // Clear existing interval for this column
+    if (columnAutoRefreshIntervals[sourceType]) {
+        clearInterval(columnAutoRefreshIntervals[sourceType]);
+        delete columnAutoRefreshIntervals[sourceType];
+    }
+    
+    const settings = JSON.parse(localStorage.getItem(CACHE_KEYS.COLUMN_REFRESH) || '{}');
+    settings[sourceType] = minutes;
+    localStorage.setItem(CACHE_KEYS.COLUMN_REFRESH, JSON.stringify(settings));
+    
+    if (minutes > 0) {
+        columnAutoRefreshIntervals[sourceType] = setInterval(() => {
+            refreshColumn(sourceType);
+        }, minutes * 60 * 1000);
+        
+        showSuccess(`${sourceType} column will refresh every ${formatRefreshInterval(minutes)}`);
+    } else {
+        showSuccess(`${sourceType} column auto-refresh disabled`);
+    }
+}
+
+function formatRefreshInterval(minutes) {
+    if (minutes < 60) return `${minutes} minutes`;
+    if (minutes === 60) return '1 hour';
+    if (minutes === 720) return '12 hours';
+    if (minutes === 1440) return '24 hours';
+    return `${Math.floor(minutes / 60)} hours`;
+}
+
+function refreshAllColumns() {
+    refreshColumn('bluesky');
+    refreshColumn('arxiv');
+    refreshColumn('thenewsapi');
+}
+
+// ======================
+// COLUMN VIEW FUNCTIONS
+// ======================
+
+async function loadColumnView() {
+    try {
+        // Reset pagination state for all columns
+        columnOffsets = { bluesky: 0, arxiv: 0, thenewsapi: 0 };
+        columnHasMore = { bluesky: true, arxiv: true, thenewsapi: true };
+        columnItems = { bluesky: [], arxiv: [], thenewsapi: [] };
+        
+        // Load initial batch for each source type separately
+        await Promise.all([
+            loadColumnItems('bluesky'),
+            loadColumnItems('arxiv'),  
+            loadColumnItems('thenewsapi')
+        ]);
+        
+        // Set up infinite scroll for columns after initial load
+        setupColumnInfiniteScroll();
+    } catch (error) {
+        console.error('Error loading column view:', error);
+        showError('Failed to load column view');
+    }
+}
+
+async function loadColumnItems(sourceType, append = false) {
+    if (columnLoading[sourceType]) return; // Prevent concurrent loads
+    
+    try {
+        columnLoading[sourceType] = true;
+        
+        const limit = COLUMN_BATCH_SIZE;
+        const offset = append ? columnOffsets[sourceType] : 0;
+        const response = await fetch(`/api/unified-feed?source_types=${sourceType}&limit=${limit}&offset=${offset}`);
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        const newItems = data.items || [];
+        
+        if (append) {
+            columnItems[sourceType] = [...columnItems[sourceType], ...newItems];
+        } else {
+            columnItems[sourceType] = newItems;
+            columnOffsets[sourceType] = 0;
+        }
+        
+        // Update pagination state
+        columnOffsets[sourceType] += newItems.length;
+        columnHasMore[sourceType] = data.has_more && newItems.length > 0;
+        
+        // Apply media bias enrichment for news items
+        if (sourceType === 'thenewsapi') {
+            await enrichNewsWithMediaBias(newItems);
+        }
+        
+        renderColumnItems(sourceType);
+        updateColumnCount(sourceType);
+        
+    } catch (error) {
+        console.error(`Error loading ${sourceType} items:`, error);
+        const contentDiv = document.getElementById(`${getColumnId(sourceType)}Content`);
+        if (!append) {
+            contentDiv.innerHTML = `<div class="text-center p-4" style="color: #dc3545; font-weight: 500;">Failed to load ${sourceType} items</div>`;
+        } else {
+            showError(`Failed to load more ${sourceType} items`);
+        }
+    } finally {
+        columnLoading[sourceType] = false;
+    }
+}
+
+async function loadMoreColumnItems(sourceType) {
+    if (!columnHasMore[sourceType] || columnLoading[sourceType]) {
+        return;
+    }
+
+    // Show loading indicator at bottom of column
+    const contentDiv = document.getElementById(`${getColumnId(sourceType)}Content`);
+    const loadingDiv = document.createElement('div');
+    loadingDiv.className = 'column-loading';
+    loadingDiv.innerHTML = `
+        <div class="text-center py-3">
+            <div class="spinner-border spinner-border-sm me-2"></div>
+            Loading more...
+        </div>
+    `;
+    contentDiv.appendChild(loadingDiv);
+
+    try {
+        await loadColumnItems(sourceType, true);
+    } finally {
+        // Remove loading indicator
+        const loader = contentDiv.querySelector('.column-loading');
+        if (loader) {
+            loader.remove();
+        }
+    }
+}
+
+function getColumnId(sourceType) {
+    const mapping = {
+        'bluesky': 'blueSky',
+        'arxiv': 'arXiv',
+        'thenewsapi': 'news'
+    };
+    return mapping[sourceType] || sourceType;
+}
+
+function renderColumnItems(sourceType) {
+    const items = columnItems[sourceType] || [];
+    const contentDiv = document.getElementById(`${getColumnId(sourceType)}Content`);
+    
+    if (items.length === 0 && !columnLoading[sourceType]) {
+        contentDiv.innerHTML = `<div class="text-center p-4" style="color: var(--dark-gray);">No ${sourceType} items found</div>`;
+        return;
+    }
+    
+    let html = items.map(item => renderColumnItem(item, sourceType)).join('');
+    
+    // Add "Load More" indicator if there are more items available
+    if (columnHasMore[sourceType] && !columnLoading[sourceType]) {
+        html += `
+            <div class="text-center py-3">
+                <button class="btn btn-outline-secondary btn-sm" onclick="loadMoreColumnItems('${sourceType}')" id="loadMore${getColumnId(sourceType)}">
+                    <i class="fas fa-chevron-down me-1"></i>
+                    Load More ${sourceType} Items
+                </button>
+            </div>
+        `;
+    } else if (!columnHasMore[sourceType] && items.length > 0) {
+        html += `
+            <div class="text-center py-3" style="color: var(--dark-gray);">
+                <small><i class="fas fa-check-circle me-1"></i>All ${sourceType} items loaded</small>
+            </div>
+        `;
+    }
+    
+    contentDiv.innerHTML = html;
+    
+    // Clear column selections when re-rendering
+    columnSelectedItems[sourceType] = [];
+    updateColumnSelectedCount(sourceType);
+}
+
+function renderColumnItem(item, sourceType) {
+    const publishDate = item.publication_date ? 
+        new Date(item.publication_date).toLocaleDateString() : 
+        'No date';
+    
+    // Get media bias display for news items
+    let mediaBiasHtml = '';
+    if (sourceType === 'thenewsapi' && item.media_bias) {
+        mediaBiasHtml = createMediaBiasDisplay(item.media_bias);
+    }
+    
+    // Get tags display
+    const tagsHtml = (item.tags || []).length > 0 ? `
+        <div class="article-tags">
+            ${item.tags.slice(0, 3).map(tag => `<span class="article-tag">${tag}</span>`).join('')}
+            ${item.tags.length > 3 ? `<span class="article-tag">+${item.tags.length - 3}</span>` : ''}
+        </div>
+    ` : '';
+    
+    return `
+        <div class="column-item ${item.is_starred ? 'starred' : ''}" data-item-id="${item.id}">
+            <div class="column-item-checkbox">
+                <input type="checkbox" class="column-checkbox" data-item-id="${item.id}" data-source-type="${sourceType}" onchange="updateColumnSelectedCount('${sourceType}')">
+            </div>
+            <div class="column-item-actions">
+                ${(item.category || item.sentiment || item.future_signal || item.time_to_impact || item.driver_type) ? `
+                <div class="enrichment-indicator" title="Article has been AI-enriched" style="position: absolute; top: -2px; right: -2px; width: 12px; height: 12px; background: #28a745; border-radius: 50%; border: 2px solid white;">
+                    <i class="fas fa-brain" style="font-size: 6px; color: white; position: absolute; top: 1px; left: 1px;"></i>
+                </div>` : ''}
+                <button class="column-action-btn ${item.is_starred ? 'starred' : ''}" 
+                        onclick="toggleColumnStar(${item.id}, ${!item.is_starred})" 
+                        title="${item.is_starred ? 'Unstar' : 'Star'}">
+                    <i class="fas fa-star"></i>
+                </button>
+                <button class="column-action-btn" onclick="showTagInput(${item.id})" title="Tag article">
+                    <i class="fas fa-tag"></i>
+                </button>
+                <button class="column-action-btn" onclick="hideColumnItem(${item.id})" title="Hide">
+                    <i class="fas fa-eye-slash"></i>
+                </button>
+            </div>
+            
+            <div class="column-item-title">
+                <a href="${item.url}" target="_blank">${item.title}</a>
+            </div>
+            
+            <div class="column-item-meta">
+                ${item.author ? `<span><i class="fas fa-user"></i> ${item.author}</span>` : ''}
+                <span><i class="fas fa-calendar"></i> ${publishDate}</span>
+                ${getEngagementDisplay(item.engagement_metrics)}
+            </div>
+            
+            ${item.content ? `<div class="column-item-content">${truncateText(item.content, 120)}</div>` : ''}
+            
+            ${mediaBiasHtml}
+            
+            <!-- Enrichment Status Indicators -->
+            ${(item.category || item.sentiment || item.future_signal || item.time_to_impact || item.driver_type) ? `
+            <div class="enrichment-badges" style="display: flex; flex-wrap: wrap; gap: 4px; margin: 8px 0;">
+                ${item.category ? `<span class="badge bg-info" style="font-size: 0.7rem; padding: 2px 6px;"><i class="fas fa-tag me-1"></i>${item.category}</span>` : ''}
+                ${item.sentiment ? `<span class="badge bg-secondary" style="font-size: 0.7rem; padding: 2px 6px;"><i class="fas fa-smile me-1"></i>${item.sentiment}</span>` : ''}
+                ${item.future_signal ? `<span class="badge bg-warning text-dark" style="font-size: 0.7rem; padding: 2px 6px;"><i class="fas fa-chart-line me-1"></i>${item.future_signal}</span>` : ''}
+                ${item.time_to_impact ? `<span class="badge bg-success" style="font-size: 0.7rem; padding: 2px 6px;"><i class="fas fa-clock me-1"></i>${item.time_to_impact}</span>` : ''}
+                ${item.driver_type ? `<span class="badge bg-dark" style="font-size: 0.7rem; padding: 2px 6px;"><i class="fas fa-cogs me-1"></i>${item.driver_type}</span>` : ''}
+            </div>` : ''}
+            
+            ${tagsHtml}
+            
+            <div class="tag-input" id="tagInput${item.id}">
+                <input type="text" placeholder="Add tags (comma separated)" onkeypress="handleTagInput(event, ${item.id})">
+            </div>
+        </div>
+    `;
+}
+
+function getEngagementDisplay(engagement) {
+    if (!engagement) return '';
+    
+    const total = (engagement.likes || 0) + (engagement.reposts || 0) + (engagement.replies || 0);
+    return total > 0 ? `<span><i class="fas fa-heart"></i> ${total}</span>` : '';
+}
+
+async function toggleColumnStar(itemId, starred) {
+    try {
+        const response = await fetch(`/api/feed-items/${itemId}/star`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(starred)
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Update local state in all relevant arrays
+        [feedItems, allFeedItems, ...Object.values(columnItems)].forEach(items => {
+            const item = items.find(item => item.id === itemId);
+            if (item) item.is_starred = starred;
+        });
+        
+        // Re-render affected columns
+        for (const [sourceType, items] of Object.entries(columnItems)) {
+            if (items.find(item => item.id === itemId)) {
+                renderColumnItems(sourceType);
+                break;
+            }
+        }
+        
+        // Update starred count
+        await loadStarredCount();
+        
+    } catch (error) {
+        console.error('Error toggling star:', error);
+        showError('Failed to update star status');
+    }
+}
+
+async function hideColumnItem(itemId) {
+    try {
+        const response = await fetch(`/api/feed-items/${itemId}/hide`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Remove from column display
+        for (const [sourceType, items] of Object.entries(columnItems)) {
+            const index = items.findIndex(item => item.id === itemId);
+            if (index !== -1) {
+                items.splice(index, 1);
+                renderColumnItems(sourceType);
+                updateColumnCount(sourceType);
+                break;
+            }
+        }
+        
+        showSuccess('Item hidden');
+        
+    } catch (error) {
+        console.error('Error hiding item:', error);
+        showError('Failed to hide item');
+    }
+}
+
+function updateColumnCount(sourceType) {
+    const count = columnItems[sourceType]?.length || 0;
+    const countElement = document.getElementById(`${getColumnId(sourceType)}Count`);
+    if (countElement) {
+        countElement.textContent = count;
+    }
+}
+
+// Column Selection and Bulk Actions
+function updateColumnSelectedCount(sourceType) {
+    const checkboxes = document.querySelectorAll(`.column-checkbox[data-source-type="${sourceType}"]:checked`);
+    const selectedCount = checkboxes.length;
+    
+    // Update selected items array
+    columnSelectedItems[sourceType] = Array.from(checkboxes).map(cb => {
+        const itemId = parseInt(cb.dataset.itemId);
+        return columnItems[sourceType].find(item => item.id === itemId);
+    }).filter(item => item);
+    
+    // Show/hide bulk actions
+    const bulkActions = document.getElementById(`${getColumnId(sourceType)}BulkActions`);
+    const selectedCountElement = document.getElementById(`${getColumnId(sourceType)}SelectedCount`);
+    
+    if (selectedCount > 0) {
+        bulkActions.style.display = 'flex';
+        selectedCountElement.style.display = 'inline';
+        selectedCountElement.textContent = `${selectedCount} selected`;
+        
+        // Add selected class to items
+        document.querySelectorAll(`.column-checkbox[data-source-type="${sourceType}"]`).forEach(cb => {
+            const item = cb.closest('.column-item');
+            if (cb.checked) {
+                item.classList.add('selected');
+            } else {
+                item.classList.remove('selected');
+            }
+        });
+    } else {
+        bulkActions.style.display = 'none';
+        selectedCountElement.style.display = 'none';
+        
+        // Remove selected class from all items in this column
+        document.querySelectorAll(`#${getColumnId(sourceType)}Content .column-item`).forEach(item => {
+            item.classList.remove('selected');
+        });
+    }
+}
+
+function toggleColumnSelectAll(sourceType) {
+    const checkboxes = document.querySelectorAll(`.column-checkbox[data-source-type="${sourceType}"]`);
+    const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+    
+    checkboxes.forEach(cb => {
+        cb.checked = !allChecked;
+    });
+    
+    updateColumnSelectedCount(sourceType);
+}
+
+async function enrichColumnSelected(sourceType) {
+    const selectedItems = columnSelectedItems[sourceType];
+    if (selectedItems.length === 0) {
+        showError('Please select items to enrich');
+        return;
+    }
+    
+    // Set selectedArticles for the enrichment modal
+    selectedArticles = selectedItems;
+    
+    // Open enrichment modal
+    await openEnrichmentModal();
+}
+
+async function sendColumnSelectedToAuspex(sourceType) {
+    const selectedItems = columnSelectedItems[sourceType];
+    if (selectedItems.length === 0) {
+        showError('Please select items to send to Auspex');
+        return;
+    }
+    
+    try {
+        // Create comprehensive analysis data
+        const totalItems = selectedItems.length;
+        const sourceBreakdown = {};
+        const authorBreakdown = {};
+        const contentThemes = [];
+        
+        selectedItems.forEach(item => {
+            // Source breakdown
+            const source = item.source_type || 'unknown';
+            sourceBreakdown[source] = (sourceBreakdown[source] || 0) + 1;
+            
+            // Author breakdown
+            if (item.author) {
+                authorBreakdown[item.author] = (authorBreakdown[item.author] || 0) + 1;
+            }
+            
+            // Content themes (extract keywords from titles)
+            if (item.title) {
+                const words = item.title.toLowerCase().split(/\s+/).filter(word => word.length > 4);
+                contentThemes.push(...words);
+            }
+        });
+        
+        // Get top themes
+        const themeCount = {};
+        contentThemes.forEach(theme => {
+            themeCount[theme] = (themeCount[theme] || 0) + 1;
+        });
+        const topThemes = Object.entries(themeCount)
+            .sort(([,a], [,b]) => b - a)
+            .slice(0, 5)
+            .map(([theme, count]) => `${theme} (${count})`);
+        
+        // Create summary
+        const summary = `Analysis of ${totalItems} selected ${sourceType} items:\n\n` +
+            `Source Breakdown:\n${Object.entries(sourceBreakdown).map(([source, count]) => `• ${source}: ${count} items`).join('\n')}\n\n` +
+            `${Object.keys(authorBreakdown).length > 0 ? `Top Authors:\n${Object.entries(authorBreakdown).sort(([,a], [,b]) => b - a).slice(0, 5).map(([author, count]) => `• ${author}: ${count} articles`).join('\n')}\n\n` : ''}` +
+            `Content Themes:\n${topThemes.length > 0 ? topThemes.map(theme => `• ${theme}`).join('\n') : 'No common themes identified'}\n\n` +
+            `Selected Items:\n${selectedItems.map((item, idx) => `${idx + 1}. ${escapeHtml(item.title)} (${item.source_type})`).join('\n')}`;
+        
+        // Send to Auspex
+        const response = await fetch('/auspex/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: summary,
+                context: 'feed_analysis'
+            })
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        showSuccess(`Successfully sent ${totalItems} selected ${sourceType} items to Auspex for analysis`);
+        
+        // Clear selection
+        document.querySelectorAll(`.column-checkbox[data-source-type="${sourceType}"]`).forEach(cb => {
+            cb.checked = false;
+        });
+        updateColumnSelectedCount(sourceType);
+        
+    } catch (error) {
+        console.error('Error sending to Auspex:', error);
+        showError('Failed to send selected items to Auspex');
+    }
+}
+
+async function hideColumnSelected(sourceType) {
+    const selectedItems = columnSelectedItems[sourceType];
+    if (selectedItems.length === 0) {
+        showError('Please select items to hide');
+        return;
+    }
+    
+    if (!confirm(`Hide ${selectedItems.length} selected items?`)) return;
+    
+    try {
+        const hidePromises = selectedItems.map(item => 
+            fetch(`/api/feed-items/${item.id}/hide`, { method: 'POST' })
+        );
+        
+        await Promise.all(hidePromises);
+        
+        // Remove from column display
+        selectedItems.forEach(item => {
+            const index = columnItems[sourceType].findIndex(i => i.id === item.id);
+            if (index !== -1) {
+                columnItems[sourceType].splice(index, 1);
+            }
+        });
+        
+        renderColumnItems(sourceType);
+        updateColumnCount(sourceType);
+        updateColumnSelectedCount(sourceType);
+        
+        showSuccess(`Hidden ${selectedItems.length} items`);
+        
+    } catch (error) {
+        console.error('Error hiding items:', error);
+        showError('Failed to hide selected items');
+    }
+}
+
+async function deleteColumnSelected(sourceType) {
+    const selectedItems = columnSelectedItems[sourceType];
+    if (selectedItems.length === 0) {
+        showError('Please select items to delete');
+        return;
+    }
+    
+    if (!confirm(`Permanently delete ${selectedItems.length} selected items? This cannot be undone.`)) return;
+    
+    try {
+        const deletePromises = selectedItems.map(item => 
+            fetch(`/api/feed-items/${item.id}`, { method: 'DELETE' })
+        );
+        
+        await Promise.all(deletePromises);
+        
+        // Remove from column display
+        selectedItems.forEach(item => {
+            const index = columnItems[sourceType].findIndex(i => i.id === item.id);
+            if (index !== -1) {
+                columnItems[sourceType].splice(index, 1);
+            }
+        });
+        
+        renderColumnItems(sourceType);
+        updateColumnCount(sourceType);
+        updateColumnSelectedCount(sourceType);
+        
+        showSuccess(`Deleted ${selectedItems.length} items`);
+        
+    } catch (error) {
+        console.error('Error deleting items:', error);
+        showError('Failed to delete selected items');
+    }
+}
+
+function getColumnId(sourceType) {
+    const mapping = {
+        'bluesky': 'blueSky',
+        'arxiv': 'arXiv', 
+        'thenewsapi': 'news'
+    };
+    return mapping[sourceType] || sourceType;
+}
+
+function setupColumnInfiniteScroll() {
+    const sourceTypes = ['bluesky', 'arxiv', 'thenewsapi'];
+    
+    sourceTypes.forEach(sourceType => {
+        const columnId = getColumnId(sourceType);
+        const contentDiv = document.getElementById(`${columnId}Content`);
+        
+        if (!contentDiv) return;
+        
+        // Remove existing listeners
+        contentDiv.removeEventListener('scroll', contentDiv._scrollHandler);
+        
+        // Create scroll handler
+        const scrollHandler = debounce(() => {
+            const scrollTop = contentDiv.scrollTop;
+            const scrollHeight = contentDiv.scrollHeight;
+            const clientHeight = contentDiv.clientHeight;
+            
+            // Check if user scrolled to near bottom (within 150px)
+            const nearBottom = scrollTop + clientHeight >= scrollHeight - 150;
+            
+            if (nearBottom && columnHasMore[sourceType] && !columnLoading[sourceType]) {
+                loadMoreColumnItems(sourceType);
+            }
+        }, 100);
+        
+        // Store handler reference for cleanup
+        contentDiv._scrollHandler = scrollHandler;
+        
+        // Add scroll listener
+        contentDiv.addEventListener('scroll', scrollHandler);
+    });
+}
+
+// Debounce utility function
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+async function refreshColumn(sourceType) {
+    const contentDiv = document.getElementById(`${getColumnId(sourceType)}Content`);
+    contentDiv.innerHTML = '<div class="text-center p-4" style="color: var(--dark-gray);"><div class="spinner-border spinner-border-sm me-2"></div>Refreshing...</div>';
+    
+    try {
+        // Reset pagination state
+        columnOffsets[sourceType] = 0;
+        columnHasMore[sourceType] = true;
+        columnItems[sourceType] = [];
+        
+        await loadColumnItems(sourceType);
+        showSuccess(`${sourceType} column refreshed`);
+    } catch (error) {
+        console.error(`Error refreshing ${sourceType}:`, error);
+        showError(`Failed to refresh ${sourceType} column`);
+    }
+}
+
+async function collectColumn(sourceType) {
+    try {
+        const response = await fetch(`/api/feed-collection/collect?source_type=${sourceType}&max_items=20`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        showSuccess(`Collected ${result.items_collected || 0} new ${sourceType} items`);
+        
+        // Refresh the column
+        await refreshColumn(sourceType);
+        
+    } catch (error) {
+        console.error(`Error collecting ${sourceType}:`, error);
+        showError(`Failed to collect ${sourceType} items`);
+    }
+}
+
+// ======================
+// MEDIA BIAS FUNCTIONS
+// ======================
+
+async function enrichNewsWithMediaBias(newsItems) {
+    if (!newsItems || newsItems.length === 0) return;
+    
+    try {
+        // Get media bias data for news sources
+        const sources = [...new Set(newsItems.map(item => extractDomain(item.url)).filter(Boolean))];
+        
+        for (const source of sources) {
+            if (!mediabiasCache[source]) {
+                try {
+                    const response = await fetch(`/api/media_bias?source=${encodeURIComponent(source)}`);
+                    if (response.ok) {
+                        const data = await response.json();
+                        mediabiasCache[source] = data.data;
+                    }
+                } catch (error) {
+                    // Silently skip media bias for sources that don't have data
+                    console.debug(`No media bias data available for ${source}`);
+                }
+            }
+        }
+        
+        // Apply media bias data to items
+        newsItems.forEach(item => {
+            const domain = extractDomain(item.url);
+            if (domain && mediabiasCache[domain]) {
+                item.media_bias = mediabiasCache[domain];
+            }
+        });
+        
+    } catch (error) {
+        console.error('Error enriching with media bias:', error);
+    }
+}
+
+function extractDomain(url) {
+    try {
+        const domain = new URL(url).hostname.replace('www.', '');
+        return domain;
+    } catch {
+        return null;
+    }
+}
+
+function createMediaBiasDisplay(biasData) {
+    if (!biasData) return '';
+    
+    let html = '<div class="d-flex flex-wrap gap-1 mt-1">';
+    
+    if (biasData.bias) {
+        const biasClass = getBiasClass(biasData.bias);
+        html += `<span class="bias-badge ${biasClass}" title="Media Bias: ${biasData.bias}">${biasData.bias}</span>`;
+    }
+    
+    if (biasData.factual_reporting) {
+        const factualClass = getFactualClass(biasData.factual_reporting);
+        html += `<span class="bias-badge ${factualClass}" title="Factual Reporting: ${biasData.factual_reporting}">${biasData.factual_reporting}</span>`;
+    }
+    
+    html += '</div>';
+    return html;
+}
+
+function getBiasClass(bias) {
+    if (!bias) return '';
+    const normalized = bias.toLowerCase().replace(/[^a-z]/g, '-');
+    return `bias-${normalized}`;
+}
+
+function getFactualClass(factual) {
+    if (!factual) return '';
+    const normalized = factual.toLowerCase().replace(/[^a-z]/g, '-');
+    return `factual-${normalized}`;
+}
+
+// ======================
+// TAGGING FUNCTIONS
+// ======================
+
+function showTagInput(itemId) {
+    const tagInput = document.getElementById(`tagInput${itemId}`);
+    if (tagInput) {
+        tagInput.style.display = tagInput.style.display === 'none' ? 'block' : 'none';
+        if (tagInput.style.display === 'block') {
+            tagInput.querySelector('input').focus();
+        }
+    }
+}
+
+async function handleTagInput(event, itemId) {
+    if (event.key === 'Enter') {
+        const input = event.target;
+        const tags = input.value.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+        
+        if (tags.length > 0) {
+            await addTagsToItem(itemId, tags);
+            input.value = '';
+            document.getElementById(`tagInput${itemId}`).style.display = 'none';
+        }
+    }
+}
+
+async function addTagsToItem(itemId, tags) {
+    try {
+        const response = await fetch(`/api/feed-items/${itemId}/tags`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tags })
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Update local state
+        [feedItems, allFeedItems, ...Object.values(columnItems)].forEach(items => {
+            const item = items.find(item => item.id === itemId);
+            if (item) {
+                item.tags = [...(item.tags || []), ...tags];
+            }
+        });
+        
+        // Re-render affected views
+        if (currentViewMode === 'columns') {
+            for (const [sourceType, items] of Object.entries(columnItems)) {
+                if (items.find(item => item.id === itemId)) {
+                    renderColumnItems(sourceType);
+                    break;
+                }
+            }
+        } else {
+            renderFeedItems();
+        }
+        
+        showSuccess(`Added tags: ${tags.join(', ')}`);
+        
+    } catch (error) {
+        console.error('Error adding tags:', error);
+        showError('Failed to add tags');
+    }
+}
 
 // New action functions
 async function enrichStarredItems() {
