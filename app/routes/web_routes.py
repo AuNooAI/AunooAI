@@ -86,4 +86,46 @@ async def topic_dashboard_page(
             "topics": [],
             "session": request.session,
             "error": "Could not load topics."
+        })
+
+
+@router.get("/unified-feed", response_class=HTMLResponse)
+async def unified_feed_dashboard(
+    request: Request, 
+    session=Depends(verify_session)
+):
+    """Serves the new unified feed dashboard."""
+    try:
+        logger.info("Loading unified feed dashboard")
+        return templates.TemplateResponse("unified_feed_dashboard.html", {
+            "request": request,
+            "session": request.session
+        })
+    except Exception as e:
+        logger.error(f"Error loading unified feed dashboard: {e}", exc_info=True)
+        return templates.TemplateResponse("unified_feed_dashboard.html", {
+            "request": request,
+            "session": request.session,
+            "error": "Could not load unified feed dashboard."
+        })
+
+
+@router.get("/feed-manager", response_class=HTMLResponse)
+async def feed_group_manager(
+    request: Request, 
+    session=Depends(verify_session)
+):
+    """Serves the feed group management interface."""
+    try:
+        logger.info("Loading feed group manager")
+        return templates.TemplateResponse("feed_group_manager.html", {
+            "request": request,
+            "session": request.session
+        })
+    except Exception as e:
+        logger.error(f"Error loading feed group manager: {e}", exc_info=True)
+        return templates.TemplateResponse("feed_group_manager.html", {
+            "request": request,
+            "session": request.session,
+            "error": "Could not load feed group manager."
         }) 

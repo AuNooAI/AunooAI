@@ -41,6 +41,7 @@ def register_routers(app: FastAPI):
     from app.routes.forecast_chart_routes import router as forecast_chart_router, web_router as forecast_chart_web_router
     from app.routes.executive_summary_routes import router as executive_summary_router, web_router as executive_summary_web_router
     from app.routes.futures_cone_routes import router as futures_cone_router
+    from app.routes.feed_routes import router as feed_router
     
     # Register database routes
     app.include_router(database.router)
@@ -119,5 +120,8 @@ def register_routers(app: FastAPI):
     
     # Futures cone routes
     app.include_router(futures_cone_router)
+    
+    # Feed system routes
+    app.include_router(feed_router)
     
     logger.info("All routers registered successfully")

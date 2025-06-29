@@ -1,0 +1,2458 @@
+{% extends "base.html" %}
+
+{% block title %}AuNoo AI - Unified Feed Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;
+        --primary-dark: #FF1493;
+        --secondary-color: #32CD32;
+        --secondary-dark: #228B22;
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+        --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        --border-radius: 12px;
+    }
+
+    body {
+        background-color: var(--light-gray);
+    }
+
+    /* Dashboard Layout */
+    .dashboard-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 0 20px;
+    }
+
+    .dashboard-header {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        padding: 24px;
+        margin-bottom: 24px;
+    }
+
+    .dashboard-title {
+        color: var(--primary-color);
+        font-size: 2rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    /* Feed Tabs */
+    .feed-tabs-container {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        margin-bottom: 24px;
+        overflow: hidden;
+    }
+
+    .tab-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--medium-gray);
+    }
+
+    .feed-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0;
+        margin: 0;
+        list-style: none;
+    }
+
+    .feed-tab {
+        background: var(--light-gray);
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 12px 16px;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+    }
+
+    .feed-tab:hover {
+        background: var(--medium-gray);
+        transform: translateY(-1px);
+    }
+
+    .feed-tab.active {
+        background: var(--primary-color);
+        color: white;
+        border-color: var(--primary-color);
+    }
+
+    .tab-color {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .tab-count {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 12px;
+        padding: 2px 8px;
+        font-size: 0.85rem;
+        font-weight: 600;
+    }
+
+    /* Feed Content */
+    .feed-content {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        min-height: 600px;
+    }
+
+    .feed-controls {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px 24px;
+        border-bottom: 1px solid var(--medium-gray);
+        flex-wrap: wrap;
+        gap: 16px;
+    }
+
+    .feed-items {
+        padding: 24px;
+    }
+
+    .feed-item {
+        background: white;
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        transition: all 0.2s;
+    }
+
+    .feed-item:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .feed-item-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--text-color);
+        margin-bottom: 12px;
+    }
+
+    .feed-item-title a {
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .feed-item-title a:hover {
+        color: var(--primary-color);
+    }
+
+    .loading-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 60px;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .loading-spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid var(--light-gray);
+        border-top: 4px solid var(--primary-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .btn-tab-control {
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 1px solid var(--medium-gray);
+        background: white;
+        color: var(--text-color);
+        font-size: 0.9rem;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+    }
+
+    .btn-tab-control:hover {
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+        transform: translateY(-1px);
+    }
+
+    .btn-primary-control {
+        background: var(--primary-color);
+        border-color: var(--primary-color);
+        color: white;
+    }
+
+    .btn-primary-control:hover {
+        background: var(--primary-dark);
+        border-color: var(--primary-dark);
+        color: white;
+    }
+
+    .btn-enrichment {
+        background: #9966CC;
+        border-color: #9966CC;
+        color: white;
+    }
+
+    .btn-enrichment:hover:not(:disabled) {
+        background: #7A4FA0;
+        border-color: #7A4FA0;
+        color: white;
+    }
+
+    .btn-enrichment:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Additional styles for filter selects */
+    .filter-select {
+        border: 1px solid var(--medium-gray);
+        border-radius: 6px;
+        padding: 8px 12px;
+        background: white;
+        min-width: 120px;
+        margin-left: 8px;
+    }
+
+    .filter-select:focus {
+        border-color: var(--primary-color);
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(255, 105, 180, 0.2);
+    }
+
+    .feed-controls-left,
+    .feed-controls-right {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .feed-filter {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* Layout Modes */
+    .layout-compact .feed-item {
+        padding: 12px;
+        margin-bottom: 8px;
+    }
+
+    .layout-compact .feed-item-title {
+        font-size: 1rem;
+        margin-bottom: 6px;
+    }
+
+    .layout-compact .feed-item-content {
+        font-size: 0.85rem;
+        max-height: 3em;
+        overflow: hidden;
+    }
+
+    .layout-timeline {
+        position: relative;
+        padding-left: 40px;
+    }
+
+    .layout-timeline::before {
+        content: '';
+        position: absolute;
+        left: 20px;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: var(--medium-gray);
+    }
+
+    .layout-timeline .feed-item {
+        position: relative;
+        margin-left: 20px;
+    }
+
+    .layout-timeline .feed-item::before {
+        content: '';
+        position: absolute;
+        left: -30px;
+        top: 20px;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--primary-color);
+        border: 3px solid white;
+        box-shadow: 0 0 0 1px var(--medium-gray);
+    }
+
+    /* Search highlighting */
+    .search-highlight {
+        background-color: yellow;
+        font-weight: bold;
+    }
+
+    /* Enrichment Results Styling */
+    .result-item-actions {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        display: flex;
+        gap: 6px;
+        z-index: 10;
+    }
+
+    .summary-badge {
+        font-size: 0.7rem;
+        min-width: 24px;
+        text-align: center;
+    }
+
+    .ai-summary {
+        font-size: 0.85rem;
+        line-height: 1.4;
+    }
+
+    /* Badge styling with icons */
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        padding: 0.35em 0.6em;
+    }
+
+    /* Responsive improvements */
+    @media (max-width: 768px) {
+        .dashboard-container {
+            padding: 0 16px;
+        }
+
+        .feed-tabs {
+            flex-direction: column;
+            width: 100%;
+        }
+
+        .feed-tab {
+            justify-content: center;
+        }
+
+        .feed-controls {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .feed-controls-left,
+        .feed-controls-right {
+            justify-content: center;
+        }
+
+        .result-item-actions {
+            position: relative;
+            top: 0;
+            right: 0;
+            margin-bottom: 8px;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container mt-4">
+    <!-- Dashboard Header -->
+    <div class="dashboard-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h1 class="dashboard-title">Unified Feed Dashboard</h1>
+                <p class="dashboard-subtitle" style="color: var(--dark-gray); margin: 8px 0 0 0; font-size: 1.1rem;">Social media and academic content in one place</p>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn-tab-control" onclick="refreshCurrentFeed()">
+                    <i class="fas fa-sync-alt"></i>
+                    Refresh
+                </button>
+                <button class="btn-tab-control btn-primary-control" onclick="window.location.href='/feed-manager'">
+                    <i class="fas fa-cog"></i>
+                    Manage Groups
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Feed Group Tabs -->
+    <div class="feed-tabs-container">
+        <div class="tab-header">
+            <ul class="feed-tabs" id="feedTabs">
+                <!-- Tabs will be populated by JavaScript -->
+            </ul>
+            <div style="display: flex; gap: 12px; align-items: center;">
+                <button class="btn-tab-control" onclick="collectFeedItems()">
+                    <i class="fas fa-download"></i>
+                    Collect New
+                </button>
+                <button class="btn-tab-control" onclick="window.location.href='/feed-manager'">
+                    <i class="fas fa-plus"></i>
+                    New Group
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Feed Content Area -->
+    <div class="feed-content">
+        <!-- Feed Controls -->
+        <div class="feed-controls">
+            <div class="feed-controls-left">
+                <div class="feed-filter">
+                    <label for="searchInput">Search:</label>
+                    <input type="text" id="searchInput" class="filter-select" placeholder="Search titles and content..." onkeyup="handleSearch(event)" style="min-width: 200px;">
+                </div>
+                <div class="feed-filter">
+                    <label for="sourceFilter">Source:</label>
+                    <select id="sourceFilter" class="filter-select" onchange="applyFilters()">
+                        <option value="">All Sources</option>
+                        <option value="bluesky">Bluesky</option>
+                        <option value="arxiv">ArXiv</option>
+                    </select>
+                </div>
+                <div class="feed-filter">
+                    <label for="sortBy">Sort by:</label>
+                    <select id="sortBy" class="filter-select" onchange="applyFilters()">
+                        <option value="publication_date">Newest First</option>
+                        <option value="created_at">Recently Added</option>
+                        <option value="engagement">Most Popular</option>
+                    </select>
+                </div>
+            </div>
+            <div class="feed-controls-right">
+                <div class="feed-filter">
+                    <label for="itemsPerPage">Show:</label>
+                    <select id="itemsPerPage" class="filter-select" onchange="applyFilters()">
+                        <option value="20">20 items</option>
+                        <option value="50" selected>50 items</option>
+                        <option value="100">100 items</option>
+                    </select>
+                </div>
+                <button class="btn-tab-control btn-enrichment" onclick="enrichSelectedArticles()" disabled>
+                    <i class="fas fa-brain"></i>
+                    Enrich Selected (<span id="selectedCount">0</span>)
+                </button>
+                <button class="btn-tab-control btn-success" id="saveEnrichedBtn" onclick="bulkSaveEnrichedArticles()" style="display: none;">
+                    <i class="fas fa-save"></i>
+                    Save Enriched Articles
+                </button>
+                <button class="btn-tab-control btn-info" onclick="checkEnrichmentStatus()" title="Debug: Check for enriched articles">
+                    <i class="fas fa-search"></i>
+                    Check Results
+                </button>
+                <button class="btn-tab-control btn-warning" onclick="debugEnrichmentData()" title="Debug: Check articles table directly">
+                    <i class="fas fa-bug"></i>
+                    Debug DB
+                </button>
+                <button class="btn-tab-control" onclick="toggleHiddenItems()">
+                    <i class="fas fa-eye-slash"></i>
+                    <span id="hiddenToggleText">Show Hidden</span>
+                </button>
+                <button class="btn-tab-control" onclick="toggleCustomizePanel()">
+                    <i class="fas fa-sliders-h"></i>
+                    Customize
+                </button>
+            </div>
+        </div>
+
+        <!-- Customization Panel (collapsible) -->
+        <div id="customizePanel" style="display: none; border-top: 1px solid var(--medium-gray); padding: 20px 24px; background: var(--light-gray);">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+                <div class="feed-filter">
+                    <label for="dateFilter">Date Range:</label>
+                    <select id="dateFilter" class="filter-select" onchange="applyFilters()">
+                        <option value="">All Time</option>
+                        <option value="today">Today</option>
+                        <option value="week">This Week</option>
+                        <option value="month">This Month</option>
+                        <option value="quarter">This Quarter</option>
+                    </select>
+                </div>
+                <div class="feed-filter">
+                    <label for="authorFilter">Author:</label>
+                    <input type="text" id="authorFilter" class="filter-select" placeholder="Filter by author..." onkeyup="debounceFilter(applyFilters, 500)">
+                </div>
+                <div class="feed-filter">
+                    <label for="engagementFilter">Min Engagement:</label>
+                    <select id="engagementFilter" class="filter-select" onchange="applyFilters()">
+                        <option value="">Any</option>
+                        <option value="10">10+ interactions</option>
+                        <option value="50">50+ interactions</option>
+                        <option value="100">100+ interactions</option>
+                    </select>
+                </div>
+                <div class="feed-filter">
+                    <label for="layoutMode">Layout:</label>
+                    <select id="layoutMode" class="filter-select" onchange="changeLayout()">
+                        <option value="cards">Cards</option>
+                        <option value="compact">Compact</option>
+                        <option value="timeline">Timeline</option>
+                    </select>
+                </div>
+            </div>
+            <div style="margin-top: 16px; display: flex; gap: 8px;">
+                <button class="btn-tab-control btn-primary-control" onclick="saveCustomizations()">
+                    <i class="fas fa-save"></i>
+                    Save Preferences
+                </button>
+                <button class="btn-tab-control" onclick="resetCustomizations()">
+                    <i class="fas fa-undo"></i>
+                    Reset
+                </button>
+            </div>
+        </div>
+
+        <!-- Feed Items -->
+        <div class="feed-items" id="feedItems">
+            <!-- Feed items will be populated by JavaScript -->
+            <div class="loading-container">
+                <div class="loading-spinner"></div>
+                <p>Loading your unified feed...</p>
+            </div>
+        </div>
+
+        <!-- Load More Button -->
+        <div class="text-center p-4" id="loadMoreContainer" style="display: none;">
+            <button class="btn-tab-control btn-primary-control" onclick="loadMoreItems()">
+                <i class="fas fa-chevron-down"></i>
+                Load More Items
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Global state management
+let currentFeedGroup = null;
+let feedGroups = [];
+let feedItems = [];
+let allFeedItems = []; // Store all items for client-side filtering
+let currentPage = 0;
+let hasMoreItems = true;
+let showHidden = false;
+let currentFilters = {
+    source: '',
+    sort: 'publication_date',
+    limit: 50,
+    search: '',
+    dateRange: '',
+    author: '',
+    minEngagement: '',
+    layout: 'cards'
+};
+
+// Cache keys for localStorage
+const CACHE_KEYS = {
+    FILTERS: 'aunoo_feed_filters',
+    LAYOUT: 'aunoo_feed_layout',
+    HIDDEN_ITEMS: 'aunoo_hidden_items',
+    STARRED_ITEMS: 'aunoo_starred_items',
+    LAST_GROUP: 'aunoo_last_group'
+};
+
+// Debounce utility
+let searchTimeout = null;
+
+// Initialize dashboard when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    initializeDashboard();
+});
+
+async function initializeDashboard() {
+    try {
+        // Load cached preferences
+        loadCachedPreferences();
+        
+        await loadFeedGroups();
+        if (feedGroups.length > 0) {
+            // Use cached last group or default to first
+            const lastGroup = localStorage.getItem(CACHE_KEYS.LAST_GROUP);
+            currentFeedGroup = lastGroup ? parseInt(lastGroup) : feedGroups[0].id;
+            await renderFeedTabs();
+            await loadFeedItems();
+        } else {
+            renderEmptyState();
+        }
+        
+        // Apply cached layout
+        if (currentFilters.layout) {
+            document.getElementById('layoutMode').value = currentFilters.layout;
+            changeLayout();
+        }
+    } catch (error) {
+        console.error('Error initializing dashboard:', error);
+        showError('Failed to load dashboard. Please refresh the page.');
+    }
+}
+
+function loadCachedPreferences() {
+    try {
+        // Load cached filters
+        const cachedFilters = localStorage.getItem(CACHE_KEYS.FILTERS);
+        if (cachedFilters) {
+            Object.assign(currentFilters, JSON.parse(cachedFilters));
+            
+            // Apply to UI elements
+            document.getElementById('sourceFilter').value = currentFilters.source || '';
+            document.getElementById('sortBy').value = currentFilters.sort || 'publication_date';
+            document.getElementById('itemsPerPage').value = currentFilters.limit || 50;
+            document.getElementById('searchInput').value = currentFilters.search || '';
+        }
+    } catch (error) {
+        console.error('Error loading cached preferences:', error);
+    }
+}
+
+function savePreferencesToCache() {
+    try {
+        localStorage.setItem(CACHE_KEYS.FILTERS, JSON.stringify(currentFilters));
+        if (currentFeedGroup) {
+            localStorage.setItem(CACHE_KEYS.LAST_GROUP, currentFeedGroup.toString());
+        }
+    } catch (error) {
+        console.error('Error saving preferences to cache:', error);
+    }
+}
+
+async function loadFeedGroups() {
+    try {
+        const response = await fetch('/api/feed-groups');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        feedGroups = await response.json();
+        console.log('Loaded feed groups:', feedGroups);
+    } catch (error) {
+        console.error('Error loading feed groups:', error);
+        throw error;
+    }
+}
+
+async function renderFeedTabs() {
+    const tabsContainer = document.getElementById('feedTabs');
+    
+    if (feedGroups.length === 0) {
+        tabsContainer.innerHTML = '<li class="feed-tab">No feed groups available</li>';
+        return;
+    }
+    
+    // Add "All Groups" tab
+    let tabsHTML = `
+        <li class="feed-tab ${currentFeedGroup === null ? 'active' : ''}" 
+            onclick="switchFeedGroup(null)"
+            data-group-id="all">
+            <i class="fas fa-globe"></i>
+            <span>All Groups</span>
+            <span class="tab-count" id="count-all">0</span>
+        </li>
+    `;
+    
+    // Add individual group tabs
+    tabsHTML += feedGroups.map(group => `
+        <li class="feed-tab ${group.id === currentFeedGroup ? 'active' : ''}" 
+            onclick="switchFeedGroup(${group.id})"
+            data-group-id="${group.id}">
+            <div class="tab-color" style="background-color: ${group.color}"></div>
+            <span>${group.name}</span>
+            <span class="tab-count" id="count-${group.id}">0</span>
+        </li>
+    `).join('');
+    
+    tabsContainer.innerHTML = tabsHTML;
+    
+    // Load tab counters after rendering tabs
+    await loadTabCounters();
+}
+
+// Tab Counter Functions
+async function loadTabCounters() {
+    try {
+        // Load "All Groups" counter
+        const allResponse = await fetch('/api/unified-feed?limit=1');
+        if (allResponse.ok) {
+            const allData = await allResponse.json();
+            updateTabCounter('all', allData.total_count);
+        }
+        
+        // Load individual group counters
+        const promises = feedGroups.map(group => loadGroupTabCounter(group.id));
+        await Promise.all(promises);
+        
+    } catch (error) {
+        console.error('Error loading tab counters:', error);
+    }
+}
+
+async function loadGroupTabCounter(groupId) {
+    try {
+        const response = await fetch(`/api/feed-groups/${groupId}/stats`);
+        if (response.ok) {
+            const stats = await response.json();
+            updateTabCounter(groupId, stats.total_items);
+        } else {
+            updateTabCounter(groupId, 0);
+        }
+    } catch (error) {
+        console.error(`Error loading counter for group ${groupId}:`, error);
+        updateTabCounter(groupId, 0);
+    }
+}
+
+function updateTabCounter(groupId, count) {
+    const countElement = document.getElementById(`count-${groupId}`);
+    if (countElement) {
+        countElement.textContent = count.toLocaleString();
+        countElement.title = `${count} total articles`;
+    }
+}
+
+function refreshTabCounters() {
+    loadTabCounters();
+}
+
+async function switchFeedGroup(groupId) {
+    currentFeedGroup = groupId;
+    currentPage = 0;
+    hasMoreItems = true;
+    
+    // Update tab active states
+    document.querySelectorAll('.feed-tab').forEach(tab => {
+        const tabGroupId = tab.dataset.groupId;
+        const isActive = (groupId === null && tabGroupId === 'all') || 
+                        (groupId !== null && parseInt(tabGroupId) === groupId);
+        tab.classList.toggle('active', isActive);
+    });
+    
+    await loadFeedItems();
+}
+
+async function loadFeedItems(append = false) {
+    try {
+        if (!append) {
+            document.getElementById('feedItems').innerHTML = `
+                <div class="loading-container">
+                    <div class="loading-spinner"></div>
+                    <p>Loading feed items...</p>
+                </div>
+            `;
+        }
+        
+        const params = new URLSearchParams({
+            limit: currentFilters.limit,
+            offset: currentPage * currentFilters.limit,
+            include_hidden: showHidden
+        });
+        
+        if (currentFilters.source) {
+            params.append('source_types', currentFilters.source);
+        }
+        
+        let endpoint = '/api/unified-feed';
+        if (currentFeedGroup !== null) {
+            endpoint = `/api/feed-groups/${currentFeedGroup}/feed`;
+        }
+        
+        const response = await fetch(`${endpoint}?${params}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        
+        if (append) {
+            feedItems = [...feedItems, ...data.items];
+            allFeedItems = [...allFeedItems, ...data.items];
+        } else {
+            feedItems = data.items;
+            allFeedItems = data.items; // Store all items for client-side filtering
+        }
+        
+        hasMoreItems = data.has_more;
+        renderFeedItems();
+        updateLoadMoreButton();
+        
+    } catch (error) {
+        console.error('Error loading feed items:', error);
+        showError('Failed to load feed items. Please try again.');
+    }
+}
+
+function renderFeedItems() {
+    const container = document.getElementById('feedItems');
+    
+    if (feedItems.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 60px 20px; color: var(--dark-gray);">
+                <i class="fas fa-rss" style="font-size: 3rem; color: var(--medium-gray); margin-bottom: 16px;"></i>
+                <h3 style="color: var(--dark-gray); margin-bottom: 8px;">No feed items yet</h3>
+                <p>Try collecting new items or check your feed group sources.</p>
+                <button class="btn-tab-control btn-primary-control" onclick="collectFeedItems()">
+                    <i class="fas fa-download"></i>
+                    Collect Items
+                </button>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = feedItems.map(item => renderFeedItem(item)).join('');
+    
+    // Check enrichment status for all items after rendering
+    setTimeout(() => checkEnrichmentStatus(), 100);
+}
+
+function renderFeedItem(item) {
+    const publishDate = item.publication_date ? 
+        new Date(item.publication_date).toLocaleDateString() : 
+        'No date';
+    
+    const sourceIcon = item.source_type === 'arxiv' ? 
+        '<div style="width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8rem; background: #b31b1b;">A</div>' :
+        '<div style="width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8rem; background: #0085ff;">B</div>';
+    
+    const engagement = item.engagement_metrics || {};
+    const tags = item.tags || [];
+    
+    return `
+        <div class="feed-item" data-item-id="${item.id}" style="animation: fadeIn 0.3s ease-in;">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--dark-gray);">
+                    <input type="checkbox" class="item-checkbox" data-item-id="${item.id}" onchange="updateSelectedCount()" style="margin-right: 6px;">
+                    ${sourceIcon}
+                    <span>${item.source_type.toUpperCase()}</span>
+                    <span>•</span>
+                    <span style="color: ${item.group_color}">${item.group_name}</span>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                    <button id="enrich-btn-${item.id}" style="padding: 6px 10px; border: none; border-radius: 6px; background: #9966CC; color: white; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;" 
+                            onclick="enrichSingleArticle(${item.id})"
+                            title="Enrich this article">
+                        <i class="fas fa-brain"></i>
+                    </button>
+                    <button id="results-btn-${item.id}" style="padding: 6px 10px; border: none; border-radius: 6px; background: #28a745; color: white; cursor: pointer; font-size: 0.85rem; transition: all 0.2s; display: none;" 
+                            onclick="viewEnrichmentResults(${item.id})"
+                            title="View enrichment results">
+                        <i class="fas fa-chart-line"></i>
+                    </button>
+                    <button style="padding: 6px 10px; border: none; border-radius: 6px; background: ${item.is_starred ? 'var(--primary-color)' : 'var(--light-gray)'}; color: ${item.is_starred ? 'white' : 'var(--dark-gray)'}; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;" 
+                            onclick="toggleStar(${item.id}, ${!item.is_starred})"
+                            title="${item.is_starred ? 'Unstar' : 'Star'} item">
+                        <i class="fas fa-star"></i>
+                    </button>
+                    <button style="padding: 6px 10px; border: none; border-radius: 6px; background: var(--light-gray); color: var(--dark-gray); cursor: pointer; font-size: 0.85rem; transition: all 0.2s;" 
+                            onclick="hideItem(${item.id})"
+                            title="Hide item">
+                        <i class="fas fa-eye-slash"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <h3 class="feed-item-title">
+                <a href="${item.url}" target="_blank">${item.title}</a>
+            </h3>
+            
+            <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 12px; font-size: 0.9rem; color: var(--dark-gray);">
+                ${item.author ? `<div><i class="fas fa-user"></i> ${item.author}</div>` : ''}
+                <div><i class="fas fa-calendar"></i> ${publishDate}</div>
+                ${item.author_handle ? `<div><i class="fab fa-at"></i> ${item.author_handle}</div>` : ''}
+            </div>
+            
+            ${item.content ? `<div style="color: var(--text-color); line-height: 1.6; margin-bottom: 16px;">${truncateText(item.content, 300)}</div>` : ''}
+            
+            <!-- Analysis Metadata Badges -->
+            ${(item.category || item.sentiment || item.future_signal || item.time_to_impact || item.driver_type) ? `
+            <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--light-gray);">
+                ${item.category ? `<span class="badge bg-info" style="font-size: 0.75rem; font-weight: 500;"><i class="fas fa-tag me-1"></i>${item.category}</span>` : ''}
+                ${item.sentiment ? `<span class="badge bg-secondary" style="font-size: 0.75rem; font-weight: 500;"><i class="fas fa-smile me-1"></i>${item.sentiment}</span>` : ''}
+                ${item.future_signal ? `<span class="badge bg-warning text-dark" style="font-size: 0.75rem; font-weight: 500;"><i class="fas fa-chart-line me-1"></i>${item.future_signal}</span>` : ''}
+                ${item.time_to_impact ? `<span class="badge bg-success" style="font-size: 0.75rem; font-weight: 500;"><i class="fas fa-clock me-1"></i>${item.time_to_impact}</span>` : ''}
+                ${item.driver_type ? `<span class="badge bg-dark" style="font-size: 0.75rem; font-weight: 500;"><i class="fas fa-cogs me-1"></i>${item.driver_type}</span>` : ''}
+            </div>` : ''}
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--light-gray); flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; gap: 16px; flex-wrap: wrap;">
+                    ${engagement.likes ? `<div style="display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: var(--light-gray); border-radius: 4px; font-size: 0.85rem;"><i class="fas fa-heart" style="color: var(--primary-color);"></i> ${engagement.likes}</div>` : ''}
+                    ${engagement.reposts ? `<div style="display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: var(--light-gray); border-radius: 4px; font-size: 0.85rem;"><i class="fas fa-retweet" style="color: var(--primary-color);"></i> ${engagement.reposts}</div>` : ''}
+                    ${engagement.replies ? `<div style="display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: var(--light-gray); border-radius: 4px; font-size: 0.85rem;"><i class="fas fa-reply" style="color: var(--primary-color);"></i> ${engagement.replies}</div>` : ''}
+                </div>
+                <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    ${tags.slice(0, 3).map(tag => `<span style="background: var(--light-gray); color: var(--dark-gray); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; border: 1px solid var(--medium-gray);">${tag}</span>`).join('')}
+                    ${tags.length > 3 ? `<span style="background: var(--light-gray); color: var(--dark-gray); padding: 4px 8px; border-radius: 4px; font-size: 0.8rem; border: 1px solid var(--medium-gray);">+${tags.length - 3} more</span>` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function truncateText(text, maxLength) {
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+}
+
+async function toggleStar(itemId, starred) {
+    try {
+        const response = await fetch(`/api/feed-items/${itemId}/star`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(starred)
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Update local state
+        const item = feedItems.find(item => item.id === itemId);
+        if (item) {
+            item.is_starred = starred;
+            renderFeedItems();
+        }
+        
+        showSuccess(starred ? 'Item starred!' : 'Item unstarred!');
+        
+    } catch (error) {
+        console.error('Error toggling star:', error);
+        showError('Failed to update item. Please try again.');
+    }
+}
+
+async function hideItem(itemId) {
+    try {
+        const response = await fetch(`/api/feed-items/${itemId}/hide`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Remove from current view if not showing hidden items
+        if (!showHidden) {
+            feedItems = feedItems.filter(item => item.id !== itemId);
+            renderFeedItems();
+        }
+        
+        showSuccess('Item hidden!');
+        
+    } catch (error) {
+        console.error('Error hiding item:', error);
+        showError('Failed to hide item. Please try again.');
+    }
+}
+
+async function collectFeedItems() {
+    try {
+        showSuccess('Collecting new feed items...');
+        
+        let endpoint = '/api/feed-collection/collect-all';
+        if (currentFeedGroup !== null) {
+            endpoint = `/api/feed-groups/${currentFeedGroup}/collect?max_items=20`;
+        }
+        
+        const response = await fetch(endpoint, { method: 'POST' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        showSuccess(`Collected ${result.total_items_collected || result.items_collected || 0} new items`);
+        
+        // Refresh the current feed
+        await loadFeedItems();
+        
+        // Refresh tab counters
+        await refreshTabCounters();
+        
+    } catch (error) {
+        console.error('Error collecting feed items:', error);
+        showError('Failed to collect new items. Please try again.');
+    }
+}
+
+function applyFilters() {
+    // Update filters from UI
+    currentFilters.source = document.getElementById('sourceFilter').value;
+    currentFilters.sort = document.getElementById('sortBy').value;
+    currentFilters.limit = parseInt(document.getElementById('itemsPerPage').value);
+    currentFilters.search = document.getElementById('searchInput').value;
+    currentFilters.dateRange = document.getElementById('dateFilter')?.value || '';
+    currentFilters.author = document.getElementById('authorFilter')?.value || '';
+    currentFilters.minEngagement = document.getElementById('engagementFilter')?.value || '';
+    
+    // Save to cache
+    savePreferencesToCache();
+    
+    // Apply client-side filtering if we have items, otherwise reload
+    if (allFeedItems.length > 0) {
+        applyClientSideFilters();
+    } else {
+        currentPage = 0;
+        hasMoreItems = true;
+        loadFeedItems();
+    }
+}
+
+function applyClientSideFilters() {
+    let filteredItems = [...allFeedItems];
+    
+    // Apply search filter
+    if (currentFilters.search) {
+        const searchTerm = currentFilters.search.toLowerCase();
+        filteredItems = filteredItems.filter(item => 
+            item.title.toLowerCase().includes(searchTerm) ||
+            (item.content && item.content.toLowerCase().includes(searchTerm)) ||
+            (item.author && item.author.toLowerCase().includes(searchTerm))
+        );
+    }
+    
+    // Apply source filter
+    if (currentFilters.source) {
+        filteredItems = filteredItems.filter(item => item.source_type === currentFilters.source);
+    }
+    
+    // Apply date range filter
+    if (currentFilters.dateRange) {
+        const now = new Date();
+        const filterDate = getDateFromRange(currentFilters.dateRange, now);
+        filteredItems = filteredItems.filter(item => {
+            const itemDate = new Date(item.publication_date || item.created_at);
+            return itemDate >= filterDate;
+        });
+    }
+    
+    // Apply author filter
+    if (currentFilters.author) {
+        const authorTerm = currentFilters.author.toLowerCase();
+        filteredItems = filteredItems.filter(item => 
+            item.author && item.author.toLowerCase().includes(authorTerm)
+        );
+    }
+    
+    // Apply engagement filter
+    if (currentFilters.minEngagement) {
+        const minEngagement = parseInt(currentFilters.minEngagement);
+        filteredItems = filteredItems.filter(item => {
+            const engagement = item.engagement_metrics || {};
+            const total = (engagement.likes || 0) + (engagement.reposts || 0) + (engagement.replies || 0);
+            return total >= minEngagement;
+        });
+    }
+    
+    // Apply sorting
+    filteredItems.sort((a, b) => {
+        switch (currentFilters.sort) {
+            case 'publication_date':
+                return new Date(b.publication_date || b.created_at) - new Date(a.publication_date || a.created_at);
+            case 'created_at':
+                return new Date(b.created_at) - new Date(a.created_at);
+            case 'engagement':
+                const aEng = getEngagementScore(a);
+                const bEng = getEngagementScore(b);
+                return bEng - aEng;
+            default:
+                return 0;
+        }
+    });
+    
+    // Apply pagination
+    const startIndex = currentPage * currentFilters.limit;
+    const endIndex = startIndex + currentFilters.limit;
+    feedItems = filteredItems.slice(0, endIndex);
+    hasMoreItems = endIndex < filteredItems.length;
+    
+    renderFeedItems();
+    updateLoadMoreButton();
+}
+
+function getDateFromRange(range, now) {
+    switch (range) {
+        case 'today':
+            return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        case 'week':
+            const weekAgo = new Date(now);
+            weekAgo.setDate(now.getDate() - 7);
+            return weekAgo;
+        case 'month':
+            const monthAgo = new Date(now);
+            monthAgo.setMonth(now.getMonth() - 1);
+            return monthAgo;
+        case 'quarter':
+            const quarterAgo = new Date(now);
+            quarterAgo.setMonth(now.getMonth() - 3);
+            return quarterAgo;
+        default:
+            return new Date(0); // Beginning of time
+    }
+}
+
+function getEngagementScore(item) {
+    const engagement = item.engagement_metrics || {};
+    return (engagement.likes || 0) + (engagement.reposts || 0) + (engagement.replies || 0);
+}
+
+// Search functionality
+function handleSearch(event) {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        applyFilters();
+    }, 300);
+    
+    // Handle Enter key
+    if (event.key === 'Enter') {
+        clearTimeout(searchTimeout);
+        applyFilters();
+    }
+}
+
+function debounceFilter(func, delay) {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(func, delay);
+}
+
+// Customization panel
+function toggleCustomizePanel() {
+    const panel = document.getElementById('customizePanel');
+    const isVisible = panel.style.display !== 'none';
+    panel.style.display = isVisible ? 'none' : 'block';
+    
+    // Update button text
+    const button = event.target.closest('button');
+    const icon = button.querySelector('i');
+    icon.className = isVisible ? 'fas fa-sliders-h' : 'fas fa-times';
+}
+
+function changeLayout() {
+    const layout = document.getElementById('layoutMode').value;
+    currentFilters.layout = layout;
+    savePreferencesToCache();
+    
+    const feedItemsContainer = document.getElementById('feedItems');
+    feedItemsContainer.className = `feed-items layout-${layout}`;
+    
+    // Re-render items with new layout
+    renderFeedItems();
+}
+
+function saveCustomizations() {
+    applyFilters();
+    showSuccess('Preferences saved!');
+    toggleCustomizePanel();
+}
+
+function resetCustomizations() {
+    // Reset all filters
+    currentFilters = {
+        source: '',
+        sort: 'publication_date',
+        limit: 50,
+        search: '',
+        dateRange: '',
+        author: '',
+        minEngagement: '',
+        layout: 'cards'
+    };
+    
+    // Clear cache
+    localStorage.removeItem(CACHE_KEYS.FILTERS);
+    
+    // Reset UI
+    document.getElementById('sourceFilter').value = '';
+    document.getElementById('sortBy').value = 'publication_date';
+    document.getElementById('itemsPerPage').value = '50';
+    document.getElementById('searchInput').value = '';
+    if (document.getElementById('dateFilter')) document.getElementById('dateFilter').value = '';
+    if (document.getElementById('authorFilter')) document.getElementById('authorFilter').value = '';
+    if (document.getElementById('engagementFilter')) document.getElementById('engagementFilter').value = '';
+    document.getElementById('layoutMode').value = 'cards';
+    
+    // Apply changes
+    changeLayout();
+    applyFilters();
+    
+    showSuccess('Preferences reset to defaults!');
+}
+
+function toggleHiddenItems() {
+    showHidden = !showHidden;
+    document.getElementById('hiddenToggleText').textContent = showHidden ? 'Hide Hidden' : 'Show Hidden';
+    
+    currentPage = 0;
+    hasMoreItems = true;
+    loadFeedItems();
+}
+
+function loadMoreItems() {
+    if (hasMoreItems) {
+        currentPage++;
+        loadFeedItems(true);
+    }
+}
+
+function updateLoadMoreButton() {
+    const container = document.getElementById('loadMoreContainer');
+    container.style.display = hasMoreItems ? 'block' : 'none';
+}
+
+function refreshCurrentFeed() {
+    currentPage = 0;
+    hasMoreItems = true;
+    loadFeedItems();
+}
+
+// Utility functions
+function showSuccess(message) {
+    console.log('Success:', message);
+    // Simple success indicator - could be enhanced with a toast system
+    const button = event?.target;
+    if (button) {
+        const originalText = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-check"></i> ' + message;
+        setTimeout(() => {
+            button.innerHTML = originalText;
+        }, 2000);
+    }
+}
+
+function showError(message) {
+    console.error('Error:', message);
+    alert('Error: ' + message);
+}
+
+function renderEmptyState() {
+    document.getElementById('feedItems').innerHTML = `
+        <div style="text-align: center; padding: 60px 20px; color: var(--dark-gray);">
+            <i class="fas fa-rss" style="font-size: 3rem; color: var(--medium-gray); margin-bottom: 16px;"></i>
+            <h3 style="color: var(--dark-gray); margin-bottom: 8px;">Welcome to Your Unified Feed!</h3>
+            <p>Create your first feed group to start aggregating content from social media and academic sources.</p>
+            <button class="btn-tab-control btn-primary-control" onclick="window.location.href='/feed-manager'">
+                <i class="fas fa-plus"></i>
+                Create Your First Group
+            </button>
+        </div>
+    `;
+}
+
+// Article Enrichment Functionality
+let selectedArticles = [];
+let currentEnrichmentResults = [];
+
+function updateSelectedCount() {
+    const checkboxes = document.querySelectorAll('.item-checkbox:checked');
+    const count = checkboxes.length;
+    
+    document.getElementById('selectedCount').textContent = count;
+    document.querySelector('.btn-enrichment').disabled = count === 0;
+    
+    // Update selected articles array
+    selectedArticles = Array.from(checkboxes).map(cb => {
+        const itemId = parseInt(cb.dataset.itemId);
+        return feedItems.find(item => item.id === itemId);
+    }).filter(Boolean);
+}
+
+function enrichSingleArticle(itemId) {
+    const article = feedItems.find(item => item.id === itemId);
+    if (!article) return;
+    
+    selectedArticles = [article];
+    openEnrichmentModal();
+}
+
+function enrichSelectedArticles() {
+    if (selectedArticles.length === 0) {
+        showError('Please select articles to enrich');
+        return;
+    }
+    
+    openEnrichmentModal();
+}
+
+async function openEnrichmentModal() {
+    // Load topics and models
+    await Promise.all([
+        loadEnrichmentTopics(),
+        loadEnrichmentModels()
+    ]);
+    
+    // Populate selected articles list
+    populateEnrichmentArticlesList();
+    
+    // Reset modal state
+    resetEnrichmentModalState();
+    
+    // Show the modal
+    const modal = new bootstrap.Modal(document.getElementById('articleEnrichmentModal'));
+    modal.show();
+}
+
+async function loadEnrichmentTopics() {
+    try {
+        const response = await fetch('/api/topics');
+        const topics = await response.json();
+        const topicSelect = document.getElementById('enrichmentTopicSelect');
+        
+        topicSelect.innerHTML = '<option value="">Select a topic</option>';
+        topics.forEach(topic => {
+            const option = document.createElement('option');
+            option.value = topic.name;
+            option.textContent = topic.name;
+            topicSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading topics:', error);
+    }
+}
+
+async function loadEnrichmentModels() {
+    try {
+        const response = await fetch('/api/available_models');
+        const models = await response.json();
+        const modelSelect = document.getElementById('enrichmentModelSelect');
+        
+        modelSelect.innerHTML = '<option value="">Select a model</option>';
+        models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model.name;
+            option.textContent = `${model.name} (${model.provider})`;
+            modelSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading models:', error);
+    }
+}
+
+function populateEnrichmentArticlesList() {
+    const listContainer = document.getElementById('enrichmentSelectedArticlesList');
+    const countElement = document.getElementById('enrichmentSelectedCount');
+    
+    countElement.textContent = selectedArticles.length;
+    listContainer.innerHTML = '';
+    
+    selectedArticles.forEach((article, index) => {
+        const listItem = document.createElement('div');
+        listItem.className = 'list-group-item';
+        listItem.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1">
+                    <h6 class="mb-1">${article.title || 'Untitled'}</h6>
+                    <p class="mb-1 small text-muted">${article.source_type?.toUpperCase() || 'Unknown Source'}</p>
+                    <small class="text-muted">${article.url}</small>
+                </div>
+                <span class="badge bg-primary">#${index + 1}</span>
+            </div>
+        `;
+        listContainer.appendChild(listItem);
+    });
+}
+
+function resetEnrichmentModalState() {
+    currentEnrichmentResults = [];
+    
+    // Hide progress and results sections
+    document.getElementById('enrichmentProgressContainer').style.display = 'none';
+    document.getElementById('enrichmentResultsContainer').style.display = 'none';
+    document.getElementById('saveEnrichmentResultsBtn').style.display = 'none';
+    
+    // Reset progress bar
+    const progressBar = document.getElementById('enrichmentProgressBar');
+    progressBar.style.width = '0%';
+    progressBar.setAttribute('aria-valuenow', '0');
+    
+    // Reset save button
+    const saveBtn = document.getElementById('saveEnrichmentResultsBtn');
+    saveBtn.disabled = false;
+    saveBtn.innerHTML = '<i class="fas fa-save"></i> Save All Articles';
+    saveBtn.classList.remove('btn-success');
+    saveBtn.classList.add('btn-primary');
+    
+    // Reset options
+    document.getElementById('enrichmentBackgroundProcessing').checked = true;
+    document.getElementById('enrichmentQualityControl').checked = true;
+    
+    // Enable start button
+    document.getElementById('startEnrichmentBtn').disabled = false;
+}
+
+async function startArticleEnrichment() {
+    const topic = document.getElementById('enrichmentTopicSelect').value;
+    const model = document.getElementById('enrichmentModelSelect').value;
+    
+    if (!topic || !model) {
+        showError('Please select both a topic and AI model');
+        return;
+    }
+    
+    const backgroundProcessing = document.getElementById('enrichmentBackgroundProcessing').checked;
+    const qualityControl = document.getElementById('enrichmentQualityControl').checked;
+    
+    try {
+        // Disable start button and show progress
+        document.getElementById('startEnrichmentBtn').disabled = true;
+        document.getElementById('enrichmentProgressContainer').style.display = 'block';
+        
+        // Prepare request data
+        const enrichmentUrls = selectedArticles.map(article => article.url);
+        
+        // Store URLs for debugging
+        window.lastEnrichmentUrls = enrichmentUrls;
+        console.log('🔧 DEBUG: URLs being sent for enrichment:', enrichmentUrls);
+        
+        const requestData = {
+            urls: enrichmentUrls,
+            summaryType: "curious_ai_long",
+            modelName: model,
+            topic: topic,
+            preservedMetadata: selectedArticles.map(article => ({
+                title: article.title,
+                source: article.source_type,
+                url: article.url,
+                publication_date: article.publication_date,
+                author: article.author,
+                summary: article.content
+            })),
+            options: {
+                backgroundProcessing: backgroundProcessing,
+                qualityControl: qualityControl
+            }
+        };
+        
+        if (backgroundProcessing) {
+            showSuccess(`Enrichment started in background for ${selectedArticles.length} articles`);
+            setTimeout(() => {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('articleEnrichmentModal'));
+                if (modal) modal.hide();
+            }, 1000);
+        }
+        
+        // Start streaming enrichment
+        await performStreamingEnrichment(requestData);
+        
+    } catch (error) {
+        console.error('Error during enrichment:', error);
+        showError(`Enrichment failed: ${error.message}`);
+        resetEnrichmentModalState();
+    }
+}
+
+async function performStreamingEnrichment(requestData) {
+    const progressText = document.getElementById('enrichmentProgressText');
+    const progressBar = document.getElementById('enrichmentProgressBar');
+    
+    let processedCount = 0;
+    const totalCount = requestData.urls.length;
+    
+    const response = await fetch('/api/bulk-research-stream', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/x-ndjson'
+        },
+        body: JSON.stringify(requestData)
+    });
+
+    if (!response.ok || !response.body) {
+        throw new Error(`Server error: ${response.status}`);
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        
+        for (const line of lines) {
+            if (!line.trim()) continue;
+            
+            try {
+                const result = JSON.parse(line);
+                currentEnrichmentResults.push(result);
+                processedCount++;
+                
+                // Update progress
+                const percentage = (processedCount / totalCount) * 100;
+                progressBar.style.width = `${percentage}%`;
+                progressBar.setAttribute('aria-valuenow', percentage);
+                progressText.textContent = `Processed ${processedCount} of ${totalCount} articles...`;
+                
+            } catch (e) {
+                console.error('Failed to parse NDJSON line', line, e);
+            }
+        }
+    }
+    
+    // Analysis complete
+    progressText.textContent = `Enrichment complete! Processed ${currentEnrichmentResults.length} articles.`;
+    progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
+    progressBar.style.width = '100%';
+    
+    showSuccess(`Successfully enriched ${currentEnrichmentResults.length} articles!`);
+    
+    // Show results and save button if we have enrichment results
+    if (currentEnrichmentResults.length > 0) {
+        // Show the enrichment results container
+        document.getElementById('enrichmentResultsContainer').style.display = 'block';
+        
+        // Show save button
+        document.getElementById('saveEnrichmentResultsBtn').style.display = 'inline-block';
+        
+        // Populate results
+        displayEnrichmentResults(currentEnrichmentResults);
+    }
+    
+    // Also refresh enrichment status for all items
+    setTimeout(() => checkEnrichmentStatus(), 2000);
+}
+
+// Display enrichment results in the modal
+function displayEnrichmentResults(results) {
+    const container = document.getElementById('enrichmentResultsList');
+    container.innerHTML = '';
+    
+    results.forEach((result, index) => {
+        const resultItem = document.createElement('div');
+        resultItem.className = 'list-group-item border rounded p-3 mb-2 bg-light';
+        resultItem.dataset.resultIndex = index;
+        resultItem.dataset.resultUri = result.uri;
+        
+        resultItem.innerHTML = `
+            <div class="result-item-actions">
+                <button class="btn btn-outline-primary btn-sm" onclick="editEnrichmentResult(${index})" title="Edit result">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-outline-danger btn-sm" onclick="removeEnrichmentResult(${index})" title="Remove result">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+            <div class="d-flex justify-content-between align-items-start">
+                <div class="flex-grow-1 pe-5 pt-2">
+                    <h6 class="mb-1">${result.title || 'Untitled'}</h6>
+                    <div class="summary-section mb-2">
+                        <div class="d-flex align-items-start">
+                            <span class="badge bg-success me-2 summary-badge" title="AI-generated summary">AI</span>
+                            <p class="mb-0 small ai-summary">${result.summary || 'No AI summary available'}</p>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-1 mt-2">
+                        ${result.category ? `<span class="badge bg-info"><i class="fas fa-tag me-1"></i>${result.category}</span>` : ''}
+                        ${result.sentiment ? `<span class="badge bg-secondary"><i class="fas fa-smile me-1"></i>${result.sentiment}</span>` : ''}
+                        ${result.future_signal ? `<span class="badge bg-warning text-dark"><i class="fas fa-chart-line me-1"></i>${result.future_signal}</span>` : ''}
+                        ${result.time_to_impact ? `<span class="badge bg-success"><i class="fas fa-clock me-1"></i>${result.time_to_impact}</span>` : ''}
+                        ${result.driver_type ? `<span class="badge bg-dark"><i class="fas fa-cogs me-1"></i>${result.driver_type}</span>` : ''}
+                        ${result.quality_score ? `<span class="badge bg-success"><i class="fas fa-shield-check me-1"></i>Quality: ${result.quality_score}/100</span>` : ''}
+                    </div>
+                    <small class="text-muted">${result.news_source || result.uri}</small>
+                </div>
+                <span class="badge bg-primary mt-4">#${index + 1}</span>
+            </div>
+        `;
+        container.appendChild(resultItem);
+    });
+    
+    // Update count
+    document.getElementById('enrichmentResultsCount').textContent = results.length;
+}
+
+// Save enrichment results directly (like keyword_alerts does)
+async function saveEnrichmentResults() {
+    const saveBtn = document.getElementById('saveEnrichmentResultsBtn');
+    const topic = document.getElementById('enrichmentTopicSelect').value;
+    
+    if (currentEnrichmentResults.length === 0) {
+        showError('No enrichment results to save');
+        return;
+    }
+    
+    try {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        // Prepare articles for saving (same format as keyword_alerts)
+        const articles = currentEnrichmentResults.map(result => ({
+            ...result,
+            topic: topic,
+            tags: Array.isArray(result.tags) ? result.tags : (result.tags ? result.tags.split(',').map(tag => tag.trim()) : []),
+            submission_date: new Date().toISOString(),
+            analyzed: true
+        }));
+        
+        const response = await fetch('/api/save-bulk-articles', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ articles }),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.success && result.success.length > 0) {
+            showSuccess(`${result.success.length} articles saved successfully!`);
+            
+            // Update button to show success
+            saveBtn.innerHTML = '<i class="fas fa-check"></i> Saved Successfully';
+            saveBtn.classList.remove('btn-primary');
+            saveBtn.classList.add('btn-success');
+            
+            // Hide the modal after a delay
+            setTimeout(() => {
+                const modal = bootstrap.Modal.getInstance(document.getElementById('articleEnrichmentModal'));
+                if (modal) modal.hide();
+            }, 2000);
+        }
+        
+        if (result.errors && result.errors.length > 0) {
+            const errorMessage = result.errors.map(error => `${error.uri}: ${error.error}`).join('\n');
+            showError(`Some articles could not be saved:\n${errorMessage}`);
+        }
+        
+    } catch (error) {
+        console.error('Error saving enrichment results:', error);
+        showError(`Error saving articles: ${error.message}`);
+    } finally {
+        if (!saveBtn.classList.contains('btn-success')) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save"></i> Save All Articles';
+        }
+    }
+}
+
+// View detailed results for a specific article
+function viewDetailedResults(index) {
+    const result = currentEnrichmentResults[index];
+    if (!result) return;
+    
+    // Use the same modal as individual article results
+    showEnrichmentResultsModal(result, null);
+}
+
+// Function to edit enrichment result
+async function editEnrichmentResult(index) {
+    const result = currentEnrichmentResults[index];
+    if (!result) return;
+    
+    // Get the selected topic for fetching options
+    const topicSelect = document.getElementById('enrichmentTopicSelect');
+    const selectedTopic = topicSelect ? topicSelect.value : 'AI and Machine Learning'; // Default fallback
+    
+    try {
+        // Fetch topic options from API
+        const response = await fetch(`/api/topic-options/${encodeURIComponent(selectedTopic)}`);
+        const topicOptions = await response.json();
+        
+        // Create dropdown options
+        const sentimentOptions = topicOptions.sentiments?.map(sentiment => 
+            `<option value="${sentiment}" ${result.sentiment === sentiment ? 'selected' : ''}>${sentiment}</option>`
+        ).join('') || '<option value="">No sentiments available</option>';
+        
+        const timeToImpactOptions = topicOptions.timeToImpacts?.map(time => 
+            `<option value="${time}" ${result.time_to_impact === time ? 'selected' : ''}>${time}</option>`
+        ).join('') || '<option value="">No time to impact options available</option>';
+        
+        const driverTypeOptions = topicOptions.driverTypes?.map(driver => 
+            `<option value="${driver}" ${result.driver_type === driver ? 'selected' : ''}>${driver}</option>`
+        ).join('') || '<option value="">No driver types available</option>';
+        
+        const categoryOptions = topicOptions.categories?.map(category => 
+            `<option value="${category}" ${result.category === category ? 'selected' : ''}>${category}</option>`
+        ).join('') || '<option value="">No categories available</option>';
+        
+        const futureSignalOptions = topicOptions.futureSignals?.map(signal => 
+            `<option value="${signal}" ${result.future_signal === signal ? 'selected' : ''}>${signal}</option>`
+        ).join('') || '<option value="">No future signals available</option>';
+        
+        // Create a simple edit dialog
+        const editModal = document.createElement('div');
+        editModal.className = 'modal fade';
+        editModal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Edit Enrichment Result</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Title</label>
+                            <input type="text" class="form-control" id="editResultTitle" value="${result.title || ''}">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">AI-Generated Summary</label>
+                            <textarea class="form-control" id="editResultSummary" rows="3">${result.summary || ''}</textarea>
+                            <div class="form-text">This is the AI-generated summary that will be saved to the database.</div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Category</label>
+                                    <select class="form-control" id="editResultCategory">
+                                        <option value="">Select category</option>
+                                        ${categoryOptions}
+                                    </select>
+                                    <div class="form-text">Available categories from topic: ${topicOptions.categories?.length || 0}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Sentiment</label>
+                                    <select class="form-control" id="editResultSentiment">
+                                        <option value="">Select sentiment</option>
+                                        ${sentimentOptions}
+                                    </select>
+                                    <div class="form-text">Available sentiments: ${topicOptions.sentiments?.length || 0}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Time to Impact</label>
+                                    <select class="form-control" id="editResultTimeToImpact">
+                                        <option value="">Select time frame</option>
+                                        ${timeToImpactOptions}
+                                    </select>
+                                    <div class="form-text">Available timeframes: ${topicOptions.timeToImpacts?.length || 0}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="form-label">Driver Type</label>
+                                    <select class="form-control" id="editResultDriverType">
+                                        <option value="">Select driver type</option>
+                                        ${driverTypeOptions}
+                                    </select>
+                                    <div class="form-text">Available drivers: ${topicOptions.driverTypes?.length || 0}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Future Signal</label>
+                            <select class="form-control" id="editResultFutureSignal">
+                                <option value="">Select future signal</option>
+                                ${futureSignalOptions}
+                            </select>
+                            <div class="form-text">Available signals: ${topicOptions.futureSignals?.length || 0}</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-primary" onclick="saveEditedEnrichmentResult(${index})">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(editModal);
+        const modal = new bootstrap.Modal(editModal);
+        modal.show();
+        
+        // Remove modal from DOM when hidden
+        editModal.addEventListener('hidden.bs.modal', () => {
+            editModal.remove();
+        });
+        
+    } catch (error) {
+        console.error('Error loading topic options:', error);
+        showError('Failed to load topic options. Using basic fields only.');
+        
+        // Fallback to basic modal if API fails
+        showBasicEditModal(result, index);
+    }
+}
+
+// Fallback function for basic edit modal without API options
+function showBasicEditModal(result, index) {
+    const editModal = document.createElement('div');
+    editModal.className = 'modal fade';
+    editModal.innerHTML = `
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Enrichment Result</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Title</label>
+                        <input type="text" class="form-control" id="editResultTitle" value="${result.title || ''}">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">AI-Generated Summary</label>
+                        <textarea class="form-control" id="editResultSummary" rows="3">${result.summary || ''}</textarea>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Category</label>
+                                <input type="text" class="form-control" id="editResultCategory" value="${result.category || ''}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Sentiment</label>
+                                <input type="text" class="form-control" id="editResultSentiment" value="${result.sentiment || ''}">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Time to Impact</label>
+                                <input type="text" class="form-control" id="editResultTimeToImpact" value="${result.time_to_impact || ''}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">Driver Type</label>
+                                <input type="text" class="form-control" id="editResultDriverType" value="${result.driver_type || ''}">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Future Signal</label>
+                        <input type="text" class="form-control" id="editResultFutureSignal" value="${result.future_signal || ''}">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveEditedEnrichmentResult(${index})">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(editModal);
+    const modal = new bootstrap.Modal(editModal);
+    modal.show();
+    
+    editModal.addEventListener('hidden.bs.modal', () => {
+        editModal.remove();
+    });
+}
+
+// Function to save edited enrichment result
+function saveEditedEnrichmentResult(index) {
+    const result = currentEnrichmentResults[index];
+    result.title = document.getElementById('editResultTitle').value;
+    result.summary = document.getElementById('editResultSummary').value;
+    result.category = document.getElementById('editResultCategory').value;
+    result.sentiment = document.getElementById('editResultSentiment').value;
+    result.time_to_impact = document.getElementById('editResultTimeToImpact').value;
+    result.driver_type = document.getElementById('editResultDriverType').value;
+    result.future_signal = document.getElementById('editResultFutureSignal').value;
+    
+    // Update the display
+    displayEnrichmentResults(currentEnrichmentResults);
+    
+    // Close the edit modal
+    const modal = bootstrap.Modal.getInstance(document.querySelector('.modal.show'));
+    if (modal) modal.hide();
+    
+    showSuccess('Enrichment result updated successfully!');
+}
+
+// Function to remove enrichment result
+function removeEnrichmentResult(index) {
+    if (confirm('Remove this enrichment result?')) {
+        currentEnrichmentResults.splice(index, 1);
+        
+        // Re-display all results
+        displayEnrichmentResults(currentEnrichmentResults);
+        
+        showSuccess('Enrichment result removed');
+    }
+}
+
+// Bulk save enriched articles
+async function bulkSaveEnrichedArticles() {
+    const enrichedItems = [];
+    
+    // Find all items that have enrichment results available
+    for (const item of feedItems) {
+        const resultsBtn = document.getElementById(`results-btn-${item.id}`);
+        if (resultsBtn && resultsBtn.style.display !== 'none') {
+            enrichedItems.push(item);
+        }
+    }
+    
+    if (enrichedItems.length === 0) {
+        showError('No enriched articles found to save');
+        return;
+    }
+    
+    const confirmSave = confirm(`Save ${enrichedItems.length} enriched articles to the main database?`);
+    if (!confirmSave) return;
+    
+    const saveBtn = document.getElementById('saveEnrichedBtn');
+    const originalText = saveBtn.innerHTML;
+    
+    try {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        let savedCount = 0;
+        let alreadyExisted = 0;
+        let errors = 0;
+        
+        for (const item of enrichedItems) {
+            try {
+                const response = await fetch(`/api/feed-items/${item.id}/save-enriched`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                if (response.ok) {
+                    const result = await response.json();
+                    if (result.already_existed) {
+                        alreadyExisted++;
+                    } else {
+                        savedCount++;
+                    }
+                } else {
+                    errors++;
+                }
+            } catch (error) {
+                console.error(`Error saving item ${item.id}:`, error);
+                errors++;
+            }
+        }
+        
+        // Show results
+        let message = '';
+        if (savedCount > 0) message += `Saved ${savedCount} new articles. `;
+        if (alreadyExisted > 0) message += `${alreadyExisted} already existed. `;
+        if (errors > 0) message += `${errors} failed to save.`;
+        
+        if (errors === 0) {
+            showSuccess(message || 'All articles processed successfully!');
+        } else {
+            showError(message);
+        }
+        
+    } catch (error) {
+        console.error('Error during bulk save:', error);
+        showError('Failed to save articles. Please try again.');
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
+    }
+}
+
+// Debug function to check articles table directly
+async function debugEnrichmentData() {
+    console.log('🐛 DEBUG: Checking for URL mismatches...');
+    
+    // First, let's see what URLs we have in feed items
+    console.log('🐛 DEBUG: Current feed item URLs:');
+    feedItems.forEach((item, index) => {
+        console.log(`  ${index + 1}. Item ${item.id}: ${item.url}`);
+    });
+    
+    // Now let's manually check each feed item's enrichment endpoint
+    console.log('🐛 DEBUG: Manually checking enrichment endpoints:');
+    
+    for (const item of feedItems) {
+        try {
+            const response = await fetch(`/api/feed-items/${item.id}/enrichment`);
+            const result = await response.json();
+            
+            console.log(`🐛 DEBUG: Item ${item.id} enrichment check:`, {
+                url: item.url,
+                response_status: response.status,
+                enriched: result.enriched,
+                message: result.message,
+                has_data: !!result.data
+            });
+            
+            if (result.enriched && result.data) {
+                console.log(`🐛 DEBUG: Item ${item.id} enrichment data:`, {
+                    category: result.data.category,
+                    sentiment: result.data.sentiment,
+                    analyzed: result.data.analyzed
+                });
+            }
+        } catch (error) {
+            console.error(`🐛 DEBUG: Error checking item ${item.id}:`, error);
+        }
+    }
+    
+    // Also check what the enrichment process actually sent
+    console.log('🐛 DEBUG: URLs that were sent for enrichment:');
+    if (window.lastEnrichmentUrls) {
+        window.lastEnrichmentUrls.forEach((url, index) => {
+            console.log(`  ${index + 1}. Enriched: ${url}`);
+        });
+    } else {
+        console.log('  No enrichment URLs recorded (window.lastEnrichmentUrls not set)');
+    }
+}
+
+// Check enrichment status for all items and show results buttons
+async function checkEnrichmentStatus() {
+    console.log('🔍 DEBUG: Checking enrichment status for', feedItems.length, 'items');
+    let enrichedCount = 0;
+    
+    for (const item of feedItems) {
+        try {
+            console.log(`🔍 DEBUG: Checking enrichment for item ${item.id}: ${item.title?.substring(0, 50)}...`);
+            console.log(`🔍 DEBUG: Item URL: ${item.url}`);
+            const response = await fetch(`/api/feed-items/${item.id}/enrichment`);
+            console.log(`🔍 DEBUG: Response status for item ${item.id}:`, response.status);
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log(`🔍 DEBUG: Enrichment result for item ${item.id}:`, result);
+                
+                const resultsBtn = document.getElementById(`results-btn-${item.id}`);
+                const enrichBtn = document.getElementById(`enrich-btn-${item.id}`);
+                
+                console.log(`🔍 DEBUG: Found buttons for item ${item.id}:`, {
+                    resultsBtn: !!resultsBtn,
+                    enrichBtn: !!enrichBtn,
+                    enriched: result.enriched
+                });
+                
+                if (result.enriched) {
+                    enrichedCount++;
+                    console.log(`✅ DEBUG: Item ${item.id} is enriched! Total enriched: ${enrichedCount}`);
+                    
+                    // Show results button and change enrich button to "re-enrich"
+                    if (resultsBtn) {
+                        resultsBtn.style.display = 'inline-block';
+                        console.log(`✅ DEBUG: Showing results button for item ${item.id}`);
+                    } else {
+                        console.warn(`⚠️ DEBUG: Results button not found for item ${item.id}`);
+                    }
+                    if (enrichBtn) {
+                        enrichBtn.innerHTML = '<i class="fas fa-redo"></i>';
+                        enrichBtn.title = 'Re-enrich this article';
+                        console.log(`✅ DEBUG: Updated enrich button for item ${item.id}`);
+                    } else {
+                        console.warn(`⚠️ DEBUG: Enrich button not found for item ${item.id}`);
+                    }
+                } else {
+                    console.log(`❌ DEBUG: Item ${item.id} is not enriched`);
+                }
+            } else {
+                console.log(`❌ DEBUG: Failed to get enrichment data for item ${item.id}:`, response.status);
+            }
+        } catch (error) {
+            console.log(`❌ DEBUG: Error checking enrichment for item ${item.id}:`, error);
+        }
+    }
+    
+    console.log(`🔍 DEBUG: Total enriched items found: ${enrichedCount}`);
+    
+    // Show/hide bulk save button based on enriched articles
+    const saveBtn = document.getElementById('saveEnrichedBtn');
+    console.log(`🔍 DEBUG: Bulk save button found:`, !!saveBtn);
+    
+    if (saveBtn) {
+        if (enrichedCount > 0) {
+            saveBtn.style.display = 'inline-block';
+            saveBtn.innerHTML = `<i class="fas fa-save"></i> Save Enriched Articles (${enrichedCount})`;
+            console.log(`✅ DEBUG: Showing bulk save button with ${enrichedCount} articles`);
+        } else {
+            saveBtn.style.display = 'none';
+            console.log(`❌ DEBUG: Hiding bulk save button (no enriched articles)`);
+        }
+    }
+}
+
+// View enrichment results for a specific item
+async function viewEnrichmentResults(itemId) {
+    try {
+        const response = await fetch(`/api/feed-items/${itemId}/enrichment`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        
+        if (!result.enriched) {
+            showError('No enrichment data available for this item');
+            return;
+        }
+        
+        // Populate and show the enrichment results modal
+        showEnrichmentResultsModal(result.data, itemId);
+        
+    } catch (error) {
+        console.error('Error fetching enrichment results:', error);
+        showError('Failed to load enrichment results');
+    }
+}
+
+// Show enrichment results in modal
+function showEnrichmentResultsModal(data, itemId) {
+    const modal = document.getElementById('enrichmentResultsModal');
+    const item = feedItems.find(item => item.id === itemId);
+    
+    // Populate modal content
+    document.getElementById('enrichmentResultsTitle').textContent = item ? item.title : 'Article Results';
+    document.getElementById('enrichmentResultsUrl').textContent = item ? item.url : '';
+    document.getElementById('enrichmentResultsUrl').href = item ? item.url : '#';
+    
+    // Analysis Results
+    document.getElementById('resultCategory').textContent = data.category || 'Not categorized';
+    document.getElementById('resultSentiment').textContent = data.sentiment || 'Not analyzed';
+    document.getElementById('resultSentimentExplanation').textContent = data.sentiment_explanation || 'No explanation available';
+    document.getElementById('resultDriverType').textContent = data.driver_type || 'Not analyzed';
+    document.getElementById('resultDriverTypeExplanation').textContent = data.driver_type_explanation || 'No explanation available';
+    document.getElementById('resultTimeToImpact').textContent = data.time_to_impact || 'Not analyzed';
+    document.getElementById('resultTimeToImpactExplanation').textContent = data.time_to_impact_explanation || 'No explanation available';
+    document.getElementById('resultFutureSignal').textContent = data.future_signal || 'Not analyzed';
+    document.getElementById('resultFutureSignalExplanation').textContent = data.future_signal_explanation || 'No explanation available';
+    
+    // Quality Control
+    document.getElementById('resultQualityScore').textContent = data.quality_score ? `${data.quality_score}/100` : 'Not scored';
+    document.getElementById('resultQualityIssues').textContent = data.quality_issues || 'No issues identified';
+    document.getElementById('resultConfidenceScore').textContent = data.confidence_score ? `${data.confidence_score}/100` : 'Not scored';
+    
+    // Relevance Scores
+    document.getElementById('resultTopicAlignment').textContent = data.topic_alignment_score ? `${data.topic_alignment_score}/100` : 'Not scored';
+    document.getElementById('resultKeywordRelevance').textContent = data.keyword_relevance_score ? `${data.keyword_relevance_score}/100` : 'Not scored';
+    document.getElementById('resultOverallExplanation').textContent = data.overall_match_explanation || 'No explanation available';
+    
+    // Additional Data
+    document.getElementById('resultExtractedTopics').textContent = data.extracted_topics || 'None extracted';
+    document.getElementById('resultExtractedKeywords').textContent = data.extracted_keywords || 'None extracted';
+    document.getElementById('resultTags').textContent = data.tags || 'No tags';
+    document.getElementById('resultSummary').textContent = data.summary || 'No summary available';
+    
+    // Metadata
+    document.getElementById('resultAutoIngested').textContent = data.auto_ingested ? 'Yes' : 'No';
+    document.getElementById('resultIngestStatus').textContent = data.ingest_status || 'Unknown';
+    document.getElementById('resultSubmissionDate').textContent = data.submission_date ? new Date(data.submission_date).toLocaleString() : 'Not available';
+    
+    // Store current item ID for saving
+    modal.setAttribute('data-item-id', itemId);
+    
+    // Show the modal
+    const bootstrapModal = new bootstrap.Modal(modal);
+    bootstrapModal.show();
+}
+
+// Save enriched article to main articles database
+async function saveEnrichedArticle() {
+    const modal = document.getElementById('enrichmentResultsModal');
+    const itemId = modal.getAttribute('data-item-id');
+    const saveBtn = document.getElementById('saveEnrichedArticleBtn');
+    
+    if (!itemId) {
+        showError('No article selected for saving');
+        return;
+    }
+    
+    try {
+        // Disable save button
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        
+        const response = await fetch(`/api/feed-items/${itemId}/save-enriched`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showSuccess('Article saved successfully to main database!');
+            
+            // Update button to show saved state
+            saveBtn.innerHTML = '<i class="fas fa-check"></i> Saved';
+            saveBtn.classList.remove('btn-primary');
+            saveBtn.classList.add('btn-success');
+            
+            setTimeout(() => {
+                const bootstrapModal = bootstrap.Modal.getInstance(modal);
+                if (bootstrapModal) bootstrapModal.hide();
+            }, 1500);
+        } else {
+            throw new Error(result.message || 'Save failed');
+        }
+        
+    } catch (error) {
+        console.error('Error saving enriched article:', error);
+        showError(`Failed to save article: ${error.message}`);
+        
+        // Re-enable save button
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="fas fa-save"></i> Save to Database';
+    }
+}
+
+// Add fadeIn animation
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+`;
+document.head.appendChild(style);
+</script>
+
+<!-- Enrichment Results Modal -->
+<div class="modal fade" id="enrichmentResultsModal" tabindex="-1" aria-labelledby="enrichmentResultsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="enrichmentResultsModalLabel">Enrichment Results</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Article Info -->
+                <div class="mb-4">
+                    <h6 class="border-bottom pb-2">Article Information</h6>
+                    <div class="row">
+                        <div class="col-12 mb-2">
+                            <strong>Title:</strong> <span id="enrichmentResultsTitle">Loading...</span>
+                        </div>
+                        <div class="col-12 mb-2">
+                            <strong>URL:</strong> <a id="enrichmentResultsUrl" href="#" target="_blank" class="text-break">Loading...</a>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Analysis Results -->
+                <div class="mb-4">
+                    <h6 class="border-bottom pb-2">Analysis Results</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <strong>Category:</strong> <span id="resultCategory" class="badge bg-primary ms-2">Loading...</span>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <strong>Sentiment:</strong> <span id="resultSentiment" class="badge bg-info ms-2">Loading...</span>
+                        </div>
+                        <div class="col-12 mb-3">
+                            <strong>Sentiment Explanation:</strong>
+                            <div id="resultSentimentExplanation" class="mt-1 p-2 bg-light rounded small">Loading...</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <strong>Driver Type:</strong> <span id="resultDriverType" class="badge bg-warning ms-2">Loading...</span>
+                        </div>
+                        <div class="col-12 mb-3">
+                            <strong>Driver Type Explanation:</strong>
+                            <div id="resultDriverTypeExplanation" class="mt-1 p-2 bg-light rounded small">Loading...</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <strong>Time to Impact:</strong> <span id="resultTimeToImpact" class="badge bg-secondary ms-2">Loading...</span>
+                        </div>
+                        <div class="col-12 mb-3">
+                            <strong>Time to Impact Explanation:</strong>
+                            <div id="resultTimeToImpactExplanation" class="mt-1 p-2 bg-light rounded small">Loading...</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <strong>Future Signal:</strong> <span id="resultFutureSignal" class="badge bg-dark ms-2">Loading...</span>
+                        </div>
+                        <div class="col-12 mb-3">
+                            <strong>Future Signal Explanation:</strong>
+                            <div id="resultFutureSignalExplanation" class="mt-1 p-2 bg-light rounded small">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quality Control -->
+                <div class="mb-4">
+                    <h6 class="border-bottom pb-2">Quality Control</h6>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <strong>Quality Score:</strong> <span id="resultQualityScore" class="badge bg-success ms-2">Loading...</span>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <strong>Confidence Score:</strong> <span id="resultConfidenceScore" class="badge bg-info ms-2">Loading...</span>
+                        </div>
+                        <div class="col-12 mb-3">
+                            <strong>Quality Issues:</strong>
+                            <div id="resultQualityIssues" class="mt-1 p-2 bg-light rounded small">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Relevance Scores -->
+                <div class="mb-4">
+                    <h6 class="border-bottom pb-2">Relevance Scores</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <strong>Topic Alignment:</strong> <span id="resultTopicAlignment" class="badge bg-primary ms-2">Loading...</span>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <strong>Keyword Relevance:</strong> <span id="resultKeywordRelevance" class="badge bg-secondary ms-2">Loading...</span>
+                        </div>
+                        <div class="col-12 mb-3">
+                            <strong>Overall Match Explanation:</strong>
+                            <div id="resultOverallExplanation" class="mt-1 p-2 bg-light rounded small">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Extracted Data -->
+                <div class="mb-4">
+                    <h6 class="border-bottom pb-2">Extracted Data</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <strong>Extracted Topics:</strong>
+                            <div id="resultExtractedTopics" class="mt-1 p-2 bg-light rounded small">Loading...</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <strong>Extracted Keywords:</strong>
+                            <div id="resultExtractedKeywords" class="mt-1 p-2 bg-light rounded small">Loading...</div>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <strong>Tags:</strong>
+                            <div id="resultTags" class="mt-1 p-2 bg-light rounded small">Loading...</div>
+                        </div>
+                        <div class="col-12 mb-3">
+                            <strong>AI Summary:</strong>
+                            <div id="resultSummary" class="mt-1 p-2 bg-light rounded small" style="max-height: 150px; overflow-y: auto;">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metadata -->
+                <div class="mb-4">
+                    <h6 class="border-bottom pb-2">Processing Metadata</h6>
+                    <div class="row">
+                        <div class="col-md-4 mb-3">
+                            <strong>Auto Ingested:</strong> <span id="resultAutoIngested" class="badge bg-info ms-2">Loading...</span>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <strong>Ingest Status:</strong> <span id="resultIngestStatus" class="badge bg-secondary ms-2">Loading...</span>
+                        </div>
+                        <div class="col-md-4 mb-3">
+                            <strong>Submission Date:</strong> <span id="resultSubmissionDate" class="text-muted small">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="saveEnrichedArticleBtn" onclick="saveEnrichedArticle()">
+                    <i class="fas fa-save"></i>
+                    Save to Database
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Article Enrichment Modal -->
+<div class="modal fade" id="articleEnrichmentModal" tabindex="-1" aria-labelledby="articleEnrichmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="articleEnrichmentModalLabel">Enrich Selected Articles</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Configuration Section -->
+                <div class="mb-4">
+                    <h6>Analysis Configuration</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="enrichmentTopicSelect" class="form-label">Topic</label>
+                            <select id="enrichmentTopicSelect" class="form-select">
+                                <option value="">Select a topic</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="enrichmentModelSelect" class="form-label">AI Model</label>
+                            <select id="enrichmentModelSelect" class="form-select">
+                                <option value="">Select a model</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Processing Options -->
+                <div class="mb-4">
+                    <h6>Processing Options</h6>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="enrichmentBackgroundProcessing" checked>
+                        <label class="form-check-label" for="enrichmentBackgroundProcessing">
+                            Background Processing (continue using interface)
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="enrichmentQualityControl" checked>
+                        <label class="form-check-label" for="enrichmentQualityControl">
+                            Quality Control (validate results)
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Selected Articles List -->
+                <div class="mb-4">
+                    <h6>Selected Articles (<span id="enrichmentSelectedCount">0</span>)</h6>
+                    <div id="enrichmentSelectedArticlesList" class="list-group" style="max-height: 200px; overflow-y: auto;">
+                        <!-- Articles will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Progress Section (hidden initially) -->
+                <div id="enrichmentProgressContainer" style="display: none;">
+                    <h6>Processing Progress</h6>
+                    <div class="progress mb-2">
+                        <div id="enrichmentProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <div id="enrichmentProgressText" class="text-muted small">Preparing...</div>
+                </div>
+
+                <!-- Enrichment Results Section (hidden initially) -->
+                <div id="enrichmentResultsContainer" style="display: none;">
+                    <h6>Enrichment Results (<span id="enrichmentResultsCount">0</span>)</h6>
+                    <div id="enrichmentResultsList" class="list-group" style="max-height: 300px; overflow-y: auto;">
+                        <!-- Results will be populated here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-success" id="saveEnrichmentResultsBtn" onclick="saveEnrichmentResults()" style="display: none;">
+                    <i class="fas fa-save"></i>
+                    Save All Articles
+                </button>
+                <button type="button" class="btn btn-primary" id="startEnrichmentBtn" onclick="startArticleEnrichment()">
+                    <i class="fas fa-brain"></i>
+                    Start Enrichment
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %} 

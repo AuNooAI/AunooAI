@@ -53,14 +53,14 @@ class ArxivCollector(ArticleCollector):
                     try:
                         start_dt = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
                     except ValueError:
-                        start_dt = now - timedelta(days=30)
+                        start_dt = now - timedelta(days=7)  # Default to 7 days
                 else:
                     start_dt = start_date
                 start_dt = start_dt.replace(tzinfo=timezone.utc)
                 if start_dt > now:
-                    start_dt = now - timedelta(days=30)
+                    start_dt = now - timedelta(days=7)  # Default to 7 days
             else:
-                start_dt = now - timedelta(days=30)
+                start_dt = now - timedelta(days=7)  # Default to 7 days instead of 30
 
             if end_date:
                 if isinstance(end_date, str):
@@ -102,12 +102,11 @@ class ArxivCollector(ArticleCollector):
             else:
                 search_query_parts.append(f"all:{query}")
 
-            # Add category filters
-            categories = self.topic_category_mapping.get(topic, [
-                "cs.AI", "cs.LG", "cs.CL", "cs.CV", "cs.NE", "cs.RO"
-            ])
-            category_filter = " OR ".join(f"cat:{cat}" for cat in categories)
-            if category_filter:
+            # Category filters are now optional - only apply if explicitly provided
+            # This allows searching across all ArXiv categories by default
+            if topic and topic in self.topic_category_mapping:
+                categories = self.topic_category_mapping[topic]
+                category_filter = " OR ".join(f"cat:{cat}" for cat in categories)
                 search_query_parts.append(f"({category_filter})")
 
             # Combine all parts

@@ -1,0 +1,1519 @@
+{% extends "base.html" %}
+
+{% block title %}Feed Group Manager - AuNoo AI{% endblock %}
+
+{% block extra_css %}
+<style>
+    :root {
+        --primary-color: #FF69B4;
+        --primary-dark: #FF1493;
+        --secondary-color: #32CD32;
+        --secondary-dark: #228B22;
+        --text-color: #333;
+        --light-gray: #f8f9fa;
+        --medium-gray: #e9ecef;
+        --dark-gray: #343a40;
+        --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        --border-radius: 12px;
+        --success-color: #28a745;
+        --warning-color: #ffc107;
+        --danger-color: #dc3545;
+        --info-color: #17a2b8;
+    }
+
+    body {
+        background-color: var(--light-gray);
+    }
+
+    .manager-container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .manager-header {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        padding: 24px;
+        margin-bottom: 24px;
+    }
+
+    .manager-title {
+        color: var(--primary-color);
+        font-size: 2rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .manager-grid {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 24px;
+    }
+
+    /* Groups List Panel */
+    .groups-panel {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        padding: 24px;
+        height: fit-content;
+    }
+
+    .panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid var(--medium-gray);
+    }
+
+    .panel-title {
+        color: var(--text-color);
+        font-size: 1.2rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .btn-add-group {
+        background: var(--primary-color);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 8px 16px;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .btn-add-group:hover {
+        background: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .groups-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .group-item {
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 16px;
+        cursor: pointer;
+        transition: all 0.2s;
+        position: relative;
+    }
+
+    .group-item:hover {
+        border-color: var(--primary-color);
+        transform: translateY(-1px);
+        box-shadow: var(--card-shadow);
+    }
+
+    .group-item.active {
+        border-color: var(--primary-color);
+        background: rgba(255, 105, 180, 0.05);
+    }
+
+    .group-item-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 8px;
+    }
+
+    .group-name {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+        color: var(--text-color);
+    }
+
+    .group-color {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .group-actions {
+        display: flex;
+        gap: 6px;
+    }
+
+    .btn-action {
+        background: none;
+        border: none;
+        color: var(--dark-gray);
+        cursor: pointer;
+        padding: 4px 8px;
+        border-radius: 4px;
+        transition: all 0.2s;
+        font-size: 0.85rem;
+    }
+
+    .btn-action:hover {
+        background: var(--light-gray);
+        color: var(--primary-color);
+    }
+
+    .btn-danger:hover {
+        background: var(--danger-color);
+        color: white;
+    }
+
+    .group-meta {
+        font-size: 0.85rem;
+        color: var(--dark-gray);
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .group-stats {
+        margin-top: 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .article-counter {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: var(--accent-color);
+        color: white;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        opacity: 0.9;
+        transition: opacity 0.2s ease;
+    }
+
+    .article-counter:hover {
+        opacity: 1;
+    }
+
+    .counter-number {
+        font-weight: bold;
+        min-width: 20px;
+        text-align: center;
+    }
+
+    .counter-label {
+        font-size: 0.75rem;
+        opacity: 0.9;
+    }
+
+    /* Group Editor Panel */
+    .editor-panel {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        padding: 24px;
+    }
+
+    .editor-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 20px;
+        border-bottom: 1px solid var(--medium-gray);
+    }
+
+    .editor-tab {
+        background: none;
+        border: none;
+        padding: 12px 16px;
+        cursor: pointer;
+        color: var(--dark-gray);
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+        font-weight: 500;
+    }
+
+    .editor-tab.active {
+        color: var(--primary-color);
+        border-bottom-color: var(--primary-color);
+    }
+
+    .editor-tab:hover {
+        color: var(--primary-color);
+    }
+
+    .tab-content {
+        display: none;
+    }
+
+    .tab-content.active {
+        display: block;
+    }
+
+    /* Form Styles */
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 500;
+        color: var(--text-color);
+    }
+
+    .form-input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 6px;
+        font-size: 0.95rem;
+        transition: all 0.2s;
+    }
+
+    .form-input:focus {
+        border-color: var(--primary-color);
+        outline: none;
+        box-shadow: 0 0 0 2px rgba(255, 105, 180, 0.2);
+    }
+
+    .form-textarea {
+        resize: vertical;
+        min-height: 80px;
+    }
+
+    .form-color {
+        width: 60px;
+        height: 40px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 6px;
+        cursor: pointer;
+    }
+
+    /* Sources Management */
+    .sources-container {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .source-item {
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 16px;
+        position: relative;
+    }
+
+    .source-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .source-type {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+        color: var(--text-color);
+    }
+
+    .source-icon {
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+
+    .source-arxiv {
+        background: #b31b1b;
+    }
+
+    .source-bluesky {
+        background: #0085ff;
+    }
+
+    .keywords-input {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid var(--medium-gray);
+        border-radius: 4px;
+        font-size: 0.9rem;
+    }
+
+    .keywords-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+    }
+
+    .keyword-tag {
+        background: var(--light-gray);
+        color: var(--text-color);
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        border: 1px solid var(--medium-gray);
+    }
+
+    .keyword-remove {
+        background: none;
+        border: none;
+        color: var(--danger-color);
+        cursor: pointer;
+        font-size: 0.7rem;
+        padding: 0;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .keyword-remove:hover {
+        background: var(--danger-color);
+        color: white;
+    }
+
+    /* Date Range Styling */
+    .date-range-controls {
+        background: var(--bg-light);
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 12px;
+        margin-top: 8px;
+    }
+
+    .date-range-controls label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.9rem;
+        color: var(--text-color);
+        cursor: pointer;
+    }
+
+    .date-range-controls input[type="radio"] {
+        margin: 0;
+    }
+
+    .date-range-controls input[type="number"],
+    .date-range-controls input[type="date"] {
+        font-size: 0.9rem;
+        color: var(--text-color);
+    }
+
+    .date-range-controls input:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+    }
+
+    /* Buttons */
+    .btn {
+        padding: 10px 16px;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-weight: 500;
+    }
+
+    .btn-primary {
+        background: var(--primary-color);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+        background: var(--light-gray);
+        color: var(--text-color);
+        border: 1px solid var(--medium-gray);
+    }
+
+    .btn-secondary:hover {
+        background: var(--medium-gray);
+    }
+
+    .btn-danger {
+        background: var(--danger-color);
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background: #c82333;
+    }
+
+    .btn-success {
+        background: var(--success-color);
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: #218838;
+    }
+
+    /* Statistics Cards */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+
+    .stat-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        border: 1px solid var(--medium-gray);
+        text-align: center;
+    }
+
+    .stat-value {
+        font-size: 2rem;
+        font-weight: bold;
+        color: var(--primary-color);
+        margin-bottom: 4px;
+    }
+
+    .stat-label {
+        color: var(--dark-gray);
+        font-size: 0.9rem;
+    }
+
+    /* Responsive Design */
+    @media (max-width: 968px) {
+        .manager-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .manager-container {
+            padding: 16px;
+        }
+    }
+
+    /* Loading States */
+    .loading {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 40px;
+        color: var(--dark-gray);
+    }
+
+    .spinner {
+        width: 24px;
+        height: 24px;
+        border: 3px solid var(--light-gray);
+        border-top: 3px solid var(--primary-color);
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-right: 12px;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    /* Toast Notifications */
+    .toast {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        padding: 16px 20px;
+        z-index: 1000;
+        transform: translateX(400px);
+        transition: transform 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-left: 4px solid var(--success-color);
+    }
+
+    .toast.show {
+        transform: translateX(0);
+    }
+
+    .toast.error {
+        border-left-color: var(--danger-color);
+    }
+
+    .toast.warning {
+        border-left-color: var(--warning-color);
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="manager-container">
+    <!-- Manager Header -->
+    <div class="manager-header">
+        <div class="d-flex justify-content-between align-items-center">
+            <div>
+                <h1 class="manager-title">Feed Group Manager</h1>
+                <p style="color: var(--dark-gray); margin: 8px 0 0 0; font-size: 1.1rem;">Create and manage keyword groups for social media and academic content</p>
+            </div>
+            <div class="d-flex gap-2">
+                <button class="btn btn-secondary" onclick="refreshStats()">
+                    <i class="fas fa-chart-bar"></i>
+                    Refresh Stats
+                </button>
+                <button class="btn btn-primary" onclick="goBackToDashboard()">
+                    <i class="fas fa-arrow-left"></i>
+                    Back to Dashboard
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics -->
+    <div class="stats-grid" id="statsGrid">
+        <!-- Stats will be populated by JavaScript -->
+    </div>
+
+    <!-- Main Grid -->
+    <div class="manager-grid">
+        <!-- Groups List Panel -->
+        <div class="groups-panel">
+            <div class="panel-header">
+                <h3 class="panel-title">Feed Groups</h3>
+                <button class="btn-add-group" onclick="createNewGroup()">
+                    <i class="fas fa-plus"></i>
+                    New Group
+                </button>
+            </div>
+            <div class="groups-list" id="groupsList">
+                <!-- Groups will be populated by JavaScript -->
+                <div class="loading">
+                    <div class="spinner"></div>
+                    Loading groups...
+                </div>
+            </div>
+        </div>
+
+        <!-- Group Editor Panel -->
+        <div class="editor-panel">
+            <div id="editorContent">
+                <div style="text-align: center; padding: 60px 20px; color: var(--dark-gray);">
+                    <i class="fas fa-mouse-pointer" style="font-size: 3rem; color: var(--medium-gray); margin-bottom: 16px;"></i>
+                    <h3>Select a Group to Edit</h3>
+                    <p>Choose a feed group from the left panel to edit its settings and manage keywords.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Toast Container -->
+<div id="toastContainer"></div>
+
+<script>
+// Global state
+let feedGroups = [];
+let currentGroup = null;
+let currentTab = 'general';
+
+// Initialize manager when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    initializeManager();
+});
+
+async function initializeManager() {
+    try {
+        await loadFeedGroups();
+        await loadStats();
+        renderGroupsList();
+    } catch (error) {
+        console.error('Error initializing manager:', error);
+        showToast('Failed to load feed group manager. Please refresh the page.', 'error');
+    }
+}
+
+async function loadFeedGroups() {
+    try {
+        const response = await fetch('/api/feed-groups');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        feedGroups = await response.json();
+        console.log('Loaded feed groups:', feedGroups);
+    } catch (error) {
+        console.error('Error loading feed groups:', error);
+        throw error;
+    }
+}
+
+async function loadStats() {
+    try {
+        const response = await fetch('/api/feed-system/health');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const health = await response.json();
+        renderStats(health);
+    } catch (error) {
+        console.error('Error loading stats:', error);
+        renderStats({});
+    }
+}
+
+function renderStats(health) {
+    const statsGrid = document.getElementById('statsGrid');
+    
+    const stats = [
+        { label: 'Total Groups', value: feedGroups.length, icon: 'fas fa-layer-group' },
+        { label: 'Active Sources', value: health.total_sources || 0, icon: 'fas fa-rss' },
+        { label: 'Feed Items', value: health.total_items || 0, icon: 'fas fa-newspaper' },
+        { label: 'Last Collection', value: health.last_collection ? new Date(health.last_collection).toLocaleDateString() : 'Never', icon: 'fas fa-download' }
+    ];
+    
+    statsGrid.innerHTML = stats.map(stat => `
+        <div class="stat-card">
+            <div class="stat-value">${stat.value}</div>
+            <div class="stat-label">
+                <i class="${stat.icon}"></i>
+                ${stat.label}
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderGroupsList() {
+    const container = document.getElementById('groupsList');
+    
+    if (feedGroups.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 40px 20px; color: var(--dark-gray);">
+                <i class="fas fa-inbox" style="font-size: 2rem; color: var(--medium-gray); margin-bottom: 12px;"></i>
+                <h4>No Groups Yet</h4>
+                <p>Create your first feed group to get started.</p>
+                <button class="btn btn-primary" onclick="createNewGroup()">
+                    <i class="fas fa-plus"></i>
+                    Create First Group
+                </button>
+            </div>
+        `;
+        return;
+    }
+    
+    container.innerHTML = feedGroups.map(group => `
+        <div class="group-item ${group.id === currentGroup?.id ? 'active' : ''}" 
+             onclick="selectGroup(${group.id})">
+            <div class="group-item-header">
+                <div class="group-name">
+                    <div class="group-color" style="background-color: ${group.color}"></div>
+                    <span>${group.name}</span>
+                </div>
+                <div class="group-actions">
+                    <button class="btn-action" onclick="event.stopPropagation(); duplicateGroup(${group.id})" title="Duplicate">
+                        <i class="fas fa-copy"></i>
+                    </button>
+                    <button class="btn-action btn-danger" onclick="event.stopPropagation(); deleteGroup(${group.id})" title="Delete">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="group-meta">
+                <span><i class="fas fa-calendar"></i> Created ${new Date(group.created_at).toLocaleDateString()}</span>
+                <span><i class="fas fa-toggle-${group.is_active ? 'on' : 'off'}"></i> ${group.is_active ? 'Active' : 'Inactive'}</span>
+            </div>
+            <div class="group-stats">
+                <div class="article-counter" id="counter_${group.id}">
+                    <i class="fas fa-newspaper"></i>
+                    <span class="counter-number">--</span>
+                    <span class="counter-label">articles</span>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    
+    // Load article counts for all groups
+    loadAllGroupStats();
+}
+
+async function selectGroup(groupId) {
+    try {
+        const group = feedGroups.find(g => g.id === groupId);
+        if (!group) return;
+        
+        currentGroup = group;
+        renderGroupsList(); // Update active state
+        await loadGroupEditor(group);
+        
+    } catch (error) {
+        console.error('Error selecting group:', error);
+        showToast('Failed to load group details.', 'error');
+    }
+}
+
+async function loadGroupEditor(group) {
+    try {
+        // Load group sources
+        const sourcesResponse = await fetch(`/api/feed-groups/${group.id}/sources`);
+        if (sourcesResponse.ok) {
+            const data = await sourcesResponse.json();
+            const sources = data.sources || [];
+            renderGroupEditor(group, sources);
+        } else {
+            renderGroupEditor(group, []);
+        }
+        
+    } catch (error) {
+        console.error('Error loading group editor:', error);
+        showToast('Failed to load group editor.', 'error');
+    }
+}
+
+function renderGroupEditor(group, sources) {
+    const container = document.getElementById('editorContent');
+    
+    container.innerHTML = `
+        <div class="editor-tabs">
+            <button class="editor-tab ${currentTab === 'general' ? 'active' : ''}" onclick="switchTab('general')">
+                <i class="fas fa-cog"></i>
+                General
+            </button>
+            <button class="editor-tab ${currentTab === 'sources' ? 'active' : ''}" onclick="switchTab('sources')">
+                <i class="fas fa-rss"></i>
+                Sources
+            </button>
+            <button class="editor-tab ${currentTab === 'preview' ? 'active' : ''}" onclick="switchTab('preview')">
+                <i class="fas fa-eye"></i>
+                Preview
+            </button>
+        </div>
+
+        <!-- General Tab -->
+        <div class="tab-content ${currentTab === 'general' ? 'active' : ''}" id="generalTab">
+            <form id="groupForm">
+                <div class="form-group">
+                    <label class="form-label">Group Name</label>
+                    <input type="text" class="form-input" id="groupName" value="${group.name}" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea class="form-input form-textarea" id="groupDescription" placeholder="Describe this feed group...">${group.description || ''}</textarea>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Color</label>
+                    <input type="color" class="form-color" id="groupColor" value="${group.color}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">
+                        <input type="checkbox" id="groupActive" ${group.is_active ? 'checked' : ''}>
+                        Active (collect content for this group)
+                    </label>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-primary" onclick="saveGroup()">
+                        <i class="fas fa-save"></i>
+                        Save Changes
+                    </button>
+                    <button type="button" class="btn btn-secondary" onclick="resetForm()">
+                        <i class="fas fa-undo"></i>
+                        Reset
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Sources Tab -->
+        <div class="tab-content ${currentTab === 'sources' ? 'active' : ''}" id="sourcesTab">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4>Content Sources</h4>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-secondary" onclick="addSource('bluesky')">
+                        <i class="fab fa-at"></i>
+                        Add Bluesky
+                    </button>
+                    <button class="btn btn-secondary" onclick="addSource('arxiv')">
+                        <i class="fas fa-graduation-cap"></i>
+                        Add ArXiv
+                    </button>
+                </div>
+            </div>
+            <div class="sources-container" id="sourcesContainer">
+                ${renderSources(sources)}
+            </div>
+        </div>
+
+        <!-- Preview Tab -->
+        <div class="tab-content ${currentTab === 'preview' ? 'active' : ''}" id="previewTab">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4>Feed Preview</h4>
+                <button class="btn btn-primary" onclick="collectGroupFeed()">
+                    <i class="fas fa-download"></i>
+                    Collect Now
+                </button>
+            </div>
+            <div id="feedPreview">
+                <div class="loading">
+                    <div class="spinner"></div>
+                    Loading feed preview...
+                </div>
+            </div>
+        </div>
+    `;
+    
+    if (currentTab === 'preview') {
+        loadFeedPreview();
+    }
+}
+
+function renderSources(sources) {
+    if (sources.length === 0) {
+        return `
+            <div style="text-align: center; padding: 40px 20px; color: var(--dark-gray);">
+                <i class="fas fa-rss" style="font-size: 2rem; color: var(--medium-gray); margin-bottom: 12px;"></i>
+                <h4>No Sources Configured</h4>
+                <p>Add Bluesky or ArXiv sources to start collecting content.</p>
+            </div>
+        `;
+    }
+    
+    return sources.map(source => `
+        <div class="source-item" data-source-id="${source.id}">
+            <div class="source-header">
+                <div class="source-type">
+                    <div class="source-icon source-${source.source_type}">
+                        ${source.source_type === 'arxiv' ? 'A' : 'B'}
+                    </div>
+                    <span>${source.source_type.charAt(0).toUpperCase() + source.source_type.slice(1)}</span>
+                </div>
+                <div class="group-actions">
+                    <button class="btn-action" onclick="toggleSource(${source.id}, ${!source.enabled})" title="${source.enabled ? 'Disable' : 'Enable'}">
+                        <i class="fas fa-toggle-${source.enabled ? 'on' : 'off'}"></i>
+                    </button>
+                    <button class="btn-action btn-danger" onclick="removeSource(${source.id})" title="Remove">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Keywords (comma-separated)</label>
+                <input type="text" class="keywords-input" value="${(source.keywords || []).join(', ')}" 
+                       onchange="updateSourceKeywords(${source.id}, this.value)"
+                       placeholder="Enter keywords separated by commas">
+            </div>
+            <div class="keywords-tags">
+                ${(source.keywords || []).map(keyword => `
+                    <span class="keyword-tag">
+                        ${keyword}
+                        <button class="keyword-remove" onclick="removeKeyword(${source.id}, '${keyword}')">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </span>
+                `).join('')}
+            </div>
+            
+            <!-- Date Range Settings -->
+            <div class="form-group" style="margin-top: 16px;">
+                <label class="form-label">
+                    <i class="fas fa-calendar-alt"></i>
+                    Date Range Settings
+                </label>
+                <div class="date-range-controls">
+                    <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 8px;">
+                        <label style="margin: 0;">
+                            <input type="radio" name="dateMode_${source.id}" value="days" 
+                                   ${(!source.custom_start_date && !source.custom_end_date) ? 'checked' : ''}
+                                   onchange="toggleDateMode(${source.id}, 'days')">
+                            Last N days
+                        </label>
+                        <input type="number" min="1" max="365" value="${source.date_range_days || 7}" 
+                               style="width: 80px; padding: 4px 8px; border: 1px solid var(--medium-gray); border-radius: 4px;"
+                               onchange="updateDateRangeDays(${source.id}, this.value)"
+                               ${(source.custom_start_date || source.custom_end_date) ? 'disabled' : ''}>
+                        <span style="color: var(--dark-gray);">days</span>
+                    </div>
+                    <div style="display: flex; gap: 12px; align-items: center;">
+                        <label style="margin: 0;">
+                            <input type="radio" name="dateMode_${source.id}" value="custom"
+                                   ${(source.custom_start_date || source.custom_end_date) ? 'checked' : ''}
+                                   onchange="toggleDateMode(${source.id}, 'custom')">
+                            Custom range
+                        </label>
+                        <input type="date" value="${source.custom_start_date ? source.custom_start_date.split('T')[0] : ''}"
+                               style="padding: 4px 8px; border: 1px solid var(--medium-gray); border-radius: 4px;"
+                               onchange="updateCustomDate(${source.id}, 'start', this.value)"
+                               ${(!source.custom_start_date && !source.custom_end_date) ? 'disabled' : ''}>
+                        <span style="color: var(--dark-gray);">to</span>
+                        <input type="date" value="${source.custom_end_date ? source.custom_end_date.split('T')[0] : ''}"
+                               style="padding: 4px 8px; border: 1px solid var(--medium-gray); border-radius: 4px;"
+                               onchange="updateCustomDate(${source.id}, 'end', this.value)"
+                               ${(!source.custom_start_date && !source.custom_end_date) ? 'disabled' : ''}>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function switchTab(tab) {
+    currentTab = tab;
+    
+    // Update tab buttons
+    document.querySelectorAll('.editor-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.onclick.toString().includes(tab));
+    });
+    
+    // Update tab content
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    document.getElementById(tab + 'Tab').classList.add('active');
+    
+    if (tab === 'preview') {
+        loadFeedPreview();
+    }
+}
+
+async function loadFeedPreview() {
+    try {
+        const container = document.getElementById('feedPreview');
+        container.innerHTML = `
+            <div class="loading">
+                <div class="spinner"></div>
+                Loading feed preview...
+            </div>
+        `;
+        
+        const response = await fetch(`/api/feed-groups/${currentGroup.id}/feed?limit=10`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        const items = data.items || [];
+        
+        if (items.length === 0) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 40px 20px; color: var(--dark-gray);">
+                    <i class="fas fa-inbox" style="font-size: 2rem; color: var(--medium-gray); margin-bottom: 12px;"></i>
+                    <h4>No Content Yet</h4>
+                    <p>Collect content to see a preview here.</p>
+                </div>
+            `;
+            return;
+        }
+        
+        container.innerHTML = items.slice(0, 5).map(item => `
+            <div style="border: 1px solid var(--medium-gray); border-radius: 8px; padding: 16px; margin-bottom: 12px;">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.9rem; color: var(--dark-gray);">
+                    <div class="source-icon source-${item.source_type}" style="width: 16px; height: 16px; font-size: 0.7rem;">
+                        ${item.source_type === 'arxiv' ? 'A' : 'B'}
+                    </div>
+                    <span>${item.source_type.toUpperCase()}</span>
+                    <span>•</span>
+                    <span>${item.publication_date ? new Date(item.publication_date).toLocaleDateString() : 'No date'}</span>
+                </div>
+                <h5 style="margin: 0 0 8px 0; font-size: 1rem;">
+                    <a href="${item.url}" target="_blank" style="color: var(--text-color); text-decoration: none;">
+                        ${item.title}
+                    </a>
+                </h5>
+                ${item.content ? `<p style="font-size: 0.9rem; color: var(--dark-gray); margin: 0; line-height: 1.4;">${item.content.substring(0, 150)}...</p>` : ''}
+            </div>
+        `).join('') + (items.length > 5 ? `<p style="text-align: center; color: var(--dark-gray);">And ${items.length - 5} more items...</p>` : '');
+        
+    } catch (error) {
+        console.error('Error loading feed preview:', error);
+        document.getElementById('feedPreview').innerHTML = `
+            <div style="text-align: center; padding: 40px 20px; color: var(--danger-color);">
+                <i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 12px;"></i>
+                <h4>Failed to Load Preview</h4>
+                <p>Please try again or check your sources configuration.</p>
+            </div>
+        `;
+    }
+}
+
+// Group Management Functions
+async function saveGroup() {
+    try {
+        const formData = {
+            name: document.getElementById('groupName').value,
+            description: document.getElementById('groupDescription').value,
+            color: document.getElementById('groupColor').value,
+            is_active: document.getElementById('groupActive').checked
+        };
+        
+        const response = await fetch(`/api/feed-groups/${currentGroup.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(formData)
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Update local state
+        Object.assign(currentGroup, formData);
+        
+        // Refresh displays
+        await loadFeedGroups();
+        renderGroupsList();
+        
+        showToast('Group saved successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Error saving group:', error);
+        showToast('Failed to save group. Please try again.', 'error');
+    }
+}
+
+async function createNewGroup() {
+    try {
+        const newGroup = {
+            name: 'New Feed Group',
+            description: 'A new feed group for content aggregation',
+            color: '#FF69B4',
+            is_active: true
+        };
+        
+        const response = await fetch('/api/feed-groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newGroup)
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const createdGroup = await response.json();
+        
+        // Refresh and select new group
+        await loadFeedGroups();
+        renderGroupsList();
+        await selectGroup(createdGroup.id);
+        
+        showToast('New group created!', 'success');
+        
+    } catch (error) {
+        console.error('Error creating group:', error);
+        showToast('Failed to create group. Please try again.', 'error');
+    }
+}
+
+async function deleteGroup(groupId) {
+    if (!confirm('Are you sure you want to delete this group? This will also delete all associated content.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/feed-groups/${groupId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Clear current group if it was deleted
+        if (currentGroup?.id === groupId) {
+            currentGroup = null;
+            document.getElementById('editorContent').innerHTML = `
+                <div style="text-align: center; padding: 60px 20px; color: var(--dark-gray);">
+                    <i class="fas fa-mouse-pointer" style="font-size: 3rem; color: var(--medium-gray); margin-bottom: 16px;"></i>
+                    <h3>Select a Group to Edit</h3>
+                    <p>Choose a feed group from the left panel to edit its settings and manage keywords.</p>
+                </div>
+            `;
+        }
+        
+        // Refresh displays
+        await loadFeedGroups();
+        renderGroupsList();
+        await loadStats();
+        
+        showToast('Group deleted successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Error deleting group:', error);
+        showToast('Failed to delete group. Please try again.', 'error');
+    }
+}
+
+// Source Management Functions
+async function addSource(sourceType) {
+    try {
+        const sourceData = {
+            source_type: sourceType,
+            keywords: [],
+            enabled: true,
+            date_range_days: 7,  // Default to 7 days
+            custom_start_date: null,
+            custom_end_date: null
+        };
+        
+        const response = await fetch(`/api/feed-groups/${currentGroup.id}/sources`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sourceData)
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Refresh sources display
+        await loadGroupEditor(currentGroup);
+        switchTab('sources');
+        
+        showToast(`${sourceType.charAt(0).toUpperCase() + sourceType.slice(1)} source added!`, 'success');
+        
+    } catch (error) {
+        console.error('Error adding source:', error);
+        showToast('Failed to add source. Please try again.', 'error');
+    }
+}
+
+async function removeSource(sourceId) {
+    if (!confirm('Are you sure you want to remove this source?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/feed-groups/${currentGroup.id}/sources/${sourceId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Refresh sources display
+        await loadGroupEditor(currentGroup);
+        switchTab('sources');
+        
+        showToast('Source removed successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Error removing source:', error);
+        showToast('Failed to remove source. Please try again.', 'error');
+    }
+}
+
+async function updateSourceKeywords(sourceId, keywordsString) {
+    try {
+        const keywords = keywordsString.split(',').map(k => k.trim()).filter(k => k);
+        
+        const response = await fetch(`/api/feed-groups/${currentGroup.id}/sources/${sourceId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keywords })
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Refresh sources display
+        await loadGroupEditor(currentGroup);
+        switchTab('sources');
+        
+        showToast('Keywords updated!', 'success');
+        
+    } catch (error) {
+        console.error('Error updating keywords:', error);
+        showToast('Failed to update keywords. Please try again.', 'error');
+    }
+}
+
+// Date Range Management Functions
+function toggleDateMode(sourceId, mode) {
+    const daysInput = document.querySelector(`input[onchange*="updateDateRangeDays(${sourceId}"]`);
+    const startDateInput = document.querySelector(`input[onchange*="updateCustomDate(${sourceId}, 'start'"]`);
+    const endDateInput = document.querySelector(`input[onchange*="updateCustomDate(${sourceId}, 'end'"]`);
+    
+    if (mode === 'days') {
+        daysInput.disabled = false;
+        startDateInput.disabled = true;
+        endDateInput.disabled = true;
+        startDateInput.value = '';
+        endDateInput.value = '';
+        
+        // Update source to use days mode
+        updateSourceDateRange(sourceId, {
+            date_range_days: parseInt(daysInput.value) || 7,
+            custom_start_date: null,
+            custom_end_date: null
+        });
+    } else {
+        daysInput.disabled = true;
+        startDateInput.disabled = false;
+        endDateInput.disabled = false;
+        
+        // Set default dates if empty
+        if (!startDateInput.value) {
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            startDateInput.value = weekAgo.toISOString().split('T')[0];
+        }
+        if (!endDateInput.value) {
+            endDateInput.value = new Date().toISOString().split('T')[0];
+        }
+        
+        updateSourceDateRange(sourceId, {
+            custom_start_date: startDateInput.value + 'T00:00:00Z',
+            custom_end_date: endDateInput.value + 'T23:59:59Z'
+        });
+    }
+}
+
+async function updateDateRangeDays(sourceId, days) {
+    try {
+        const dayCount = parseInt(days) || 7;
+        await updateSourceDateRange(sourceId, { date_range_days: dayCount });
+        showToast(`Date range updated to ${dayCount} days`, 'success');
+    } catch (error) {
+        console.error('Error updating date range days:', error);
+        showToast('Failed to update date range. Please try again.', 'error');
+    }
+}
+
+async function updateCustomDate(sourceId, dateType, value) {
+    try {
+        const updateData = {};
+        if (dateType === 'start') {
+            updateData.custom_start_date = value ? value + 'T00:00:00Z' : null;
+        } else {
+            updateData.custom_end_date = value ? value + 'T23:59:59Z' : null;
+        }
+        
+        await updateSourceDateRange(sourceId, updateData);
+        showToast(`Custom ${dateType} date updated`, 'success');
+    } catch (error) {
+        console.error('Error updating custom date:', error);
+        showToast('Failed to update date. Please try again.', 'error');
+    }
+}
+
+async function updateSourceDateRange(sourceId, dateRangeData) {
+    try {
+        const response = await fetch(`/api/feed-groups/${currentGroup.id}/sources/${sourceId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dateRangeData)
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        // Note: We don't refresh the entire sources display for date changes
+        // to avoid interrupting user input
+        
+    } catch (error) {
+        console.error('Error updating source date range:', error);
+        throw error;
+    }
+}
+
+async function collectGroupFeed() {
+    try {
+        showToast('Collecting feed content...', 'info');
+        
+        const response = await fetch(`/api/feed-groups/${currentGroup.id}/collect?max_items=20`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        showToast(`Collected ${result.items_collected || 0} new items!`, 'success');
+        
+        // Refresh preview if on preview tab
+        if (currentTab === 'preview') {
+            loadFeedPreview();
+        }
+        
+        await loadStats();
+        
+        // Refresh article counters for all groups
+        await refreshAllCounters();
+        
+    } catch (error) {
+        console.error('Error collecting feed:', error);
+        showToast('Failed to collect feed. Please try again.', 'error');
+    }
+}
+
+// Utility Functions
+function goBackToDashboard() {
+    window.location.href = '/unified-feed';
+}
+
+function refreshStats() {
+    loadStats();
+}
+
+function resetForm() {
+    if (currentGroup) {
+        document.getElementById('groupName').value = currentGroup.name;
+        document.getElementById('groupDescription').value = currentGroup.description || '';
+        document.getElementById('groupColor').value = currentGroup.color;
+        document.getElementById('groupActive').checked = currentGroup.is_active;
+    }
+}
+
+// Article Counter Functions
+async function loadAllGroupStats() {
+    // Load stats for all groups in parallel
+    const promises = feedGroups.map(group => loadGroupStats(group.id));
+    await Promise.all(promises);
+}
+
+async function loadGroupStats(groupId) {
+    try {
+        const response = await fetch(`/api/feed-groups/${groupId}/stats`);
+        if (response.ok) {
+            const stats = await response.json();
+            updateGroupCounter(groupId, stats.total_items, stats.recent_items);
+        } else {
+            console.warn(`Failed to load stats for group ${groupId}:`, response.status);
+            updateGroupCounter(groupId, 0, 0);
+        }
+    } catch (error) {
+        console.error(`Error loading stats for group ${groupId}:`, error);
+        updateGroupCounter(groupId, 0, 0);
+    }
+}
+
+function updateGroupCounter(groupId, totalItems, recentItems = null) {
+    const counterElement = document.getElementById(`counter_${groupId}`);
+    if (counterElement) {
+        const numberElement = counterElement.querySelector('.counter-number');
+        if (numberElement) {
+            numberElement.textContent = totalItems.toLocaleString();
+            
+            // Add tooltip showing recent items if available
+            if (recentItems !== null) {
+                counterElement.title = `${totalItems} total articles, ${recentItems} in last 7 days`;
+            } else {
+                counterElement.title = `${totalItems} total articles`;
+            }
+        }
+    }
+}
+
+function refreshAllCounters() {
+    // Refresh all group counters
+    loadAllGroupStats();
+}
+
+function showToast(message, type = 'success') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    
+    const icon = type === 'success' ? 'fas fa-check-circle' : 
+                 type === 'error' ? 'fas fa-exclamation-circle' : 
+                 type === 'warning' ? 'fas fa-exclamation-triangle' : 'fas fa-info-circle';
+    
+    toast.innerHTML = `
+        <i class="${icon}"></i>
+        <span>${message}</span>
+    `;
+    
+    container.appendChild(toast);
+    
+    // Show toast
+    setTimeout(() => toast.classList.add('show'), 100);
+    
+    // Hide and remove toast
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => container.removeChild(toast), 300);
+    }, 3000);
+}
+</script>
+
+<!-- Group Article Enrichment Modal -->
+<div class="modal fade" id="groupEnrichmentModal" tabindex="-1" aria-labelledby="groupEnrichmentModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="groupEnrichmentModalLabel">Enrich Group Articles</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Configuration Section -->
+                <div class="mb-4">
+                    <h6>Analysis Configuration</h6>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="groupEnrichmentTopicSelect" class="form-label">Topic</label>
+                            <select id="groupEnrichmentTopicSelect" class="form-select">
+                                <option value="">Select a topic</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="groupEnrichmentModelSelect" class="form-label">AI Model</label>
+                            <select id="groupEnrichmentModelSelect" class="form-select">
+                                <option value="">Select a model</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Processing Options -->
+                <div class="mb-4">
+                    <h6>Processing Options</h6>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="groupEnrichmentBackgroundProcessing" checked>
+                        <label class="form-check-label" for="groupEnrichmentBackgroundProcessing">
+                            Background Processing (continue using interface)
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="groupEnrichmentQualityControl" checked>
+                        <label class="form-check-label" for="groupEnrichmentQualityControl">
+                            Quality Control (validate results)
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Selected Articles List -->
+                <div class="mb-4">
+                    <h6>Articles to Enrich (<span id="groupEnrichmentSelectedCount">0</span>)</h6>
+                    <div id="groupEnrichmentSelectedArticlesList" class="list-group" style="max-height: 200px; overflow-y: auto;">
+                        <!-- Articles will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Progress Section (hidden initially) -->
+                <div id="groupEnrichmentProgressContainer" style="display: none;">
+                    <h6>Processing Progress</h6>
+                    <div class="progress mb-2">
+                        <div id="groupEnrichmentProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                    <div id="groupEnrichmentProgressText" class="text-muted small">Preparing...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="startGroupEnrichmentBtn" onclick="startGroupEnrichment()">
+                    <i class="fas fa-brain"></i>
+                    Start Enrichment
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %} 
