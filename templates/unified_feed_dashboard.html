@@ -128,6 +128,9 @@
 
     .feed-items {
         padding: 24px;
+        max-height: 80vh;
+        overflow-y: auto;
+        scroll-behavior: smooth;
     }
 
     .feed-item {
@@ -137,11 +140,169 @@
         padding: 20px;
         margin-bottom: 20px;
         transition: all 0.2s;
+        position: relative;
     }
 
     .feed-item:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .feed-item.starred {
+        border-left: 4px solid var(--primary-color);
+        background: linear-gradient(90deg, rgba(255, 105, 180, 0.05) 0%, rgba(255, 255, 255, 1) 20%);
+    }
+
+    .feed-item.starred:hover {
+        box-shadow: 0 4px 12px rgba(255, 105, 180, 0.2);
+    }
+
+    /* ArXiv-specific styling */
+    .feed-item.arxiv-item {
+        border-left: 4px solid #b31b1b;
+        background: linear-gradient(90deg, rgba(179, 27, 27, 0.03) 0%, rgba(255, 255, 255, 1) 15%);
+        position: relative;
+    }
+
+    .feed-item.arxiv-item::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 3px;
+        background: repeating-linear-gradient(
+            to bottom,
+            #b31b1b 0px,
+            #b31b1b 8px,
+            transparent 8px,
+            transparent 16px
+        );
+        opacity: 0.3;
+    }
+
+    .feed-item.arxiv-item:hover {
+        box-shadow: 0 4px 12px rgba(179, 27, 27, 0.15);
+        border-left-color: #d12d2d;
+    }
+
+    .feed-item.arxiv-item.starred {
+        border-left: 4px solid var(--primary-color);
+        background: linear-gradient(90deg, rgba(255, 105, 180, 0.05) 0%, rgba(179, 27, 27, 0.03) 50%, rgba(255, 255, 255, 1) 80%);
+    }
+
+    .feed-item.arxiv-item .feed-item-title a {
+        color: #8b1818;
+    }
+
+    .feed-item.arxiv-item .feed-item-title a:hover {
+        color: #b31b1b;
+    }
+
+    /* Bluesky-specific styling */
+    .feed-item.bluesky-item {
+        border-left: 4px solid #0085ff;
+        background: linear-gradient(90deg, rgba(0, 133, 255, 0.03) 0%, rgba(255, 255, 255, 1) 15%);
+        position: relative;
+    }
+
+    .feed-item.bluesky-item::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 3px;
+        background: repeating-linear-gradient(
+            to bottom,
+            #0085ff 0px,
+            #0085ff 6px,
+            transparent 6px,
+            transparent 12px
+        );
+        opacity: 0.3;
+    }
+
+    .feed-item.bluesky-item:hover {
+        box-shadow: 0 4px 12px rgba(0, 133, 255, 0.15);
+        border-left-color: #00a3ff;
+    }
+
+    .feed-item.bluesky-item.starred {
+        border-left: 4px solid var(--primary-color);
+        background: linear-gradient(90deg, rgba(255, 105, 180, 0.05) 0%, rgba(0, 133, 255, 0.03) 50%, rgba(255, 255, 255, 1) 80%);
+    }
+
+    .feed-item.bluesky-item .feed-item-title a {
+        color: #0066cc;
+    }
+
+    .feed-item.bluesky-item .feed-item-title a:hover {
+        color: #0085ff;
+    }
+
+    /* Source badges */
+    .source-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    .source-badge.arxiv {
+        background: linear-gradient(135deg, #b31b1b, #d12d2d);
+        color: white;
+        border: 1px solid #a01818;
+    }
+
+    .source-badge.bluesky {
+        background: linear-gradient(135deg, #0085ff, #00a3ff);
+        color: white;
+        border: 1px solid #0070d9;
+    }
+
+    .source-badge i {
+        font-size: 1rem;
+    }
+
+    /* Subtle watermark patterns for better source identification */
+    .feed-item.arxiv-item::after {
+        content: '📚';
+        position: absolute;
+        top: 15px;
+        right: 15px;
+        font-size: 1.2rem;
+        opacity: 0.1;
+        pointer-events: none;
+    }
+
+    .feed-item.bluesky-item::after {
+        content: '🐦';
+        position: absolute;
+        top: 15px;
+        right: 15px;
+        font-size: 1.2rem;
+        opacity: 0.1;
+        pointer-events: none;
+    }
+
+    /* Enhanced hover effects */
+    .feed-item.arxiv-item:hover::after {
+        opacity: 0.2;
+        transform: scale(1.1);
+        transition: all 0.2s ease;
+    }
+
+    .feed-item.bluesky-item:hover::after {
+        opacity: 0.2;
+        transform: scale(1.1);
+        transition: all 0.2s ease;
     }
 
     .feed-item-title {
@@ -380,6 +541,11 @@
             right: 0;
             margin-bottom: 8px;
         }
+
+        /* Ensure bulk star buttons work well on mobile */
+        #bulkStarBtn, #bulkUnstarBtn {
+            font-size: 0.8rem;
+        }
     }
 </style>
 {% endblock %}
@@ -394,6 +560,10 @@
                 <p class="dashboard-subtitle" style="color: var(--dark-gray); margin: 8px 0 0 0; font-size: 1.1rem;">Social media and academic content in one place</p>
             </div>
             <div class="d-flex gap-2">
+                <button class="btn-tab-control btn-warning" onclick="showOnlyStarredItems()" title="Quick filter to show only starred items">
+                    <i class="fas fa-star"></i>
+                    View Starred
+                </button>
                 <button class="btn-tab-control" onclick="refreshCurrentFeed()">
                     <i class="fas fa-sync-alt"></i>
                     Refresh
@@ -421,6 +591,13 @@
                     <i class="fas fa-plus"></i>
                     New Group
                 </button>
+                <div style="display: flex; align-items: center; gap: 12px; margin-left: 16px; padding-left: 16px; border-left: 1px solid var(--medium-gray);">
+                    <div style="display: flex; align-items: center; gap: 6px; color: var(--primary-color); font-weight: 500;">
+                        <i class="fas fa-star"></i>
+                        <span id="totalStarredCount">0</span>
+                        <span style="color: var(--dark-gray); font-size: 0.9rem;">starred</span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -438,8 +615,16 @@
                     <label for="sourceFilter">Source:</label>
                     <select id="sourceFilter" class="filter-select" onchange="applyFilters()">
                         <option value="">All Sources</option>
-                        <option value="bluesky">Bluesky</option>
-                        <option value="arxiv">ArXiv</option>
+                        <option value="bluesky">🐦 Bluesky Social</option>
+                        <option value="arxiv">📚 ArXiv Academic</option>
+                    </select>
+                </div>
+                <div class="feed-filter">
+                    <label for="starredFilter">Starred:</label>
+                    <select id="starredFilter" class="filter-select" onchange="applyFilters()">
+                        <option value="">All Items</option>
+                        <option value="starred">Starred Only</option>
+                        <option value="unstarred">Unstarred Only</option>
                     </select>
                 </div>
                 <div class="feed-filter">
@@ -464,21 +649,26 @@
                     <i class="fas fa-brain"></i>
                     Enrich Selected (<span id="selectedCount">0</span>)
                 </button>
+                <button class="btn-tab-control btn-warning" onclick="bulkStarArticles()" disabled id="bulkStarBtn">
+                    <i class="fas fa-star"></i>
+                    Star Selected (<span id="starSelectedCount">0</span>)
+                </button>
+                <button class="btn-tab-control btn-secondary" onclick="bulkUnstarArticles()" disabled id="bulkUnstarBtn">
+                    <i class="far fa-star"></i>
+                    Unstar Selected (<span id="unstarSelectedCount">0</span>)
+                </button>
                 <button class="btn-tab-control btn-success" id="saveEnrichedBtn" onclick="bulkSaveEnrichedArticles()" style="display: none;">
                     <i class="fas fa-save"></i>
                     Save Enriched Articles
                 </button>
-                <button class="btn-tab-control btn-info" onclick="checkEnrichmentStatus()" title="Debug: Check for enriched articles">
-                    <i class="fas fa-search"></i>
-                    Check Results
-                </button>
-                <button class="btn-tab-control btn-warning" onclick="debugEnrichmentData()" title="Debug: Check articles table directly">
-                    <i class="fas fa-bug"></i>
-                    Debug DB
-                </button>
+
                 <button class="btn-tab-control" onclick="toggleHiddenItems()">
                     <i class="fas fa-eye-slash"></i>
                     <span id="hiddenToggleText">Show Hidden</span>
+                </button>
+                <button class="btn-tab-control btn-info" onclick="exportStarredItems()">
+                    <i class="fas fa-download"></i>
+                    Export Starred
                 </button>
                 <button class="btn-tab-control" onclick="toggleCustomizePanel()">
                     <i class="fas fa-sliders-h"></i>
@@ -543,7 +733,13 @@
             </div>
         </div>
 
-        <!-- Load More Button -->
+        <!-- Infinite Scroll Loading Indicator -->
+        <div class="text-center p-4" id="infiniteScrollLoader" style="display: none;">
+            <div class="loading-spinner" style="width: 30px; height: 30px; margin: 0 auto;"></div>
+            <p class="mt-2 text-muted">Loading more articles...</p>
+        </div>
+
+        <!-- Load More Button (fallback) -->
         <div class="text-center p-4" id="loadMoreContainer" style="display: none;">
             <button class="btn-tab-control btn-primary-control" onclick="loadMoreItems()">
                 <i class="fas fa-chevron-down"></i>
@@ -588,7 +784,83 @@ let searchTimeout = null;
 // Initialize dashboard when page loads
 document.addEventListener('DOMContentLoaded', function() {
     initializeDashboard();
+    setupInfiniteScroll();
 });
+
+// Setup infinite scroll
+function setupInfiniteScroll() {
+    const feedItemsContainer = document.getElementById('feedItems');
+    let isLoading = false;
+    
+    // Throttle scroll events for better performance
+    let scrollTimeout = null;
+    
+    function handleScroll() {
+        if (scrollTimeout) return;
+        
+        scrollTimeout = setTimeout(() => {
+            const container = feedItemsContainer;
+            const scrollTop = container.scrollTop;
+            const scrollHeight = container.scrollHeight;
+            const clientHeight = container.clientHeight;
+            
+            // Check if user scrolled to near bottom (within 200px)
+            const nearBottom = scrollTop + clientHeight >= scrollHeight - 200;
+            
+            if (nearBottom && hasMoreItems && !isLoading) {
+                isLoading = true;
+                showInfiniteScrollLoader();
+                loadMoreItems().finally(() => {
+                    hideInfiniteScrollLoader();
+                    isLoading = false;
+                });
+            }
+            
+            scrollTimeout = null;
+        }, 100);
+    }
+    
+    // Add scroll listener to the feed items container
+    feedItemsContainer.addEventListener('scroll', handleScroll);
+    
+    // Also listen to window scroll as fallback
+    window.addEventListener('scroll', () => {
+        const container = document.getElementById('feedItems');
+        const rect = container.getBoundingClientRect();
+        const viewportHeight = window.innerHeight;
+        
+        // Check if container is visible and user scrolled near bottom of page
+        if (rect.top < viewportHeight && rect.bottom > 0) {
+            const documentHeight = document.documentElement.scrollHeight;
+            const windowHeight = window.innerHeight;
+            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+            
+            if (scrollTop + windowHeight >= documentHeight - 300 && hasMoreItems && !isLoading) {
+                isLoading = true;
+                showInfiniteScrollLoader();
+                loadMoreItems().finally(() => {
+                    hideInfiniteScrollLoader();
+                    isLoading = false;
+                });
+            }
+        }
+    });
+}
+
+// Infinite scroll loader helpers
+function showInfiniteScrollLoader() {
+    const loader = document.getElementById('infiniteScrollLoader');
+    if (loader) {
+        loader.style.display = 'block';
+    }
+}
+
+function hideInfiniteScrollLoader() {
+    const loader = document.getElementById('infiniteScrollLoader');
+    if (loader) {
+        loader.style.display = 'none';
+    }
+}
 
 async function initializeDashboard() {
     try {
@@ -629,6 +901,7 @@ function loadCachedPreferences() {
             document.getElementById('sortBy').value = currentFilters.sort || 'publication_date';
             document.getElementById('itemsPerPage').value = currentFilters.limit || 50;
             document.getElementById('searchInput').value = currentFilters.search || '';
+            document.getElementById('starredFilter').value = currentFilters.starred || '';
         }
     } catch (error) {
         console.error('Error loading cached preferences:', error);
@@ -709,8 +982,38 @@ async function loadTabCounters() {
         const promises = feedGroups.map(group => loadGroupTabCounter(group.id));
         await Promise.all(promises);
         
+        // Load starred count
+        await loadStarredCount();
+        
     } catch (error) {
         console.error('Error loading tab counters:', error);
+    }
+}
+
+// Load total starred count across all groups
+async function loadStarredCount() {
+    try {
+        // Always get the total count across all groups (not just current view)
+        // Load a larger sample from all groups to get accurate starred count (max limit is 200)
+        const response = await fetch('/api/unified-feed?limit=200');
+        if (response.ok) {
+            const data = await response.json();
+            // Count only items that are actually starred
+            const actualStarredCount = data.items ? data.items.filter(item => item.is_starred).length : 0;
+            updateStarredCount(actualStarredCount);
+        }
+    } catch (error) {
+        console.error('Error loading starred count:', error);
+        updateStarredCount(0);
+    }
+}
+
+// Update starred count display
+function updateStarredCount(count) {
+    const countElement = document.getElementById('totalStarredCount');
+    if (countElement) {
+        countElement.textContent = count.toLocaleString();
+        countElement.title = `${count} starred articles across all groups`;
     }
 }
 
@@ -825,9 +1128,6 @@ function renderFeedItems() {
     }
     
     container.innerHTML = feedItems.map(item => renderFeedItem(item)).join('');
-    
-    // Check enrichment status for all items after rendering
-    setTimeout(() => checkEnrichmentStatus(), 100);
 }
 
 function renderFeedItem(item) {
@@ -835,22 +1135,25 @@ function renderFeedItem(item) {
         new Date(item.publication_date).toLocaleDateString() : 
         'No date';
     
-    const sourceIcon = item.source_type === 'arxiv' ? 
-        '<div style="width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8rem; background: #b31b1b;">A</div>' :
-        '<div style="width: 20px; height: 20px; border-radius: 4px; display: flex; align-items: center; justify-content: center; color: white; font-size: 0.8rem; background: #0085ff;">B</div>';
+    // Enhanced source badges with proper icons and styling
+    const sourceBadge = item.source_type === 'arxiv' ? 
+        '<div class="source-badge arxiv"><i class="fas fa-university"></i> ArXiv</div>' :
+        '<div class="source-badge bluesky"><i class="fab fa-twitter"></i> Bluesky</div>';
     
     const engagement = item.engagement_metrics || {};
     const tags = item.tags || [];
     
+    // Add source-specific CSS classes
+    const sourceClass = item.source_type === 'arxiv' ? 'arxiv-item' : 'bluesky-item';
+    
     return `
-        <div class="feed-item" data-item-id="${item.id}" style="animation: fadeIn 0.3s ease-in;">
+        <div class="feed-item ${sourceClass}${item.is_starred ? ' starred' : ''}" data-item-id="${item.id}" style="animation: fadeIn 0.3s ease-in;">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
-                <div style="display: flex; align-items: center; gap: 8px; font-size: 0.9rem; color: var(--dark-gray);">
+                <div style="display: flex; align-items: center; gap: 12px; font-size: 0.9rem; color: var(--dark-gray);">
                     <input type="checkbox" class="item-checkbox" data-item-id="${item.id}" onchange="updateSelectedCount()" style="margin-right: 6px;">
-                    ${sourceIcon}
-                    <span>${item.source_type.toUpperCase()}</span>
+                    ${sourceBadge}
                     <span>•</span>
-                    <span style="color: ${item.group_color}">${item.group_name}</span>
+                    <span style="color: ${item.group_color}; font-weight: 500;">${item.group_name}</span>
                 </div>
                 <div style="display: flex; gap: 8px;">
                     <button id="enrich-btn-${item.id}" style="padding: 6px 10px; border: none; border-radius: 6px; background: #9966CC; color: white; cursor: pointer; font-size: 0.85rem; transition: all 0.2s;" 
@@ -935,6 +1238,9 @@ async function toggleStar(itemId, starred) {
             renderFeedItems();
         }
         
+        // Refresh starred count
+        await loadStarredCount();
+        
         showSuccess(starred ? 'Item starred!' : 'Item unstarred!');
         
     } catch (error) {
@@ -1001,6 +1307,7 @@ function applyFilters() {
     currentFilters.dateRange = document.getElementById('dateFilter')?.value || '';
     currentFilters.author = document.getElementById('authorFilter')?.value || '';
     currentFilters.minEngagement = document.getElementById('engagementFilter')?.value || '';
+    currentFilters.starred = document.getElementById('starredFilter').value;
     
     // Save to cache
     savePreferencesToCache();
@@ -1031,6 +1338,15 @@ function applyClientSideFilters() {
     // Apply source filter
     if (currentFilters.source) {
         filteredItems = filteredItems.filter(item => item.source_type === currentFilters.source);
+    }
+    
+    // Apply starred filter
+    if (currentFilters.starred) {
+        if (currentFilters.starred === 'starred') {
+            filteredItems = filteredItems.filter(item => item.is_starred);
+        } else if (currentFilters.starred === 'unstarred') {
+            filteredItems = filteredItems.filter(item => !item.is_starred);
+        }
     }
     
     // Apply date range filter
@@ -1172,6 +1488,7 @@ function resetCustomizations() {
         dateRange: '',
         author: '',
         minEngagement: '',
+        starred: '',
         layout: 'cards'
     };
     
@@ -1183,6 +1500,7 @@ function resetCustomizations() {
     document.getElementById('sortBy').value = 'publication_date';
     document.getElementById('itemsPerPage').value = '50';
     document.getElementById('searchInput').value = '';
+    document.getElementById('starredFilter').value = '';
     if (document.getElementById('dateFilter')) document.getElementById('dateFilter').value = '';
     if (document.getElementById('authorFilter')) document.getElementById('authorFilter').value = '';
     if (document.getElementById('engagementFilter')) document.getElementById('engagementFilter').value = '';
@@ -1204,22 +1522,43 @@ function toggleHiddenItems() {
     loadFeedItems();
 }
 
-function loadMoreItems() {
+async function loadMoreItems() {
     if (hasMoreItems) {
         currentPage++;
-        loadFeedItems(true);
+        await loadFeedItems(true);
     }
 }
 
 function updateLoadMoreButton() {
     const container = document.getElementById('loadMoreContainer');
-    container.style.display = hasMoreItems ? 'block' : 'none';
+    // Hide load more button since we have infinite scroll
+    // Only show if infinite scroll isn't working for some reason
+    container.style.display = 'none';
 }
 
 function refreshCurrentFeed() {
     currentPage = 0;
     hasMoreItems = true;
     loadFeedItems();
+}
+
+// Quick function to show only starred items
+function showOnlyStarredItems() {
+    document.getElementById('starredFilter').value = 'starred';
+    applyFilters();
+    
+    // Show visual feedback
+    const btn = event.target.closest('button');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-star"></i> Showing Starred';
+    btn.classList.add('btn-primary-control');
+    btn.classList.remove('btn-warning');
+    
+    setTimeout(() => {
+        btn.innerHTML = originalText;
+        btn.classList.remove('btn-primary-control');
+        btn.classList.add('btn-warning');
+    }, 2000);
 }
 
 // Utility functions
@@ -1271,6 +1610,229 @@ function updateSelectedCount() {
         const itemId = parseInt(cb.dataset.itemId);
         return feedItems.find(item => item.id === itemId);
     }).filter(Boolean);
+    
+    // Update bulk star operation counts
+    const starredCount = selectedArticles.filter(item => item.is_starred).length;
+    const unstarredCount = selectedArticles.filter(item => !item.is_starred).length;
+    
+    document.getElementById('starSelectedCount').textContent = unstarredCount;
+    document.getElementById('unstarSelectedCount').textContent = starredCount;
+    
+    // Enable/disable bulk star buttons
+    document.getElementById('bulkStarBtn').disabled = unstarredCount === 0;
+    document.getElementById('bulkUnstarBtn').disabled = starredCount === 0;
+}
+
+// Bulk Star Operations
+async function bulkStarArticles() {
+    const unstarredItems = selectedArticles.filter(item => !item.is_starred);
+    if (unstarredItems.length === 0) {
+        showError('No unstarred items selected');
+        return;
+    }
+    
+    const confirmStar = confirm(`Star ${unstarredItems.length} selected articles?`);
+    if (!confirmStar) return;
+    
+    const bulkStarBtn = document.getElementById('bulkStarBtn');
+    const originalText = bulkStarBtn.innerHTML;
+    
+    try {
+        bulkStarBtn.disabled = true;
+        bulkStarBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starring...';
+        
+        let successCount = 0;
+        let errorCount = 0;
+        
+        for (const item of unstarredItems) {
+            try {
+                await toggleStar(item.id, true);
+                successCount++;
+            } catch (error) {
+                console.error(`Error starring item ${item.id}:`, error);
+                errorCount++;
+            }
+        }
+        
+        showSuccess(`Successfully starred ${successCount} articles${errorCount > 0 ? ` (${errorCount} failed)` : ''}`);
+        
+        // Refresh the display and starred count
+        await loadFeedItems();
+        await loadStarredCount();
+        
+    } catch (error) {
+        console.error('Error during bulk star operation:', error);
+        showError('Failed to star articles. Please try again.');
+    } finally {
+        bulkStarBtn.disabled = false;
+        bulkStarBtn.innerHTML = originalText;
+    }
+}
+
+async function bulkUnstarArticles() {
+    const starredItems = selectedArticles.filter(item => item.is_starred);
+    if (starredItems.length === 0) {
+        showError('No starred items selected');
+        return;
+    }
+    
+    const confirmUnstar = confirm(`Unstar ${starredItems.length} selected articles?`);
+    if (!confirmUnstar) return;
+    
+    const bulkUnstarBtn = document.getElementById('bulkUnstarBtn');
+    const originalText = bulkUnstarBtn.innerHTML;
+    
+    try {
+        bulkUnstarBtn.disabled = true;
+        bulkUnstarBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Unstarring...';
+        
+        let successCount = 0;
+        let errorCount = 0;
+        
+        for (const item of starredItems) {
+            try {
+                await toggleStar(item.id, false);
+                successCount++;
+            } catch (error) {
+                console.error(`Error unstarring item ${item.id}:`, error);
+                errorCount++;
+            }
+        }
+        
+        showSuccess(`Successfully unstarred ${successCount} articles${errorCount > 0 ? ` (${errorCount} failed)` : ''}`);
+        
+        // Refresh the display and starred count
+        await loadFeedItems();
+        await loadStarredCount();
+        
+    } catch (error) {
+        console.error('Error during bulk unstar operation:', error);
+        showError('Failed to unstar articles. Please try again.');
+    } finally {
+        bulkUnstarBtn.disabled = false;
+        bulkUnstarBtn.innerHTML = originalText;
+    }
+}
+
+// Export Starred Items
+async function exportStarredItems() {
+    const exportBtn = event.target;
+    const originalText = exportBtn.innerHTML;
+    
+    try {
+        exportBtn.disabled = true;
+        exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+        
+        // Get all starred items across all groups using pagination
+        let allStarredItems = [];
+        let offset = 0;
+        const limit = 200; // Maximum allowed limit
+        let hasMore = true;
+        
+        while (hasMore) {
+            exportBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Collecting... (${allStarredItems.length} starred found)`;
+            
+            const response = await fetch(`/api/unified-feed?limit=${limit}&offset=${offset}`, {
+                method: 'GET'
+            });
+            
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            
+            const data = await response.json();
+            const starredItems = data.items ? data.items.filter(item => item.is_starred) : [];
+            allStarredItems = allStarredItems.concat(starredItems);
+            
+            hasMore = data.has_more;
+            offset += limit;
+            
+            // Prevent infinite loops
+            if (offset > 10000) break;
+        }
+        
+        const starredItems = allStarredItems;
+        
+        exportBtn.innerHTML = `<i class="fas fa-download"></i> Exporting ${starredItems.length} starred items...`;
+        
+        if (starredItems.length === 0) {
+            showError('No starred articles found to export');
+            return;
+        }
+        
+        // Prepare export data
+        const exportData = starredItems.map(item => ({
+            title: item.title,
+            url: item.url,
+            source: item.source_type,
+            author: item.author,
+            author_handle: item.author_handle,
+            publication_date: item.publication_date,
+            content: item.content,
+            feed_group: item.group_name,
+            tags: Array.isArray(item.tags) ? item.tags.join(', ') : item.tags,
+            engagement_likes: item.engagement_metrics?.likes || 0,
+            engagement_reposts: item.engagement_metrics?.reposts || 0,
+            engagement_replies: item.engagement_metrics?.replies || 0,
+            starred_date: new Date().toISOString(),
+            // Analysis data if available
+            category: item.category,
+            sentiment: item.sentiment,
+            future_signal: item.future_signal,
+            time_to_impact: item.time_to_impact,
+            driver_type: item.driver_type
+        }));
+        
+        // Export as CSV
+        const csvContent = convertToCSV(exportData);
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `starred_articles_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        exportBtn.innerHTML = '<i class="fas fa-check"></i> Export Complete!';
+        setTimeout(() => {
+            exportBtn.innerHTML = originalText;
+        }, 3000);
+        
+        showSuccess(`Successfully exported ${starredItems.length} starred articles to CSV!`);
+        
+    } catch (error) {
+        console.error('Error exporting starred items:', error);
+        showError('Failed to export starred articles. Please try again.');
+    } finally {
+        exportBtn.disabled = false;
+        exportBtn.innerHTML = originalText;
+    }
+}
+
+// Helper function to convert data to CSV format
+function convertToCSV(data) {
+    if (data.length === 0) return '';
+    
+    const headers = Object.keys(data[0]);
+    const csvHeaders = headers.join(',');
+    
+    const csvRows = data.map(row => {
+        return headers.map(header => {
+            let value = row[header];
+            // Handle null/undefined values
+            if (value === null || value === undefined) {
+                value = '';
+            }
+            // Escape quotes and wrap in quotes if contains comma or quote
+            value = String(value).replace(/"/g, '""');
+            if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+                value = `"${value}"`;
+            }
+            return value;
+        }).join(',');
+    });
+    
+    return [csvHeaders, ...csvRows].join('\n');
 }
 
 function enrichSingleArticle(itemId) {
@@ -1440,7 +2002,8 @@ async function startArticleEnrichment() {
         };
         
         if (backgroundProcessing) {
-            showSuccess(`Enrichment started in background for ${selectedArticles.length} articles`);
+            const qcText = qualityControl ? ' with Quality Control' : '';
+            showSuccess(`Enrichment started in background for ${selectedArticles.length} articles${qcText}`);
             setTimeout(() => {
                 const modal = bootstrap.Modal.getInstance(document.getElementById('articleEnrichmentModal'));
                 if (modal) modal.hide();
@@ -1501,7 +2064,11 @@ async function performStreamingEnrichment(requestData) {
                 const percentage = (processedCount / totalCount) * 100;
                 progressBar.style.width = `${percentage}%`;
                 progressBar.setAttribute('aria-valuenow', percentage);
-                progressText.textContent = `Processed ${processedCount} of ${totalCount} articles...`;
+                
+                // Show quality control status if enabled
+                const qualityControl = document.getElementById('enrichmentQualityControl').checked;
+                const qcText = qualityControl ? ' (with Quality Control)' : '';
+                progressText.textContent = `Processed ${processedCount} of ${totalCount} articles${qcText}...`;
                 
             } catch (e) {
                 console.error('Failed to parse NDJSON line', line, e);
@@ -1510,11 +2077,30 @@ async function performStreamingEnrichment(requestData) {
     }
     
     // Analysis complete
-    progressText.textContent = `Enrichment complete! Processed ${currentEnrichmentResults.length} articles.`;
+    const qualityControl = document.getElementById('enrichmentQualityControl').checked;
+    const qcCompleteText = qualityControl ? ' (Quality Control completed)' : '';
+    progressText.textContent = `Enrichment complete! Processed ${currentEnrichmentResults.length} articles${qcCompleteText}.`;
     progressBar.classList.remove('progress-bar-animated', 'progress-bar-striped');
     progressBar.style.width = '100%';
     
-    showSuccess(`Successfully enriched ${currentEnrichmentResults.length} articles!`);
+    // Show quality control summary if enabled
+    if (qualityControl && currentEnrichmentResults.length > 0) {
+        const approvedCount = currentEnrichmentResults.filter(r => r.review_recommendation === 'approve').length;
+        const rejectedCount = currentEnrichmentResults.filter(r => r.review_recommendation === 'reject').length;
+        const reviewCount = currentEnrichmentResults.filter(r => r.review_recommendation === 'review').length;
+        const noQcCount = currentEnrichmentResults.length - approvedCount - rejectedCount - reviewCount;
+        
+        let qcSummary = `Successfully enriched ${currentEnrichmentResults.length} articles!`;
+        if (approvedCount > 0 || rejectedCount > 0 || reviewCount > 0) {
+            qcSummary += ` Quality Control: ${approvedCount} approved`;
+            if (reviewCount > 0) qcSummary += `, ${reviewCount} flagged for review`;
+            if (rejectedCount > 0) qcSummary += `, ${rejectedCount} rejected`;
+            if (noQcCount > 0) qcSummary += `, ${noQcCount} not reviewed`;
+        }
+        showSuccess(qcSummary);
+    } else {
+        showSuccess(`Successfully enriched ${currentEnrichmentResults.length} articles!`);
+    }
     
     // Show results and save button if we have enrichment results
     if (currentEnrichmentResults.length > 0) {
@@ -1528,8 +2114,6 @@ async function performStreamingEnrichment(requestData) {
         displayEnrichmentResults(currentEnrichmentResults);
     }
     
-    // Also refresh enrichment status for all items
-    setTimeout(() => checkEnrichmentStatus(), 2000);
 }
 
 // Display enrichment results in the modal
@@ -1554,22 +2138,29 @@ function displayEnrichmentResults(results) {
             </div>
             <div class="d-flex justify-content-between align-items-start">
                 <div class="flex-grow-1 pe-5 pt-2">
-                    <h6 class="mb-1">${result.title || 'Untitled'}</h6>
-                    <div class="summary-section mb-2">
-                        <div class="d-flex align-items-start">
-                            <span class="badge bg-success me-2 summary-badge" title="AI-generated summary">AI</span>
-                            <p class="mb-0 small ai-summary">${result.summary || 'No AI summary available'}</p>
+                                            <h6 class="mb-1">${result.title || 'Untitled'}</h6>
+                        <div class="summary-section mb-2">
+                            <div class="d-flex align-items-start">
+                                <span class="badge bg-success me-2 summary-badge" title="AI-generated summary">AI</span>
+                                <p class="mb-0 small ai-summary">${result.summary || 'No AI summary available'}</p>
+                            </div>
                         </div>
-                    </div>
+                        ${result.review_recommendation && result.review_recommendation !== 'approve' ? `
+                        <div class="alert alert-${result.review_recommendation === 'reject' ? 'danger' : 'warning'} py-2 mb-2">
+                            <small><i class="fas fa-${result.review_recommendation === 'reject' ? 'times-circle' : 'exclamation-triangle'} me-1"></i><strong>Quality Control:</strong> ${result.review_recommendation === 'reject' ? 'Rejected' : 'Flagged for review'}${result.quality_issues ? ` - ${result.quality_issues}` : ''}</small>
+                        </div>` : ''}
                     <div class="d-flex flex-wrap gap-1 mt-2">
                         ${result.category ? `<span class="badge bg-info"><i class="fas fa-tag me-1"></i>${result.category}</span>` : ''}
                         ${result.sentiment ? `<span class="badge bg-secondary"><i class="fas fa-smile me-1"></i>${result.sentiment}</span>` : ''}
                         ${result.future_signal ? `<span class="badge bg-warning text-dark"><i class="fas fa-chart-line me-1"></i>${result.future_signal}</span>` : ''}
                         ${result.time_to_impact ? `<span class="badge bg-success"><i class="fas fa-clock me-1"></i>${result.time_to_impact}</span>` : ''}
                         ${result.driver_type ? `<span class="badge bg-dark"><i class="fas fa-cogs me-1"></i>${result.driver_type}</span>` : ''}
-                        ${result.quality_score ? `<span class="badge bg-success"><i class="fas fa-shield-check me-1"></i>Quality: ${result.quality_score}/100</span>` : ''}
+                        ${result.quality_score ? `<span class="badge bg-success"><i class="fas fa-shield-check me-1"></i>Quality: ${Math.round(result.quality_score * 100)}/100</span>` : ''}
+                        ${result.review_recommendation ? `<span class="badge ${result.review_recommendation === 'approve' ? 'bg-success' : result.review_recommendation === 'reject' ? 'bg-danger' : 'bg-warning text-dark'}"><i class="fas fa-${result.review_recommendation === 'approve' ? 'check' : result.review_recommendation === 'reject' ? 'times' : 'exclamation'} me-1"></i>QC: ${result.review_recommendation}</span>` : ''}
                     </div>
                     <small class="text-muted">${result.news_source || result.uri}</small>
+                    ${result.quality_issues ? `<div class="mt-2 p-2 bg-warning bg-opacity-25 border border-warning rounded"><small><i class="fas fa-exclamation-triangle me-1"></i><strong>Quality Issues:</strong> ${result.quality_issues}</small></div>` : ''}
+                    ${result.review_notes ? `<div class="mt-2 p-2 bg-info bg-opacity-25 border border-info rounded"><small><i class="fas fa-info-circle me-1"></i><strong>Review Notes:</strong> ${result.review_notes}</small></div>` : ''}
                 </div>
                 <span class="badge bg-primary mt-4">#${index + 1}</span>
             </div>
@@ -1970,126 +2561,7 @@ async function bulkSaveEnrichedArticles() {
     }
 }
 
-// Debug function to check articles table directly
-async function debugEnrichmentData() {
-    console.log('🐛 DEBUG: Checking for URL mismatches...');
-    
-    // First, let's see what URLs we have in feed items
-    console.log('🐛 DEBUG: Current feed item URLs:');
-    feedItems.forEach((item, index) => {
-        console.log(`  ${index + 1}. Item ${item.id}: ${item.url}`);
-    });
-    
-    // Now let's manually check each feed item's enrichment endpoint
-    console.log('🐛 DEBUG: Manually checking enrichment endpoints:');
-    
-    for (const item of feedItems) {
-        try {
-            const response = await fetch(`/api/feed-items/${item.id}/enrichment`);
-            const result = await response.json();
-            
-            console.log(`🐛 DEBUG: Item ${item.id} enrichment check:`, {
-                url: item.url,
-                response_status: response.status,
-                enriched: result.enriched,
-                message: result.message,
-                has_data: !!result.data
-            });
-            
-            if (result.enriched && result.data) {
-                console.log(`🐛 DEBUG: Item ${item.id} enrichment data:`, {
-                    category: result.data.category,
-                    sentiment: result.data.sentiment,
-                    analyzed: result.data.analyzed
-                });
-            }
-        } catch (error) {
-            console.error(`🐛 DEBUG: Error checking item ${item.id}:`, error);
-        }
-    }
-    
-    // Also check what the enrichment process actually sent
-    console.log('🐛 DEBUG: URLs that were sent for enrichment:');
-    if (window.lastEnrichmentUrls) {
-        window.lastEnrichmentUrls.forEach((url, index) => {
-            console.log(`  ${index + 1}. Enriched: ${url}`);
-        });
-    } else {
-        console.log('  No enrichment URLs recorded (window.lastEnrichmentUrls not set)');
-    }
-}
 
-// Check enrichment status for all items and show results buttons
-async function checkEnrichmentStatus() {
-    console.log('🔍 DEBUG: Checking enrichment status for', feedItems.length, 'items');
-    let enrichedCount = 0;
-    
-    for (const item of feedItems) {
-        try {
-            console.log(`🔍 DEBUG: Checking enrichment for item ${item.id}: ${item.title?.substring(0, 50)}...`);
-            console.log(`🔍 DEBUG: Item URL: ${item.url}`);
-            const response = await fetch(`/api/feed-items/${item.id}/enrichment`);
-            console.log(`🔍 DEBUG: Response status for item ${item.id}:`, response.status);
-            
-            if (response.ok) {
-                const result = await response.json();
-                console.log(`🔍 DEBUG: Enrichment result for item ${item.id}:`, result);
-                
-                const resultsBtn = document.getElementById(`results-btn-${item.id}`);
-                const enrichBtn = document.getElementById(`enrich-btn-${item.id}`);
-                
-                console.log(`🔍 DEBUG: Found buttons for item ${item.id}:`, {
-                    resultsBtn: !!resultsBtn,
-                    enrichBtn: !!enrichBtn,
-                    enriched: result.enriched
-                });
-                
-                if (result.enriched) {
-                    enrichedCount++;
-                    console.log(`✅ DEBUG: Item ${item.id} is enriched! Total enriched: ${enrichedCount}`);
-                    
-                    // Show results button and change enrich button to "re-enrich"
-                    if (resultsBtn) {
-                        resultsBtn.style.display = 'inline-block';
-                        console.log(`✅ DEBUG: Showing results button for item ${item.id}`);
-                    } else {
-                        console.warn(`⚠️ DEBUG: Results button not found for item ${item.id}`);
-                    }
-                    if (enrichBtn) {
-                        enrichBtn.innerHTML = '<i class="fas fa-redo"></i>';
-                        enrichBtn.title = 'Re-enrich this article';
-                        console.log(`✅ DEBUG: Updated enrich button for item ${item.id}`);
-                    } else {
-                        console.warn(`⚠️ DEBUG: Enrich button not found for item ${item.id}`);
-                    }
-                } else {
-                    console.log(`❌ DEBUG: Item ${item.id} is not enriched`);
-                }
-            } else {
-                console.log(`❌ DEBUG: Failed to get enrichment data for item ${item.id}:`, response.status);
-            }
-        } catch (error) {
-            console.log(`❌ DEBUG: Error checking enrichment for item ${item.id}:`, error);
-        }
-    }
-    
-    console.log(`🔍 DEBUG: Total enriched items found: ${enrichedCount}`);
-    
-    // Show/hide bulk save button based on enriched articles
-    const saveBtn = document.getElementById('saveEnrichedBtn');
-    console.log(`🔍 DEBUG: Bulk save button found:`, !!saveBtn);
-    
-    if (saveBtn) {
-        if (enrichedCount > 0) {
-            saveBtn.style.display = 'inline-block';
-            saveBtn.innerHTML = `<i class="fas fa-save"></i> Save Enriched Articles (${enrichedCount})`;
-            console.log(`✅ DEBUG: Showing bulk save button with ${enrichedCount} articles`);
-        } else {
-            saveBtn.style.display = 'none';
-            console.log(`❌ DEBUG: Hiding bulk save button (no enriched articles)`);
-        }
-    }
-}
 
 // View enrichment results for a specific item
 async function viewEnrichmentResults(itemId) {
@@ -2135,9 +2607,22 @@ function showEnrichmentResultsModal(data, itemId) {
     document.getElementById('resultFutureSignalExplanation').textContent = data.future_signal_explanation || 'No explanation available';
     
     // Quality Control
-    document.getElementById('resultQualityScore').textContent = data.quality_score ? `${data.quality_score}/100` : 'Not scored';
+    document.getElementById('resultQualityScore').textContent = data.quality_score ? `${Math.round(data.quality_score * 100)}/100` : 'Not scored';
     document.getElementById('resultQualityIssues').textContent = data.quality_issues || 'No issues identified';
-    document.getElementById('resultConfidenceScore').textContent = data.confidence_score ? `${data.confidence_score}/100` : 'Not scored';
+    document.getElementById('resultConfidenceScore').textContent = data.confidence_score ? `${Math.round(data.confidence_score * 100)}/100` : 'Not scored';
+    
+    // Review Status
+    const reviewRecommendation = data.review_recommendation || 'Not reviewed';
+    const reviewBadge = document.getElementById('resultReviewRecommendation');
+    reviewBadge.textContent = reviewRecommendation.charAt(0).toUpperCase() + reviewRecommendation.slice(1);
+    reviewBadge.className = `badge ms-2 ${
+        reviewRecommendation === 'approve' ? 'bg-success' : 
+        reviewRecommendation === 'reject' ? 'bg-danger' : 
+        reviewRecommendation === 'review' ? 'bg-warning text-dark' : 
+        'bg-secondary'
+    }`;
+    
+    document.getElementById('resultReviewNotes').textContent = data.review_notes || 'No review notes available';
     
     // Relevance Scores
     document.getElementById('resultTopicAlignment').textContent = data.topic_alignment_score ? `${data.topic_alignment_score}/100` : 'Not scored';
@@ -2295,9 +2780,16 @@ document.head.appendChild(style);
                         <div class="col-md-4 mb-3">
                             <strong>Confidence Score:</strong> <span id="resultConfidenceScore" class="badge bg-info ms-2">Loading...</span>
                         </div>
+                        <div class="col-md-4 mb-3">
+                            <strong>Review Status:</strong> <span id="resultReviewRecommendation" class="badge bg-secondary ms-2">Loading...</span>
+                        </div>
                         <div class="col-12 mb-3">
                             <strong>Quality Issues:</strong>
                             <div id="resultQualityIssues" class="mt-1 p-2 bg-light rounded small">Loading...</div>
+                        </div>
+                        <div class="col-12 mb-3">
+                            <strong>Review Notes:</strong>
+                            <div id="resultReviewNotes" class="mt-1 p-2 bg-light rounded small">Loading...</div>
                         </div>
                     </div>
                 </div>
@@ -2409,8 +2901,11 @@ document.head.appendChild(style);
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="enrichmentQualityControl" checked>
                         <label class="form-check-label" for="enrichmentQualityControl">
-                            Quality Control (validate results)
+                            Quality Control (AI-powered content validation)
                         </label>
+                        <div class="form-text small text-muted mt-1">
+                            <i class="fas fa-info-circle me-1"></i>Uses AI to detect paywalls, cookie notices, low-quality content, and other issues. Provides quality scores and approval recommendations.
+                        </div>
                     </div>
                 </div>
 
