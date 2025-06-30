@@ -80,51 +80,42 @@ class PromptTemplates:
             Provide a brief explanation for your classification.
 
             6. Political Bias:
-            Analyze the political perspective and ideological stance of this article. Look for:
+            Carefully analyze the political bias by examining these specific elements:
             
-            🔵 LEFT-LEANING signs: Supports progressive policies, government regulation, social programs, environmental action, union rights, diversity initiatives, criticizes corporate power, emphasizes systemic inequality
+            LEFT-LEANING indicators: Progressive framing, pro-government regulation, social justice emphasis, climate urgency, corporate criticism, wealth inequality focus, pro-union stance, diversity/inclusion priority, skepticism of military/police, international cooperation emphasis
             
-            🔵 CENTER-LEFT signs: Moderate progressive stance, supports some regulation, balanced environmental concern, mainstream Democratic positions, slight corporate skepticism
+            CENTER-LEFT indicators: Moderate progressive views, balanced regulation approach, measured social reform, environmental concern with economic balance, selective corporate criticism, mainstream Democratic positions
             
-            🟢 CENTER signs: Presents multiple viewpoints fairly, avoids partisan language, focuses on facts over ideology, balanced policy coverage, neutral framing
+            CENTER indicators: Balanced reporting, multiple perspectives presented, avoids partisan language, focuses on facts over ideology, presents both sides fairly, neutral policy stance
             
-            🔴 CENTER-RIGHT signs: Moderate conservative stance, business-friendly, emphasizes fiscal responsibility, traditional values with flexibility, mainstream Republican positions
+            CENTER-RIGHT indicators: Moderate conservative views, business-friendly stance, traditional values with some flexibility, fiscal responsibility emphasis, limited government preference, mainstream Republican positions
             
-            🔴 RIGHT-LEANING signs: Conservative framing, free market advocacy, traditional values, law and order emphasis, military support, individual responsibility, limited government, patriotic themes
+            RIGHT-LEANING indicators: Conservative framing, free market advocacy, traditional values emphasis, law and order priority, military/defense support, religious values integration, individual responsibility focus, skepticism of government programs, patriotic themes
             
-            **CRITICAL:** Don't default to "Center" just to be safe. Look for subtle bias in:
-            - Word choice ("investment" vs "spending", "undocumented" vs "illegal")  
-            - Which sources/experts are quoted or ignored
-            - What context is included or omitted
-            - How issues are framed or prioritized
+            Classify as one of: Left-leaning, Center-left, Center, Center-right, Right-leaning, Neutral, Mixed
             
-            Classify as: Left-leaning, Center-left, Center, Center-right, Right-leaning, or Mixed
+            IMPORTANT: Be decisive and specific. Avoid defaulting to "Center" or "Neutral" unless the article genuinely presents balanced perspectives. Look for subtle bias indicators in word choice, source selection, and framing.
             
-            Provide specific examples from the text to support your assessment.
+            Provide a detailed explanation citing specific examples from the text.
 
             7. Factuality:
-            Evaluate how reliable and fact-based this article is:
+            Evaluate factual reliability using these specific criteria:
             
-            ⭐ VERY HIGH: Multiple credible sources named, expert quotes, data with sources, clear methodology, fact vs opinion separated, comprehensive context
+            VERY HIGH (90-100%): Multiple authoritative sources cited, expert quotes, statistical data with sources, transparent methodology, clear distinction between fact and opinion, minimal or no unsupported claims
             
-            ⭐ HIGH: Generally credible sources, some expert input, most claims sourced, minor unsupported statements, clear reporting
+            HIGH (70-89%): Generally reliable sources, some expert input, mostly factual with minor unsupported statements, clear sourcing for major claims, occasional opinion mixed with fact
             
-            ⭐ MIXED: Some reliable sources mixed with questionable ones, fact and opinion blended, important context missing, some unsupported claims
+            MIXED (40-69%): Mix of reliable and questionable sources, some unsupported claims, fact and opinion blended, limited expert input, cherry-picked data, some misleading elements
             
-            ⭐ LOW: Few credible sources, heavy opinion presented as fact, missing key context, misleading statistics, sensationalized language
+            LOW (20-39%): Few reliable sources, multiple unsupported claims, heavy opinion bias, misleading statistics, anonymous sources, sensationalized language, significant factual gaps
             
-            ⭐ VERY LOW: No credible sources, mostly speculation/opinion, false claims, conspiracy theories, propaganda
+            VERY LOW (0-19%): No credible sources, predominantly opinion/speculation, misleading or false claims, conspiracy theories, propaganda elements, deliberately deceptive content
             
-            **CRITICAL:** Don't assume high factuality just because the source seems mainstream. Look for actual evidence of:
-            - Named, credible sources (not just "sources say")
-            - Expert qualifications provided  
-            - Data with methodology explained
-            - Balanced coverage including counterarguments
-            - Clear distinction between facts and analysis/opinion
+            Classify as one of: Very High, High, Mixed, Low, Very Low
             
-            Classify as: Very High, High, Mixed, Low, or Very Low
+            IMPORTANT: Be critical in your assessment. Don't assume high factuality just because the source seems mainstream. Look for actual evidence of rigorous fact-checking, sourcing, and verification.
             
-            Explain what specific elements support your factuality rating.
+            Provide a detailed explanation with specific examples of sourcing quality, fact-checking indicators, and any red flags.
 
             8. Relevant tags:
             Generate 3-5 relevant tags for the article. These should be concise keywords or short phrases that capture the main topics or themes of the article.
