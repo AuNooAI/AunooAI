@@ -68,6 +68,24 @@
         padding: 6px 12px;
         font-weight: 600;
         font-size: 0.875rem;
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 60px;
+        /* Width will be set dynamically based on count */
+        transition: all 0.3s ease;
+    }
+    
+    .frequency-badge .count-indicator {
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 10px;
+        padding: 2px 6px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        min-width: 20px;
+        text-align: center;
+        margin-left: 6px;
     }
     
     .frequency-high {
@@ -1064,14 +1082,20 @@ function populateMarketSignals(signals) {
     const tbody = document.getElementById('marketSignalsTableBody');
     tbody.innerHTML = '';
     
+    // Calculate min and max counts for width scaling
+    const counts = signals.map(s => s.count || 0);
+    const maxCount = Math.max(...counts);
+    const minCount = Math.min(...counts);
+    const countRange = maxCount - minCount || 1; // Avoid division by zero
+    
     signals.forEach(signal => {
         const row = document.createElement('tr');
         
         // Create frequency badge with tooltip
         const frequencyTooltips = {
-            'High': 'This signal appears frequently in analyzed articles, indicating strong consensus or widespread discussion among experts and analysts.',
-            'Moderate': 'This signal appears regularly in analyzed articles, suggesting moderate attention and discussion in the market.',
-            'Low': 'This signal appears occasionally in analyzed articles, representing emerging or niche perspectives.'
+            'High': `This signal appears frequently in analyzed articles (${signal.count || 0} articles), indicating strong consensus or widespread discussion among experts and analysts.`,
+            'Moderate': `This signal appears regularly in analyzed articles (${signal.count || 0} articles), suggesting moderate attention and discussion in the market.`,
+            'Low': `This signal appears occasionally in analyzed articles (${signal.count || 0} articles), representing emerging or niche perspectives.`
         };
         
         const impactTooltips = {
@@ -1081,6 +1105,11 @@ function populateMarketSignals(signals) {
             'Medium-term': 'Expected to impact markets within 2-5 years',
             'Long-term': 'Expected to impact markets beyond 5 years'
         };
+        
+        // Calculate dynamic width based on count (60px minimum, up to 200px maximum)
+        const count = signal.count || 0;
+        const normalizedCount = countRange > 0 ? (count - minCount) / countRange : 0;
+        const badgeWidth = 60 + (normalizedCount * 140); // 60px base + up to 140px additional
         
         row.innerHTML = `
             <td>
@@ -1093,7 +1122,11 @@ function populateMarketSignals(signals) {
                 <span class="frequency-badge frequency-${signal.level}" 
                       data-bs-toggle="tooltip" 
                       data-bs-placement="top"
-                      data-bs-title="${frequencyTooltips[signal.frequency] || 'Frequency of mention in analyzed articles'}">${signal.frequency}</span>
+                      data-bs-title="${frequencyTooltips[signal.frequency] || 'Frequency of mention in analyzed articles'}"
+                      style="width: ${badgeWidth}px;">
+                    ${signal.frequency}
+                    <span class="count-indicator">${signal.count || 0}</span>
+                </span>
             </td>
             <td>
                 <span data-bs-toggle="tooltip" 

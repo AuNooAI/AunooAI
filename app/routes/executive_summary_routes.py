@@ -27,6 +27,7 @@ class MarketSignal(BaseModel):
     frequency: str
     impact: str
     level: str
+    count: int  # Add actual article count
 
 class RiskOpportunityCard(BaseModel):
     type: str  # "risk" or "opportunity"
@@ -243,7 +244,8 @@ async def _extract_market_signals_from_analytics(analytics_data: Dict, topic_nam
                 signal=signal_label,
                 frequency=frequency,
                 impact=impact,
-                level=level
+                level=level,
+                count=signal_count
             ))
         
         # Sort by level priority (high -> moderate -> low) then by frequency count
