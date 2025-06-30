@@ -3,9 +3,11 @@
 
 import logging
 import asyncio
+import io
+import csv
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.database import Database, get_database_instance
@@ -27,6 +29,7 @@ class CreateRunRequest(BaseModel):
     benchmark_model: str = Field(..., min_length=1)
     selected_models: List[str] = Field(..., min_items=1, max_items=6)
     article_count: int = Field(25, ge=1, le=100)
+    rounds: int = Field(1, ge=1, le=5)
     topic: Optional[str] = None
 
 
@@ -37,6 +40,8 @@ class RunResponse(BaseModel):
     benchmark_model: str
     selected_models: List[str]
     article_count: int
+    rounds: int
+    current_round: int
     created_at: str
     completed_at: Optional[str]
     status: str
@@ -125,7 +130,8 @@ async def create_run(
             benchmark_model=request.benchmark_model,
             selected_models=request.selected_models,
             article_count=request.article_count,
-            topic=request.topic
+            topic=request.topic,
+            rounds=request.rounds
         )
         
         # Start ontological evaluation in background
@@ -159,6 +165,8 @@ async def get_runs(
                 benchmark_model=run["benchmark_model"],
                 selected_models=run["selected_models"],
                 article_count=run["article_count"],
+                rounds=run["rounds"],
+                current_round=run["current_round"],
                 created_at=run["created_at"],
                 completed_at=run["completed_at"],
                 status=run["status"]
@@ -269,4 +277,148 @@ async def sample_articles(
         raise
     except Exception as e:
         logger.error(f"Error sampling articles: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/runs/{run_id}/export/pdf")
+async def export_run_to_pdf(
+    run_id: int,
+    session=Depends(verify_session),
+    service: ModelBiasArenaService = Depends(get_bias_arena_service)
+):
+    """Export a run to PDF format (HTML report)."""
+    try:
+        html_data = service.export_run_to_pdf(run_id)
+        if not html_data:
+            raise HTTPException(status_code=404, detail="Run not found or no report data available")
+        
+        # Return as HTML that can be printed to PDF by the browser
+        return Response(
+            content=html_data, 
+            media_type="text/html",
+            headers={"Content-Disposition": f"inline; filename=model_bias_arena_report_{run_id}.html"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting run to PDF: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/runs/{run_id}/export/png")
+async def export_run_to_png(
+    run_id: int,
+    session=Depends(verify_session),
+    service: ModelBiasArenaService = Depends(get_bias_arena_service)
+):
+    """Export a run to PNG format (ASCII art visualization)."""
+    try:
+        visualization_data = service.export_run_to_png(run_id)
+        if not visualization_data:
+            raise HTTPException(status_code=404, detail="Run not found or no visualization data available")
+        
+        # Return as text file with ASCII art visualization
+        return Response(
+            content=visualization_data, 
+            media_type="text/plain",
+            headers={"Content-Disposition": f"attachment; filename=model_bias_arena_visualization_{run_id}.txt"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting run to PNG: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/runs/{run_id}/export/csv")
+async def export_run_to_csv(
+    run_id: int,
+    session=Depends(verify_session),
+    service: ModelBiasArenaService = Depends(get_bias_arena_service)
+):
+    """Export a run to CSV format."""
+    try:
+        csv_data = service.export_run_to_csv(run_id)
+        if not csv_data:
+            raise HTTPException(status_code=404, detail="Run not found or no CSV data available")
+        
+        return StreamingResponse(
+            iter([csv_data]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=model_bias_arena_summary_{run_id}.csv"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting run to CSV: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/runs/{run_id}/export-results/csv")
+async def export_run_results_to_csv(
+    run_id: int,
+    session=Depends(verify_session),
+    service: ModelBiasArenaService = Depends(get_bias_arena_service)
+):
+    """Export run results in detailed CSV format."""
+    try:
+        csv_data = service.export_run_results_to_csv(run_id)
+        if not csv_data:
+            raise HTTPException(status_code=404, detail="Run not found or no results data available")
+        
+        return StreamingResponse(
+            iter([csv_data]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=model_bias_arena_detailed_{run_id}.csv"}
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting run results to CSV: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/runs/{run_id}/validation")
+async def get_bias_validation_results(
+    run_id: int,
+    session=Depends(verify_session),
+    service: ModelBiasArenaService = Depends(get_bias_arena_service)
+):
+    """Get validation results comparing model predictions with known source bias."""
+    try:
+        validation_results = service.compare_results_with_source_bias(run_id)
+        if not validation_results:
+            raise HTTPException(status_code=404, detail="Run not found or no validation data available")
+        
+        return JSONResponse(content=validation_results)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting bias validation results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/runs/{run_id}/source-bias-data")
+async def get_source_bias_data(
+    run_id: int,
+    session=Depends(verify_session),
+    service: ModelBiasArenaService = Depends(get_bias_arena_service)
+):
+    """Get known source bias data for articles in the run (for validation purposes)."""
+    try:
+        source_data = service.get_source_bias_validation_data(run_id)
+        if not source_data:
+            raise HTTPException(status_code=404, detail="Run not found or no source bias data available")
+        
+        return JSONResponse(content={"source_bias_data": source_data})
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting source bias data: {e}")
         raise HTTPException(status_code=500, detail=str(e)) 

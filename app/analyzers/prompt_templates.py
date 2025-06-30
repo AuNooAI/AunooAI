@@ -80,14 +80,42 @@ class PromptTemplates:
             Provide a brief explanation for your classification.
 
             6. Political Bias:
-            Classify the political bias as one of: Left-leaning, Center-left, Center, Center-right, Right-leaning, Neutral, Mixed
-            Analyze the political perspective, ideological stance, and any partisan framing in the article.
-            Provide a brief explanation for your classification.
+            Carefully analyze the political bias by examining these specific elements:
+            
+            LEFT-LEANING indicators: Progressive framing, pro-government regulation, social justice emphasis, climate urgency, corporate criticism, wealth inequality focus, pro-union stance, diversity/inclusion priority, skepticism of military/police, international cooperation emphasis
+            
+            CENTER-LEFT indicators: Moderate progressive views, balanced regulation approach, measured social reform, environmental concern with economic balance, selective corporate criticism, mainstream Democratic positions
+            
+            CENTER indicators: Balanced reporting, multiple perspectives presented, avoids partisan language, focuses on facts over ideology, presents both sides fairly, neutral policy stance
+            
+            CENTER-RIGHT indicators: Moderate conservative views, business-friendly stance, traditional values with some flexibility, fiscal responsibility emphasis, limited government preference, mainstream Republican positions
+            
+            RIGHT-LEANING indicators: Conservative framing, free market advocacy, traditional values emphasis, law and order priority, military/defense support, religious values integration, individual responsibility focus, skepticism of government programs, patriotic themes
+            
+            Classify as one of: Left-leaning, Center-left, Center, Center-right, Right-leaning, Neutral, Mixed
+            
+            IMPORTANT: Be decisive and specific. Avoid defaulting to "Center" or "Neutral" unless the article genuinely presents balanced perspectives. Look for subtle bias indicators in word choice, source selection, and framing.
+            
+            Provide a detailed explanation citing specific examples from the text.
 
             7. Factuality:
-            Classify the factual accuracy and reliability as one of: Very High, High, Mixed, Low, Very Low
-            Evaluate the use of sources, evidence, fact-checking, and overall credibility of the information presented.
-            Provide a brief explanation for your classification.
+            Evaluate factual reliability using these specific criteria:
+            
+            VERY HIGH (90-100%): Multiple authoritative sources cited, expert quotes, statistical data with sources, transparent methodology, clear distinction between fact and opinion, minimal or no unsupported claims
+            
+            HIGH (70-89%): Generally reliable sources, some expert input, mostly factual with minor unsupported statements, clear sourcing for major claims, occasional opinion mixed with fact
+            
+            MIXED (40-69%): Mix of reliable and questionable sources, some unsupported claims, fact and opinion blended, limited expert input, cherry-picked data, some misleading elements
+            
+            LOW (20-39%): Few reliable sources, multiple unsupported claims, heavy opinion bias, misleading statistics, anonymous sources, sensationalized language, significant factual gaps
+            
+            VERY LOW (0-19%): No credible sources, predominantly opinion/speculation, misleading or false claims, conspiracy theories, propaganda elements, deliberately deceptive content
+            
+            Classify as one of: Very High, High, Mixed, Low, Very Low
+            
+            IMPORTANT: Be critical in your assessment. Don't assume high factuality just because the source seems mainstream. Look for actual evidence of rigorous fact-checking, sourcing, and verification.
+            
+            Provide a detailed explanation with specific examples of sourcing quality, fact-checking indicators, and any red flags.
 
             8. Relevant tags:
             Generate 3-5 relevant tags for the article. These should be concise keywords or short phrases that capture the main topics or themes of the article.
