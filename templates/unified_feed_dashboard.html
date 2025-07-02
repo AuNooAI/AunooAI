@@ -1061,7 +1061,7 @@
         display: block;
     }
 
-    .view-columns .feed-tabs-container,
+    /* In column view, keep feed group tabs visible but hide the main feed content */
     .view-columns .feed-content {
         display: none;
     }
@@ -1679,6 +1679,145 @@
         </div>
     </div>
 
+    <!-- Smart Clustering Section (Global) -->
+    <div class="clustering-section" id="clusteringSection" style="display: none; margin-bottom: 24px; background: white; border-radius: var(--border-radius); box-shadow: var(--card-shadow); padding: 24px;">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h5 class="mb-0">
+                <i class="fas fa-brain me-2" style="color: var(--primary-color);"></i>
+                Smart Content Clustering
+            </h5>
+            <div class="d-flex gap-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="refreshClustering()" id="refreshClusteringBtn">
+                    <i class="fas fa-sync-alt me-1"></i>
+                    Refresh Analysis
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="toggleClusteringView()" id="toggleClusteringBtn">
+                    <i class="fas fa-eye-slash me-1"></i>
+                    Hide Clustering
+                </button>
+            </div>
+        </div>
+        
+        <!-- Clustering Tabs -->
+        <ul class="nav nav-tabs nav-fill mb-3" id="clusteringTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="thematic-clustering-tab" data-bs-toggle="tab" data-bs-target="#thematic-clustering-content" type="button" role="tab" aria-controls="thematic-clustering-content" aria-selected="true" title="Group articles by themes and topics">
+                    <i class="fas fa-sitemap me-1"></i>
+                    Thematic Clusters
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="sentiment-clustering-tab" data-bs-toggle="tab" data-bs-target="#sentiment-clustering-content" type="button" role="tab" aria-controls="sentiment-clustering-content" aria-selected="false" title="Group articles by sentiment and impact">
+                    <i class="fas fa-chart-line me-1"></i>
+                    Sentiment Analysis
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="temporal-clustering-tab" data-bs-toggle="tab" data-bs-target="#temporal-clustering-content" type="button" role="tab" aria-controls="temporal-clustering-content" aria-selected="false" title="Timeline-based clustering with future impact">
+                    <i class="fas fa-clock me-1"></i>
+                    Temporal Impact
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="source-clustering-tab" data-bs-toggle="tab" data-bs-target="#source-clustering-content" type="button" role="tab" aria-controls="source-clustering-content" aria-selected="false" title="Group articles by source type and authority">
+                    <i class="fas fa-layer-group me-1"></i>
+                    Source Analysis
+                </button>
+            </li>
+        </ul>
+        
+        <!-- Clustering Content -->
+        <div class="tab-content" id="clusteringTabContent">
+            <!-- Thematic Clustering -->
+            <div class="tab-pane fade show active" id="thematic-clustering-content" role="tabpanel" aria-labelledby="thematic-clustering-tab">
+                <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="thematic-insights-container">
+                    <div class="loading-indicator w-100 text-center">
+                        <i class="fas fa-brain me-2"></i>
+                        Analyzing themes and topics...
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Sentiment Clustering -->
+            <div class="tab-pane fade" id="sentiment-clustering-content" role="tabpanel" aria-labelledby="sentiment-clustering-tab">
+                <div class="row">
+                    <div class="col-md-8">
+                        <div id="sentiment-insights-container">
+                            <div class="loading-indicator text-center">
+                                <i class="fas fa-chart-line me-2"></i>
+                                Analyzing sentiment patterns...
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="sentiment-summary-card" style="background: var(--light-gray); border-radius: 8px; padding: 16px;">
+                            <h6 class="mb-3">Sentiment Distribution</h6>
+                            <div id="sentiment-chart-container" style="height: 200px;">
+                                <canvas id="sentimentDistributionChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Temporal Clustering -->
+            <div class="tab-pane fade" id="temporal-clustering-content" role="tabpanel" aria-labelledby="temporal-clustering-tab">
+                <div class="temporal-analysis-controls mb-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="d-flex gap-3 align-items-center">
+                            <label for="timeHorizonSelect" class="form-label mb-0">Time Horizon:</label>
+                            <select class="form-select form-select-sm" id="timeHorizonSelect" style="width: auto;" onchange="updateTemporalClustering()">
+                                <option value="immediate">Immediate (0-6 months)</option>
+                                <option value="short" selected>Short-term (6-18 months)</option>
+                                <option value="medium">Medium-term (1-3 years)</option>
+                                <option value="long">Long-term (3-10 years)</option>
+                            </select>
+                        </div>
+                        <div class="analysis-depth-control">
+                            <label for="analysisDepthSelect" class="form-label mb-0 me-2">Analysis Depth:</label>
+                            <select class="form-select form-select-sm" id="analysisDepthSelect" style="width: auto;" onchange="updateTemporalClustering()">
+                                <option value="quick">Quick Analysis</option>
+                                <option value="standard" selected>Standard Analysis</option>
+                                <option value="deep">Deep Analysis</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div id="temporal-insights-container">
+                    <div class="loading-indicator text-center">
+                        <i class="fas fa-clock me-2"></i>
+                        Analyzing temporal impact patterns...
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Source Clustering -->
+            <div class="tab-pane fade" id="source-clustering-content" role="tabpanel" aria-labelledby="source-clustering-tab">
+                <div class="row">
+                    <div class="col-md-9">
+                        <div id="source-insights-container">
+                            <div class="loading-indicator text-center">
+                                <i class="fas fa-layer-group me-2"></i>
+                                Analyzing source patterns and authority...
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="source-metrics-card" style="background: var(--light-gray); border-radius: 8px; padding: 16px;">
+                            <h6 class="mb-3">Source Metrics</h6>
+                            <div id="source-metrics-content">
+                                <div class="text-muted text-center">
+                                    <i class="fas fa-chart-pie"></i>
+                                    <div>Loading metrics...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Feed Content Area -->
     <div class="feed-content">
         <!-- Feed Controls -->
@@ -1841,144 +1980,7 @@
             </div>
         </div>
 
-        <!-- Smart Clustering Section -->
-        <div class="clustering-section" id="clusteringSection" style="display: none; margin-bottom: 24px; background: white; border-radius: var(--border-radius); box-shadow: var(--card-shadow); padding: 24px;">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="mb-0">
-                    <i class="fas fa-brain me-2" style="color: var(--primary-color);"></i>
-                    Smart Content Clustering
-                </h5>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-primary" onclick="refreshClustering()" id="refreshClusteringBtn">
-                        <i class="fas fa-sync-alt me-1"></i>
-                        Refresh Analysis
-                    </button>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="toggleClusteringView()" id="toggleClusteringBtn">
-                        <i class="fas fa-eye-slash me-1"></i>
-                        Hide Clustering
-                    </button>
-                </div>
-            </div>
-            
-            <!-- Clustering Tabs -->
-            <ul class="nav nav-tabs nav-fill mb-3" id="clusteringTabs" role="tablist">
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link active" id="thematic-clustering-tab" data-bs-toggle="tab" data-bs-target="#thematic-clustering-content" type="button" role="tab" aria-controls="thematic-clustering-content" aria-selected="true" title="Group articles by themes and topics">
-                        <i class="fas fa-sitemap me-1"></i>
-                        Thematic Clusters
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="sentiment-clustering-tab" data-bs-toggle="tab" data-bs-target="#sentiment-clustering-content" type="button" role="tab" aria-controls="sentiment-clustering-content" aria-selected="false" title="Group articles by sentiment and impact">
-                        <i class="fas fa-chart-line me-1"></i>
-                        Sentiment Analysis
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="temporal-clustering-tab" data-bs-toggle="tab" data-bs-target="#temporal-clustering-content" type="button" role="tab" aria-controls="temporal-clustering-content" aria-selected="false" title="Timeline-based clustering with future impact">
-                        <i class="fas fa-clock me-1"></i>
-                        Temporal Impact
-                    </button>
-                </li>
-                <li class="nav-item" role="presentation">
-                    <button class="nav-link" id="source-clustering-tab" data-bs-toggle="tab" data-bs-target="#source-clustering-content" type="button" role="tab" aria-controls="source-clustering-content" aria-selected="false" title="Group articles by source type and authority">
-                        <i class="fas fa-layer-group me-1"></i>
-                        Source Analysis
-                    </button>
-                </li>
-            </ul>
-            
-            <!-- Clustering Content -->
-            <div class="tab-content" id="clusteringTabContent">
-                <!-- Thematic Clustering -->
-                <div class="tab-pane fade show active" id="thematic-clustering-content" role="tabpanel" aria-labelledby="thematic-clustering-tab">
-                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="thematic-insights-container">
-                        <div class="loading-indicator w-100 text-center">
-                            <i class="fas fa-brain me-2"></i>
-                            Analyzing themes and topics...
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Sentiment Clustering -->
-                <div class="tab-pane fade" id="sentiment-clustering-content" role="tabpanel" aria-labelledby="sentiment-clustering-tab">
-                    <div class="row">
-                        <div class="col-md-8">
-                            <div id="sentiment-insights-container">
-                                <div class="loading-indicator text-center">
-                                    <i class="fas fa-chart-line me-2"></i>
-                                    Analyzing sentiment patterns...
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-4">
-                            <div class="sentiment-summary-card" style="background: var(--light-gray); border-radius: 8px; padding: 16px;">
-                                <h6 class="mb-3">Sentiment Distribution</h6>
-                                <div id="sentiment-chart-container" style="height: 200px;">
-                                    <canvas id="sentimentDistributionChart"></canvas>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Temporal Clustering -->
-                <div class="tab-pane fade" id="temporal-clustering-content" role="tabpanel" aria-labelledby="temporal-clustering-tab">
-                    <div class="temporal-analysis-controls mb-3">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div class="d-flex gap-3 align-items-center">
-                                <label for="timeHorizonSelect" class="form-label mb-0">Time Horizon:</label>
-                                <select class="form-select form-select-sm" id="timeHorizonSelect" style="width: auto;" onchange="updateTemporalClustering()">
-                                    <option value="immediate">Immediate (0-6 months)</option>
-                                    <option value="short" selected>Short-term (6-18 months)</option>
-                                    <option value="medium">Medium-term (1-3 years)</option>
-                                    <option value="long">Long-term (3-10 years)</option>
-                                </select>
-                            </div>
-                            <div class="analysis-depth-control">
-                                <label for="analysisDepthSelect" class="form-label mb-0 me-2">Analysis Depth:</label>
-                                <select class="form-select form-select-sm" id="analysisDepthSelect" style="width: auto;" onchange="updateTemporalClustering()">
-                                    <option value="quick">Quick Analysis</option>
-                                    <option value="standard" selected>Standard Analysis</option>
-                                    <option value="deep">Deep Analysis</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="temporal-insights-container">
-                        <div class="loading-indicator text-center">
-                            <i class="fas fa-clock me-2"></i>
-                            Analyzing temporal impact patterns...
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Source Clustering -->
-                <div class="tab-pane fade" id="source-clustering-content" role="tabpanel" aria-labelledby="source-clustering-tab">
-                    <div class="row">
-                        <div class="col-md-9">
-                            <div id="source-insights-container">
-                                <div class="loading-indicator text-center">
-                                    <i class="fas fa-layer-group me-2"></i>
-                                    Analyzing source patterns and authority...
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-md-3">
-                            <div class="source-metrics-card" style="background: var(--light-gray); border-radius: 8px; padding: 16px;">
-                                <h6 class="mb-3">Source Metrics</h6>
-                                <div id="source-metrics-content">
-                                    <div class="text-muted text-center">
-                                        <i class="fas fa-chart-pie"></i>
-                                        <div>Loading metrics...</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+
 
         <!-- Feed Items -->
         <div class="feed-items" id="feedItems">

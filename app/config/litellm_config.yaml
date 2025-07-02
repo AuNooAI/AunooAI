@@ -1,5 +1,4 @@
 model_list:
-  # default model
   - model_name: gpt-4.1-mini
     litellm_params:
       model: openai/gpt-4.1-mini
@@ -24,6 +23,27 @@ model_list:
     litellm_params:
       model: openai/gpt-4.1-nano
       api_key: "os.environ/OPENAI_API_KEY_GPT_4.1_NANO"
+
+  # Anthropic
+  - model_name: claude-4-sonnet-latest
+    litellm_params:
+      model: anthropic/claude-4-sonnet-latest
+      api_key: "os.environ/ANTHROPIC_API_KEY_CLAUDE_4_SONNET_LATEST"
+  # AUNOO models
+  # litellm
+  - model_name: mixtral
+    litellm_params:
+      model: openai/mixtral
+      api_base: "http://localhost:4000"
+      api_key: "os.environ/AUNOOAI_API_KEY_MIXTRAL"
+      custom_llm_provider: "openai"
+
+  - model_name: mixtral-instruct
+    litellm_params:
+      model: openai/mixtral-instruct
+      api_base: "http://localhost:4000"
+      api_key: "os.environ/AUNOOAI_API_KEY_MIXTRAL_INSTRUCT"
+      custom_llm_provider: "openai"
 
 
 routing_strategy: least-busy
