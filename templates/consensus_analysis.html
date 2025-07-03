@@ -14,9 +14,36 @@
         }
 
         .container {
-            max-width: 100%;
+            max-width: 1400px;
             margin: 0 auto;
-            padding: 0 var(--spacing-md);
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            animation: fadeInDown 1s ease-out;
+        }
+        
+        .header h1 {
+            font-size: 3rem;
+            color: var(--primary-color);
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .header .subtitle {
+            font-size: 1.4rem;
+            color: var(--primary-dark);
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .header p {
+            font-size: 1.1rem;
+            color: #6c757d;
+            max-width: 700px;
+            margin: 0 auto;
         }
 
         /* Form styling matching base.html patterns */
@@ -488,77 +515,75 @@
         .analysis-summary-hidden {
             display: none !important;
         }
+        
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
     </style>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid py-4">
-    <div class="row">
-        <div class="col-12">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                    <h1 class="h3 mb-1">
-                        <i class="fas fa-balance-scale me-2" style="color: #FF69B4;"></i>
-                        Consensus vs. Fringe Voices
-                    </h1>
-                    <p class="text-muted mb-0">Evidence-based analysis showing consensus patterns and outlier perspectives across topics</p>
-                </div>
+<div class="container">
+    <div class="header">
+        <h1>
+            <i class="fas fa-balance-scale me-2"></i>
+            Consensus vs. Fringe Voices
+        </h1>
+        <div class="subtitle" id="topicSubtitle">Configure Analysis Below</div>
+        <p>Evidence-based analysis showing consensus patterns and outlier perspectives across topics</p>
+    </div>
+    
+    <!-- Collapsible Control Bar -->
+    <div class="mb-4 d-flex justify-content-center">
+        <div class="d-flex align-items-center gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleControlsBtn" onclick="toggleControls()" title="Toggle controls">
+                <i class="fas fa-chevron-up" id="toggleIcon"></i>
+            </button>
+            <div id="controlsContainer" class="d-flex gap-1">
+                <button type="button" class="btn btn-sm btn-square btn-primary" data-bs-toggle="modal" data-bs-target="#topicModal" title="Configure Analysis">
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-square btn-success" id="loadAnalysisBtn" onclick="loadConsensusAnalysis()" disabled title="Load Analysis">
+                    <i class="fas fa-play"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-square btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear Cache">
+                    <i class="fas fa-trash"></i>
+                </button>
+                <div class="btn-divider"></div>
+                <button type="button" class="btn btn-sm btn-square btn-outline-danger" onclick="downloadAsPDF()" title="Download PDF">
+                    <i class="fas fa-file-pdf"></i>
+                </button>
+                <button type="button" class="btn btn-sm btn-square btn-outline-info" onclick="downloadAsImage()" title="Download PNG">
+                    <i class="fas fa-image"></i>
+                </button>
             </div>
         </div>
     </div>
-        
-        <div class="row">
-            <div class="col-12">
-                <!-- Collapsible Control Bar -->
-                <div class="mb-3">
-                    <div class="d-flex align-items-center gap-2">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleControlsBtn" onclick="toggleControls()" title="Toggle controls">
-                            <i class="fas fa-chevron-up" id="toggleIcon"></i>
-                        </button>
-                        <div id="controlsContainer" class="d-flex gap-1">
-                            <button type="button" class="btn btn-sm btn-square btn-primary" data-bs-toggle="modal" data-bs-target="#topicModal" title="Configure Analysis">
-                                <i class="fas fa-cog"></i>
-                            </button>
-                            <button type="button" class="btn btn-sm btn-square btn-success" id="loadAnalysisBtn" onclick="loadConsensusAnalysis()" disabled title="Load Analysis">
-                                <i class="fas fa-play"></i>
-                            </button>
-                            <button type="button" class="btn btn-sm btn-square btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear Cache">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                            <div class="btn-divider"></div>
-                            <button type="button" class="btn btn-sm btn-square btn-outline-danger" onclick="downloadAsPDF()" title="Download PDF">
-                                <i class="fas fa-file-pdf"></i>
-                            </button>
-                            <button type="button" class="btn btn-sm btn-square btn-outline-info" onclick="downloadAsImage()" title="Download PNG">
-                                <i class="fas fa-image"></i>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
+    
+    <div class="loading-spinner" id="loadingSpinner" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
         </div>
-        
-        <div class="row">
-            <div class="col-md-8">
-                <div class="loading-spinner" id="loadingSpinner" style="display: none;">
-                    <div class="spinner-border text-primary" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                    <p class="mt-2">Loading consensus analysis...</p>
-                </div>
-                
-                <div id="errorContainer"></div>
-                
-                <div id="consensusContainer" style="display: none;">
-                    <!-- Full Width Main Content Area -->
-                    <div class="row">
-                        <div class="col-12">
-                            <div id="domainCards" style="width: 100%;"></div>
-                                </div>
-                                    </div>
-                                    </div>
-                                    </div>
-                                    </div>
+        <p class="mt-2">Loading consensus analysis...</p>
+    </div>
+    
+    <div id="errorContainer"></div>
+    
+    <div id="consensusContainer" style="display: none;">
+        <div id="domainCards" style="width: 100%;"></div>
     </div>
 </div>
 
@@ -678,7 +703,6 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <!-- Libraries for download functionality -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>

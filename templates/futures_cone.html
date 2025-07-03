@@ -163,12 +163,14 @@
         z-index: 5;
         transform-origin: center;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        line-height: 1.3;
     }
     
     .scenario:hover {
-        transform: scale(1.05);
+        transform: scale(1.08);
         z-index: 20;
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
+        box-shadow: 0 8px 25px rgba(0, 0, 0, 0.25);
+        border-width: 3px;
     }
     
     /* Scenario styles */
@@ -240,6 +242,8 @@
         display: inline-block;
         border: 1px solid var(--border-color);
     }
+
+
 
     /* Form styling */
     .form-control, .form-select {
@@ -354,8 +358,6 @@
         z-index: 1050;
     }
 
-
-
     /* Form labels styling */
     .form-label {
         color: var(--text-color);
@@ -398,6 +400,15 @@
 
     .alert-success {
         background: linear-gradient(135deg, #e8f5e8, #f1f8e9);
+        color: #2e7d32;
+        border-left: 4px solid #4caf50;
+    }
+
+    .alert-danger {
+        background: linear-gradient(135deg, #ffebee, #fce4ec);
+        color: #c62828;
+        border-left: 4px solid #f44336;
+    }
 
     /* Square button styling */
     .btn-square {
@@ -460,14 +471,234 @@
     .header-subtitle-hidden {
         display: none !important;
     }
-        color: #2e7d32;
-        border-left: 4px solid #4caf50;
+
+    /* Detailed Scenarios Grid */
+    .scenarios-detail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 30px;
+        margin: 40px 0;
+    }
+    
+    .scenario-type-column {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .scenario-type-header {
+        text-align: center;
+        padding: 15px;
+        border-radius: 10px;
+        font-weight: bold;
+        font-size: 1.2rem;
+        color: white;
+        margin-bottom: 10px;
+    }
+    
+    .scenario-type-header.probable { background: rgba(0, 212, 255, 0.8); }
+    .scenario-type-header.plausible { background: rgba(255, 193, 7, 0.8); }
+    .scenario-type-header.possible { background: rgba(220, 53, 69, 0.8); }
+    .scenario-type-header.preferable { background: rgba(25, 135, 84, 0.8); }
+    .scenario-type-header.wildcard { background: rgba(138, 43, 226, 0.8); }
+    
+    .scenario-explanation-card {
+        background: var(--bg-light);
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 10px;
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+    
+    .explanation-content {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    
+    .explanation-icon {
+        color: var(--primary-color);
+        margin-top: 2px;
+        font-size: 1rem;
+        flex-shrink: 0;
+    }
+    
+    .explanation-content p {
+        margin: 0;
+        color: #666;
+    }
+    
+    .scenario-detail-card {
+        background: var(--bg-white);
+        padding: 25px;
+        border-radius: 15px;
+        border: 2px solid;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.08);
+        position: relative;
+    }
+    
+    .scenario-detail-card.probable { border-color: rgba(0, 212, 255, 0.6); }
+    .scenario-detail-card.plausible { border-color: rgba(255, 193, 7, 0.6); }
+    .scenario-detail-card.possible { border-color: rgba(220, 53, 69, 0.6); }
+    .scenario-detail-card.preferable { border-color: rgba(25, 135, 84, 0.6); }
+    .scenario-detail-card.wildcard { border-color: rgba(138, 43, 226, 0.6); }
+    
+    .scenario-detail-card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+    }
+    
+    .scenario-detail-title {
+        font-size: 1.3rem;
+        font-weight: bold;
+        margin-bottom: 10px;
+        color: var(--primary-dark);
+    }
+    
+    .scenario-detail-meta {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 15px;
+        font-size: 0.9rem;
+    }
+    
+    .scenario-detail-timeframe {
+        background: var(--bg-light);
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-weight: 500;
+    }
+    
+    .scenario-detail-type {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-weight: 500;
+        text-transform: capitalize;
+    }
+    
+    .scenario-detail-description {
+        margin-bottom: 15px;
+        line-height: 1.6;
+        color: #555;
+    }
+    
+    .scenario-detail-section {
+        margin-bottom: 15px;
+    }
+    
+    .scenario-detail-section h4 {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--primary-color);
+        margin-bottom: 8px;
+    }
+    
+    .scenario-detail-list {
+        margin-left: 15px;
+    }
+    
+    .scenario-detail-list li {
+        margin-bottom: 5px;
+        line-height: 1.5;
+        color: #666;
     }
 
-    .alert-danger {
-        background: linear-gradient(135deg, #ffebee, #fce4ec);
-        color: #c62828;
-        border-left: 4px solid #f44336;
+    /* Key Themes Grid */
+    .themes-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+        margin: 40px 0;
+    }
+    
+    .theme-card {
+        background: var(--bg-white);
+        padding: 25px;
+        border-radius: 15px;
+        border: 1px solid var(--border-color);
+        transition: all 0.3s ease;
+        cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    
+    .theme-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+        border-color: var(--primary-color);
+    }
+    
+    .theme-title {
+        font-size: 1.2rem;
+        font-weight: bold;
+        margin-bottom: 12px;
+        color: var(--primary-color);
+    }
+    
+    .theme-description {
+        font-size: 0.95rem;
+        line-height: 1.6;
+        color: var(--text-color);
+    }
+    
+    /* Legend */
+    .legend {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+        margin-top: 40px;
+    }
+    
+    .legend-item {
+        background: var(--bg-white);
+        padding: 20px;
+        border-radius: 12px;
+        border-left: 4px solid;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    }
+    
+    .legend-probable { border-color: rgba(0, 212, 255, 0.8); }
+    .legend-plausible { border-color: rgba(255, 193, 7, 0.8); }
+    .legend-possible { border-color: rgba(255, 107, 107, 0.8); }
+    .legend-preferable { border-color: rgba(78, 205, 196, 0.8); }
+    
+    .legend-title {
+        font-weight: bold;
+        margin-bottom: 10px;
+        font-size: 1.1rem;
+        color: var(--primary-dark);
+    }
+    
+    .legend-content {
+        font-size: 0.9rem;
+        color: #6c757d;
+        line-height: 1.5;
+    }
+
+    /* Additional content section */
+    .additional-content {
+        margin-top: 60px;
+        padding-top: 40px;
+        border-top: 2px solid var(--border-color);
+    }
+
+    .content-section {
+        margin-bottom: 50px;
+    }
+
+    .content-section h2 {
+        color: var(--primary-color);
+        font-size: 2rem;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+
+    .content-section h3 {
+        color: var(--primary-dark);
+        font-size: 1.5rem;
+        margin-bottom: 15px;
     }
 
     @keyframes fadeInDown {
@@ -566,20 +797,21 @@
                 <path class="cone-shape plausible-fill" d="M 110 350 L 1100 180 L 1100 520 Z"/>
                 
                 <!-- Probable (innermost) -->
-                <path class="cone-shape probable-line" d="M 110 350 L 1000 250 L 1000 450 Z"/>
-                <path class="cone-shape probable-fill" d="M 110 350 L 1000 250 L 1000 450 Z"/>
+                <path class="cone-shape probable-line" d="M 110 350 L 1000 275 L 1000 425 Z"/>
+                <path class="cone-shape probable-fill" d="M 110 350 L 1000 275 L 1000 425 Z"/>
                 
-                <!-- Preferable path -->
+                <!-- Preferable path (dashed line to upper region) -->
                 <path class="cone-shape preferable-line" d="M 110 350 L 900 150" stroke-dasharray="5,5"/>
                 
                 <!-- Center line (probable path) -->
-                <line x1="110" y1="350" x2="1000" y2="350" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="2,2"/>
+                <line x1="110" y1="350" x2="1000" y2="350" stroke="rgba(0,0,0,0.1)" stroke-width="1" stroke-dasharray="2,2"/>
                 
-                <!-- Time markers -->
-                <line x1="300" y1="100" x2="300" y2="600" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-                <line x1="500" y1="100" x2="500" y2="600" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-                <line x1="700" y1="100" x2="700" y2="600" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
-                <line x1="900" y1="100" x2="900" y2="600" stroke="rgba(255,255,255,0.1)" stroke-width="1"/>
+                <!-- Time markers - properly spaced -->
+                <line x1="250" y1="100" x2="250" y2="600" stroke="rgba(0,0,0,0.05)" stroke-width="1"/>
+                <line x1="450" y1="100" x2="450" y2="600" stroke="rgba(0,0,0,0.05)" stroke-width="1"/>
+                <line x1="650" y1="100" x2="650" y2="600" stroke="rgba(0,0,0,0.05)" stroke-width="1"/>
+                <line x1="850" y1="100" x2="850" y2="600" stroke="rgba(0,0,0,0.05)" stroke-width="1"/>
+                <line x1="1000" y1="100" x2="1000" y2="600" stroke="rgba(0,0,0,0.05)" stroke-width="1"/>
             </svg>
             
             <!-- NOW marker -->
@@ -601,6 +833,33 @@
             <div class="timeline-axis"></div>
             <div class="timeline-labels" id="timelineLabels">
                 <!-- Timeline markers will be dynamically populated -->
+            </div>
+        </div>
+
+        <!-- Additional Content Section -->
+        <div class="additional-content" id="additionalContent">
+            <!-- Detailed Scenarios -->
+            <div class="content-section" id="detailedScenariosSection" style="display: none;">
+                <h2>Scenario Details</h2>
+                <div class="scenarios-detail-grid" id="detailedScenariosGrid">
+                    <!-- Detailed scenario cards will be dynamically populated -->
+                </div>
+            </div>
+            
+            <!-- Key Themes will be populated here -->
+            <div class="content-section" id="keyThemesSection" style="display: none;">
+                <h2>Key Themes</h2>
+                <div class="themes-grid" id="keyThemesGrid">
+                    <!-- Theme cards will be dynamically populated -->
+                </div>
+            </div>
+            
+            <!-- Legend -->
+            <div class="content-section" id="legendSection" style="display: none;">
+                <h2>Scenario Types</h2>
+                <div class="legend" id="legendGrid">
+                    <!-- Legend items will be dynamically populated -->
+                </div>
             </div>
         </div>
     </div>
@@ -716,7 +975,6 @@
     </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
 <!-- Libraries for download functionality -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -829,21 +1087,22 @@ async function downloadAsPDF() {
             return;
         }
 
-        // Create a container with just the title and cone content
+        // Create a comprehensive export container
         const exportContainer = document.createElement('div');
         exportContainer.style.cssText = `
             background: white;
-            padding: 20px;
+            padding: 30px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1400px;
+            width: 1400px;
             margin: 0 auto;
+            box-sizing: border-box;
         `;
         
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
             color: #FF69B4;
-            font-size: 28px;
+            font-size: 32px;
             font-weight: bold;
             margin-bottom: 10px;
             text-align: center;
@@ -855,45 +1114,58 @@ async function downloadAsPDF() {
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
             color: #666;
-            font-size: 16px;
+            font-size: 18px;
             text-align: center;
-            margin-bottom: 30px;
+            margin-bottom: 40px;
         `;
         const topicName = document.getElementById('topic')?.value || 'Selected Topic';
         subtitle.textContent = `Futures analysis for ${topicName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
         exportContainer.appendChild(subtitle);
         
-        // Clone the futures cone content
+        // Clone the complete futures cone content including additional sections
         const clonedContent = futuresConeContainer.cloneNode(true);
         clonedContent.style.display = 'block';
+        clonedContent.style.width = '100%';
+        
+        // Ensure additional content sections are visible
+        const additionalContent = clonedContent.querySelector('#additionalContent');
+        if (additionalContent) {
+            additionalContent.style.display = 'block';
+            const sections = additionalContent.querySelectorAll('.content-section');
+            sections.forEach(section => {
+                section.style.display = 'block';
+            });
+        }
+        
         exportContainer.appendChild(clonedContent);
         
         // Temporarily add to page for rendering
         exportContainer.style.position = 'absolute';
-        exportContainer.style.left = '-9999px';
+        exportContainer.style.left = '-10000px';
         exportContainer.style.top = '0';
+        exportContainer.style.zIndex = '-1000';
         document.body.appendChild(exportContainer);
 
         // Wait for rendering
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
-        // Generate canvas
+        // Generate canvas with better settings
         const canvas = await html2canvas(exportContainer, {
             useCORS: true,
-            scale: 1.2,
+            scale: 1.0,
             logging: false,
             allowTaint: true,
             backgroundColor: '#ffffff',
-            removeContainer: true
+            width: 1400,
+            height: exportContainer.scrollHeight,
+            removeContainer: false
         });
 
         // Remove temporary container
         document.body.removeChild(exportContainer);
 
-        // Create PDF
-        const imgData = canvas.toDataURL('image/png', 0.95);
+        // Create PDF with proper sizing
         const pdf = new jsPDF('p', 'mm', 'a4');
-        
         const pdfWidth = 210;
         const pdfHeight = 297;
         const imgWidth = pdfWidth - 20;
@@ -951,23 +1223,24 @@ async function downloadAsImage() {
             return;
         }
 
-        // Create a container with title and cone content
+        // Create a comprehensive export container
         const exportContainer = document.createElement('div');
         exportContainer.style.cssText = `
             background: white;
-            padding: 30px;
+            padding: 40px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            max-width: 1400px;
+            width: 1400px;
             margin: 0 auto;
+            box-sizing: border-box;
         `;
         
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
             color: #FF69B4;
-            font-size: 32px;
+            font-size: 36px;
             font-weight: bold;
-            margin-bottom: 10px;
+            margin-bottom: 15px;
             text-align: center;
         `;
         title.innerHTML = '<i style="margin-right: 10px;">🔮</i>Data-Driven Futures Cone';
@@ -977,36 +1250,51 @@ async function downloadAsImage() {
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
             color: #666;
-            font-size: 18px;
+            font-size: 20px;
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 50px;
         `;
         const topicName = document.getElementById('topic')?.value || 'Selected Topic';
         subtitle.textContent = `Futures analysis for ${topicName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
         exportContainer.appendChild(subtitle);
         
-        // Clone the futures cone content
+        // Clone the complete futures cone content including additional sections
         const clonedContent = futuresConeContainer.cloneNode(true);
         clonedContent.style.display = 'block';
+        clonedContent.style.width = '100%';
+        
+        // Ensure additional content sections are visible
+        const additionalContent = clonedContent.querySelector('#additionalContent');
+        if (additionalContent) {
+            additionalContent.style.display = 'block';
+            const sections = additionalContent.querySelectorAll('.content-section');
+            sections.forEach(section => {
+                section.style.display = 'block';
+            });
+        }
+        
         exportContainer.appendChild(clonedContent);
         
         // Temporarily add to page for rendering
         exportContainer.style.position = 'absolute';
-        exportContainer.style.left = '-9999px';
+        exportContainer.style.left = '-10000px';
         exportContainer.style.top = '0';
+        exportContainer.style.zIndex = '-1000';
         document.body.appendChild(exportContainer);
 
         // Wait for rendering
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
-        // Generate canvas
+        // Generate canvas with optimized settings
         const canvas = await html2canvas(exportContainer, {
             useCORS: true,
-            scale: 2,
+            scale: 1.5,
             logging: false,
             allowTaint: true,
             backgroundColor: '#ffffff',
-            removeContainer: true
+            width: 1400,
+            height: exportContainer.scrollHeight,
+            removeContainer: false
         });
 
         // Remove temporary container
@@ -1155,28 +1443,234 @@ async function displayFuturesCone(data) {
     // Update timeline based on future horizon
     updateTimeline(data.timeline || []);
     
+    // Generate additional content sections
+    generateDetailedScenarios(data.scenarios || []);
+    generateKeyThemes(data.key_themes || data.themes || []);
+    generateLegend(data.legend || generateDefaultLegend());
+    
     // Show the cone
     document.getElementById('futuresConeContainer').style.display = 'block';
+}
+
+function generateDetailedScenarios(scenarios) {
+    const detailedScenariosGrid = document.getElementById('detailedScenariosGrid');
+    const detailedScenariosSection = document.getElementById('detailedScenariosSection');
+    
+    if (!scenarios || scenarios.length === 0) {
+        detailedScenariosSection.style.display = 'none';
+        return;
+    }
+    
+    detailedScenariosGrid.innerHTML = '';
+    
+    // Group scenarios by type
+    const scenariosByType = {
+        'probable': [],
+        'plausible': [],
+        'possible': [],
+        'preferable': [],
+        'wildcard': []
+    };
+    
+    scenarios.forEach(scenario => {
+        const type = scenario.type || 'probable';
+        if (scenariosByType[type]) {
+            scenariosByType[type].push(scenario);
+        }
+    });
+    
+    // Create columns for each type that has scenarios
+    const typeLabels = {
+        'probable': 'Probable (Centerline)',
+        'plausible': 'Plausible (Alternative Paths)',
+        'possible': 'Possible (Edge Cases)',
+        'preferable': 'Preferable (Aspirational)',
+        'wildcard': 'Wildcard (Disruptive)'
+    };
+    
+    // Type explanations
+    const typeExplanations = {
+        'probable': 'Most likely futures based on current trends and data patterns. These scenarios have strong supporting evidence and logical progression from present conditions.',
+        'plausible': 'Realistic alternative futures that could emerge under different conditions. These scenarios represent viable pathways with reasonable probability.',
+        'possible': 'Low-probability, high-impact scenarios that could dramatically reshape the future. These represent extreme but not impossible outcomes.',
+        'preferable': 'Desired futures that represent optimal outcomes. These scenarios require deliberate intervention and coordinated efforts to achieve.',
+        'wildcard': 'Highly disruptive, low-probability events that could fundamentally change the trajectory. These scenarios often involve breakthrough technologies or unexpected developments.'
+    };
+    
+    Object.keys(scenariosByType).forEach(type => {
+        const scenariosOfType = scenariosByType[type];
+        if (scenariosOfType.length === 0) return;
+        
+        // Create column container
+        const column = document.createElement('div');
+        column.className = 'scenario-type-column';
+        
+        // Add header
+        const header = document.createElement('div');
+        header.className = `scenario-type-header ${type}`;
+        header.textContent = typeLabels[type];
+        column.appendChild(header);
+        
+        // Add explanation card at the top of each column
+        const explanationCard = document.createElement('div');
+        explanationCard.className = 'scenario-explanation-card';
+        explanationCard.innerHTML = `
+            <div class="explanation-content">
+                <i class="fas fa-info-circle explanation-icon"></i>
+                <p>${typeExplanations[type]}</p>
+            </div>
+        `;
+        column.appendChild(explanationCard);
+        
+        // Add scenarios for this type
+        scenariosOfType.forEach(scenario => {
+            const scenarioCard = document.createElement('div');
+            scenarioCard.className = `scenario-detail-card ${scenario.type}`;
+            
+            let cardContent = `
+                <div class="scenario-detail-title">${scenario.title}</div>
+                <div class="scenario-detail-meta">
+                    <div class="scenario-detail-timeframe">${scenario.timeframe}</div>
+                </div>
+            `;
+            
+            if (scenario.description) {
+                cardContent += `<div class="scenario-detail-description">${scenario.description}</div>`;
+            }
+            
+            if (scenario.drivers && scenario.drivers.length > 0) {
+                cardContent += `
+                    <div class="scenario-detail-section">
+                        <h4>Key Drivers</h4>
+                        <ul class="scenario-detail-list">
+                            ${scenario.drivers.map(driver => {
+                                const driverText = typeof driver === 'object' ? driver.description : driver;
+                                return `<li>${driverText}</li>`;
+                            }).join('')}
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            if (scenario.signals && scenario.signals.length > 0) {
+                cardContent += `
+                    <div class="scenario-detail-section">
+                        <h4>Supporting Signals</h4>
+                        <ul class="scenario-detail-list">
+                            ${scenario.signals.slice(0, 5).map(signal => `<li>${signal}</li>`).join('')}
+                            ${scenario.signals.length > 5 ? `<li><em>...and ${scenario.signals.length - 5} more signals</em></li>` : ''}
+                        </ul>
+                    </div>
+                `;
+            }
+            
+            if (scenario.probability) {
+                cardContent += `
+                    <div class="scenario-detail-section">
+                        <h4>Probability Assessment</h4>
+                        <p>${scenario.probability}</p>
+                    </div>
+                `;
+            }
+            
+            if (scenario.branching_point) {
+                cardContent += `
+                    <div class="scenario-detail-section">
+                        <h4>Branching Point</h4>
+                        <p><em>${scenario.branching_point}</em></p>
+                    </div>
+                `;
+            }
+            
+            scenarioCard.innerHTML = cardContent;
+            column.appendChild(scenarioCard);
+        });
+        
+        detailedScenariosGrid.appendChild(column);
+    });
+    
+    detailedScenariosSection.style.display = 'block';
+}
+
+function generateKeyThemes(themes) {
+    const keyThemesGrid = document.getElementById('keyThemesGrid');
+    const keyThemesSection = document.getElementById('keyThemesSection');
+    
+    if (!themes || themes.length === 0) {
+        keyThemesSection.style.display = 'none';
+        return;
+    }
+    
+    keyThemesGrid.innerHTML = '';
+    
+    themes.forEach(theme => {
+        const themeCard = document.createElement('div');
+        themeCard.className = 'theme-card';
+        themeCard.innerHTML = `
+            <div class="theme-title">${theme.title}</div>
+            <div class="theme-description">${theme.description}</div>
+        `;
+        keyThemesGrid.appendChild(themeCard);
+    });
+    
+    keyThemesSection.style.display = 'block';
+}
+
+function generateLegend(legendData) {
+    // Hide the legend section since explanations are now at the top of each column
+    const legendSection = document.getElementById('legendSection');
+    legendSection.style.display = 'none';
+}
+
+function generateDefaultLegend() {
+    return [
+        {
+            type: 'probable',
+            title: 'Probable (Centerline)',
+            content: 'Most likely futures based on current trends and data patterns. These scenarios have strong supporting evidence and logical progression from present conditions.'
+        },
+        {
+            type: 'plausible',
+            title: 'Plausible (Alternative Paths)',
+            content: 'Realistic alternative futures that could emerge under different conditions. These scenarios represent viable pathways with reasonable probability.'
+        },
+        {
+            type: 'possible',
+            title: 'Possible (Wild Cards)',
+            content: 'Low-probability, high-impact scenarios that could dramatically reshape the future. These represent extreme but not impossible outcomes.'
+        },
+        {
+            type: 'preferable',
+            title: 'Preferable (Aspirational)',
+            content: 'Desired futures that represent optimal outcomes. These scenarios require deliberate intervention and coordinated efforts to achieve.'
+        }
+    ];
 }
 
 function populateScenarios(scenarios) {
     const scenariosContainer = document.getElementById('scenariosContainer');
     scenariosContainer.innerHTML = '';
     
+    console.log('Populating scenarios:', scenarios.length);
+    
     scenarios.forEach((scenario, index) => {
         const scenarioDiv = document.createElement('div');
         scenarioDiv.className = `scenario ${scenario.type}`;
-        scenarioDiv.style.top = `${scenario.position.y}%`;
-        scenarioDiv.style.left = `${scenario.position.x}%`;
+        
+        // Use simplified positioning system
+        const position = calculateScenarioPosition(scenario, index);
+        scenarioDiv.style.top = `${position.y}%`;
+        scenarioDiv.style.left = `${position.x}%`;
         scenarioDiv.setAttribute('data-scenario', `scenario-${index}`);
         
         // Add sentiment color coding
         const sentimentClass = getSentimentClass(scenario.sentiment);
         
+        // Keep scenario cards on cone simple - details go underneath
         scenarioDiv.innerHTML = `
             <div class="scenario-title">${scenario.title}</div>
             <div class="scenario-year">${scenario.timeframe}</div>
-            <div class="scenario-sentiment ${sentimentClass}">${scenario.sentiment}</div>
+            <div class="scenario-sentiment ${sentimentClass}">${scenario.sentiment || 'Neutral'}</div>
         `;
         
         // Add click handler
@@ -1186,24 +1680,111 @@ function populateScenarios(scenarios) {
     });
 }
 
+
+
+function calculateScenarioPosition(scenario, index) {
+    // Extract start year from timeframe ranges like "2025-2027" or "2028-2032"
+    let year = 2030; // default to middle
+    
+    if (scenario.timeframe) {
+        // Handle ranges like "2025-2027" -> use start year (2025)
+        const rangeMatch = scenario.timeframe.match(/(\d{4})-(\d{4})/);
+        if (rangeMatch) {
+            year = parseInt(rangeMatch[1]); // Use start year of range
+        } else {
+            // Handle single years like "2028" or text like "Early 2030s"
+            const yearMatch = scenario.timeframe.match(/(\d{4})/);
+            if (yearMatch) {
+                year = parseInt(yearMatch[1]);
+            }
+        }
+    }
+    
+    console.log(`Parsing timeframe "${scenario.timeframe}" -> year: ${year}`);
+    
+    // Map year to X position based on timeline
+    let baseX;
+    if (year <= 2025) {
+        baseX = 8;    // NOW marker (2025)
+    } else if (year <= 2027) {
+        baseX = 20;   // Early period (2026-2027)
+    } else if (year <= 2030) {
+        baseX = 35;   // Mid period (2028-2030)
+    } else if (year <= 2035) {
+        baseX = 55;   // Later period (2031-2035)
+    } else {
+        baseX = 75;   // Far future (2036+)
+    }
+    
+    // Calculate Y position based on scenario type
+    const centerY = 50;
+    let baseY = centerY;
+    
+    // Calculate how far along the timeline we are (0 to 1)
+    const timeProgress = Math.max(0, (baseX - 8) / 67);
+    const maxSpread = 35; // Maximum vertical spread
+    const currentSpread = timeProgress * maxSpread;
+    
+    switch (scenario.type) {
+        case 'probable':
+            // Very close to center line
+            baseY = centerY + ((index % 3) - 1) * 4;
+            break;
+        case 'plausible':
+            // Medium spread above and below center
+            const plausibleSpread = currentSpread * 0.6;
+            baseY = centerY + (index % 2 === 0 ? -plausibleSpread : plausibleSpread);
+            break;
+        case 'possible':
+            // Wider spread, near edges of cone
+            const possibleSpread = currentSpread * 0.85;
+            baseY = centerY + (index % 2 === 0 ? -possibleSpread : possibleSpread);
+            break;
+        case 'preferable':
+            // Upper area of cone
+            baseY = centerY - (currentSpread * 0.7);
+            break;
+        case 'wildcard':
+            // Extreme positions
+            const wildcardSpread = currentSpread * 0.95;
+            baseY = centerY + (index % 2 === 0 ? -wildcardSpread : wildcardSpread);
+            break;
+        default:
+            baseY = centerY;
+    }
+    
+    // Add small offsets to prevent overlap
+    const offsetX = ((index % 3) - 1) * 3; // Horizontal spread
+    const offsetY = Math.floor(index / 4) * 5; // Vertical stacking
+    
+    // Calculate final positions - don't clamp too aggressively
+    const finalX = Math.max(6, Math.min(88, baseX + offsetX));
+    const finalY = Math.max(8, Math.min(92, baseY + offsetY));
+    
+    console.log(`Scenario ${index}: "${scenario.title}" (${scenario.timeframe}) -> Year: ${year}, Final Position: ${finalX}%, ${finalY}%`);
+    
+    return { x: finalX, y: finalY };
+}
+
+
+
 function updateTimeline(timeline) {
     const timelineLabels = document.getElementById('timelineLabels');
     timelineLabels.innerHTML = '';
     
-    // Default timeline if none provided
-    if (!timeline || timeline.length === 0) {
-        const futureHorizon = parseInt(document.getElementById('futureHorizon')?.value || '5');
-        const currentYear = new Date().getFullYear();
-        timeline = [
-            { year: currentYear, label: 'Present' },
-            { year: currentYear + Math.floor(futureHorizon * 0.2), label: 'Short-term' },
-            { year: currentYear + Math.floor(futureHorizon * 0.5), label: 'Mid-term' },
-            { year: currentYear + Math.floor(futureHorizon * 0.8), label: 'Long-term' },
-            { year: currentYear + futureHorizon, label: 'Horizon' }
-        ];
-    }
+    // Use fixed timeline that matches the positioning system
+    const fixedTimeline = [
+        { year: 2025, label: 'NOW' },
+        { year: 2027, label: 'Short-term' },
+        { year: 2030, label: 'Mid-term' },
+        { year: 2035, label: 'Long-term' },
+        { year: 2040, label: 'Horizon' }
+    ];
     
-    timeline.forEach(marker => {
+    // Use provided timeline if available, otherwise use fixed
+    const timelineToUse = (timeline && timeline.length > 0) ? timeline : fixedTimeline;
+    
+    timelineToUse.forEach(marker => {
         const markerDiv = document.createElement('div');
         markerDiv.className = 'timeline-marker';
         markerDiv.innerHTML = `${marker.year}<br><small>${marker.label}</small>`;
@@ -1693,9 +2274,14 @@ function clearSavedConfiguration() {
         document.getElementById('customDays').style.display = 'none';
         document.getElementById('customLimit').style.display = 'none';
         
-        // Hide cone
+        // Hide cone and additional sections
         document.getElementById('futuresConeContainer').style.display = 'none';
         document.getElementById('topicSubtitle').textContent = 'Configure Analysis Below';
+        document.getElementById('detailedScenariosSection').style.display = 'none';
+        document.getElementById('keyThemesSection').style.display = 'none';
+        document.getElementById('legendSection').style.display = 'none';
+        
+
         
         updateLoadButton();
     } catch (e) {

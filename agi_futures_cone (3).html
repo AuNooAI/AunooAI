@@ -719,4 +719,83 @@
                     <ul>
                         <li>Financial crash due to autonomous market manipulation</li>
                         <li>Infrastructure hack causing widespread disruption</li>
-                
+                        <li>Critical infrastructure failure due to AI system malfunction</li>
+                        <li>Weaponization of AGI by hostile actors</li>
+                    </ul>
+                    
+                    <p><strong>Response:</strong> Global moratorium on AGI development, international crisis response, major regulatory overhaul.</p>
+                    
+                    <p><em>Probability: Very Low - but high-impact if occurs</em></p>
+                `
+            },
+            "bubble-crash": {
+                title: "AI Bubble Crash & Public Rejection",
+                content: `
+                    <p>Major market correction leads to AI/AGI backlash by 2028-2030.</p>
+                    
+                    <p><strong>Key factors:</strong></p>
+                    <ul>
+                        <li>Massive overinvestment in AI infrastructure</li>
+                        <li>Failure to deliver promised returns</li>
+                        <li>Public disillusionment with AI capabilities</li>
+                        <li>Regulatory crackdowns on Big Tech</li>
+                    </ul>
+                    
+                    <p><strong>Outcome:</strong> Significant reduction in AGI funding, slower development pace, focus shifts to narrow AI applications.</p>
+                `
+            },
+            "global-collaboration": {
+                title: "Global Collaboration & Responsible AGI Development",
+                content: `
+                    <p>International cooperation leads to coordinated AGI development framework.</p>
+                    
+                    <p><strong>Key elements:</strong></p>
+                    <ul>
+                        <li>UN AGI Safety Council established</li>
+                        <li>Shared safety standards and testing protocols</li>
+                        <li>Open-source AGI research initiatives</li>
+                        <li>Global benefit-sharing agreements</li>
+                    </ul>
+                    
+                    <p><strong>Outcome:</strong> Safer, more equitable AGI development that benefits all of humanity.</p>
+                `
+            }
+        };
+        
+        // Modal functionality
+        const modal = document.getElementById('scenarioModal');
+        const modalContent = document.getElementById('modalContent');
+        const closeBtn = document.querySelector('.close');
+        
+        // Show modal
+        function showModal(scenarioKey) {
+            if (scenarioDetails[scenarioKey]) {
+                modalContent.innerHTML = `
+                    <h2>${scenarioDetails[scenarioKey].title}</h2>
+                    ${scenarioDetails[scenarioKey].content}
+                `;
+                modal.style.display = 'flex';
+            }
+        }
+        
+        // Close modal
+        closeBtn.onclick = function() {
+            modal.style.display = 'none';
+        }
+        
+        window.onclick = function(event) {
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        }
+        
+        // Add click handlers to scenarios
+        document.querySelectorAll('.scenario').forEach(scenario => {
+            scenario.addEventListener('click', function() {
+                const scenarioKey = this.getAttribute('data-scenario');
+                showModal(scenarioKey);
+            });
+        });
+    </script>
+</body>
+</html>
