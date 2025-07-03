@@ -1222,25 +1222,46 @@
                 const neutral = sentimentDistribution.neutral || 0;
                 const critical = sentimentDistribution.critical || 0;
                 
-                // Calculate confidence as the percentage of the dominant sentiment
-                const maxSentiment = Math.max(positive, neutral, critical);
-                confidence = Math.round(maxSentiment);
+                // Check if these are counts (sum > 100) or percentages (sum ≈ 100)
+                const total = positive + neutral + critical;
+                let normalizedPositive, normalizedNeutral, normalizedCritical;
+                
+                if (total > 100) {
+                    // These are likely article counts - convert to percentages
+                    normalizedPositive = total > 0 ? Math.round((positive / total) * 100) : 0;
+                    normalizedNeutral = total > 0 ? Math.round((neutral / total) * 100) : 0;
+                    normalizedCritical = total > 0 ? Math.round((critical / total) * 100) : 0;
+                    console.log(`Converting article counts to percentages for ${categoryName}:`, {
+                        original: { positive, neutral, critical, total },
+                        normalized: { normalizedPositive, normalizedNeutral, normalizedCritical }
+                    });
+                } else {
+                    // These are already percentages - use as is but ensure they're reasonable
+                    normalizedPositive = Math.min(positive, 100);
+                    normalizedNeutral = Math.min(neutral, 100);
+                    normalizedCritical = Math.min(critical, 100);
+                }
+                
+                // Calculate confidence as the percentage of the dominant sentiment (capped at 100%)
+                const maxSentiment = Math.max(normalizedPositive, normalizedNeutral, normalizedCritical);
+                confidence = Math.min(Math.round(maxSentiment), 100);
                 
                 // Determine consensus type based on sentiment distribution
-                if (positive >= 60) {
+                if (normalizedPositive >= 60) {
                     consensusType = 'Positive Growth';
-                } else if (positive >= 35 && positive < 60) {
+                } else if (normalizedPositive >= 35 && normalizedPositive < 60) {
                     consensusType = 'Business Transformation';
-                } else if (critical >= 25) {
+                } else if (normalizedCritical >= 25) {
                     consensusType = 'Safety/Security';
-                } else if (critical >= 15) {
+                } else if (normalizedCritical >= 15) {
                     consensusType = 'Regulatory Response';
                 } else {
                     consensusType = 'Mixed Consensus';
                 }
                 
                 console.log(`Calculated consensus for ${categoryName}:`, {
-                    sentimentDistribution,
+                    originalSentimentDistribution: sentimentDistribution,
+                    normalizedValues: { normalizedPositive, normalizedNeutral, normalizedCritical },
                     calculatedConsensusType: consensusType,
                     calculatedConfidence: confidence
                 });
