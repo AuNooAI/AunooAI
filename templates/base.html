@@ -457,7 +457,7 @@
             <!-- Logo and menu items in one row -->
             <a class="navbar-brand" href="/">
                 <img src="{{ url_for('static', path='FNA.png') }}" alt="FNA Logo" height="30" class="d-inline-block align-top">
-                AuNooAI
+                 Aunoo AI
             </a>
             
             {% if session.get('user') %}
@@ -512,9 +512,6 @@
                             <i class="fas fa-cog"></i> Settings
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="configDropdown">
-                            <small class="text-muted"> Guided Topic Setup</small><br>
-                            <li><a class="dropdown-item" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-guided topic setup"><i class="fas fa-tasks"></i> Topic Setup Wizard</a></li>
-                            <li><hr class="dropdown-divider"></li>
                             <small class="text-muted">Context Engineering</small><br>
                             <li><a class="dropdown-item" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-guided topic setup"><i class="fas fa-tasks"></i> Guided AI Topic Designer</a></li>
                             <li><a class="dropdown-item" href="/promptmanager" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage AI prompts and templates"><i class="fas fa-brain"></i> Prompt Engineering</a></li>

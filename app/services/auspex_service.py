@@ -19,7 +19,7 @@ from app.ai_models import get_ai_model
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "gpt-3.5-turbo"
+DEFAULT_MODEL = "gpt-4.1-mini"
 
 # Default system prompt for Auspex
 DEFAULT_AUSPEX_PROMPT = """You are Auspex, an advanced AI research assistant specialized in analyzing news trends, sentiment patterns, and providing strategic insights using AuNoo's strategic-foresight methodology.

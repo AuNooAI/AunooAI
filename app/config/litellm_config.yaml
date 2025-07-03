@@ -1,5 +1,4 @@
 model_list:
-  # default model
   - model_name: gpt-4.1-mini
     litellm_params:
       model: openai/gpt-4.1-mini
@@ -32,8 +31,12 @@ model_list:
       api_base: "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1"
       api_key: "os.environ/HUGGINGFACE_API_KEY_MIXTRAL_8X7B"
       custom_llm_provider: "huggingface"
-
+  - model_name: claude-4-sonnet-latest
   # Anthropic
+    litellm_params:
+      model: anthropic/claude-4-sonnet-latest
+      api_key: "os.environ/ANTHROPIC_API_KEY_CLAUDE_4_SONNET_LATEST"
+
   - model_name: claude-3-7-sonnet-latest
     litellm_params:
       model: anthropic/claude-3-7-sonnet-latest
@@ -54,7 +57,6 @@ model_list:
     litellm_params:
       model: google/gemini-pro
       api_key: "os.environ/GEMINI_API_KEY_GEMINI_PRO"
-
 fallbacks:
   - gpt-4.1:
       - qwen3:14b
