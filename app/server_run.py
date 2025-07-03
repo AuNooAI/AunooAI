@@ -19,7 +19,7 @@ sys.path.append(str(ROOT_DIR))                          # import main.py
 
 load_dotenv()                                           # .env in project root
 
-PORT = int(os.getenv("PORT", 10002))
+PORT = int(os.getenv("PORT", 10000))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "production")    # dev | production
 
 # --------------------------------------------------------------------------- #

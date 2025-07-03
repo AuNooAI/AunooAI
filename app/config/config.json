@@ -1,63 +1,6 @@
 {
   "topics": [
     {
-      "name": "AI and Machine Learning",
-      "categories": [
-        "AI Warbots",
-        "AI Business",
-        "Releases and Announcements",
-        "Sovereign AI & AI Nationalism",
-        "AI Copyright, Regulation, and Antitrust",
-        "AI at Work and Employment",
-        "AI and Society",
-        "AI Trust, Risk, and Security Management",
-        "AI in Finance",
-        "AI in Journalism",
-        "AI Healthcare",
-        "AI in Education",
-        "AI in Law and the Legal Profession",
-        "AI in Science",
-        "AI in Art and the Media",
-        "AI in Software Development",
-        "AI Ethics",
-        "AI and Robotics",
-        "AI in the Data Center",
-        "AI Carbon Footprint",
-        "The Path to AGI",
-        "Interesting Papers & Articles on Applied AI",
-        "Other"
-      ],
-      "future_signals": [
-        "Hype",
-        "Plateau",
-        "Gradual Evolution",
-        "Acceleration",
-        "Disruption"
-      ],
-      "sentiment": [
-        "Hyperbolic",
-        "Positive",
-        "Neutral",
-        "Negative",
-        "Critical"
-      ],
-      "time_to_impact": [
-        "Immediate",
-        "Short-term",
-        "Mid-term",
-        "Long-term"
-      ],
-      "driver_types": [
-        "Accelerator",
-        "Delayer",
-        "Blocker",
-        "Initiator",
-        "Terminator",
-        "Unknown",
-        "Catalyst"
-      ]
-    },
-    {
       "name": "Trend Monitoring",
       "categories": [
         "Category 1",
@@ -126,16 +69,64 @@
         "Delayer",
         "Inhibitor"
       ]
+    },
+    {
+      "name": "Erosion of Government-Funded Research in the U.S.",
+      "description": " Potential structural withdrawal of U.S. federal support for R&D.\nConsequences for university grants, science infrastructure, and Wiley\u2019s customer base.\nPossible compensatory rises in R&D investment from China, the EU, or India.",
+      "categories": [
+        "University Research Funding",
+        "Federal R&D Budget",
+        "Science Infrastructure",
+        "International R&D Competition",
+        "Private Sector R&D Investment",
+        "Research Grant Allocation",
+        "Policy Impact on Science",
+        "Global R&D Leadership"
+      ],
+      "future_signals": [
+        "Complete withdrawal of federal R&D su...",
+        "Significant reduction in federal R&D ...",
+        "Stable federal R&D support with incre...",
+        "R&D leadership shifts to China",
+        "EU becomes the new hub for R&D"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "National Science Foundation",
+        "National Institutes of Health",
+        "Department of Energy",
+        "Research and Development",
+        "Science Funding",
+        "Grant Management Systems",
+        "Federal Research Funding",
+        "University Grants",
+        "Science Infrastructure",
+        "Climate Change",
+        "Election"
+      ]
     }
   ],
   "ai_models": [
     {
-      "name": "gpt-3.5-turbo",
+      "name": "gpt-4.1-mini",
       "provider": "openai"
-    },
-    {
-      "name": "mixtral-8x7b",
-      "provider": "huggingface"
     },
     {
       "name": "gpt-4o",
@@ -150,24 +141,20 @@
       "provider": "openai"
     },
     {
-      "name": "gpt-4.1-mini",
-      "provider": "openai"
-    },
-    {
       "name": "gpt-4.1-nano",
       "provider": "openai"
     },
     {
-      "name": "claude-3-7-sonnet-latest",
+      "name": "claude-4-sonnet-latest",
       "provider": "anthropic"
     },
     {
-      "name": "claude-3-5-sonnet-latest",
-      "provider": "anthropic"
+      "name": "mixtral",
+      "provider": "openai"
     },
     {
-      "name": "gemini-pro",
-      "provider": "google"
+      "name": "mixtral-instruct",
+      "provider": "openai"
     }
   ],
   "providers": [
@@ -176,21 +163,36 @@
       "display_name": "NewsAPI",
       "config_type": "api_key",
       "description": "Access news articles from various sources worldwide",
-      "enabled": true
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_NEWSAPI_API_KEY",
+      "api_key_description": "Your NewsAPI API key",
+      "api_key_placeholder": "Enter your NewsAPI key",
+      "api_key_help": "Get your API key from https://newsapi.org/account"
     },
     {
       "name": "thenewsapi",
       "display_name": "TheNewsAPI",
       "config_type": "api_key",
       "description": "Access news articles from TheNewsAPI service",
-      "enabled": true
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_THENEWSAPI_API_KEY",
+      "api_key_description": "Your TheNewsAPI API key",
+      "api_key_placeholder": "Enter your TheNewsAPI key",
+      "api_key_help": "Get your API key from https://thenewsapi.com/account"
     },
     {
       "name": "firecrawl",
       "display_name": "Firecrawl Scraper",
       "config_type": "api_key",
       "description": "Scrape websites for news articles",
-      "enabled": true
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_FIRECRAWL_API_KEY",
+      "api_key_description": "Your Firecrawl API key",
+      "api_key_placeholder": "Enter your Firecrawl API key",
+      "api_key_help": "Get your API key from https://firecrawl.dev"
     },
     {
       "name": "arxiv",
@@ -202,7 +204,7 @@
     {
       "name": "bluesky",
       "display_name": "Bluesky",
-      "config_type": "api_key",
+      "config_type": "username_password",
       "description": "Access posts from the Bluesky social network",
       "enabled": true,
       "api_key_required": true,
@@ -226,7 +228,7 @@
       "enabled": true,
       "description": "AI Voice Generation and Podcast Creation",
       "api_key_required": true,
-      "api_key_name": "ELEVENLABS_API_KEY",
+      "api_key_name": "PROVIDER_ELEVENLABS_API_KEY",
       "api_key_description": "Your ElevenLabs API key",
       "api_key_placeholder": "Enter your ElevenLabs API key",
       "api_key_validation": "^sk_[a-zA-Z0-9]{32,}$",
@@ -240,12 +242,13 @@
       "description": "Open-weights Text-to-Speech (dialogue) service",
       "enabled": true,
       "api_key_required": true,
-      "api_key_name": "DIA_API_KEY",
+      "api_key_name": "PROVIDER_DIA_API_KEY",
+      "api_key_description": "Your Dia TTS API key",
       "api_key_placeholder": "Enter Dia API key",
       "api_key_help": "See https://github.com/nari-labs/dia for setup",
       "extra_fields": [
         {
-          "field": "DIA_TTS_URL",
+          "field": "PROVIDER_DIA_TTS_URL",
           "label": "Dia Base URL",
           "placeholder": "http://localhost:8000/v1/tts",
           "type": "text"
