@@ -25,5 +25,41 @@ model_list:
       model: openai/gpt-4.1-nano
       api_key: "os.environ/OPENAI_API_KEY_GPT_4.1_NANO"
 
+  # Hugging Face
+  - model_name: mixtral-8x7b
+    litellm_params:
+      model: huggingface/mistralai/Mixtral-8x7B-Instruct-v0.1
+      api_base: "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1"
+      api_key: "os.environ/HUGGINGFACE_API_KEY_MIXTRAL_8X7B"
+      custom_llm_provider: "huggingface"
 
+  # Anthropic
+  - model_name: claude-3-7-sonnet-latest
+    litellm_params:
+      model: anthropic/claude-3-7-sonnet-latest
+      api_key: "os.environ/ANTHROPIC_API_KEY_CLAUDE_3_7_SONNET_LATEST"
+
+  - model_name: claude-3-5-sonnet-latest
+    litellm_params:
+      model: anthropic/claude-3-5-sonnet-latest
+      api_key: "os.environ/ANTHROPIC_API_KEY_CLAUDE_3_5_SONNET_LATEST"
+
+  - model_name: claude-4-sonnet-latest
+    litellm_params:
+      model: anthropic/claude-4-sonnet-latest
+      api_key: "os.environ/ANTHROPIC_API_KEY_CLAUDE_3_5_SONNET_LATEST"
+
+  # Google
+  - model_name: gemini-pro
+    litellm_params:
+      model: google/gemini-pro
+      api_key: "os.environ/GEMINI_API_KEY_GEMINI_PRO"
+
+fallbacks:
+  - gpt-4.1:
+      - qwen3:14b
+  - gpt-4.1-nano:
+      - qwen3:14b
+  - gpt-4.1-mini:
+      - qwen3:14b
 routing_strategy: least-busy
