@@ -69,3 +69,4 @@ chroma_db/
 # SQLite journal files
 *.db-shm
 *.db-wal3
+app/server_run.py
