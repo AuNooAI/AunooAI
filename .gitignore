@@ -64,4 +64,8 @@ chroma_db/
 # Large data files
 #*.db
 *.sqlite
-*.sqlite3
+*.sqlite
+
+# SQLite journal files
+*.db-shm
+*.db-wal3

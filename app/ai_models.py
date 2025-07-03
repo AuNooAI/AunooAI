@@ -314,16 +314,61 @@ class LiteLLMModel(AIModel):
         # Ensure router is cleared before reinitializing
         self.router = None
         
-        config_path = get_litellm_config_path()
-        logger.info(f"📖 Loading config from: {config_path}")
+        # Load and merge configurations from both config files
+        config_dir = os.path.join(os.path.dirname(__file__), 'config')
+        local_config_path = os.path.join(config_dir, 'litellm_config.yaml.local')
+        default_config_path = os.path.join(config_dir, 'litellm_config.yaml')
         
-        try:
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f)
-            logger.debug(f"✅ Config loaded successfully, found {len(config.get('model_list', []))} models in config")
-        except Exception as e:
-            logger.error(f"❌ Failed to load config file: {str(e)}")
-            raise
+        # Start with an empty merged config
+        merged_config = {
+            "model_list": [],
+            "routing_strategy": "least-busy",
+            "max_retries": 0,
+            "timeout": 30,
+            "fallbacks": []
+        }
+        
+        # Load default config first
+        if os.path.exists(default_config_path):
+            logger.info(f"📖 Loading default config from: {default_config_path}")
+            try:
+                with open(default_config_path, 'r') as f:
+                    default_config = yaml.safe_load(f) or {}
+                merged_config["model_list"].extend(default_config.get("model_list", []))
+                # Update other settings from default config
+                for key in ["routing_strategy", "max_retries", "timeout"]:
+                    if key in default_config:
+                        merged_config[key] = default_config[key]
+                if "fallbacks" in default_config:
+                    merged_config["fallbacks"].extend(default_config["fallbacks"])
+                logger.debug(f"✅ Default config loaded, found {len(default_config.get('model_list', []))} models")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to load default config file: {str(e)}")
+        
+        # Load local config and merge
+        if os.path.exists(local_config_path):
+            logger.info(f"📖 Loading local config from: {local_config_path}")
+            try:
+                with open(local_config_path, 'r') as f:
+                    local_config = yaml.safe_load(f) or {}
+                merged_config["model_list"].extend(local_config.get("model_list", []))
+                # Local config settings override default config
+                for key in ["routing_strategy", "max_retries", "timeout"]:
+                    if key in local_config:
+                        merged_config[key] = local_config[key]
+                if "fallbacks" in local_config:
+                    merged_config["fallbacks"].extend(local_config["fallbacks"])
+                logger.debug(f"✅ Local config loaded, found {len(local_config.get('model_list', []))} models")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to load local config file: {str(e)}")
+        
+        # Use the merged config
+        config = merged_config
+        logger.info(f"🔗 Merged configs - total models found: {len(config.get('model_list', []))}")
+        
+        if not config.get("model_list"):
+            logger.error("❌ No model configurations found in either config file")
+            raise ValueError("No model configurations found in either config file")
         
         # Get currently configured models with their API keys
         configured_models = get_available_models()
@@ -367,6 +412,8 @@ class LiteLLMModel(AIModel):
                     model_name_only = original_model.split('/')[-1] if '/' in original_model else original_model
                     model_copy['litellm_params']['model'] = model_name_only
                     logger.info(f"🔄 Custom OpenAI provider detected - changed model path from '{original_model}' to '{model_name_only}' for {model_name}")
+                else:
+                    logger.debug(f"🔄 Preserving full model path '{model_copy['litellm_params']['model']}' for {model_name}")
                 
             else:
                 # For models without API key (like local Ollama - testing)
