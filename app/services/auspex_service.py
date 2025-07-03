@@ -947,6 +947,47 @@ CURRENT SESSION CONTEXT:
             try:
                 # Build metadata filter for vector search
                 metadata_filter = {"topic": topic}
+                
+                # EXPLICIT CHECK for common date patterns (safety net)
+                explicit_date_patterns = {
+                    "trends from the last 7 days": 7,
+                    "trends from the past 7 days": 7,
+                    "trends in the last 7 days": 7,
+                    "trends over the last 7 days": 7,
+                    "trends past 7 days": 7,
+                    "last 7 days": 7,
+                    "past 7 days": 7,
+                    "last week": 7,
+                    "past week": 7,
+                    "last month": 30,
+                    "past month": 30,
+                    "last 30 days": 30,
+                    "past 30 days": 30,
+                }
+                
+                message_lower = message.lower()
+                explicit_days_back = None
+                for pattern, days in explicit_date_patterns.items():
+                    if pattern in message_lower:
+                        explicit_days_back = days
+                        logger.info(f"EXPLICIT DATE PATTERN MATCH: '{pattern}' -> {days} days")
+                        break
+                
+                if explicit_days_back:
+                    cutoff_datetime = datetime.now() - timedelta(days=explicit_days_back)
+                    cutoff_timestamp = int(cutoff_datetime.timestamp())
+                    # Use proper ChromaDB syntax for combining filters
+                    metadata_filter = {
+                        "$and": [
+                            {"topic": topic},
+                            {"publication_date_ts": {"$gte": cutoff_timestamp}}
+                        ]
+                    }
+                    logger.info(f"EXPLICIT date filter applied: publication_date_ts >= {cutoff_timestamp} ({cutoff_datetime.strftime('%Y-%m-%d %H:%M:%S')})")
+                    logger.info(f"Final metadata_filter: {metadata_filter}")
+                else:
+                    metadata_filter = {"topic": topic}
+                
                 vector_results = vector_search_articles(
                     query=message,
                     top_k=limit,  # Use the actual limit instead of hardcoded 100
@@ -983,6 +1024,39 @@ CURRENT SESSION CONTEXT:
                         })
                 
                 logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
+                
+                # Fallback date filtering for articles that might lack timestamp metadata
+                if explicit_days_back and len(vector_articles) > 0:
+                    cutoff_date = datetime.now() - timedelta(days=explicit_days_back)
+                    original_count = len(vector_articles)
+                    
+                    # Filter articles by publication_date string (fallback for articles without timestamp)
+                    filtered_vector_articles = []
+                    for article in vector_articles:
+                        article_date_str = article.get('publication_date', '')
+                        if article_date_str:
+                            try:
+                                if ' ' in article_date_str:
+                                    date_part = article_date_str.split(' ')[0]
+                                else:
+                                    date_part = article_date_str[:10]
+                                
+                                article_date = datetime.strptime(date_part, '%Y-%m-%d')
+                                if article_date >= cutoff_date:
+                                    filtered_vector_articles.append(article)
+                                else:
+                                    logger.debug(f"Fallback filter: excluded article from {date_part}: {article.get('title', 'Unknown')[:50]}...")
+                            except Exception as e:
+                                logger.warning(f"Could not parse date '{article_date_str}' for article {article.get('uri', 'unknown')}: {e}")
+                                filtered_vector_articles.append(article)  # Include on error
+                        else:
+                            filtered_vector_articles.append(article)  # Include articles without dates
+                    
+                    if original_count != len(filtered_vector_articles):
+                        logger.info(f"Fallback date filtering: {original_count} -> {len(filtered_vector_articles)} articles (past {explicit_days_back} days, cutoff: {cutoff_date.strftime('%Y-%m-%d')})")
+                        vector_articles = filtered_vector_articles
+                    else:
+                        logger.info(f"Fallback date filtering: No articles filtered out (all {original_count} articles are recent)")
                 
             except Exception as e:
                 logger.warning(f"Vector search failed, falling back to SQL search: {e}")

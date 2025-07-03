@@ -101,61 +101,49 @@ class AuspexToolsService:
                 # Build metadata filter for vector search
                 metadata_filter = {"topic": topic}
                 
-                # Parse query for date filtering using LLM
-                vector_date_filter = None  # Initialize date filter variable
-                search_intent_messages = [
-                    {"role": "system", "content": f"""You are an AI assistant that helps search through articles about {topic}.
-Your job is to determine if this query requires date filtering.
-
-IMPORTANT: If the query mentions analyzing "articles", "news", or "content" without specifying historical analysis, assume they want RECENT articles (default 14 days).
-
-Return ONLY a JSON object with date filtering information:
-{{
-    "needs_date_filter": true/false,
-    "date_range_days": number or null
-}}
-
-Examples:
-- "past 7 days" → {{"needs_date_filter": true, "date_range_days": 7}}
-- "last week" → {{"needs_date_filter": true, "date_range_days": 7}}
-- "recent trends" → {{"needs_date_filter": true, "date_range_days": 30}}
-- "what happened yesterday" → {{"needs_date_filter": true, "date_range_days": 1}}
-- "analyze the provided news articles" → {{"needs_date_filter": true, "date_range_days": 14}}
-- "analyze recent articles" → {{"needs_date_filter": true, "date_range_days": 14}}
-- "current developments" → {{"needs_date_filter": true, "date_range_days": 14}}
-- "latest articles" → {{"needs_date_filter": true, "date_range_days": 7}}
-- "historical analysis of all articles" → {{"needs_date_filter": false, "date_range_days": null}}
-- "comprehensive analysis" → {{"needs_date_filter": true, "date_range_days": 30}}"""},
-                    {"role": "user", "content": query}
-                ]
+                # EXPLICIT CHECK for common date patterns (safety net)
+                explicit_date_patterns = {
+                    "trends from the last 7 days": 7,
+                    "trends from the past 7 days": 7,
+                    "trends in the last 7 days": 7,
+                    "trends over the last 7 days": 7,
+                    "last 7 days": 7,
+                    "past 7 days": 7,
+                    "last week": 7,
+                    "past week": 7,
+                    "last month": 30,
+                    "past month": 30,
+                    "last 30 days": 30,
+                    "past 30 days": 30,
+                }
                 
-                ai_model = get_ai_model(model)
-                date_filter_response = ai_model.generate_response(search_intent_messages)
+                query_lower = query.lower()
+                explicit_days_back = None
+                for pattern, days in explicit_date_patterns.items():
+                    if pattern in query_lower:
+                        explicit_days_back = days
+                        logger.info(f"EXPLICIT DATE PATTERN MATCH: '{pattern}' -> {days} days")
+                        break
                 
-                try:
-                    date_filter_json = self._extract_json_from_response(date_filter_response)
-                    date_filter_info = json.loads(date_filter_json)
-                    
-                    # ChromaDB DOES support date range operators with proper timestamp format
-                    if date_filter_info.get("needs_date_filter") and date_filter_info.get("date_range_days"):
-                        days_back = date_filter_info["date_range_days"]
-                        cutoff_datetime = datetime.now() - timedelta(days=days_back)
-                        cutoff_timestamp = int(cutoff_datetime.timestamp())
-                        
-                        # Add timestamp-based date filter to ChromaDB metadata filter
-                        metadata_filter["publication_date_ts"] = {"$gte": cutoff_timestamp}
-                        logger.debug(f"Added ChromaDB date filter: publication_date_ts >= {cutoff_timestamp} ({cutoff_datetime.strftime('%Y-%m-%d')})")
-                        vector_date_filter = None  # No need for post-processing
-                    else:
-                        vector_date_filter = None
-                except Exception as e:
-                    logger.warning(f"Could not parse date filter from LLM: {e}")
-                    vector_date_filter = None
+                if explicit_days_back:
+                    cutoff_datetime = datetime.now() - timedelta(days=explicit_days_back)
+                    cutoff_timestamp = int(cutoff_datetime.timestamp())
+                    # Use proper ChromaDB syntax for combining filters
+                    vector_date_filter = {
+                        "$and": [
+                            {"topic": topic},
+                            {"publication_date_ts": {"$gte": cutoff_timestamp}}
+                        ]
+                    }
+                    logger.info(f"EXPLICIT date filter applied: publication_date_ts >= {cutoff_timestamp} ({cutoff_datetime.strftime('%Y-%m-%d %H:%M:%S')})")
+                    logger.info(f"Vector date filter: {vector_date_filter}")
+                else:
+                    vector_date_filter = {"topic": topic}
                 
                 vector_results = vector_search_articles(
                     query=query,
                     top_k=limit,
-                    metadata_filter=metadata_filter
+                    metadata_filter=vector_date_filter
                 )
                 
                 # Convert vector results to article format
@@ -185,20 +173,41 @@ Examples:
                 has_time_words = any(time_word in query_lower for time_word in time_keywords)
                 has_analysis_words = any(analysis_word in query_lower for analysis_word in analysis_keywords)
                 
+                logger.info(f"Fallback date filtering check for query: '{query}'")
+                logger.info(f"Has time words: {has_time_words} (found: {[word for word in time_keywords if word in query_lower]})")
+                logger.info(f"Has analysis words: {has_analysis_words} (found: {[word for word in analysis_keywords if word in query_lower]})")
+                
                 # Apply fallback date filtering for articles that might lack timestamp metadata
                 if has_time_words or has_analysis_words:
                     days_back = 14  # Default for analysis requests
                     
-                    if 'past 7 days' in query_lower or 'last week' in query_lower or 'latest' in query_lower:
+                    # More comprehensive pattern matching for time periods
+                    if any(phrase in query_lower for phrase in ['past 7 days', 'last 7 days', 'from the last 7 days']):
+                        days_back = 7
+                    elif any(phrase in query_lower for phrase in ['past week', 'last week', 'from the last week']):
+                        days_back = 7
+                    elif 'latest' in query_lower:
                         days_back = 7
                     elif 'yesterday' in query_lower:
                         days_back = 1
-                    elif 'past month' in query_lower or 'last month' in query_lower:
+                    elif any(phrase in query_lower for phrase in ['past month', 'last month', 'from the last month']):
+                        days_back = 30
+                    elif any(phrase in query_lower for phrase in ['past 30 days', 'last 30 days', 'from the last 30 days']):
                         days_back = 30
                     elif 'comprehensive' in query_lower or 'detailed' in query_lower:
                         days_back = 30
                     elif 'recent' in query_lower or 'current' in query_lower:
                         days_back = 14
+                    elif 'trends' in query_lower and any(time_word in query_lower for time_word in ['last', 'past', 'from']):
+                        # Special handling for trend queries with time references
+                        if '7' in query_lower or 'week' in query_lower:
+                            days_back = 7
+                        elif '30' in query_lower or 'month' in query_lower:
+                            days_back = 30
+                        else:
+                            days_back = 14  # Default for trends
+                    
+                    logger.info(f"Fallback date filtering triggered: {days_back} days back")
                     
                     cutoff_date = datetime.now() - timedelta(days=days_back)
                     original_count = len(vector_articles)
@@ -226,8 +235,12 @@ Examples:
                             filtered_vector_articles.append(article)  # Include articles without dates
                     
                     if original_count != len(filtered_vector_articles):
-                        logger.info(f"Fallback date filtering: {original_count} -> {len(filtered_vector_articles)} articles (past {days_back} days)")
+                        logger.info(f"Fallback date filtering: {original_count} -> {len(filtered_vector_articles)} articles (past {days_back} days, cutoff: {cutoff_date.strftime('%Y-%m-%d')})")
                         vector_articles = filtered_vector_articles
+                    else:
+                        logger.info(f"Fallback date filtering: No articles filtered out (all {original_count} articles are recent)")
+                else:
+                    logger.info("Fallback date filtering: Not triggered (no time or analysis keywords found)")
                 
             except Exception as e:
                 logger.warning(f"Vector search failed, falling back to SQL search: {e}")
