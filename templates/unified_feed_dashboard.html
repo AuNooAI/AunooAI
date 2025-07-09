@@ -2241,28 +2241,7 @@ function setupInfiniteScroll() {
     // Add scroll listener to the feed items container
     feedItemsContainer.addEventListener('scroll', handleScroll);
     
-    // Also listen to window scroll as fallback
-    window.addEventListener('scroll', () => {
-        const container = document.getElementById('feedItems');
-        const rect = container.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
-        
-        // Check if container is visible and user scrolled near bottom of page
-        if (rect.top < viewportHeight && rect.bottom > 0) {
-            const documentHeight = document.documentElement.scrollHeight;
-            const windowHeight = window.innerHeight;
-            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-            
-            if (scrollTop + windowHeight >= documentHeight - 300 && hasMoreItems && !isLoading && !isInitializing) {
-                isLoading = true;
-                showInfiniteScrollLoader();
-                loadMoreItems().finally(() => {
-                    hideInfiniteScrollLoader();
-                    isLoading = false;
-                });
-            }
-        }
-    });
+    
 }
 
 // Infinite scroll loader helpers
