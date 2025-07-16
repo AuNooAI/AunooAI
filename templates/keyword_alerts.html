@@ -4332,7 +4332,10 @@ async function changePage(topic, groupId, page) {
     selectedArticles.byGroup[groupId] = [];
     updateBulkActions(groupId);
     
-    await refreshGroupArticles(topic, groupId, showRead, true, page);
+    // Get current status filter value
+    const statusFilter = document.querySelector(`input[name="statusFilter_${groupId}"]:checked`)?.value || 'all';
+    
+    await refreshGroupArticles(topic, groupId, showRead, true, page, statusFilter);
 }
 
 async function changePageSize(topic, groupId, pageSize) {
@@ -4350,7 +4353,10 @@ async function changePageSize(topic, groupId, pageSize) {
     selectedArticles.byGroup[groupId] = [];
     updateBulkActions(groupId);
     
-    await refreshGroupArticles(topic, groupId, showRead, true, 1);
+    // Get current status filter value
+    const statusFilter = document.querySelector(`input[name="statusFilter_${groupId}"]:checked`)?.value || 'all';
+    
+    await refreshGroupArticles(topic, groupId, showRead, true, 1, statusFilter);
 }
 
 function analyzeBulkArticles(topic, groupId) {
@@ -4659,14 +4665,14 @@ async function bulkDeleteArticles(topic, groupId) {
 }
 
 // Update refreshGroupArticles to skip media bias lookup on refresh and support pagination
-async function refreshGroupArticles(topic, groupId, showRead = false, skipMediaBias = true, page = 1) {
+async function refreshGroupArticles(topic, groupId, showRead = false, skipMediaBias = true, page = 1, status = 'all') {
     try {
-        console.log(`Refreshing articles for group ${groupId} (${topic}), showRead: ${showRead}, page: ${page}`);
+        console.log(`Refreshing articles for group ${groupId} (${topic}), showRead: ${showRead}, page: ${page}, status: ${status}`);
         
         // Get current page size from state or use default
         const pageSize = paginationState[groupId]?.pageSize || 50;
         
-        const response = await fetch(`/api/keyword-monitor/alerts/${encodeURIComponent(topic)}?show_read=${showRead}&group_id=${groupId}&skip_media_bias=${skipMediaBias}&page=${page}&page_size=${pageSize}`, {
+        const response = await fetch(`/api/keyword-monitor/alerts/${encodeURIComponent(topic)}?show_read=${showRead}&group_id=${groupId}&skip_media_bias=${skipMediaBias}&page=${page}&page_size=${pageSize}&status=${status}`, {
             credentials: 'same-origin',
             headers: {
                 'Accept': 'application/json',
@@ -5837,14 +5843,27 @@ function resetFilters(groupId) {
 
 // Apply status filter
 function applyStatusFilter(groupId) {
-    applyAllFilters(groupId);
+    // Get the topic from the data-topic attribute
+    const groupElement = document.querySelector(`[data-group-id="${groupId}"][data-topic]`);
+    const topic = groupElement ? groupElement.dataset.topic : null;
+    
+    if (!topic) {
+        console.error(`Could not find topic for group ${groupId}`);
+        return;
+    }
+    
+    const showReadToggle = document.querySelector(`#showReadToggle_${groupId}`);
+    const showRead = showReadToggle ? showReadToggle.checked : false;
+    
+    // Get current status filter value
+    const statusFilter = document.querySelector(`input[name="statusFilter_${groupId}"]:checked`)?.value || 'all';
+    
+    // Refresh articles with the new status filter
+    refreshGroupArticles(topic, groupId, showRead, true, 1, statusFilter);
 }
 
 // Combined function to apply all filters (relevance + status + detoxify)
 function applyAllFilters(groupId) {
-    // Get status filter value
-    const statusFilter = document.querySelector(`input[name="statusFilter_${groupId}"]:checked`)?.value || 'all';
-    
     // Get detoxify filter value
     const detoxifyEnabled = document.getElementById(`detoxifyToggle_${groupId}`)?.checked || false;
     
@@ -5875,21 +5894,6 @@ function applyAllFilters(groupId) {
     
     rows.forEach(row => {
         let showRow = true;
-        
-        // Apply status filter
-        if (statusFilter !== 'all') {
-            const statusBadge = row.querySelector('.badge');
-            const statusText = statusBadge ? statusBadge.textContent.trim().toLowerCase() : '';
-            
-            // Debug logging for status filtering
-            if (statusFilter === 'new' && !statusText.includes('new')) {
-                console.log('Filtering out article - status:', statusText, 'looking for: new');
-                showRow = false;
-            } else if (statusFilter === 'added' && !statusText.includes('added')) {
-                console.log('Filtering out article - status:', statusText, 'looking for: added');
-                showRow = false;
-            }
-        }
         
         // Apply detoxify filter (only if status filter passes)
         if (showRow && detoxifyEnabled) {
