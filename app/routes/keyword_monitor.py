@@ -1575,10 +1575,19 @@ async def get_group_alerts(
     skip_media_bias: bool = False,
     page: int = 1,
     page_size: int = 50,
+    status: str = "all",
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
 ):
-    """Get alerts for a specific keyword group with pagination."""
+    
+    """Get alerts for a specific keyword group with pagination and status filtering.
+    
+    Args:
+        status: Filter by article status:
+            - "all": Return all articles (default)
+            - "new": Return only new/unprocessed articles (category IS NULL OR category = ''
+            - "added": Return only enriched/processed articles (category IS NOT NULL AND category != '')
+    """
     try:
         # Validate pagination parameters
         if page < 1:
@@ -1602,6 +1611,14 @@ async def get_group_alerts(
             
             if use_new_table:
                 read_condition = "" if show_read else "AND ka.is_read = 0"
+
+                 # Add status filter condition
+                status_condition = ""
+                if status == "new":
+                    status_condition = "AND (a.category IS NULL OR a.category = '')"
+                elif status == "added":
+                    status_condition = "AND (a.category IS NOT NULL AND a.category != '')"
+                
                 
                 # Using new structure (keyword_article_matches table) with pagination
                 cursor.execute(f"""
@@ -1641,13 +1658,21 @@ async def get_group_alerts(
                         a.quality_issues
                     FROM keyword_article_matches ka
                     JOIN articles a ON ka.article_uri = a.uri
-                    WHERE ka.group_id = ? {read_condition}
+                    WHERE ka.group_id = ? {read_condition} {status_condition}
                     ORDER BY ka.detected_at DESC
                     LIMIT ? OFFSET ?
                 """, (group_id, page_size, offset))
             else:
                 # Fallback to old structure (keyword_alerts table) with pagination
                 read_condition = "" if show_read else "AND ka.is_read = 0"
+
+                # Add status filter condition
+                status_condition = ""
+                if status == "new":
+                    status_condition = "AND (a.category IS NULL OR a.category = '')"
+                elif status == "added":
+                    status_condition = "AND (a.category IS NOT NULL AND a.category != '')"
+                
                 cursor.execute(f"""
                     SELECT 
                         ka.id, 
@@ -1686,7 +1711,7 @@ async def get_group_alerts(
                     FROM keyword_alerts ka
                     JOIN articles a ON ka.article_uri = a.uri
                     JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    WHERE mk.group_id = ? {read_condition}
+                    WHERE mk.group_id = ? {read_condition} {status_condition}
                     ORDER BY ka.detected_at DESC
                     LIMIT ? OFFSET ?
                 """, (group_id, page_size, offset))
@@ -1893,6 +1918,7 @@ async def get_group_alerts(
                 "alerts": alerts,
                 "unread_count": unread_count,
                 "total_count": total_count,
+                "status_filter": status,
                 "pagination": {
                     "page": page,
                     "page_size": page_size,
