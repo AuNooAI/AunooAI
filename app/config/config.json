@@ -121,6 +121,58 @@
         "Climate Change",
         "Election"
       ]
+    },
+    {
+      "name": "Cloud Repatriation",
+      "description": "Is cloud repatriation occurring, and how much?",
+      "categories": [
+        "Regulatory Compliance",
+        "New Cloud Offering",
+        "Cloud Consolidation",
+        "Case Study",
+        "Industry Report",
+        "Cloud Security",
+        "Cloud Costs",
+        "Cloud Data Sovereignity"
+      ],
+      "future_signals": [
+        "Widespread cloud exit",
+        "Selective workload repatriation",
+        "Hybrid equilibrium emerges",
+        "Cloud dominance continues"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "Amazon Web Services",
+        "Microsoft Azure",
+        "Google Cloud Platform",
+        "Cloud Computing",
+        "Hybrid Cloud",
+        "Multi-Cloud Management",
+        "IaaS",
+        "PaaS",
+        "SaaS",
+        "Data Center",
+        "Cloud Migration",
+        "IT Infrastructure"
+      ]
     }
   ],
   "ai_models": [
