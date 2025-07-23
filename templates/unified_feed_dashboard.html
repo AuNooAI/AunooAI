@@ -1590,6 +1590,266 @@
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
+
+    /* Multi-Combination Filter Styles */
+    .multi-filter-container {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        padding: 24px;
+        margin-bottom: 24px;
+    }
+
+    .filter-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .filter-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text-color);
+        margin: 0;
+    }
+
+    .filter-icon {
+        width: 20px;
+        height: 20px;
+        background: var(--primary-color);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+
+    .filter-subtitle {
+        color: var(--dark-gray);
+        font-size: 0.9rem;
+        margin-bottom: 20px;
+        opacity: 0.8;
+    }
+
+    /* Add New Combination Section */
+    .add-combination-section {
+        background: var(--light-gray);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 2px dashed var(--medium-gray);
+        transition: all 0.3s;
+    }
+
+    .add-combination-section:hover {
+        border-color: var(--primary-color);
+        background: rgba(255, 105, 180, 0.05);
+    }
+
+    .combination-form {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 180px;
+    }
+
+    .filter-label {
+        font-weight: 500;
+        color: var(--text-color);
+        white-space: nowrap;
+        font-size: 0.9rem;
+    }
+
+    .filter-connector {
+        color: var(--primary-color);
+        font-weight: 600;
+        font-size: 1rem;
+        margin: 0 4px;
+    }
+
+    .add-combination-btn {
+        background: var(--primary-color);
+        border: 1px solid var(--primary-color);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+    }
+
+    .add-combination-btn:hover {
+        background: var(--primary-dark);
+        border-color: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .add-combination-btn:disabled {
+        background: var(--medium-gray);
+        border-color: var(--medium-gray);
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    /* Active Combinations Section */
+    .active-combinations {
+        margin-top: 20px;
+    }
+
+    .combinations-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+
+    .combinations-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-color);
+        margin: 0;
+    }
+
+    .clear-all-btn {
+        background: transparent;
+        border: 1px solid var(--medium-gray);
+        color: var(--text-color);
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .clear-all-btn:hover {
+        border-color: #dc3545;
+        color: #dc3545;
+    }
+
+    .combination-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .combination-item {
+        background: white;
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: all 0.2s;
+        position: relative;
+    }
+
+    .combination-item:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .combination-content {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .date-badge {
+        background: var(--light-gray);
+        border: 1px solid var(--medium-gray);
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--text-color);
+    }
+
+    .remove-combination {
+        background: #dc3545;
+        border: none;
+        color: white;
+        border-radius: 50%;
+        width: 28px;
+        height: 28px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+        flex-shrink: 0;
+    }
+
+    .remove-combination:hover {
+        background: #c82333;
+        transform: scale(1.1);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: var(--dark-gray);
+        opacity: 0.6;
+    }
+
+    .empty-state-icon {
+        font-size: 2rem;
+        margin-bottom: 8px;
+    }
+
+    /* Multi-Filter Responsive design */
+    @media (max-width: 768px) {
+        .combination-form {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-group {
+            min-width: auto;
+            width: 100%;
+        }
+
+        .filter-select {
+            min-width: auto;
+            flex: 1;
+        }
+
+        .add-combination-btn {
+            justify-content: center;
+        }
+
+        .combination-content {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .combination-item {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 12px;
+        }
+
+        .remove-combination {
+            align-self: flex-end;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -1915,6 +2175,9 @@
                     <button class="btn-square" onclick="toggleCustomizePanel()" title="Customize Dashboard">
                         <i class="fas fa-sliders-h"></i>
                     </button>
+                    <button class="btn-square" onclick="toggleMultiFilter()" title="Multi-Combination Filter">
+                        <i class="fas fa-layer-group"></i>
+                    </button>
                 </div>
 
                 <!-- Hidden Save Button -->
@@ -1980,7 +2243,63 @@
             </div>
         </div>
 
-
+        <!-- Multi-Combination Filter -->
+        <div class="multi-filter-container" id="multiFilterContainer" style="display: none;">
+            <div class="filter-header">
+                <div class="filter-icon">⚡</div>
+                <h3 class="filter-title">Multi-Combination Filter</h3>
+            </div>
+            
+            <p class="filter-subtitle">Add multiple source + date combinations to create complex filters</p>
+            
+            <div class="add-combination-section">
+                <div class="combination-form">
+                    <div class="filter-group">
+                        <label class="filter-label" for="newSource">Source:</label>
+                        <select id="newSource" class="filter-select">
+                            <option value="">Select Source</option>
+                            <option value="bluesky">🐦 Bluesky Social</option>
+                            <option value="arxiv">📚 ArXiv Academic</option>
+                            <option value="thenewsapi">📰 News Articles</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-connector">+</div>
+                    
+                    <div class="filter-group">
+                        <label class="filter-label" for="newDate">Date Range:</label>
+                        <select id="newDate" class="filter-select">
+                            <option value="">Select Date Range</option>
+                            <option value="today">Today</option>
+                            <option value="week">This Week</option>
+                            <option value="month">This Month</option>
+                            <option value="quarter">This Quarter</option>
+                            <option value="alltime">All Time</option>
+                        </select>
+                    </div>
+                    
+                    <button class="add-combination-btn" onclick="addCombination()" id="addBtn">
+                        ➕ Add Combination
+                    </button>
+                </div>
+            </div>
+            
+            <div class="active-combinations">
+                <div class="combinations-header">
+                    <h4 class="combinations-title">Active Filter Combinations</h4>
+                    <button class="clear-all-btn" onclick="clearAllCombinations()" id="clearAllBtn" style="display: none;">
+                        🗑️ Clear All
+                    </button>
+                </div>
+                
+                <div class="combination-list" id="combinationList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔍</div>
+                        <p>No filter combinations added yet.<br>Add your first combination above!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Feed Items -->
         <div class="feed-items" id="feedItems">
@@ -2171,6 +2490,10 @@ let columnOffsets = { bluesky: 0, arxiv: 0, thenewsapi: 0 }; // Track pagination
 let columnHasMore = { bluesky: true, arxiv: true, thenewsapi: true }; // Track if more items available
 let columnLoading = { bluesky: false, arxiv: false, thenewsapi: false }; // Track loading state
 let columnSelectedItems = { bluesky: [], arxiv: [], thenewsapi: [] }; // Track selected items per column
+
+// Multi-combination filter state
+let activeCombinations = [];
+let combinationCounter = 0;
 let mediabiasCache = {}; // Cache for media bias data
 const COLUMN_BATCH_SIZE = 50; // Items to load per batch for infinite scroll
 let currentFilters = {
@@ -2528,10 +2851,19 @@ async function loadFeedItems(append = false) {
             include_hidden: showHidden
         });
         
+        //Handle regular source filter
         if (currentFilters.source) {
             params.append('source_types', currentFilters.source);
         }
         
+        //Handle multi-combination filter
+        if (activeCombinations.length > 0) {
+            const combinationSources = activeCombinations.map(combo => combo.source);
+
+            // Override regular source filter with combination sources
+            params.set('source_types', combinationSources.join(','));
+        }
+
         let endpoint = '/api/unified-feed';
         if (currentFeedGroup !== null) {
             endpoint = `/api/feed-groups/${currentFeedGroup}/feed`;
@@ -3427,6 +3759,11 @@ function applyClientSideFilters() {
             const itemDate = new Date(item.publication_date || item.created_at);
             return itemDate >= filterDate;
         });
+    }
+
+    //apply combination filters
+    if (activeCombinations.length > 0) {
+        filteredItems = applyCombinationFilters(filteredItems);
     }
     
     // Apply author filter
@@ -6862,6 +7199,141 @@ function selectSingleArticle(articleId) {
         }
     }
 }
+
+// Multi-Combination Filter Functions
+function toggleMultiFilter() {
+    const container = document.getElementById('multiFilterContainer');
+    const isVisible = container.style.display !== 'none';
+    container.style.display = isVisible ? 'none' : 'block';
+}
+
+function addCombination() {
+    const sourceSelect = document.getElementById('newSource');
+    const dateSelect = document.getElementById('newDate');
+    const sourceValue = sourceSelect.value;
+    const dateValue = dateSelect.value;
+    
+    if (!sourceValue || !dateValue) {
+        alert('Please select both a source and date range');
+        return;
+    }
+    
+    const sourceText = sourceSelect.options[sourceSelect.selectedIndex].text;
+    const dateText = dateSelect.options[dateSelect.selectedIndex].text;
+    
+    // Check if source already exists (regardless of date)
+    const existingCombination = activeCombinations.find(combo => 
+        combo.source === sourceValue
+    );
+    
+    if (existingCombination) {
+        // Update existing combination with new date range
+        existingCombination.date = dateValue;
+        existingCombination.dateText = dateText;
+    } else {
+        // Create new combination
+        const combination = {
+            id: ++combinationCounter,
+            source: sourceValue,
+            date: dateValue,
+            sourceText: sourceText,
+            dateText: dateText
+        };
+        
+        activeCombinations.push(combination);
+    }
+    
+    // Reset form
+    sourceSelect.value = '';
+    dateSelect.value = '';
+    
+    updateCombinationList();
+    applyClientSideFilters();
+}
+
+function removeCombination(id) {
+    activeCombinations = activeCombinations.filter(combo => combo.id !== id);
+    updateCombinationList();
+    applyClientSideFilters();
+}
+
+function clearAllCombinations() {
+    activeCombinations = [];
+    updateCombinationList();
+    applyClientSideFilters();
+}
+
+function updateCombinationList() {
+    const container = document.getElementById('combinationList');
+    const clearAllBtn = document.getElementById('clearAllBtn');
+    
+    if (activeCombinations.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">🔍</div>
+                <p>No filter combinations added yet.<br>Add your first combination above!</p>
+            </div>
+        `;
+        clearAllBtn.style.display = 'none';
+        return;
+    }
+    
+    clearAllBtn.style.display = 'block';
+    container.innerHTML = '';
+    
+    activeCombinations.forEach(combo => {
+        const item = document.createElement('div');
+        item.className = 'combination-item';
+        item.innerHTML = `
+            <div class="combination-content">
+                <div class="source-badge ${combo.source}">
+                    ${combo.sourceText}
+                </div>
+                <div class="filter-connector">+</div>
+                <div class="date-badge">
+                    ${combo.dateText}
+                </div>
+            </div>
+            <button class="remove-combination" onclick="removeCombination(${combo.id})">
+                ×
+            </button>
+        `;
+        container.appendChild(item);
+    });
+}
+
+function applyCombinationFilters(items) {
+    // Filter items based on active combinations
+    let filteredItems = [];
+    
+    activeCombinations.forEach(combo => {
+        const matchingItems = items.filter(item => {
+            // Check source match
+            const sourceMatch = item.source_type === combo.source;
+            
+            // Check date match
+            let dateMatch = true;
+            if (combo.date && combo.date !== 'alltime') {
+                const now = new Date();
+                const filterDate = getDateFromRange(combo.date, now);
+                const itemDate = new Date(item.publication_date);
+                dateMatch = itemDate >= filterDate;
+            }
+            
+            return sourceMatch && dateMatch;
+        });
+        
+        // Add matching items to filtered list (avoid duplicates)
+        matchingItems.forEach(item => {
+            if (!filteredItems.some(existing => existing.id === item.id)) {
+                filteredItems.push(item);
+            }
+        });
+    });
+    
+    return filteredItems;
+}
+
 
 </script>
 
