@@ -2,7 +2,7 @@
 
 ## Setup: Local Development, bare metal
 
-For local development, on your host machine, ```tox```, ```bash``` and ```ffmpeg``` are required.
+For local development, on bare metal, ```tox```, ```bash``` and ```ffmpeg``` are required.
 For MacOS ```brew``` is also required.
 
 1. Create a python virtual environment, activate and install tox:
