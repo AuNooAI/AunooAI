@@ -1,6 +1,63 @@
 {
   "topics": [
     {
+      "name": "AI and Machine Learning",
+      "categories": [
+        "AI Warbots",
+        "AI Business",
+        "Releases and Announcements",
+        "Sovereign AI & AI Nationalism",
+        "AI Copyright, Regulation, and Antitrust",
+        "AI at Work and Employment",
+        "AI and Society",
+        "AI Trust, Risk, and Security Management",
+        "AI in Finance",
+        "AI in Journalism",
+        "AI Healthcare",
+        "AI in Education",
+        "AI in Law and the Legal Profession",
+        "AI in Science",
+        "AI in Art and the Media",
+        "AI in Software Development",
+        "AI Ethics",
+        "AI and Robotics",
+        "AI in the Data Center",
+        "AI Carbon Footprint",
+        "The Path to AGI",
+        "Interesting Papers & Articles on Applied AI",
+        "Other"
+      ],
+      "future_signals": [
+        "AI is hype",
+        "AI has plateaued",
+        "AI will evolve gradually",
+        "AI will accelerate",
+        "AI is a bubble"
+      ],
+      "sentiment": [
+        "Hyperbolic",
+        "Positive",
+        "Neutral",
+        "Negative",
+        "Critical"
+      ],
+      "time_to_impact": [
+        "Immediate",
+        "Short-term",
+        "Mid-term",
+        "Long-term"
+      ],
+      "driver_types": [
+        "Accelerator",
+        "Delayer",
+        "Blocker",
+        "Initiator",
+        "Terminator",
+        "Unknown",
+        "Catalyst"
+      ]
+    },
+    {
       "name": "Trend Monitoring",
       "categories": [
         "Category 1",
