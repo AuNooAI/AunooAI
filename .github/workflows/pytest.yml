@@ -1,0 +1,21 @@
+name: Pytest
+
+# TODO: Only run this workflow against certain branches to save time? Maybe on PR?
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # Copied from: https://github.com/marketplace/actions/pylint-with-dynamic-badge
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install tox
+        run: pip install tox
+      - name: Run tests
+        run: tox -e tests
