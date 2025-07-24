@@ -1,5 +1,6 @@
 name: Pylint
 
+# TODO: Only run this workflow against certain branches to save time? Maybe on PR?
 on: [push]
 
 jobs:
