@@ -1,7 +1,5 @@
 # Install
 
-## Requirements
-
 ## Setup: Local Development, bare metal
 
 For local development, on your host machine, ```tox```, ```bash``` and ```ffmpeg``` are required.
