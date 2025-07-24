@@ -2,8 +2,6 @@
 
 ## Requirements
 
-AuNoo AI requires Python 3.11.
-
 ## Setup: Local Development, bare metal
 
 For local development, on your host machine, ```tox```, ```bash``` and ```ffmpeg``` are required.
