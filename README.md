@@ -1,9 +1,13 @@
+![pylint]()
+
 # Install
 
 ## Setup: Local Development, bare metal
 
 For local development, on bare metal, ```tox```, ```bash``` and ```ffmpeg``` are required.
 For MacOS ```brew``` is also required.
+
+TODO: See [install_ffmpeg.py](scripts/install_ffmpeg.py)
 
 1. Create a python virtual environment, activate and install tox:
 
