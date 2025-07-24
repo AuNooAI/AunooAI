@@ -6,7 +6,7 @@ AuNoo AI requires Python 3.11.
 
 ## Setup: Local Development, bare metal
 
-For local development, ```tox``` is required.
+For local development, on your host machine, ```tox``` is required.
 
 1. Create a python virtual environment, activate and install tox:
 
