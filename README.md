@@ -6,7 +6,8 @@ AuNoo AI requires Python 3.11.
 
 ## Setup: Local Development, bare metal
 
-For local development, on your host machine, ```tox``` is required.
+For local development, on your host machine, ```tox```, ```bash``` and ```ffmpeg``` are required.
+For MacOS ```brew``` is also required.
 
 1. Create a python virtual environment, activate and install tox:
 
@@ -16,13 +17,19 @@ source venv/bin/activate
 pip install tox
 ```
 
-2. Configure
+2. Install ```fmpeg``` and other OS dependencies. See ```tox.ini``` for details.
+
+```bash
+tox -e install-os-dependencies
+```
+
+3. Configure
 
 Copy ```.env.sample``` to ```.env``` and configure:
 
 TODO: Add config documentation.
 
-3. Set a temporary ```admin``` password:
+4. Set a temporary ```admin``` password:
 
 NOTE: This command will store the password in your shell's history. Use a temporary password. You will be prompted to 
 reset the password upon first login, via the User Interface.
@@ -31,19 +38,19 @@ reset the password upon first login, via the User Interface.
 tox -e reset-admin-password -- --password default_password
 ```
 
-4. Refresh the vector database:
+5. Refresh the vector database:
 
 ```bash
 tox -e reindex-chromadb
 ```
 
-5. Start server:
+6. Start server:
 
 ```bash
 tox -e run-dev
 ```
 
-6. Login:
+7. Login:
 
 http://localhost:10000/
 
