@@ -914,7 +914,6 @@ CURRENT SESSION CONTEXT:
         return f"Active: {', '.join(active_descriptions)}"
 
     async def _original_chat_database_logic(self, message: str, topic: str, limit: int) -> Optional[str]:
-        """Restore the original sophisticated database navigation from chat_routes.py"""
         try:
             analyze_db = AnalyzeDB(self.db)
             ai_model = get_ai_model(DEFAULT_MODEL)

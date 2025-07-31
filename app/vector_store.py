@@ -435,7 +435,8 @@ def upsert_article(article: Dict[str, Any]) -> None:
 
 def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
     """Extract a subset of article fields to use as vector metadata."""
-    from datetime import datetime
+    from datetime import datetime, timezone
+    import re
     
     # Convert publication_date to timestamp for ChromaDB date filtering
     publication_date = article.get("publication_date")
@@ -443,25 +444,94 @@ def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
     
     if publication_date:
         try:
-            # Handle different date formats
+            # Handle different date formats robustly
             if isinstance(publication_date, str):
-                # Try parsing common date formats
-                if ' ' in publication_date:
-                    # Format like "2025-05-25 12:34:56" or "2025-05-25 12:34:56.123"
-                    date_part = publication_date.split(' ')[0]
-                else:
-                    # Format like "2025-05-25"
-                    date_part = publication_date[:10]
+                # Clean the date string
+                date_str = publication_date.strip()
                 
-                # Parse as date and convert to timestamp
-                parsed_date = datetime.strptime(date_part, '%Y-%m-%d')
-                publication_date_timestamp = int(parsed_date.timestamp())
+                # Format 1: ISO datetime with microseconds: 2025-07-03T12:34:56.123456
+                iso_match = re.match(r'(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.(\d+))?(?:Z|[+-]\d{2}:\d{2})?', date_str)
+                if iso_match:
+                    date_part = iso_match.group(1)  # Extract just the date part
+                    # Parse as UTC to avoid timezone issues
+                    parsed_date = datetime.strptime(date_part, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                    publication_date_timestamp = int(parsed_date.timestamp())
+                    logger.debug(f"Parsed ISO datetime '{date_str}' -> timestamp {publication_date_timestamp}")
+                
+                # Format 2: Date with time: 2025-07-03 12:34:56
+                elif ' ' in date_str and len(date_str) > 10:
+                    date_part = date_str.split(' ')[0]
+                    if re.match(r'\d{4}-\d{2}-\d{2}', date_part):
+                        parsed_date = datetime.strptime(date_part, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                        publication_date_timestamp = int(parsed_date.timestamp())
+                        logger.debug(f"Parsed datetime '{date_str}' -> timestamp {publication_date_timestamp}")
+                
+                # Format 3: Simple date: 2025-07-03
+                elif re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+                    parsed_date = datetime.strptime(date_str, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                    publication_date_timestamp = int(parsed_date.timestamp())
+                    logger.debug(f"Parsed simple date '{date_str}' -> timestamp {publication_date_timestamp}")
+                
+                # Format 4: Other common formats
+                else:
+                    # Try other common date formats
+                    date_formats = [
+                        '%Y/%m/%d',           # 2025/07/03
+                        '%d-%m-%Y',           # 03-07-2025
+                        '%d/%m/%Y',           # 03/07/2025
+                        '%B %d, %Y',          # July 03, 2025
+                        '%d %B %Y',           # 03 July 2025
+                        '%d %b %Y',           # 03 Jul 2025
+                    ]
+                    
+                    for fmt in date_formats:
+                        try:
+                            parsed_date = datetime.strptime(date_str, fmt).replace(tzinfo=timezone.utc)
+                            publication_date_timestamp = int(parsed_date.timestamp())
+                            logger.debug(f"Parsed date '{date_str}' with format '{fmt}' -> timestamp {publication_date_timestamp}")
+                            break
+                        except ValueError:
+                            continue
+                    
+                    if publication_date_timestamp is None:
+                        logger.warning(f"Could not parse date format: '{date_str}' - trying fallback")
+                        # Fallback: try to extract YYYY-MM-DD pattern from anywhere in the string
+                        date_match = re.search(r'(\d{4}-\d{2}-\d{2})', date_str)
+                        if date_match:
+                            date_part = date_match.group(1)
+                            parsed_date = datetime.strptime(date_part, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+                            publication_date_timestamp = int(parsed_date.timestamp())
+                            logger.debug(f"Fallback extracted date '{date_part}' from '{date_str}' -> timestamp {publication_date_timestamp}")
+                        else:
+                            # Ultimate fallback: use current date but log it
+                            logger.warning(f"Using current date as fallback for unparseable date: '{date_str}'")
+                            publication_date_timestamp = int(datetime.now(timezone.utc).timestamp())
+            
             elif isinstance(publication_date, datetime):
+                # Handle datetime objects - ensure they have timezone info
+                if publication_date.tzinfo is None:
+                    publication_date = publication_date.replace(tzinfo=timezone.utc)
                 publication_date_timestamp = int(publication_date.timestamp())
+                logger.debug(f"Converted datetime object -> timestamp {publication_date_timestamp}")
+            
+            # Validation: ensure timestamp is reasonable (not too far in past/future)
+            if publication_date_timestamp:
+                current_time = datetime.now(timezone.utc)
+                timestamp_date = datetime.fromtimestamp(publication_date_timestamp, tz=timezone.utc)
+                
+                # Check if date is more than 10 years in past or 1 year in future
+                years_diff = (current_time - timestamp_date).days / 365.25
+                
+                if years_diff > 10:
+                    logger.warning(f"Date seems too old ({years_diff:.1f} years ago): {timestamp_date} from '{publication_date}'")
+                elif years_diff < -1:
+                    logger.warning(f"Date seems to be in future ({abs(years_diff):.1f} years): {timestamp_date} from '{publication_date}'")
+                    
         except Exception as e:
             logger.warning(f"Could not convert publication_date '{publication_date}' to timestamp: {e}")
-            # Fall back to original string value
-            publication_date_timestamp = publication_date
+            # CRITICAL: Don't fall back to string value - use None instead
+            # ChromaDB requires numeric values for comparison operations
+            publication_date_timestamp = None
     
     meta = {
         "title": article.get("title"),
@@ -472,13 +542,14 @@ def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
         "time_to_impact": article.get("time_to_impact"),
         "topic": article.get("topic"),
         "publication_date": publication_date,  # Keep original for compatibility
-        "publication_date_ts": publication_date_timestamp,  # Add timestamp for filtering
+        "publication_date_ts": publication_date_timestamp,  # Add timestamp for filtering (only if numeric)
         "tags": article.get("tags"),
         "summary": article.get("summary"),
         "uri": article.get("uri"),
         "driver_type": article.get("driver_type"),
     }
     # Remove keys whose value is ``None`` – Chroma only accepts str, int, float bool.
+    # This is critical for publication_date_ts to avoid ChromaDB filtering errors
     return {k: v for k, v in meta.items() if v is not None}
 
 

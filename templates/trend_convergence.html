@@ -1,0 +1,1293 @@
+{% extends "base.html" %}
+
+{% block title %}Trend Convergence Analysis - AuNoo AI{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Light theme styling to match base.html */
+    :root {
+        --primary-color: #FF69B4;
+        --primary-dark: #FF1493;
+        --text-color: #333;
+        --container-width: 1200px;
+        --spacing-md: 1rem;
+        --bg-light: #f8f9fa;
+        --bg-white: #ffffff;
+        --border-color: #dee2e6;
+    }
+
+    body {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        background-color: var(--bg-light);
+        color: var(--text-color);
+        min-height: 100vh;
+    }
+    
+    .container {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+    
+    .header {
+        text-align: center;
+        margin-bottom: 40px;
+        animation: fadeInDown 1s ease-out;
+    }
+    
+    .header h1 {
+        font-size: 3rem;
+        color: var(--primary-color);
+        font-weight: bold;
+        margin-bottom: 10px;
+    }
+    
+    .header .subtitle {
+        font-size: 1.4rem;
+        color: var(--primary-dark);
+        font-weight: 600;
+        margin-bottom: 8px;
+    }
+    
+    .header p {
+        font-size: 1.1rem;
+        color: #6c757d;
+        max-width: 700px;
+        margin: 0 auto;
+    }
+
+    /* Form styling */
+    .form-control, .form-select {
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+        padding: 0.5rem 0.75rem;
+        transition: all 0.2s ease;
+        background: var(--bg-white);
+        color: var(--text-color);
+    }
+
+    .form-control:focus, .form-select:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+        background: var(--bg-white);
+        color: var(--text-color);
+    }
+
+    .btn {
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+
+    .btn-primary {
+        background: var(--primary-color);
+        border-color: var(--primary-color);
+    }
+
+    .btn-primary:hover {
+        background: var(--primary-dark);
+        border-color: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .loading-spinner {
+        text-align: center;
+        padding: 40px;
+    }
+    
+    .spinner-border {
+        color: #FF69B4;
+    }
+
+    .modal-content {
+        background: var(--bg-white);
+        border: 1px solid var(--border-color);
+        color: var(--text-color);
+        border-radius: 12px;
+    }
+
+    .modal-header {
+        border-bottom: 1px solid var(--border-color);
+        background: var(--bg-light);
+    }
+
+    .modal-footer {
+        border-top: 1px solid var(--border-color);
+        background: var(--bg-light);
+    }
+
+    .modal-title {
+        color: var(--primary-color);
+        font-weight: 600;
+    }
+
+    /* Trend Convergence Visualization */
+    .convergence-container {
+        background: var(--bg-white);
+        border-radius: 20px;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        padding: 30px;
+        margin: 40px 0;
+    }
+
+
+
+    /* Strategic Recommendations Section */
+    .strategic-recommendations-section {
+        margin-top: 40px;
+        margin-bottom: 40px;
+    }
+
+    .section-subtitle {
+        color: #6c757d;
+        margin-bottom: 30px;
+        text-align: center;
+        font-size: 1.1rem;
+    }
+
+    .strategic-timeline {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        gap: 30px;
+        margin-bottom: 40px;
+    }
+
+    .timeline-card {
+        border-radius: 15px;
+        padding: 25px;
+        color: white;
+        position: relative;
+        overflow: hidden;
+        transition: all 0.3s ease;
+    }
+
+    .timeline-card.near-term {
+        background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    }
+
+    .timeline-card.mid-term {
+        background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+    }
+
+    .timeline-card.long-term {
+        background: linear-gradient(135deg, #6c5ce7 0%, #5a4fcf 100%);
+    }
+
+    .timeline-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.2);
+    }
+
+    .timeline-header {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 20px;
+        border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+        padding-bottom: 15px;
+    }
+
+    .timeline-header i {
+        font-size: 1.5rem;
+    }
+
+    .timeline-header h3 {
+        margin: 0;
+        font-size: 1.2rem;
+        font-weight: 600;
+    }
+
+    .timeline-content ul {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .timeline-content li {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .timeline-content li:last-child {
+        border-bottom: none;
+    }
+
+    .timeline-content li::before {
+        content: '•';
+        color: rgba(255, 255, 255, 0.8);
+        font-weight: bold;
+        margin-top: 2px;
+    }
+
+    /* Executive Framework Section */
+    .executive-framework-section {
+        margin-top: 40px;
+        margin-bottom: 40px;
+    }
+
+    .framework-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 25px;
+    }
+
+    .framework-item {
+        background: linear-gradient(135deg, #ffeaa7 0%, #fdcb6e 100%);
+        border-radius: 15px;
+        padding: 25px;
+        border-left: 5px solid #e17055;
+        transition: all 0.3s ease;
+    }
+
+    .framework-item:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 25px rgba(253, 203, 110, 0.3);
+    }
+
+    .framework-title {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: #2d3436;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .framework-description {
+        color: #636e72;
+        font-size: 0.95rem;
+        line-height: 1.5;
+    }
+
+    /* Next Steps Section */
+    .next-steps-section {
+        margin-top: 40px;
+        margin-bottom: 40px;
+    }
+
+    .next-steps-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 20px;
+    }
+
+    .next-step-item {
+        background: #f8f9fa;
+        border-radius: 10px;
+        padding: 20px;
+        border-left: 4px solid #007bff;
+        transition: all 0.3s ease;
+    }
+
+    .next-step-item:hover {
+        background: #e9ecef;
+        transform: translateX(5px);
+    }
+
+    .next-step-number {
+        display: inline-block;
+        background: #007bff;
+        color: white;
+        width: 25px;
+        height: 25px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 25px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        margin-right: 10px;
+    }
+
+    .next-step-text {
+        color: #495057;
+        font-size: 0.95rem;
+        line-height: 1.5;
+        display: inline;
+    }
+
+
+
+    /* Controls */
+    .controls-container {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+        margin-bottom: 30px;
+    }
+
+    .btn-square {
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 6px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        transition: all 0.2s ease;
+    }
+
+    .btn-square:hover {
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        transform: translateY(-1px);
+    }
+
+    .btn-divider {
+        width: 1px;
+        height: 24px;
+        background: #dee2e6;
+        margin: 0 4px;
+        align-self: center;
+    }
+
+    /* Alert styling */
+    .alert {
+        border-radius: 8px;
+        border: none;
+    }
+
+    .alert-info {
+        background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
+        color: var(--primary-dark);
+        border-left: 4px solid var(--primary-color);
+    }
+
+    .alert-success {
+        background: linear-gradient(135deg, #e8f5e8, #f1f8e9);
+        color: #2e7d32;
+        border-left: 4px solid #4caf50;
+    }
+
+    .alert-danger {
+        background: linear-gradient(135deg, #ffebee, #fce4ec);
+        color: #c62828;
+        border-left: 4px solid #f44336;
+    }
+
+    @keyframes fadeInDown {
+        from {
+            opacity: 0;
+            transform: translateY(-30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    @media (max-width: 768px) {
+        .header h1 {
+            font-size: 2rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="header">
+        <h1>Trend Convergence Analysis</h1>
+        <div class="subtitle" id="topicSubtitle">Configure Analysis Below</div>
+        <p>AI-powered strategic analysis providing executive recommendations and decision frameworks</p>
+    </div>
+    
+    <!-- Controls -->
+    <div class="controls-container">
+        <button type="button" class="btn btn-sm btn-square btn-primary" data-bs-toggle="modal" data-bs-target="#configModal" title="Configure Analysis">
+            <i class="fas fa-cog"></i>
+        </button>
+        <button type="button" class="btn btn-sm btn-square btn-success" id="loadAnalysisBtn" onclick="loadTrendConvergenceAnalysis()" disabled title="Generate Analysis">
+            <i class="fas fa-play"></i>
+        </button>
+        <button type="button" class="btn btn-sm btn-square btn-outline-secondary" onclick="clearSavedConfiguration()" title="Clear Cache">
+            <i class="fas fa-trash"></i>
+        </button>
+        <div class="btn-divider"></div>
+        <button type="button" class="btn btn-sm btn-square btn-outline-danger" onclick="downloadAsPDF()" title="Download PDF">
+            <i class="fas fa-file-pdf"></i>
+        </button>
+        <button type="button" class="btn btn-sm btn-square btn-outline-info" onclick="downloadAsImage()" title="Download PNG">
+            <i class="fas fa-image"></i>
+        </button>
+    </div>
+    
+    <div class="loading-spinner" id="loadingSpinner" style="display: none;">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mt-2">Generating trend convergence analysis...</p>
+    </div>
+    
+    <div id="errorContainer"></div>
+    
+    <div id="trendConvergenceContainer" style="display: none;">
+        <div class="convergence-container">
+            <!-- Strategic Recommendations Section -->
+            <div class="strategic-recommendations-section" id="strategicRecommendationsSection" style="display: none;">
+                <h2 class="mb-4">Strategic Recommendations</h2>
+                <p class="section-subtitle">Evidence-based action plan for executive leadership</p>
+                
+                <div class="strategic-timeline">
+                    <div class="timeline-card near-term" id="nearTermCard">
+                        <div class="timeline-header">
+                            <i class="fas fa-rocket"></i>
+                            <h3>NEAR-TERM (2025-2027)</h3>
+                        </div>
+                        <div class="timeline-content" id="nearTermContent">
+                            <!-- Near-term recommendations will be populated -->
+                        </div>
+                    </div>
+                    
+                    <div class="timeline-card mid-term" id="midTermCard">
+                        <div class="timeline-header">
+                            <i class="fas fa-chart-line"></i>
+                            <h3>MID-TERM (2027-2032)</h3>
+                        </div>
+                        <div class="timeline-content" id="midTermContent">
+                            <!-- Mid-term recommendations will be populated -->
+                        </div>
+                    </div>
+                    
+                    <div class="timeline-card long-term" id="longTermCard">
+                        <div class="timeline-header">
+                            <i class="fas fa-globe"></i>
+                            <h3>LONG-TERM (2032+)</h3>
+                        </div>
+                        <div class="timeline-content" id="longTermContent">
+                            <!-- Long-term recommendations will be populated -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Executive Decision Framework Section -->
+            <div class="executive-framework-section" id="executiveFrameworkSection" style="display: none;">
+                <h2 class="mb-4">Executive Decision Framework</h2>
+                <div class="framework-grid" id="frameworkGrid">
+                    <!-- Framework items will be populated -->
+                </div>
+            </div>
+            
+            <!-- Next Steps Section -->
+            <div class="next-steps-section" id="nextStepsSection" style="display: none;">
+                <h2 class="mb-4">Next Steps</h2>
+                <div class="next-steps-grid" id="nextStepsGrid">
+                    <!-- Next steps will be populated -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Configuration Modal -->
+<div class="modal fade" id="configModal" tabindex="-1" aria-labelledby="configModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="configModalLabel">🔍 Configure Trend Convergence Analysis</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="topic" class="form-label">Topic</label>
+                            <select class="form-select" id="topic" required onchange="updateLoadButton()">
+                                <option value="">Loading topics...</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="timeframe" class="form-label">Analysis Timeframe</label>
+                            <div class="d-flex gap-2">
+                                <select class="form-select" id="timeframe" onchange="toggleCustomTimeframe()">
+                                    <option value="30d">Last 30 Days</option>
+                                    <option value="90d">Last 90 Days</option>
+                                    <option value="180d">Last 180 Days</option>
+                                    <option value="365d" selected>Last 365 Days</option>
+                                    <option value="all">All Time</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="number" class="form-control" id="customDays" placeholder="Days" 
+                                       style="display: none; width: 80px;" min="1" max="3650">
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="model" class="form-label">AI Model</label>
+                            <select class="form-select" id="model" onchange="updateLoadButton()">
+                                <option value="">Loading models...</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label for="analysisDepth" class="form-label">Analysis Depth</label>
+                            <select class="form-select" id="analysisDepth">
+                                <option value="standard" selected>Standard Analysis</option>
+                                <option value="detailed">Detailed Analysis</option>
+                                <option value="comprehensive">Comprehensive Analysis</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="sampleSizeMode" class="form-label">Article Sample Size</label>
+                            <div class="d-flex gap-2">
+                                <select class="form-select" id="sampleSizeMode" onchange="handleSampleSizeModeChange()">
+                                    <option value="auto" selected>Auto-size</option>
+                                    <option value="balanced">Balanced</option>
+                                    <option value="comprehensive">Comprehensive</option>
+                                    <option value="focused">Focused</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="number" class="form-control" id="customLimit" placeholder="Count" 
+                                       style="display: none; width: 100px;" min="10" max="500" value="50">
+                            </div>
+                            <div class="context-info mt-2" id="contextInfo" style="display: none;">
+                                <small class="text-muted">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    <span id="contextStats">Context: 0 articles, ~0 tokens</span>
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveConfigurationAndClose()">
+                    <i class="fas fa-save me-2"></i>Save Configuration
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Configuration and state management
+let currentAnalysisData = null;
+
+async function loadTrendConvergenceAnalysis() {
+    const topicElement = document.getElementById('topic');
+    const timeframeElement = document.getElementById('timeframe');
+    const modelElement = document.getElementById('model');
+    const analysisDepthElement = document.getElementById('analysisDepth');
+    
+    const loadingSpinner = document.getElementById('loadingSpinner');
+    const trendConvergenceContainer = document.getElementById('trendConvergenceContainer');
+    
+    if (!topicElement || !timeframeElement || !modelElement) {
+        showError('Required form elements not found. Please refresh the page.');
+        return;
+    }
+    
+    const topic = topicElement.value;
+    const timeframe = timeframeElement.value;
+    const model = modelElement.value;
+    const analysisDepth = analysisDepthElement ? analysisDepthElement.value : 'standard';
+    
+    if (!topic) {
+        showError('Please select a topic');
+        return;
+    }
+    
+    if (!model) {
+        showError('Please select a model');
+        return;
+    }
+    
+    // Get current configuration for caching
+    const currentConfig = getCurrentConfiguration();
+    
+    // Check for cached results first
+    const cachedResults = loadCachedResults(currentConfig);
+    if (cachedResults && cachedResults.data) {
+        console.log('Using cached results for configuration:', currentConfig);
+        await displayTrendConvergence(cachedResults.data);
+        showSuccess('Loaded cached results (faster response)');
+        return;
+    }
+    
+    // Get custom timeframe if selected
+    let actualTimeframe = timeframe;
+    if (timeframe === 'custom') {
+        const customDaysElement = document.getElementById('customDays');
+        const customDays = customDaysElement ? parseInt(customDaysElement.value) : null;
+        if (!customDays || customDays < 1) {
+            showError('Please enter a valid number of days');
+            return;
+        }
+        actualTimeframe = customDays;
+    } else {
+        // Convert timeframe format
+        actualTimeframe = parseInt(timeframe.replace('d', '')) || 365;
+    }
+    
+    // Show loading
+    if (loadingSpinner) loadingSpinner.style.display = 'block';
+    if (trendConvergenceContainer) trendConvergenceContainer.style.display = 'none';
+    
+    try {
+        // Get sample size parameters
+        const sampleSizeMode = document.getElementById('sampleSizeMode').value;
+        const customLimit = document.getElementById('customLimit').value;
+        
+        // Build request parameters
+        const params = new URLSearchParams({
+            timeframe_days: actualTimeframe,
+            model: model,
+            analysis_depth: analysisDepth,
+            sample_size_mode: sampleSizeMode
+        });
+        
+        // Add custom limit if specified
+        if (sampleSizeMode === 'custom' && customLimit) {
+            params.append('custom_limit', customLimit);
+        }
+        
+        const response = await fetch(`/api/trend-convergence/${encodeURIComponent(topic)}?${params}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // Cache the results with full configuration
+        saveAnalysisResults(data, currentConfig);
+        
+        await displayTrendConvergence(data);
+        
+    } catch (error) {
+        showError(`Error loading trend convergence analysis: ${error.message}`);
+    } finally {
+        loadingSpinner.style.display = 'none';
+    }
+}
+
+async function displayTrendConvergence(data) {
+    currentAnalysisData = data;
+    
+    // Update subtitle with topic
+    const topicSubtitle = document.getElementById('topicSubtitle');
+    const topic = document.getElementById('topic').value;
+    if (topicSubtitle && topic) {
+        topicSubtitle.textContent = `Trend Convergence for ${topic.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`;
+    }
+    
+    // Populate strategic recommendations
+    populateStrategicRecommendations(data.strategic_recommendations || {});
+    
+    // Populate executive framework
+    populateExecutiveFramework(data.executive_decision_framework || {});
+    
+    // Populate next steps
+    populateNextSteps(data.next_steps || []);
+    
+    // Show the container
+    document.getElementById('trendConvergenceContainer').style.display = 'block';
+}
+
+// Strategic Recommendations Functions
+function populateStrategicRecommendations(recommendations) {
+    const section = document.getElementById('strategicRecommendationsSection');
+    
+    if (!recommendations || Object.keys(recommendations).length === 0) {
+        section.style.display = 'none';
+        return;
+    }
+    
+    // Populate near-term
+    if (recommendations.near_term) {
+        populateTimelineCard('nearTermContent', recommendations.near_term);
+    }
+    
+    // Populate mid-term
+    if (recommendations.mid_term) {
+        populateTimelineCard('midTermContent', recommendations.mid_term);
+    }
+    
+    // Populate long-term
+    if (recommendations.long_term) {
+        populateTimelineCard('longTermContent', recommendations.long_term);
+    }
+    
+    section.style.display = 'block';
+}
+
+function populateTimelineCard(containerId, timeframeData) {
+    const container = document.getElementById(containerId);
+    if (!container || !timeframeData.trends) return;
+    
+    const ul = document.createElement('ul');
+    timeframeData.trends.forEach(trend => {
+        const li = document.createElement('li');
+        li.textContent = trend.name || trend.description || trend;
+        ul.appendChild(li);
+    });
+    
+    container.innerHTML = '';
+    container.appendChild(ul);
+}
+
+function populateExecutiveFramework(framework) {
+    const section = document.getElementById('executiveFrameworkSection');
+    const grid = document.getElementById('frameworkGrid');
+    
+    if (!framework || !framework.principles || framework.principles.length === 0) {
+        section.style.display = 'none';
+        return;
+    }
+    
+    grid.innerHTML = '';
+    
+    framework.principles.forEach(principle => {
+        const item = document.createElement('div');
+        item.className = 'framework-item';
+        
+        item.innerHTML = `
+            <div class="framework-title">
+                <i class="fas fa-lightbulb"></i>
+                ${principle.title || principle.name || 'Strategic Principle'}
+            </div>
+            <div class="framework-description">
+                ${principle.description || principle.content || principle}
+            </div>
+        `;
+        
+        grid.appendChild(item);
+    });
+    
+    section.style.display = 'block';
+}
+
+function populateNextSteps(nextSteps) {
+    const section = document.getElementById('nextStepsSection');
+    const grid = document.getElementById('nextStepsGrid');
+    
+    if (!nextSteps || nextSteps.length === 0) {
+        section.style.display = 'none';
+        return;
+    }
+    
+    grid.innerHTML = '';
+    
+    nextSteps.forEach((step, index) => {
+        const item = document.createElement('div');
+        item.className = 'next-step-item';
+        
+        const stepText = typeof step === 'string' ? step : (step.description || step.action || step.name || 'Action item');
+        
+        item.innerHTML = `
+            <span class="next-step-number">${index + 1}</span>
+            <span class="next-step-text">${stepText}</span>
+        `;
+        
+        grid.appendChild(item);
+    });
+    
+    section.style.display = 'block';
+}
+
+// Configuration management functions (similar to futures cone)
+function toggleCustomTimeframe() {
+    const timeframe = document.getElementById('timeframe').value;
+    const customDays = document.getElementById('customDays');
+    
+    if (timeframe === 'custom') {
+        customDays.style.display = 'block';
+        customDays.focus();
+    } else {
+        customDays.style.display = 'none';
+        customDays.value = '';
+    }
+}
+
+function updateLoadButton() {
+    const topic = document.getElementById('topic').value;
+    const model = document.getElementById('model').value;
+    const loadBtn = document.getElementById('loadAnalysisBtn');
+    const configureBtn = document.querySelector('[data-bs-target="#configModal"]');
+    
+    if (topic && model) {
+        loadBtn.disabled = false;
+        loadBtn.title = 'Generate Trend Convergence Analysis';
+        configureBtn.innerHTML = '<i class="fas fa-check"></i>';
+        configureBtn.title = 'Configured';
+        configureBtn.classList.remove('btn-primary');
+        configureBtn.classList.add('btn-success');
+    } else {
+        loadBtn.disabled = true;
+        loadBtn.title = 'Generate Trend Convergence Analysis';
+        configureBtn.innerHTML = '<i class="fas fa-cog"></i>';
+        configureBtn.title = 'Configure Analysis';
+        configureBtn.classList.remove('btn-success');
+        configureBtn.classList.add('btn-primary');
+    }
+}
+
+function saveConfigurationAndClose() {
+    const topic = document.getElementById('topic').value;
+    const model = document.getElementById('model').value;
+    const timeframe = document.getElementById('timeframe').value;
+    const analysisDepth = document.getElementById('analysisDepth').value;
+    const sampleSizeMode = document.getElementById('sampleSizeMode').value;
+    const customLimit = document.getElementById('customLimit').value;
+    
+    if (!topic) {
+        alert('Please select a topic');
+        return;
+    }
+    
+    if (!model) {
+        alert('Please select a model');
+        return;
+    }
+    
+    const config = {
+        topic,
+        model,
+        timeframe,
+        analysisDepth,
+        sampleSizeMode,
+        customLimit,
+        timestamp: new Date().toISOString()
+    };
+    
+    // Add custom days if timeframe is custom
+    if (timeframe === 'custom') {
+        const customDays = document.getElementById('customDays').value;
+        if (customDays) {
+            config.customDays = customDays;
+        }
+    }
+    
+    console.log('Saving configuration:', config);
+    localStorage.setItem('trendConvergenceConfig', JSON.stringify(config));
+    
+    // Close modal
+    const modalElement = document.getElementById('configModal');
+    const modal = bootstrap.Modal.getInstance(modalElement);
+    if (modal) {
+        modal.hide();
+    }
+    
+    updateLoadButton();
+    showSuccess('Configuration saved! You can now generate the trend convergence analysis.');
+}
+
+function generateCacheKey(config) {
+    const keyData = {
+        topic: config.topic,
+        timeframe: config.timeframe,
+        customDays: config.customDays,
+        model: config.model,
+        analysisDepth: config.analysisDepth,
+        sampleSizeMode: config.sampleSizeMode,
+        customLimit: config.customLimit
+    };
+    
+    const configString = JSON.stringify(keyData);
+    let hash = 0;
+    for (let i = 0; i < configString.length; i++) {
+        const char = configString.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    
+    return `trendConvergenceResults_${Math.abs(hash)}`;
+}
+
+function getCurrentConfiguration() {
+    const timeframe = document.getElementById('timeframe')?.value || '';
+    let customDays = null;
+    
+    if (timeframe === 'custom') {
+        customDays = document.getElementById('customDays')?.value || null;
+    }
+    
+    return {
+        topic: document.getElementById('topic')?.value || '',
+        timeframe: timeframe,
+        customDays: customDays,
+        model: document.getElementById('model')?.value || '',
+        analysisDepth: document.getElementById('analysisDepth')?.value || 'standard',
+        sampleSizeMode: document.getElementById('sampleSizeMode')?.value || 'auto',
+        customLimit: document.getElementById('customLimit')?.value || null
+    };
+}
+
+function saveAnalysisResults(data, config) {
+    try {
+        const cacheKey = generateCacheKey(config);
+        const cacheData = {
+            data,
+            config,
+            timestamp: new Date().toISOString()
+        };
+        
+        localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+        console.log('Analysis results cached successfully with key:', cacheKey);
+        
+        // Clean up old cache entries (keep only the most recent 5)
+        const allKeys = Object.keys(localStorage).filter(key => key.startsWith('trendConvergenceResults_'));
+        if (allKeys.length > 5) {
+            const cacheEntries = allKeys.map(key => {
+                try {
+                    const data = JSON.parse(localStorage.getItem(key));
+                    return { key, timestamp: new Date(data.timestamp) };
+                } catch (e) {
+                    return { key, timestamp: new Date(0) };
+                }
+            });
+            
+            cacheEntries.sort((a, b) => b.timestamp - a.timestamp);
+            cacheEntries.slice(5).forEach(entry => {
+                localStorage.removeItem(entry.key);
+                console.log('Removed old cache entry:', entry.key);
+            });
+        }
+    } catch (e) {
+        console.warn('Failed to cache analysis results:', e);
+    }
+}
+
+function loadCachedResults(config) {
+    try {
+        const cacheKey = generateCacheKey(config);
+        const cachedData = localStorage.getItem(cacheKey);
+        
+        if (cachedData) {
+            const cache = JSON.parse(cachedData);
+            const cacheAge = new Date() - new Date(cache.timestamp);
+            const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+            
+            if (cacheAge < maxAge) {
+                const configMatches = JSON.stringify(cache.config) === JSON.stringify(config);
+                if (configMatches) {
+                    console.log('Loading cached results from:', cache.timestamp);
+                    return cache;
+                } else {
+                    console.log('Configuration mismatch, cache invalid');
+                    localStorage.removeItem(cacheKey);
+                }
+            } else {
+                console.log('Cached results expired, removing...');
+                localStorage.removeItem(cacheKey);
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to load cached results:', e);
+    }
+    return null;
+}
+
+async function loadSavedConfiguration() {
+    try {
+        const savedConfig = localStorage.getItem('trendConvergenceConfig');
+        if (savedConfig) {
+            const config = JSON.parse(savedConfig);
+            
+            if (config.topic) document.getElementById('topic').value = config.topic;
+            if (config.model) document.getElementById('model').value = config.model;
+            if (config.timeframe) {
+                document.getElementById('timeframe').value = config.timeframe;
+                if (config.timeframe === 'custom' && config.customDays) {
+                    document.getElementById('customDays').value = config.customDays;
+                    document.getElementById('customDays').style.display = 'block';
+                }
+            }
+            if (config.analysisDepth) document.getElementById('analysisDepth').value = config.analysisDepth;
+            if (config.sampleSizeMode) {
+                document.getElementById('sampleSizeMode').value = config.sampleSizeMode;
+                handleSampleSizeModeChange();
+            }
+            if (config.customLimit) document.getElementById('customLimit').value = config.customLimit;
+            
+            updateLoadButton();
+            return true;
+        }
+    } catch (e) {
+        console.error('Failed to load saved configuration:', e);
+    }
+    return false;
+}
+
+function clearSavedConfiguration() {
+    try {
+        localStorage.removeItem('trendConvergenceConfig');
+        
+        const allKeys = Object.keys(localStorage).filter(key => key.startsWith('trendConvergenceResults_'));
+        allKeys.forEach(key => {
+            localStorage.removeItem(key);
+        });
+        
+        console.log('Cleared all saved configuration and cached results');
+        showSuccess(`Configuration and ${allKeys.length} cached result(s) cleared!`);
+        
+        // Reset form
+        document.getElementById('topic').value = '';
+        document.getElementById('model').value = '';
+        document.getElementById('timeframe').value = '365d';
+        document.getElementById('analysisDepth').value = 'standard';
+        document.getElementById('sampleSizeMode').value = 'auto';
+        document.getElementById('customLimit').value = '50';
+        document.getElementById('customDays').style.display = 'none';
+        document.getElementById('customLimit').style.display = 'none';
+        
+        // Hide container
+        document.getElementById('trendConvergenceContainer').style.display = 'none';
+        document.getElementById('topicSubtitle').textContent = 'Configure Analysis Below';
+        
+        updateLoadButton();
+    } catch (e) {
+        console.error('Error clearing configuration:', e);
+        showError('Failed to clear configuration. Please try refreshing the page.');
+    }
+}
+
+// Context limits and sample size calculation (copied from futures cone)
+const contextLimits = {
+    'gpt-3.5-turbo': 16385,
+    'gpt-3.5-turbo-16k': 16385,
+    'gpt-4': 8192,
+    'gpt-4-32k': 32768,
+    'gpt-4-turbo': 128000,
+    'gpt-4-turbo-preview': 128000,
+    'gpt-4o': 128000,
+    'gpt-4o-mini': 128000,
+    'gpt-4.1': 1000000,
+    'gpt-4.1-mini': 1000000,
+    'gpt-4.1-nano': 1000000,
+    'claude-3-opus': 200000,
+    'claude-3-sonnet': 200000,
+    'claude-3-haiku': 200000,
+    'claude-3.5-sonnet': 200000,
+    'claude-4': 200000,
+    'claude-4-opus': 200000,
+    'claude-4-sonnet': 200000,
+    'claude-4-haiku': 200000,
+    'gemini-pro': 32768,
+    'gemini-1.5-pro': 2097152,
+    'llama-2-70b': 4096,
+    'llama-3-70b': 8192,
+    'mixtral-8x7b': 32768,
+    'default': 16385
+};
+
+function handleSampleSizeModeChange() {
+    const mode = document.getElementById('sampleSizeMode').value;
+    const customLimit = document.getElementById('customLimit');
+    
+    if (mode === 'custom') {
+        customLimit.style.display = 'block';
+        customLimit.focus();
+    } else {
+        customLimit.style.display = 'none';
+    }
+    
+    updateContextInfo();
+}
+
+function calculateOptimalSampleSize(model, message) {
+    const mode = document.getElementById('sampleSizeMode').value;
+    
+    if (mode === 'custom') {
+        return parseInt(document.getElementById('customLimit').value) || 50;
+    }
+    
+    const contextLimit = contextLimits[model] || contextLimits.default;
+    const isMegaContext = contextLimit >= 1000000;
+    
+    let baseSampleSize;
+    switch (mode) {
+        case 'focused':
+            baseSampleSize = isMegaContext ? 50 : 25;
+            break;
+        case 'balanced':
+            baseSampleSize = isMegaContext ? 100 : 50;
+            break;
+        case 'comprehensive':
+            baseSampleSize = isMegaContext ? 200 : 100;
+            break;
+        case 'auto':
+        default:
+            const messageComplexity = (message?.length || 0) > 200 ? 1.2 : 1.0;
+            let baseSize = isMegaContext ? 150 : 75;
+            
+            if (message && message.includes('trend convergence')) {
+                baseSize = isMegaContext ? 180 : 90;
+            }
+            
+            baseSampleSize = Math.round(baseSize * messageComplexity);
+            break;
+    }
+    
+    const maxLimit = isMegaContext ? 1000 : 400;
+    const minLimit = 20;
+    
+    return Math.max(minLimit, Math.min(baseSampleSize, maxLimit));
+}
+
+function estimateTokens(text) {
+    return Math.ceil((text?.length || 0) / 4);
+}
+
+function updateContextInfo() {
+    const contextInfo = document.getElementById('contextInfo');
+    const contextStats = document.getElementById('contextStats');
+    
+    if (!contextInfo || !contextStats) {
+        return;
+    }
+    
+    const model = document.getElementById('model')?.value;
+    const message = 'trend convergence analysis';
+    
+    if (!model) {
+        contextInfo.style.display = 'none';
+        return;
+    }
+    
+    const sampleSize = calculateOptimalSampleSize(model, message);
+    const contextLimit = contextLimits[model] || contextLimits.default;
+    
+    const systemTokens = 600;
+    const messageTokens = estimateTokens(message);
+    const tokensPerArticle = 180;
+    const articleTokens = sampleSize * tokensPerArticle;
+    const totalTokens = systemTokens + messageTokens + articleTokens;
+    
+    const contextUsage = (totalTokens / contextLimit) * 100;
+    
+    const modelIndicator = contextLimit >= 1000000 ? ' 🚀1M' : 
+                          contextLimit >= 200000 ? ' ⚡200K' : 
+                          contextLimit >= 100000 ? ' 💫100K' : '';
+    
+    const contextText = `Context: ${sampleSize} articles, ~${totalTokens.toLocaleString()} tokens (${contextUsage.toFixed(1)}%)${modelIndicator}`;
+    contextStats.textContent = contextText;
+    
+    if (contextUsage > 90) {
+        contextStats.style.color = '#dc3545';
+        contextStats.style.fontWeight = 'bold';
+    } else if (contextUsage > 70) {
+        contextStats.style.color = '#fd7e14';
+        contextStats.style.fontWeight = '600';
+    } else if (contextUsage > 50) {
+        contextStats.style.color = '#28a745';
+        contextStats.style.fontWeight = '500';
+    } else {
+        contextStats.style.color = '#007bff';
+        contextStats.style.fontWeight = '500';
+    }
+    
+    contextInfo.style.display = 'block';
+}
+
+function showSuccess(message) {
+    const errorContainer = document.getElementById('errorContainer');
+    errorContainer.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>`;
+    
+    setTimeout(() => {
+        const alert = errorContainer.querySelector('.alert');
+        if (alert) {
+            const bsAlert = new bootstrap.Alert(alert);
+            bsAlert.close();
+        }
+    }, 3000);
+}
+
+function showError(message) {
+    const errorContainer = document.getElementById('errorContainer');
+    errorContainer.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>`;
+}
+
+// Download functions (placeholder - can be implemented similar to futures cone)
+async function downloadAsPDF() {
+    showSuccess('PDF download functionality coming soon!');
+}
+
+async function downloadAsImage() {
+    showSuccess('Image download functionality coming soon!');
+}
+
+// Initialize page
+document.addEventListener('DOMContentLoaded', async function() {
+    try {
+        // Load topics
+        const topicsResponse = await fetch('/api/forecast-charts/topics');
+        const topicsData = await topicsResponse.json();
+        
+        const topicSelect = document.getElementById('topic');
+        
+        if (topicsData.success && topicsData.topics && topicsData.topics.length > 0) {
+            topicSelect.innerHTML = '<option value="">Select a topic...</option>';
+            
+            topicsData.topics.forEach(topic => {
+                const option = document.createElement('option');
+                option.value = topic;
+                option.textContent = topic.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                topicSelect.appendChild(option);
+            });
+        } else {
+            topicSelect.innerHTML = '<option value="">No topics available</option>';
+            showError('No topics with forecast data found.');
+        }
+
+        // Load models
+        const modelsResponse = await fetch('/api/models');
+        const models = await modelsResponse.json();
+        
+        const modelSelect = document.getElementById('model');
+        
+        if (models && models.length > 0) {
+            modelSelect.innerHTML = '<option value="">Select model...</option>';
+            
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model.name;
+                option.textContent = `${model.name} (${model.provider})`;
+                modelSelect.appendChild(option);
+            });
+        } else {
+            modelSelect.innerHTML = '<option value="">No models available</option>';
+            showError('No AI models found.');
+        }
+        
+        // Add event listeners for context updates
+        modelSelect.addEventListener('change', updateContextInfo);
+        document.getElementById('sampleSizeMode').addEventListener('change', updateContextInfo);
+        document.getElementById('customLimit').addEventListener('input', updateContextInfo);
+        
+        // Initialize context info
+        updateContextInfo();
+        
+        // Load saved configuration
+        setTimeout(async () => {
+            await loadSavedConfiguration();
+        }, 500);
+        
+    } catch (error) {
+        console.warn('Failed to load data:', error);
+        showError('Failed to load available data.');
+    }
+});
+</script>
+{% endblock %} 
