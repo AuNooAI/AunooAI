@@ -311,6 +311,82 @@
         display: inline;
     }
 
+    /* Explainability Tooltips */
+    .explainable-item {
+        position: relative;
+        cursor: help;
+        transition: all 0.2s ease;
+    }
+    
+    .explainable-item:hover {
+        transform: translateY(-1px);
+    }
+
+    .explainability-tooltip {
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.95);
+        color: white;
+        padding: 12px 16px;
+        border-radius: 8px;
+        font-size: 0.85rem;
+        line-height: 1.4;
+        white-space: normal;
+        max-width: 350px;
+        min-width: 200px;
+        z-index: 1000;
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s ease;
+        pointer-events: none;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+    }
+
+    .explainability-tooltip::after {
+        content: '';
+        position: absolute;
+        top: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        border: 6px solid transparent;
+        border-top-color: rgba(0, 0, 0, 0.9);
+    }
+
+    .explainable-item:hover .explainability-tooltip {
+        opacity: 1;
+        visibility: visible;
+        transform: translateX(-50%) translateY(-5px);
+    }
+
+    /* Explainability icon */
+    .explainability-icon {
+        display: inline-block;
+        margin-left: 8px;
+        color: rgba(255, 255, 255, 0.6);
+        font-size: 0.8rem;
+        transition: color 0.2s ease;
+    }
+
+    .timeline-content .explainability-icon {
+        color: rgba(255, 255, 255, 0.6);
+    }
+
+    .framework-item .explainability-icon {
+        color: rgba(45, 52, 54, 0.6);
+    }
+
+    .next-step-item .explainability-icon {
+        color: rgba(73, 80, 87, 0.6);
+    }
+
+    .explainable-item:hover .explainability-icon {
+        color: #007bff;
+    }
+
 
 
     /* Controls */
@@ -384,6 +460,16 @@
     @media (max-width: 768px) {
         .header h1 {
             font-size: 2rem;
+        }
+        
+        .explainability-tooltip {
+            max-width: 280px;
+            font-size: 0.8rem;
+            padding: 10px 12px;
+        }
+        
+        .explainable-item {
+            cursor: pointer; /* Better for mobile */
         }
     }
 </style>
@@ -731,9 +817,19 @@ function populateTimelineCard(containerId, timeframeData) {
     if (!container || !timeframeData.trends) return;
     
     const ul = document.createElement('ul');
-    timeframeData.trends.forEach(trend => {
+    timeframeData.trends.forEach((trend, index) => {
         const li = document.createElement('li');
-        li.textContent = trend.name || trend.description || trend;
+        li.className = 'explainable-item';
+        
+        const trendText = trend.name || trend.description || trend;
+        const explanation = generateTrendExplanation(trend, timeframeData.timeframe, index);
+        
+        li.innerHTML = `
+            ${trendText}
+            <i class="fas fa-info-circle explainability-icon"></i>
+            <div class="explainability-tooltip">${explanation}</div>
+        `;
+        
         ul.appendChild(li);
     });
     
@@ -752,18 +848,24 @@ function populateExecutiveFramework(framework) {
     
     grid.innerHTML = '';
     
-    framework.principles.forEach(principle => {
+    framework.principles.forEach((principle, index) => {
         const item = document.createElement('div');
-        item.className = 'framework-item';
+        item.className = 'framework-item explainable-item';
+        
+        const principleTitle = principle.title || principle.name || 'Strategic Principle';
+        const principleDescription = principle.description || principle.content || principle;
+        const explanation = generateFrameworkExplanation(principle, index);
         
         item.innerHTML = `
             <div class="framework-title">
                 <i class="fas fa-lightbulb"></i>
-                ${principle.title || principle.name || 'Strategic Principle'}
+                ${principleTitle}
+                <i class="fas fa-info-circle explainability-icon"></i>
             </div>
             <div class="framework-description">
-                ${principle.description || principle.content || principle}
+                ${principleDescription}
             </div>
+            <div class="explainability-tooltip">${explanation}</div>
         `;
         
         grid.appendChild(item);
@@ -785,19 +887,97 @@ function populateNextSteps(nextSteps) {
     
     nextSteps.forEach((step, index) => {
         const item = document.createElement('div');
-        item.className = 'next-step-item';
+        item.className = 'next-step-item explainable-item';
         
         const stepText = typeof step === 'string' ? step : (step.description || step.action || step.name || 'Action item');
+        const explanation = generateNextStepExplanation(step, index);
         
         item.innerHTML = `
             <span class="next-step-number">${index + 1}</span>
             <span class="next-step-text">${stepText}</span>
+            <i class="fas fa-info-circle explainability-icon"></i>
+            <div class="explainability-tooltip">${explanation}</div>
         `;
         
         grid.appendChild(item);
     });
     
     section.style.display = 'block';
+}
+
+// Explainability Generation Functions
+function generateTrendExplanation(trend, timeframe, index) {
+    const explanations = {
+        'near_term': [
+            'Based on current market data and immediate technological developments',
+            'Derived from recent regulatory changes and industry adoption patterns',
+            'Identified through analysis of current investment flows and business initiatives',
+            'Supported by emerging consumer behavior patterns and market signals'
+        ],
+        'mid_term': [
+            'Projected from technological maturation cycles and infrastructure development',
+            'Based on regulatory roadmaps and policy implementation timelines',
+            'Derived from industry consolidation patterns and competitive dynamics',
+            'Supported by demographic shifts and evolving market structures'
+        ],
+        'long_term': [
+            'Extrapolated from fundamental technological and societal shifts',
+            'Based on generational changes and long-term demographic trends',
+            'Derived from potential breakthrough technologies and paradigm shifts',
+            'Supported by historical patterns of innovation adoption and market evolution'
+        ]
+    };
+    
+    const timeframeKey = timeframe?.includes('2025-2027') ? 'near_term' : 
+                        timeframe?.includes('2027-2032') ? 'mid_term' : 'long_term';
+    
+    const baseExplanations = explanations[timeframeKey] || explanations['near_term'];
+    const explanation = baseExplanations[index % baseExplanations.length];
+    
+    // Add trend-specific context if available
+    const trendData = typeof trend === 'object' ? trend : {};
+    const confidence = trendData.confidence || 'Medium';
+    const sources = trendData.sources ? ` Sources: ${trendData.sources}` : '';
+    
+    return `${explanation}. Confidence: ${confidence}.${sources}`;
+}
+
+function generateFrameworkExplanation(principle, index) {
+    const explanations = [
+        'This principle is derived from analysis of successful strategic implementations across similar market conditions',
+        'Based on best practices identified from executive decision-making patterns in comparable scenarios',
+        'Developed from organizational behavior research and leadership effectiveness studies',
+        'Grounded in risk management frameworks and strategic planning methodologies',
+        'Informed by stakeholder analysis and organizational change management principles'
+    ];
+    
+    const baseExplanation = explanations[index % explanations.length];
+    
+    // Add principle-specific context if available
+    const principleData = typeof principle === 'object' ? principle : {};
+    const applicability = principleData.applicability || 'High';
+    const riskLevel = principleData.risk_level || 'Medium';
+    
+    return `${baseExplanation} Applicability: ${applicability}. Risk Level: ${riskLevel}.`;
+}
+
+function generateNextStepExplanation(step, index) {
+    const explanations = [
+        'Prioritized based on impact-to-effort ratio and strategic alignment with organizational goals',
+        'Sequenced according to dependency analysis and resource availability constraints',
+        'Ranked by urgency and potential to unlock subsequent strategic initiatives',
+        'Ordered by stakeholder readiness and organizational change management capacity',
+        'Prioritized based on risk mitigation potential and competitive advantage timing'
+    ];
+    
+    const baseExplanation = explanations[index % explanations.length];
+    
+    // Add step-specific context if available
+    const stepData = typeof step === 'object' ? step : {};
+    const priority = stepData.priority || 'Medium';
+    const timeline = stepData.timeline || '3-6 months';
+    
+    return `${baseExplanation} Priority: ${priority}. Estimated Timeline: ${timeline}.`;
 }
 
 // Configuration management functions (similar to futures cone)

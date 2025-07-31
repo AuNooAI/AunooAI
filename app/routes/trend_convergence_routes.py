@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from collections import Counter, defaultdict
 
 from app.database import Database, get_database_instance
-from app.ai_models import get_ai_model
 from app.services.auspex_service import get_auspex_service
 
 # Context limits for different AI models (copied from futures cone)
