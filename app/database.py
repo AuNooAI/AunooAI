@@ -1259,6 +1259,27 @@ Remember to cite your sources and provide actionable insights where possible."""
             conn.commit()
             return cursor.lastrowid
 
+    def execute_query(self, query: str, params=None) -> int:
+        """Execute a query and return the last inserted row ID (for INSERT operations)"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+            conn.commit()
+            return cursor.lastrowid
+
+    def fetch_one(self, query: str, params=None):
+        """Fetch a single row from the database"""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+            return cursor.fetchone()
+
     def get_articles_by_ids(self, article_ids):
         with self.get_connection() as conn:
             conn.row_factory = sqlite3.Row

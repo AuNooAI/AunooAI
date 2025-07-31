@@ -7,6 +7,7 @@ import logging
 import json
 from datetime import datetime, timedelta
 from collections import Counter, defaultdict
+from pydantic import BaseModel
 
 from app.database import Database, get_database_instance
 from app.services.auspex_service import get_auspex_service
@@ -44,6 +45,41 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory="templates")
+
+# Pydantic models for organizational profiles
+class OrganizationalProfile(BaseModel):
+    id: Optional[int] = None
+    name: str
+    description: Optional[str] = None
+    industry: Optional[str] = None
+    organization_type: Optional[str] = None
+    region: Optional[str] = None
+    key_concerns: List[str] = []
+    strategic_priorities: List[str] = []
+    risk_tolerance: str = "medium"
+    innovation_appetite: str = "moderate"
+    decision_making_style: str = "collaborative"
+    stakeholder_focus: List[str] = []
+    competitive_landscape: List[str] = []
+    regulatory_environment: List[str] = []
+    custom_context: Optional[str] = None
+    is_default: bool = False
+
+class ProfileCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    industry: Optional[str] = None
+    organization_type: Optional[str] = None
+    region: Optional[str] = None
+    key_concerns: List[str] = []
+    strategic_priorities: List[str] = []
+    risk_tolerance: str = "medium"
+    innovation_appetite: str = "moderate"
+    decision_making_style: str = "collaborative"
+    stakeholder_focus: List[str] = []
+    competitive_landscape: List[str] = []
+    regulatory_environment: List[str] = []
+    custom_context: Optional[str] = None
 
 def calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', custom_limit: int = None) -> int:
     """Calculate optimal sample size based on model capabilities and mode"""
@@ -344,6 +380,7 @@ async def generate_trend_convergence(
     custom_limit: int = Query(None),
     persona: str = Query("executive", description="Analysis persona: executive, analyst, strategist"),
     customer_type: str = Query("general", description="Customer type: general, enterprise, startup"),
+    profile_id: int = Query(None, description="Organizational profile ID for context"),
     db: Database = Depends(get_database_instance),
     session: dict = Depends(verify_session)
 ):
@@ -392,11 +429,66 @@ async def generate_trend_convergence(
         # Prepare analysis summary using diverse articles
         analysis_summary = prepare_analysis_summary(diverse_articles, topic)
         
-        # Get configurable prompt template based on persona and customer type
-        prompt_template = get_prompt_template(persona, customer_type)
+        # Get organizational profile if specified
+        organizational_profile = None
+        if profile_id:
+            try:
+                profile_query = """
+                SELECT id, name, description, industry, organization_type, region,
+                       key_concerns, strategic_priorities, risk_tolerance, 
+                       innovation_appetite, decision_making_style, stakeholder_focus,
+                       competitive_landscape, regulatory_environment, custom_context
+                FROM organizational_profiles WHERE id = ?
+                """
+                profile_row = db.fetch_one(profile_query, (profile_id,))
+                if profile_row:
+                    organizational_profile = {
+                        'id': profile_row[0],
+                        'name': profile_row[1],
+                        'description': profile_row[2],
+                        'industry': profile_row[3],
+                        'organization_type': profile_row[4],
+                        'region': profile_row[5],
+                        'key_concerns': json.loads(profile_row[6]) if profile_row[6] else [],
+                        'strategic_priorities': json.loads(profile_row[7]) if profile_row[7] else [],
+                        'risk_tolerance': profile_row[8],
+                        'innovation_appetite': profile_row[9],
+                        'decision_making_style': profile_row[10],
+                        'stakeholder_focus': json.loads(profile_row[11]) if profile_row[11] else [],
+                        'competitive_landscape': json.loads(profile_row[12]) if profile_row[12] else [],
+                        'regulatory_environment': json.loads(profile_row[13]) if profile_row[13] else [],
+                        'custom_context': profile_row[14]
+                    }
+                else:
+                    logger.warning(f"Organizational profile {profile_id} not found, using default template")
+            except Exception as e:
+                logger.error(f"Error loading organizational profile: {str(e)}")
+                
+        # Get configurable prompt template based on persona, customer type, and profile
+        prompt_template = get_enhanced_prompt_template(persona, customer_type, organizational_profile)
         
         # Create the AI prompt for trend convergence analysis
-        formatted_prompt = f"""Analyze {len(articles)} articles about "{topic}" and create a comprehensive strategic planning document.
+        org_context = ""
+        if organizational_profile:
+            org_context = f"""
+
+ORGANIZATIONAL CONTEXT:
+- Organization: {organizational_profile['name']}
+- Industry: {organizational_profile['industry']}
+- Type: {organizational_profile['organization_type']}
+- Description: {organizational_profile['description']}
+- Key Concerns: {', '.join(organizational_profile['key_concerns'])}
+- Strategic Priorities: {', '.join(organizational_profile['strategic_priorities'])}
+- Risk Tolerance: {organizational_profile['risk_tolerance']}
+- Innovation Appetite: {organizational_profile['innovation_appetite']}
+- Decision Making Style: {organizational_profile['decision_making_style']}
+- Key Stakeholders: {', '.join(organizational_profile['stakeholder_focus'])}
+- Competitive Landscape: {', '.join(organizational_profile['competitive_landscape'])}
+- Regulatory Environment: {', '.join(organizational_profile['regulatory_environment'])}
+- Additional Context: {organizational_profile['custom_context']}
+"""
+            
+        formatted_prompt = f"""Analyze {len(articles)} articles about "{topic}" and create a comprehensive strategic planning document.{org_context}
 
 STRATEGIC FOCUS: {prompt_template['focus']}
 EXECUTIVE FRAMEWORK: {prompt_template['framework_emphasis']}
@@ -600,7 +692,8 @@ RESPONSE FORMAT: Return ONLY the JSON object above, no additional text."""
             'analysis_depth': analysis_depth,
             'persona': persona,
             'customer_type': customer_type,
-            'version': 1
+            'organizational_profile': organizational_profile,
+            'version': 2
         })
         
         # Save this version for potential reload
@@ -757,9 +850,10 @@ def prepare_analysis_summary(articles: List, topic: str) -> str:
     
     return summary
 
-def get_prompt_template(persona: str = "executive", customer_type: str = "general") -> Dict[str, str]:
-    """Get configurable prompt template based on persona and customer type"""
+def get_enhanced_prompt_template(persona: str = "executive", customer_type: str = "general", organizational_profile: Dict = None) -> Dict[str, str]:
+    """Get enhanced configurable prompt template based on persona, customer type, and organizational profile"""
     
+    # Base templates
     templates = {
         "executive": {
             "general": {
@@ -814,7 +908,47 @@ def get_prompt_template(persona: str = "executive", customer_type: str = "genera
         }
     }
     
-    return templates.get(persona, templates["executive"]).get(customer_type, templates["executive"]["general"])
+    # Get base template
+    base_template = templates.get(persona, templates["executive"]).get(customer_type, templates["executive"]["general"])
+    
+    # Enhance with organizational profile if provided
+    if organizational_profile:
+        enhanced_template = base_template.copy()
+        
+        # Customize focus based on organization type and industry
+        org_type = organizational_profile.get('organization_type', '').lower()
+        industry = organizational_profile.get('industry', '').lower()
+        
+        if 'publisher' in org_type or 'academic' in industry or 'scientific' in industry:
+            enhanced_template['focus'] += f" with specific attention to {organizational_profile.get('industry', 'publishing')} industry dynamics"
+            enhanced_template['framework_emphasis'] += ", intellectual property considerations, and content ecosystem sustainability"
+            enhanced_template['next_steps_style'] += " while balancing traditional publishing values with digital innovation"
+        
+        # Add key concerns to framework emphasis
+        key_concerns = organizational_profile.get('key_concerns', [])
+        if key_concerns:
+            concerns_str = ', '.join(key_concerns[:3])  # Limit to top 3 concerns
+            enhanced_template['framework_emphasis'] += f", with particular focus on {concerns_str}"
+        
+        # Adjust decision making style
+        decision_style = organizational_profile.get('decision_making_style', 'collaborative')
+        if decision_style == 'collaborative':
+            enhanced_template['next_steps_style'] += " emphasizing stakeholder consensus and collaborative implementation"
+        elif decision_style == 'data-driven':
+            enhanced_template['next_steps_style'] += " with strong emphasis on metrics, KPIs, and evidence-based validation"
+        elif decision_style == 'agile':
+            enhanced_template['next_steps_style'] += " prioritizing rapid iteration, flexibility, and adaptive execution"
+        
+        # Add risk tolerance consideration
+        risk_tolerance = organizational_profile.get('risk_tolerance', 'medium')
+        if risk_tolerance == 'low':
+            enhanced_template['framework_emphasis'] += ", prioritizing risk mitigation and conservative approaches"
+        elif risk_tolerance == 'high':
+            enhanced_template['framework_emphasis'] += ", embracing calculated risks and innovative approaches"
+        
+        return enhanced_template
+    
+    return base_template
 
 @router.get("/api/trend-convergence/{topic}/previous")
 async def load_previous_analysis(
@@ -837,4 +971,240 @@ async def load_previous_analysis(
 @router.get("/trend-convergence", response_class=HTMLResponse)
 async def trend_convergence_page(request: Request, session: dict = Depends(verify_session)):
     """Render the trend convergence analysis page"""
-    return templates.TemplateResponse("trend_convergence.html", {"request": request, "session": session}) 
+    return templates.TemplateResponse("trend_convergence.html", {"request": request, "session": session})
+
+# Organizational Profile Management Endpoints
+
+@router.get("/api/organizational-profiles")
+async def get_organizational_profiles(db: Database = Depends(get_database_instance)):
+    """Get all organizational profiles"""
+    try:
+        query = """
+        SELECT id, name, description, industry, organization_type, region,
+               key_concerns, strategic_priorities, risk_tolerance, 
+               innovation_appetite, decision_making_style, stakeholder_focus,
+               competitive_landscape, regulatory_environment, custom_context,
+               is_default, created_at, updated_at
+        FROM organizational_profiles 
+        ORDER BY is_default DESC, name ASC
+        """
+        
+        profiles_data = db.fetch_all(query)
+        profiles = []
+        
+        for profile_row in profiles_data:
+            profile = {
+                'id': profile_row[0],
+                'name': profile_row[1],
+                'description': profile_row[2],
+                'industry': profile_row[3],
+                'organization_type': profile_row[4],
+                'region': profile_row[5],
+                'key_concerns': json.loads(profile_row[6]) if profile_row[6] else [],
+                'strategic_priorities': json.loads(profile_row[7]) if profile_row[7] else [],
+                'risk_tolerance': profile_row[8],
+                'innovation_appetite': profile_row[9],
+                'decision_making_style': profile_row[10],
+                'stakeholder_focus': json.loads(profile_row[11]) if profile_row[11] else [],
+                'competitive_landscape': json.loads(profile_row[12]) if profile_row[12] else [],
+                'regulatory_environment': json.loads(profile_row[13]) if profile_row[13] else [],
+                'custom_context': profile_row[14],
+                'is_default': bool(profile_row[15]),
+                'created_at': profile_row[16],
+                'updated_at': profile_row[17]
+            }
+            profiles.append(profile)
+        
+        return {"success": True, "profiles": profiles}
+        
+    except Exception as e:
+        logger.error(f"Error fetching organizational profiles: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch profiles: {str(e)}")
+
+@router.post("/api/organizational-profiles") 
+async def create_organizational_profile(
+    profile_data: ProfileCreateRequest,
+    db: Database = Depends(get_database_instance)
+):
+    """Create a new organizational profile"""
+    try:
+        # Check if profile name already exists
+        existing_query = "SELECT id FROM organizational_profiles WHERE name = ?"
+        existing = db.fetch_one(existing_query, (profile_data.name,))
+        
+        if existing:
+            raise HTTPException(status_code=409, detail="Profile with this name already exists")
+        
+        # Insert new profile
+        insert_query = """
+        INSERT INTO organizational_profiles (
+            name, description, industry, organization_type, region, key_concerns,
+            strategic_priorities, risk_tolerance, innovation_appetite,
+            decision_making_style, stakeholder_focus, competitive_landscape,
+            regulatory_environment, custom_context
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        
+        profile_id = db.execute_query(insert_query, (
+            profile_data.name,
+            profile_data.description,
+            profile_data.industry,
+            profile_data.organization_type,
+            profile_data.region,
+            json.dumps(profile_data.key_concerns),
+            json.dumps(profile_data.strategic_priorities),
+            profile_data.risk_tolerance,
+            profile_data.innovation_appetite,
+            profile_data.decision_making_style,
+            json.dumps(profile_data.stakeholder_focus),
+            json.dumps(profile_data.competitive_landscape),
+            json.dumps(profile_data.regulatory_environment),
+            profile_data.custom_context
+        ))
+        
+        return {"success": True, "profile_id": profile_id, "message": "Profile created successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating organizational profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create profile: {str(e)}")
+
+@router.put("/api/organizational-profiles/{profile_id}")
+async def update_organizational_profile(
+    profile_id: int,
+    profile_data: ProfileCreateRequest,
+    db: Database = Depends(get_database_instance)
+):
+    """Update an existing organizational profile"""
+    try:
+        # Check if profile exists
+        existing_query = "SELECT id FROM organizational_profiles WHERE id = ?"
+        existing = db.fetch_one(existing_query, (profile_id,))
+        
+        if not existing:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        
+        # Check if new name conflicts with existing profiles (excluding current)
+        name_check_query = "SELECT id FROM organizational_profiles WHERE name = ? AND id != ?"
+        name_conflict = db.fetch_one(name_check_query, (profile_data.name, profile_id))
+        
+        if name_conflict:
+            raise HTTPException(status_code=409, detail="Profile with this name already exists")
+        
+        # Update profile
+        update_query = """
+        UPDATE organizational_profiles SET
+            name = ?, description = ?, industry = ?, organization_type = ?, region = ?,
+            key_concerns = ?, strategic_priorities = ?, risk_tolerance = ?,
+            innovation_appetite = ?, decision_making_style = ?, stakeholder_focus = ?,
+            competitive_landscape = ?, regulatory_environment = ?, custom_context = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """
+        
+        db.execute_query(update_query, (
+            profile_data.name,
+            profile_data.description,
+            profile_data.industry,
+            profile_data.organization_type,
+            profile_data.region,
+            json.dumps(profile_data.key_concerns),
+            json.dumps(profile_data.strategic_priorities),
+            profile_data.risk_tolerance,
+            profile_data.innovation_appetite,
+            profile_data.decision_making_style,
+            json.dumps(profile_data.stakeholder_focus),
+            json.dumps(profile_data.competitive_landscape),
+            json.dumps(profile_data.regulatory_environment),
+            profile_data.custom_context,
+            profile_id
+        ))
+        
+        return {"success": True, "message": "Profile updated successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating organizational profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update profile: {str(e)}")
+
+@router.delete("/api/organizational-profiles/{profile_id}")
+async def delete_organizational_profile(
+    profile_id: int,
+    db: Database = Depends(get_database_instance)
+):
+    """Delete an organizational profile"""
+    try:
+        # Check if profile exists and is not default
+        profile_query = "SELECT is_default FROM organizational_profiles WHERE id = ?"
+        profile = db.fetch_one(profile_query, (profile_id,))
+        
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+            
+        if profile[0]:  # is_default
+            raise HTTPException(status_code=400, detail="Cannot delete default profiles")
+        
+        # Delete profile
+        delete_query = "DELETE FROM organizational_profiles WHERE id = ?"
+        db.execute_query(delete_query, (profile_id,))
+        
+        return {"success": True, "message": "Profile deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting organizational profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete profile: {str(e)}")
+
+@router.get("/api/organizational-profiles/{profile_id}")
+async def get_organizational_profile(
+    profile_id: int,
+    db: Database = Depends(get_database_instance)
+):
+    """Get a specific organizational profile"""
+    try:
+        query = """
+        SELECT id, name, description, industry, organization_type, region,
+               key_concerns, strategic_priorities, risk_tolerance, 
+               innovation_appetite, decision_making_style, stakeholder_focus,
+               competitive_landscape, regulatory_environment, custom_context,
+               is_default, created_at, updated_at
+        FROM organizational_profiles 
+        WHERE id = ?
+        """
+        
+        profile_row = db.fetch_one(query, (profile_id,))
+        
+        if not profile_row:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        
+        profile = {
+            'id': profile_row[0],
+            'name': profile_row[1],
+            'description': profile_row[2],
+            'industry': profile_row[3],
+            'organization_type': profile_row[4],
+            'region': profile_row[5],
+            'key_concerns': json.loads(profile_row[6]) if profile_row[6] else [],
+            'strategic_priorities': json.loads(profile_row[7]) if profile_row[7] else [],
+            'risk_tolerance': profile_row[8],
+            'innovation_appetite': profile_row[9],
+            'decision_making_style': profile_row[10],
+            'stakeholder_focus': json.loads(profile_row[11]) if profile_row[11] else [],
+            'competitive_landscape': json.loads(profile_row[12]) if profile_row[12] else [],
+            'regulatory_environment': json.loads(profile_row[13]) if profile_row[13] else [],
+            'custom_context': profile_row[14],
+            'is_default': bool(profile_row[15]),
+            'created_at': profile_row[16],
+            'updated_at': profile_row[17]
+        }
+        
+        return {"success": True, "profile": profile}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching organizational profile: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {str(e)}") 

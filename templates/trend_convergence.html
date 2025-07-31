@@ -130,6 +130,8 @@
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         padding: 30px;
         margin: 40px 0;
+        overflow: visible;
+        position: relative;
     }
 
 
@@ -138,6 +140,8 @@
     .strategic-recommendations-section {
         margin-top: 40px;
         margin-bottom: 40px;
+        position: relative;
+        overflow: visible;
     }
 
     .section-subtitle {
@@ -152,6 +156,7 @@
         grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
         gap: 30px;
         margin-bottom: 40px;
+        padding-top: 20px; /* Add space for tooltips above */
     }
 
     .timeline-card {
@@ -159,7 +164,7 @@
         padding: 25px;
         color: white;
         position: relative;
-        overflow: hidden;
+        overflow: visible; /* Changed from hidden to visible for tooltips */
         transition: all 0.3s ease;
     }
 
@@ -336,7 +341,7 @@
         white-space: normal;
         max-width: 350px;
         min-width: 200px;
-        z-index: 1000;
+        z-index: 10000;
         opacity: 0;
         visibility: hidden;
         transition: all 0.3s ease;
@@ -344,6 +349,7 @@
         box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
         border: 1px solid rgba(255, 255, 255, 0.1);
         backdrop-filter: blur(10px);
+        margin-bottom: 10px;
     }
 
     .explainability-tooltip::after {
@@ -354,6 +360,12 @@
         transform: translateX(-50%);
         border: 6px solid transparent;
         border-top-color: rgba(0, 0, 0, 0.9);
+    }
+
+    .explainability-tooltip.tooltip-below::after {
+        top: -12px;
+        border-top-color: transparent;
+        border-bottom-color: rgba(0, 0, 0, 0.9);
     }
 
     .explainable-item:hover .explainability-tooltip {
@@ -624,6 +636,24 @@
                         </div>
                         
                         <div class="mb-3">
+                            <label for="organizationalProfile" class="form-label">Organizational Profile</label>
+                            <div class="d-flex gap-2">
+                                <select class="form-select" id="organizationalProfile" onchange="handleProfileChange()">
+                                    <option value="">Select a profile...</option>
+                                </select>
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="showProfileManager()" title="Manage Profiles">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </div>
+                            <div class="profile-info mt-2" id="profileInfo" style="display: none;">
+                                <small class="text-primary">
+                                    <i class="fas fa-building me-1"></i>
+                                    <span id="profileDetails">No profile selected</span>
+                                </small>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
                             <label for="sampleSizeMode" class="form-label">Article Sample Size</label>
                             <div class="d-flex gap-2">
                                 <select class="form-select" id="sampleSizeMode" onchange="handleSampleSizeModeChange()">
@@ -651,6 +681,181 @@
                 <button type="button" class="btn btn-primary" onclick="saveConfigurationAndClose()">
                     <i class="fas fa-save me-2"></i>Save Configuration
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Profile Management Modal -->
+<div class="modal fade" id="profileManagerModal" tabindex="-1" aria-labelledby="profileManagerModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="profileManagerModalLabel">🏢 Organizational Profile Manager</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <!-- Profile List -->
+                    <div class="col-md-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="mb-0">Profiles</h6>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="createNewProfile()">
+                                <i class="fas fa-plus me-1"></i>New
+                            </button>
+                        </div>
+                        <div class="list-group" id="profileList">
+                            <!-- Profiles will be loaded here -->
+                        </div>
+                    </div>
+                    
+                    <!-- Profile Editor -->
+                    <div class="col-md-8">
+                        <div id="profileEditor" style="display: none;">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0" id="editorTitle">New Profile</h6>
+                                <div>
+                                    <button type="button" class="btn btn-success btn-sm" onclick="saveProfile()">
+                                        <i class="fas fa-save me-1"></i>Save
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cancelEdit()">
+                                        <i class="fas fa-times me-1"></i>Cancel
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <form id="profileForm">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="profileName" class="form-label">Name *</label>
+                                            <input type="text" class="form-control" id="profileName" required>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="profileIndustry" class="form-label">Industry</label>
+                                            <input type="text" class="form-control" id="profileIndustry" 
+                                                   placeholder="e.g., Academic Publishing, Technology, Healthcare">
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="profileOrganizationType" class="form-label">Organization Type</label>
+                                            <select class="form-select" id="profileOrganizationType">
+                                                <option value="">Select type...</option>
+                                                <option value="publisher">Publisher</option>
+                                                <option value="enterprise">Enterprise</option>
+                                                <option value="startup">Startup</option>
+                                                <option value="government">Government</option>
+                                                <option value="ngo">Non-Profit/NGO</option>
+                                                <option value="academic">Academic Institution</option>
+                                                <option value="other">Other</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="profileRiskTolerance" class="form-label">Risk Tolerance</label>
+                                            <select class="form-select" id="profileRiskTolerance">
+                                                <option value="low">Conservative (Low Risk)</option>
+                                                <option value="medium" selected>Balanced (Medium Risk)</option>
+                                                <option value="high">Aggressive (High Risk)</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="profileInnovationAppetite" class="form-label">Innovation Appetite</label>
+                                            <select class="form-select" id="profileInnovationAppetite">
+                                                <option value="conservative">Conservative</option>
+                                                <option value="moderate" selected>Moderate</option>
+                                                <option value="aggressive">Aggressive</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="profileRegion" class="form-label">Region</label>
+                                            <select class="form-select" id="profileRegion">
+                                                <option value="">Select region...</option>
+                                                <option value="global">Global</option>
+                                                <option value="north_america">North America</option>
+                                                <option value="europe">Europe</option>
+                                                <option value="asia_pacific">Asia Pacific</option>
+                                                <option value="latin_america">Latin America</option>
+                                                <option value="middle_east_africa">Middle East & Africa</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="profileDecisionMakingStyle" class="form-label">Decision Making Style</label>
+                                            <select class="form-select" id="profileDecisionMakingStyle">
+                                                <option value="collaborative" selected>Collaborative</option>
+                                                <option value="data-driven">Data-Driven</option>
+                                                <option value="hierarchical">Hierarchical</option>
+                                                <option value="agile">Agile</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="profileDescription" class="form-label">Description</label>
+                                            <textarea class="form-control" id="profileDescription" rows="3" 
+                                                    placeholder="Brief description of the organization"></textarea>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="profileKeyConcerns" class="form-label">Key Concerns</label>
+                                            <textarea class="form-control" id="profileKeyConcerns" rows="3" 
+                                                    placeholder="Enter concerns separated by commas (e.g., R&D funding, copyright protection, peer review)"></textarea>
+                                            <div class="form-text">Separate multiple concerns with commas</div>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="profileStrategicPriorities" class="form-label">Strategic Priorities</label>
+                                            <textarea class="form-control" id="profileStrategicPriorities" rows="3" 
+                                                    placeholder="Enter priorities separated by commas (e.g., digital transformation, market expansion)"></textarea>
+                                            <div class="form-text">Separate multiple priorities with commas</div>
+                                        </div>
+                                        
+                                        <div class="mb-3">
+                                            <label for="profileStakeholderFocus" class="form-label">Key Stakeholders</label>
+                                            <textarea class="form-control" id="profileStakeholderFocus" rows="2" 
+                                                    placeholder="Enter stakeholders separated by commas (e.g., researchers, authors, subscribers)"></textarea>
+                                            <div class="form-text">Separate multiple stakeholders with commas</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="profileCompetitiveLandscape" class="form-label">Competitive Landscape</label>
+                                            <textarea class="form-control" id="profileCompetitiveLandscape" rows="2" 
+                                                    placeholder="Key competitors and market dynamics (comma-separated)"></textarea>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="profileRegulatoryEnvironment" class="form-label">Regulatory Environment</label>
+                                            <textarea class="form-control" id="profileRegulatoryEnvironment" rows="2" 
+                                                    placeholder="Key regulations and compliance requirements (comma-separated)"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="profileCustomContext" class="form-label">Additional Context</label>
+                                    <textarea class="form-control" id="profileCustomContext" rows="3" 
+                                            placeholder="Any additional context or specific considerations for this organization"></textarea>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <div id="profileEditorPlaceholder" class="text-center text-muted py-5">
+                            <i class="fas fa-building fa-3x mb-3 opacity-50"></i>
+                            <p>Select a profile to edit or create a new one</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -736,6 +941,12 @@ async function loadTrendConvergenceAnalysis() {
         // Add custom limit if specified
         if (sampleSizeMode === 'custom' && customLimit) {
             params.append('custom_limit', customLimit);
+        }
+        
+        // Add organizational profile if specified
+        const profileId = document.getElementById('organizationalProfile').value;
+        if (profileId) {
+            params.append('profile_id', profileId);
         }
         
         const response = await fetch(`/api/trend-convergence/${encodeURIComponent(topic)}?${params}`);
@@ -905,8 +1116,10 @@ function populateNextSteps(nextSteps) {
     section.style.display = 'block';
 }
 
-// Explainability Generation Functions
+// Enhanced Explainability Generation Functions with Profile Context
 function generateTrendExplanation(trend, timeframe, index) {
+    const organizationalProfile = currentAnalysisData?.organizational_profile;
+    
     const explanations = {
         'near_term': [
             'Based on current market data and immediate technological developments',
@@ -932,7 +1145,13 @@ function generateTrendExplanation(trend, timeframe, index) {
                         timeframe?.includes('2027-2032') ? 'mid_term' : 'long_term';
     
     const baseExplanations = explanations[timeframeKey] || explanations['near_term'];
-    const explanation = baseExplanations[index % baseExplanations.length];
+    let explanation = baseExplanations[index % baseExplanations.length];
+    
+    // Enhance with organizational profile context
+    if (organizationalProfile) {
+        const profileContext = generateProfileSpecificContext(organizationalProfile, 'trend', timeframeKey);
+        explanation += `. ${profileContext}`;
+    }
     
     // Add trend-specific context if available
     const trendData = typeof trend === 'object' ? trend : {};
@@ -942,7 +1161,63 @@ function generateTrendExplanation(trend, timeframe, index) {
     return `${explanation}. Confidence: ${confidence}.${sources}`;
 }
 
+function generateProfileSpecificContext(profile, contextType, timeframe) {
+    const industry = profile.industry?.toLowerCase() || '';
+    const orgType = profile.organization_type?.toLowerCase() || '';
+    const keyConcerns = profile.key_concerns || [];
+    const riskTolerance = profile.risk_tolerance || 'medium';
+    
+    let context = '';
+    
+    // Industry-specific context
+    if (industry.includes('publishing') || orgType.includes('publisher')) {
+        if (contextType === 'trend') {
+            context = `For ${profile.name}, this trend particularly impacts content creation, distribution, and intellectual property management`;
+        } else if (contextType === 'framework') {
+            context = `In the publishing industry, this principle helps balance editorial excellence with digital transformation needs`;
+        } else if (contextType === 'action') {
+            context = `This action supports sustainable publishing models while addressing industry-specific challenges`;
+        }
+    } else if (industry.includes('technology') || industry.includes('tech')) {
+        if (contextType === 'trend') {
+            context = `This trend affects ${profile.name}'s technology stack, product development, and competitive positioning`;
+        } else if (contextType === 'framework') {
+            context = `For technology organizations, this principle guides innovation strategy and technical decision-making`;
+        } else if (contextType === 'action') {
+            context = `This action aligns with technology industry best practices for sustainable growth`;
+        }
+    } else {
+        // Generic organizational context
+        if (contextType === 'trend') {
+            context = `This trend impacts ${profile.name}'s strategic positioning and operational capabilities`;
+        } else if (contextType === 'framework') {
+            context = `This principle supports ${profile.name}'s organizational goals and stakeholder expectations`;
+        } else if (contextType === 'action') {
+            context = `This action aligns with ${profile.name}'s strategic priorities and risk tolerance`;
+        }
+    }
+    
+    // Add key concerns context
+    if (keyConcerns.length > 0) {
+        const primaryConcern = keyConcerns[0];
+        context += `, with specific attention to ${primaryConcern.toLowerCase()}`;
+    }
+    
+    // Add risk tolerance context
+    if (riskTolerance === 'low') {
+        context += `. Recommended approach: Conservative implementation with careful risk assessment`;
+    } else if (riskTolerance === 'high') {
+        context += `. Recommended approach: Aggressive adoption with calculated risk-taking`;
+    } else {
+        context += `. Recommended approach: Balanced implementation with measured risk management`;
+    }
+    
+    return context;
+}
+
 function generateFrameworkExplanation(principle, index) {
+    const organizationalProfile = currentAnalysisData?.organizational_profile;
+    
     const explanations = [
         'This principle is derived from analysis of successful strategic implementations across similar market conditions',
         'Based on best practices identified from executive decision-making patterns in comparable scenarios',
@@ -951,7 +1226,13 @@ function generateFrameworkExplanation(principle, index) {
         'Informed by stakeholder analysis and organizational change management principles'
     ];
     
-    const baseExplanation = explanations[index % explanations.length];
+    let baseExplanation = explanations[index % explanations.length];
+    
+    // Enhance with organizational profile context
+    if (organizationalProfile) {
+        const profileContext = generateProfileSpecificContext(organizationalProfile, 'framework', 'general');
+        baseExplanation += `. ${profileContext}`;
+    }
     
     // Add principle-specific context if available
     const principleData = typeof principle === 'object' ? principle : {};
@@ -962,6 +1243,8 @@ function generateFrameworkExplanation(principle, index) {
 }
 
 function generateNextStepExplanation(step, index) {
+    const organizationalProfile = currentAnalysisData?.organizational_profile;
+    
     const explanations = [
         'Prioritized based on impact-to-effort ratio and strategic alignment with organizational goals',
         'Sequenced according to dependency analysis and resource availability constraints',
@@ -970,7 +1253,13 @@ function generateNextStepExplanation(step, index) {
         'Prioritized based on risk mitigation potential and competitive advantage timing'
     ];
     
-    const baseExplanation = explanations[index % explanations.length];
+    let baseExplanation = explanations[index % explanations.length];
+    
+    // Enhance with organizational profile context
+    if (organizationalProfile) {
+        const profileContext = generateProfileSpecificContext(organizationalProfile, 'action', 'general');
+        baseExplanation += `. ${profileContext}`;
+    }
     
     // Add step-specific context if available
     const stepData = typeof step === 'object' ? step : {};
@@ -978,6 +1267,252 @@ function generateNextStepExplanation(step, index) {
     const timeline = stepData.timeline || '3-6 months';
     
     return `${baseExplanation} Priority: ${priority}. Estimated Timeline: ${timeline}.`;
+}
+
+
+
+// Profile Management Functions
+let currentProfiles = [];
+let currentEditingProfile = null;
+
+async function loadOrganizationalProfiles() {
+    try {
+        const response = await fetch('/api/organizational-profiles');
+        const data = await response.json();
+        
+        if (data.success && data.profiles) {
+            currentProfiles = data.profiles;
+            updateProfileSelect();
+            updateProfileList();
+            return true;
+        } else {
+            console.error('Failed to load profiles:', data);
+            return false;
+        }
+    } catch (error) {
+        console.error('Error loading profiles:', error);
+        return false;
+    }
+}
+
+function updateProfileSelect() {
+    const profileSelect = document.getElementById('organizationalProfile');
+    if (!profileSelect) return;
+    
+    profileSelect.innerHTML = '<option value="">Select a profile...</option>';
+    
+    currentProfiles.forEach(profile => {
+        const option = document.createElement('option');
+        option.value = profile.id;
+        option.textContent = `${profile.name}${profile.is_default ? ' (Default)' : ''}`;
+        profileSelect.appendChild(option);
+    });
+}
+
+function updateProfileList() {
+    const profileList = document.getElementById('profileList');
+    if (!profileList) return;
+    
+    profileList.innerHTML = '';
+    
+    currentProfiles.forEach(profile => {
+        const item = document.createElement('div');
+        item.className = 'list-group-item d-flex justify-content-between align-items-start';
+        item.innerHTML = `
+            <div class="flex-grow-1" onclick="editProfile(${profile.id})" style="cursor: pointer;">
+                <h6 class="mb-1">${profile.name}</h6>
+                <p class="mb-1 text-muted small">${profile.industry || 'No industry specified'} • ${profile.region || 'No region specified'}</p>
+                <small class="text-muted">${profile.organization_type || 'No type specified'}</small>
+                ${profile.is_default ? '<span class="badge bg-primary">Default</span>' : ''}
+            </div>
+            <div class="btn-group-vertical btn-group-sm">
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="editProfile(${profile.id})" title="Edit">
+                    <i class="fas fa-edit"></i>
+                </button>
+                ${!profile.is_default ? `<button type="button" class="btn btn-outline-danger btn-sm" onclick="deleteProfile(${profile.id})" title="Delete">
+                    <i class="fas fa-trash"></i>
+                </button>` : ''}
+            </div>
+        `;
+        profileList.appendChild(item);
+    });
+}
+
+function handleProfileChange() {
+    const profileId = document.getElementById('organizationalProfile').value;
+    const profileInfo = document.getElementById('profileInfo');
+    const profileDetails = document.getElementById('profileDetails');
+    
+    if (profileId) {
+        const profile = currentProfiles.find(p => p.id == profileId);
+        if (profile) {
+            profileDetails.textContent = `${profile.name} - ${profile.industry || 'General'} • ${profile.region || 'No region'} (${profile.organization_type || 'Unknown type'})`;
+            profileInfo.style.display = 'block';
+        }
+    } else {
+        profileInfo.style.display = 'none';
+    }
+}
+
+function showProfileManager() {
+    loadOrganizationalProfiles().then(() => {
+        const modal = new bootstrap.Modal(document.getElementById('profileManagerModal'));
+        modal.show();
+    });
+}
+
+function createNewProfile() {
+    currentEditingProfile = null;
+    clearProfileForm();
+    document.getElementById('editorTitle').textContent = 'New Profile';
+    showProfileEditor();
+}
+
+function editProfile(profileId) {
+    const profile = currentProfiles.find(p => p.id === profileId);
+    if (!profile) return;
+    
+    currentEditingProfile = profile;
+    populateProfileForm(profile);
+    document.getElementById('editorTitle').textContent = `Edit Profile: ${profile.name}`;
+    showProfileEditor();
+}
+
+function showProfileEditor() {
+    document.getElementById('profileEditorPlaceholder').style.display = 'none';
+    document.getElementById('profileEditor').style.display = 'block';
+}
+
+function cancelEdit() {
+    document.getElementById('profileEditor').style.display = 'none';
+    document.getElementById('profileEditorPlaceholder').style.display = 'block';
+    clearProfileForm();
+    currentEditingProfile = null;
+}
+
+function clearProfileForm() {
+    document.getElementById('profileName').value = '';
+    document.getElementById('profileDescription').value = '';
+    document.getElementById('profileIndustry').value = '';
+    document.getElementById('profileOrganizationType').value = '';
+    document.getElementById('profileRegion').value = '';
+    document.getElementById('profileKeyConcerns').value = '';
+    document.getElementById('profileStrategicPriorities').value = '';
+    document.getElementById('profileRiskTolerance').value = 'medium';
+    document.getElementById('profileInnovationAppetite').value = 'moderate';
+    document.getElementById('profileDecisionMakingStyle').value = 'collaborative';
+    document.getElementById('profileStakeholderFocus').value = '';
+    document.getElementById('profileCompetitiveLandscape').value = '';
+    document.getElementById('profileRegulatoryEnvironment').value = '';
+    document.getElementById('profileCustomContext').value = '';
+}
+
+function populateProfileForm(profile) {
+    document.getElementById('profileName').value = profile.name || '';
+    document.getElementById('profileDescription').value = profile.description || '';
+    document.getElementById('profileIndustry').value = profile.industry || '';
+    document.getElementById('profileOrganizationType').value = profile.organization_type || '';
+    document.getElementById('profileRegion').value = profile.region || '';
+    document.getElementById('profileKeyConcerns').value = (profile.key_concerns || []).join(', ');
+    document.getElementById('profileStrategicPriorities').value = (profile.strategic_priorities || []).join(', ');
+    document.getElementById('profileRiskTolerance').value = profile.risk_tolerance || 'medium';
+    document.getElementById('profileInnovationAppetite').value = profile.innovation_appetite || 'moderate';
+    document.getElementById('profileDecisionMakingStyle').value = profile.decision_making_style || 'collaborative';
+    document.getElementById('profileStakeholderFocus').value = (profile.stakeholder_focus || []).join(', ');
+    document.getElementById('profileCompetitiveLandscape').value = (profile.competitive_landscape || []).join(', ');
+    document.getElementById('profileRegulatoryEnvironment').value = (profile.regulatory_environment || []).join(', ');
+    document.getElementById('profileCustomContext').value = profile.custom_context || '';
+}
+
+async function saveProfile() {
+    const form = document.getElementById('profileForm');
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+    
+    const profileData = {
+        name: document.getElementById('profileName').value,
+        description: document.getElementById('profileDescription').value,
+        industry: document.getElementById('profileIndustry').value,
+        organization_type: document.getElementById('profileOrganizationType').value,
+        region: document.getElementById('profileRegion').value,
+        key_concerns: document.getElementById('profileKeyConcerns').value.split(',').map(s => s.trim()).filter(s => s),
+        strategic_priorities: document.getElementById('profileStrategicPriorities').value.split(',').map(s => s.trim()).filter(s => s),
+        risk_tolerance: document.getElementById('profileRiskTolerance').value,
+        innovation_appetite: document.getElementById('profileInnovationAppetite').value,
+        decision_making_style: document.getElementById('profileDecisionMakingStyle').value,
+        stakeholder_focus: document.getElementById('profileStakeholderFocus').value.split(',').map(s => s.trim()).filter(s => s),
+        competitive_landscape: document.getElementById('profileCompetitiveLandscape').value.split(',').map(s => s.trim()).filter(s => s),
+        regulatory_environment: document.getElementById('profileRegulatoryEnvironment').value.split(',').map(s => s.trim()).filter(s => s),
+        custom_context: document.getElementById('profileCustomContext').value
+    };
+    
+    try {
+        let response;
+        if (currentEditingProfile) {
+            // Update existing profile
+            response = await fetch(`/api/organizational-profiles/${currentEditingProfile.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(profileData)
+            });
+        } else {
+            // Create new profile
+            response = await fetch('/api/organizational-profiles', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(profileData)
+            });
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showSuccess(result.message);
+            await loadOrganizationalProfiles();
+            cancelEdit();
+        } else {
+            showError(result.message || 'Failed to save profile');
+        }
+    } catch (error) {
+        console.error('Error saving profile:', error);
+        showError('Error saving profile: ' + error.message);
+    }
+}
+
+async function deleteProfile(profileId) {
+    const profile = currentProfiles.find(p => p.id === profileId);
+    if (!profile) return;
+    
+    if (!confirm(`Are you sure you want to delete the profile "${profile.name}"?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/organizational-profiles/${profileId}`, {
+            method: 'DELETE'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showSuccess(result.message);
+            await loadOrganizationalProfiles();
+            if (currentEditingProfile && currentEditingProfile.id === profileId) {
+                cancelEdit();
+            }
+        } else {
+            showError(result.message || 'Failed to delete profile');
+        }
+    } catch (error) {
+        console.error('Error deleting profile:', error);
+        showError('Error deleting profile: ' + error.message);
+    }
 }
 
 // Configuration management functions (similar to futures cone)
@@ -1024,6 +1559,7 @@ function saveConfigurationAndClose() {
     const analysisDepth = document.getElementById('analysisDepth').value;
     const sampleSizeMode = document.getElementById('sampleSizeMode').value;
     const customLimit = document.getElementById('customLimit').value;
+    const profileId = document.getElementById('organizationalProfile').value;
     
     if (!topic) {
         alert('Please select a topic');
@@ -1042,6 +1578,7 @@ function saveConfigurationAndClose() {
         analysisDepth,
         sampleSizeMode,
         customLimit,
+        profileId,
         timestamp: new Date().toISOString()
     };
     
@@ -1075,7 +1612,8 @@ function generateCacheKey(config) {
         model: config.model,
         analysisDepth: config.analysisDepth,
         sampleSizeMode: config.sampleSizeMode,
-        customLimit: config.customLimit
+        customLimit: config.customLimit,
+        profileId: config.profileId
     };
     
     const configString = JSON.stringify(keyData);
@@ -1104,7 +1642,8 @@ function getCurrentConfiguration() {
         model: document.getElementById('model')?.value || '',
         analysisDepth: document.getElementById('analysisDepth')?.value || 'standard',
         sampleSizeMode: document.getElementById('sampleSizeMode')?.value || 'auto',
-        customLimit: document.getElementById('customLimit')?.value || null
+        customLimit: document.getElementById('customLimit')?.value || null,
+        profileId: document.getElementById('organizationalProfile')?.value || null
     };
 }
 
@@ -1194,6 +1733,10 @@ async function loadSavedConfiguration() {
                 handleSampleSizeModeChange();
             }
             if (config.customLimit) document.getElementById('customLimit').value = config.customLimit;
+            if (config.profileId) {
+                document.getElementById('organizationalProfile').value = config.profileId;
+                handleProfileChange();
+            }
             
             updateLoadButton();
             return true;
@@ -1399,13 +1942,279 @@ function showError(message) {
     </div>`;
 }
 
-// Download functions (placeholder - can be implemented similar to futures cone)
+// Download Functions
 async function downloadAsPDF() {
-    showSuccess('PDF download functionality coming soon!');
+    try {
+        showSuccess('Generating PDF... Please wait.');
+        
+        // Check if html2canvas and jsPDF are available
+        if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined') {
+            // Load libraries dynamically
+            await loadDownloadLibraries();
+        }
+        
+        const { jsPDF } = window.jspdf;
+        const analysisContainer = document.getElementById('trendConvergenceContainer');
+        
+        if (!analysisContainer || analysisContainer.style.display === 'none') {
+            showError('No analysis to download. Please generate an analysis first.');
+            return;
+        }
+
+        // Create a container with just the title and analysis content
+        const exportContainer = document.createElement('div');
+        exportContainer.style.cssText = `
+            background: white;
+            padding: 30px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+        `;
+        
+        // Add title
+        const title = document.createElement('h1');
+        title.style.cssText = `
+            color: #FF69B4;
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        `;
+        title.innerHTML = '<i style="margin-right: 10px;">🔮</i>Trend Convergence Analysis';
+        exportContainer.appendChild(title);
+        
+        // Add subtitle if available
+        const subtitle = document.createElement('p');
+        subtitle.style.cssText = `
+            color: #666;
+            font-size: 16px;
+            text-align: center;
+            margin-bottom: 30px;
+        `;
+        subtitle.textContent = 'Strategic planning and executive decision framework';
+        exportContainer.appendChild(subtitle);
+        
+        // Clone the analysis content
+        const clonedContent = analysisContainer.cloneNode(true);
+        
+        // Ensure all content is visible for export
+        clonedContent.style.display = 'block';
+        const hiddenElements = clonedContent.querySelectorAll('[style*="display: none"]');
+        hiddenElements.forEach(el => el.style.display = 'block');
+        
+        exportContainer.appendChild(clonedContent);
+        
+        // Temporarily add to page for rendering
+        exportContainer.style.position = 'absolute';
+        exportContainer.style.left = '-9999px';
+        exportContainer.style.top = '0';
+        document.body.appendChild(exportContainer);
+
+        // Wait for rendering
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Generate canvas from the export container
+        const canvas = await html2canvas(exportContainer, {
+            useCORS: true,
+            scale: 1.2,
+            logging: false,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            removeContainer: true
+        });
+
+        // Remove temporary container
+        document.body.removeChild(exportContainer);
+
+        // Create PDF
+        const imgData = canvas.toDataURL('image/png', 0.95);
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        
+        const pdfWidth = 210;
+        const pdfHeight = 297;
+        const imgWidth = pdfWidth - 20;
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        
+        const pageHeight = pdfHeight - 20;
+        let y = 10;
+        let remainingHeight = imgHeight;
+        let sourceY = 0;
+
+        // Add pages as needed
+        while (remainingHeight > 0) {
+            const heightToAdd = Math.min(remainingHeight, pageHeight);
+            const sourceHeight = (heightToAdd / imgHeight) * canvas.height;
+            
+            const pageCanvas = document.createElement('canvas');
+            pageCanvas.width = canvas.width;
+            pageCanvas.height = sourceHeight;
+            const pageCtx = pageCanvas.getContext('2d');
+            
+            pageCtx.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sourceHeight);
+            
+            if (sourceY > 0) {
+                pdf.addPage();
+            }
+            
+            const pageImgData = pageCanvas.toDataURL('image/png', 0.95);
+            pdf.addImage(pageImgData, 'PNG', 10, y, imgWidth, heightToAdd);
+            
+            remainingHeight -= heightToAdd;
+            sourceY += sourceHeight;
+            y = 10;
+        }
+
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const topic = getSelectedTopic() || 'trend-convergence';
+        const filename = `trend-convergence-${topic}-${timestamp}.pdf`;
+        
+        pdf.save(filename);
+        showSuccess('PDF analysis downloaded successfully!');
+        
+    } catch (error) {
+        console.error('Error generating PDF:', error);
+        showError('Failed to generate PDF: ' + error.message);
+    }
 }
 
 async function downloadAsImage() {
-    showSuccess('Image download functionality coming soon!');
+    try {
+        showSuccess('Generating image... Please wait.');
+        
+        // Check if html2canvas is available
+        if (typeof html2canvas === 'undefined') {
+            await loadDownloadLibraries();
+        }
+        
+        const analysisContainer = document.getElementById('trendConvergenceContainer');
+        
+        if (!analysisContainer || analysisContainer.style.display === 'none') {
+            showError('No analysis to download. Please generate an analysis first.');
+            return;
+        }
+
+        // Create a container with just the title and analysis content
+        const exportContainer = document.createElement('div');
+        exportContainer.style.cssText = `
+            background: white;
+            padding: 40px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+        `;
+        
+        // Add title
+        const title = document.createElement('h1');
+        title.style.cssText = `
+            color: #FF69B4;
+            font-size: 32px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            text-align: center;
+        `;
+        title.innerHTML = '<i style="margin-right: 10px;">🔮</i>Trend Convergence Analysis';
+        exportContainer.appendChild(title);
+        
+        // Add subtitle
+        const subtitle = document.createElement('p');
+        subtitle.style.cssText = `
+            color: #666;
+            font-size: 18px;
+            text-align: center;
+            margin-bottom: 40px;
+        `;
+        subtitle.textContent = 'Strategic planning and executive decision framework';
+        exportContainer.appendChild(subtitle);
+        
+        // Clone the analysis content
+        const clonedContent = analysisContainer.cloneNode(true);
+        
+        // Ensure all content is visible for export
+        clonedContent.style.display = 'block';
+        const hiddenElements = clonedContent.querySelectorAll('[style*="display: none"]');
+        hiddenElements.forEach(el => el.style.display = 'block');
+        
+        exportContainer.appendChild(clonedContent);
+        
+        // Temporarily add to page for rendering
+        exportContainer.style.position = 'absolute';
+        exportContainer.style.left = '-9999px';
+        exportContainer.style.top = '0';
+        document.body.appendChild(exportContainer);
+
+        // Wait for rendering
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // Generate canvas
+        const canvas = await html2canvas(exportContainer, {
+            useCORS: true,
+            scale: 2,
+            logging: false,
+            allowTaint: true,
+            backgroundColor: '#ffffff',
+            removeContainer: true
+        });
+
+        // Remove temporary container
+        document.body.removeChild(exportContainer);
+
+        // Create download link
+        const link = document.createElement('a');
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        const topic = getSelectedTopic() || 'trend-convergence';
+        const filename = `trend-convergence-${topic}-${timestamp}.png`;
+        
+        link.download = filename;
+        link.href = canvas.toDataURL('image/png', 0.95);
+        link.click();
+        
+        showSuccess('Image analysis downloaded successfully!');
+        
+    } catch (error) {
+        console.error('Error generating image:', error);
+        showError('Failed to generate image: ' + error.message);
+    }
+}
+
+async function loadDownloadLibraries() {
+    return new Promise((resolve, reject) => {
+        let scriptsLoaded = 0;
+        const totalScripts = 2;
+        
+        function checkComplete() {
+            scriptsLoaded++;
+            if (scriptsLoaded === totalScripts) {
+                resolve();
+            }
+        }
+        
+        // Load html2canvas
+        if (typeof html2canvas === 'undefined') {
+            const script1 = document.createElement('script');
+            script1.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+            script1.onload = checkComplete;
+            script1.onerror = reject;
+            document.head.appendChild(script1);
+        } else {
+            checkComplete();
+        }
+        
+        // Load jsPDF
+        if (typeof window.jspdf === 'undefined') {
+            const script2 = document.createElement('script');
+            script2.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            script2.onload = checkComplete;
+            script2.onerror = reject;
+            document.head.appendChild(script2);
+        } else {
+            checkComplete();
+        }
+    });
+}
+
+function getSelectedTopic() {
+    const topicSelect = document.getElementById('topic');
+    return topicSelect ? topicSelect.value : null;
 }
 
 // Initialize page
@@ -1458,6 +2267,9 @@ document.addEventListener('DOMContentLoaded', async function() {
         
         // Initialize context info
         updateContextInfo();
+        
+        // Load organizational profiles
+        await loadOrganizationalProfiles();
         
         // Load saved configuration
         setTimeout(async () => {
