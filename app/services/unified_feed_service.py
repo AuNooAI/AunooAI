@@ -594,17 +594,34 @@ class UnifiedFeedService:
     def get_unified_feed(self, limit: int = 50, offset: int = 0, 
                         group_ids: List[int] = None, 
                         source_types: List[str] = None,
-                        include_hidden: bool = False) -> Dict[str, Any]:
+                        include_hidden: bool = False,
+                        combination_sources: List[str] = None,
+                        combination_dates: List[str] = None,
+                        dateRange: str = None,
+                        search: str = None,
+                        author: str = None,
+                        min_engagement: int = None,
+                        starred: str = None,
+                        topic: str = None,
+                        sort: str = "publication_date") -> dict:
         """
         Get unified feed items across all or specified groups.
-        
+        Supports advanced filtering by source+date combinations and all other filters.
         Args:
             limit: Maximum number of items to return
             offset: Number of items to skip
             group_ids: Optional list of group IDs to filter by
             source_types: Optional list of source types to filter by
             include_hidden: Whether to include hidden items
-            
+            combination_sources: Optional list of sources for combination filter
+            combination_dates: Optional list of date ranges for combination filter (same length as combination_sources)
+            dateRange: Optional date range filter (today, week, month, quarter)
+            search: Optional search term for title and content
+            author: Optional author name to filter by
+            min_engagement: Optional minimum engagement score
+            starred: Optional starred filter ('starred', 'unstarred', or None)
+            topic: Optional topic to filter by
+            sort: Sort order ('publication_date', 'created_at', or 'engagement')
         Returns:
             Dictionary with feed items and metadata
         """
@@ -623,10 +640,85 @@ class UnifiedFeedService:
                     where_conditions.append(f"fi.group_id IN ({placeholders})")
                     params.extend(group_ids)
                 
-                if source_types:
-                    placeholders = ','.join(['?'] * len(source_types))
-                    where_conditions.append(f"fi.source_type IN ({placeholders})")
-                    params.extend(source_types)
+                # Combination filter logic
+                if combination_sources and combination_dates and len(combination_sources) == len(combination_dates):
+                    combo_subclauses = []
+                    for src, date in zip(combination_sources, combination_dates):
+                        # Map date string to days
+                        days = None
+                        if date == 'today':
+                            days = 0
+                        elif date == 'week':
+                            days = 7
+                        elif date == 'month':
+                            days = 30
+                        elif date == 'quarter':
+                            days = 90
+                        
+                        if date == 'alltime':
+                            combo_subclauses.append("(fi.source_type = ?)")
+                        else:
+                            combo_subclauses.append(f"(fi.source_type = ? AND fi.publication_date >= date('now', '-{days} days'))")
+                        
+                        params.extend([src])
+                        
+                    if combo_subclauses:
+                        where_conditions.append('(' + ' OR '.join(combo_subclauses) + ')')
+                elif source_types or dateRange:
+                    # Individual source type filter
+                    if source_types:
+                        placeholders = ','.join(['?'] * len(source_types))
+                        where_conditions.append(f"fi.source_type IN ({placeholders})")
+                        params.extend(source_types)
+
+                    # Individual date range filter
+                    if dateRange:
+                        days = None
+                        if dateRange == 'today':
+                            days = 0
+                        elif dateRange == 'week':
+                            days = 7
+                        elif dateRange == 'month':
+                            days = 30
+                        elif dateRange == 'quarter':
+                            days = 90
+                        elif dateRange == 'alltime':
+                            days = None
+
+                        if days is not None:
+                            where_conditions.append(f"fi.publication_date >= date('now', '-{days} days')")
+                
+                # Search filter
+                if search:
+                    where_conditions.append("(fi.title LIKE ? OR fi.content LIKE ?)")
+                    search_term = f"%{search}%"
+                    params.extend([search_term, search_term])
+                
+                # Author filter
+                if author:
+                    where_conditions.append("fi.author LIKE ?")
+                    author_term = f"%{author}%"
+                    params.append(author_term)
+                
+                # Engagement filter
+                if min_engagement is not None:
+                    where_conditions.append("""
+                        (CAST(json_extract(fi.engagement_metrics, '$.likes') AS INTEGER) + 
+                         CAST(json_extract(fi.engagement_metrics, '$.reposts') AS INTEGER) + 
+                         CAST(json_extract(fi.engagement_metrics, '$.replies') AS INTEGER)) >= ?
+                    """)
+                    params.append(min_engagement)
+                
+                # Starred filter
+                if starred == 'starred':
+                    where_conditions.append("fi.is_starred = 1")
+                elif starred == 'unstarred':
+                    where_conditions.append("fi.is_starred = 0")
+                
+                # Topic filter
+                if topic:
+                    where_conditions.append("fi.topic = ?")
+                    params.append(topic)
                 
                 if not include_hidden:
                     where_conditions.append("fi.is_hidden = 0")
@@ -635,6 +727,18 @@ class UnifiedFeedService:
                 where_conditions.append("fkg.is_active = 1")
                 
                 where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+                
+                # Build ORDER BY clause based on sort parameter
+                if sort == "engagement":
+                    order_clause = """ORDER BY 
+                        (CAST(json_extract(fi.engagement_metrics, '$.likes') AS INTEGER) + 
+                         CAST(json_extract(fi.engagement_metrics, '$.reposts') AS INTEGER) + 
+                         CAST(json_extract(fi.engagement_metrics, '$.replies') AS INTEGER)) DESC,
+                        fi.publication_date DESC"""
+                elif sort == "created_at":
+                    order_clause = "ORDER BY fi.created_at DESC, fi.publication_date DESC"
+                else:  # default to publication_date
+                    order_clause = "ORDER BY fi.publication_date DESC, fi.created_at DESC"
                 
                 # Main query
                 query = f"""
@@ -647,7 +751,7 @@ class UnifiedFeedService:
                     FROM feed_items fi
                     JOIN feed_keyword_groups fkg ON fi.group_id = fkg.id
                     {where_clause}
-                    ORDER BY fi.publication_date DESC, fi.created_at DESC
+                    {order_clause}
                     LIMIT ? OFFSET ?
                 """
                 
@@ -722,14 +826,27 @@ class UnifiedFeedService:
             }
 
     def get_group_feed(self, group_id: int, limit: int = 50, offset: int = 0,
-                      source_types: List[str] = None, include_hidden: bool = False) -> Dict[str, Any]:
-        """Get feed items for a specific group."""
+                      source_types: List[str] = None, include_hidden: bool = False,
+                      combination_sources: List[str] = None, combination_dates: List[str] = None,
+                      dateRange: str = None, search: str = None, author: str = None, 
+                      min_engagement: int = None, starred: str = None, topic: str = None,
+                      sort: str = "publication_date") -> dict:
+        """Get feed items for a specific group. Supports combination filter and all other filters."""
         return self.get_unified_feed(
             limit=limit,
             offset=offset,
             group_ids=[group_id],
             source_types=source_types,
-            include_hidden=include_hidden
+            include_hidden=include_hidden,
+            combination_sources=combination_sources,
+            combination_dates=combination_dates,
+            dateRange=dateRange,
+            search=search,
+            author=author,
+            min_engagement=min_engagement,
+            starred=starred,
+            topic=topic,
+            sort=sort
         )
 
     def hide_feed_item(self, item_id: int) -> Dict[str, Any]:

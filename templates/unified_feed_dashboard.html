@@ -2504,7 +2504,8 @@ let currentFilters = {
     dateRange: '',
     author: '',
     minEngagement: '',
-    layout: 'cards'
+    layout: 'cards',
+    combinations: [] // <-- Add combinations to filter state
 };
 
 // Cache keys for localStorage
@@ -2664,7 +2665,7 @@ function loadCachedPreferences() {
             document.getElementById('itemsPerPage').value = currentFilters.limit || 50;
             document.getElementById('searchInput').value = currentFilters.search || '';
             document.getElementById('starredFilter').value = currentFilters.starred || '';
-            
+
             // Apply layout mode if saved
             const layoutSelector = document.getElementById('layoutMode');
             if (layoutSelector && currentFilters.layout) {
@@ -2674,6 +2675,11 @@ function loadCachedPreferences() {
                 if (feedItemsContainer) {
                     feedItemsContainer.className = `feed-items layout-${currentFilters.layout}`;
                 }
+            }
+            // Restore combination filter UI
+            if (currentFilters.combinations && Array.isArray(currentFilters.combinations)) {
+                activeCombinations = [...currentFilters.combinations];
+                updateCombinationList();
             }
         }
     } catch (error) {
@@ -2851,19 +2857,43 @@ async function loadFeedItems(append = false) {
             include_hidden: showHidden
         });
         
-        //Handle regular source filter
-        if (currentFilters.source) {
-            params.append('source_types', currentFilters.source);
+        // If combination filter is active, use it for backend query
+        if (currentFilters.combinations && currentFilters.combinations.length > 0) {
+            const combinationSources = currentFilters.combinations.map(combo => combo.source);
+            const combinationDates = currentFilters.combinations.map(combo => combo.date);
+            params.append('combination_sources', combinationSources.join(','));
+            params.append('combination_dates', combinationDates.join(','));
+        } else if (currentFilters.source || currentFilters.dateRange) {
+            // Add individual source filter
+            if (currentFilters.source) {
+                params.append('source_types', currentFilters.source);
+            }
+            // Add individual date range filter
+            if (currentFilters.dateRange) {
+                params.append('dateRange', currentFilters.dateRange);
+            }
         }
         
-        //Handle multi-combination filter
-        if (activeCombinations.length > 0) {
-            const combinationSources = activeCombinations.map(combo => combo.source);
-
-            // Override regular source filter with combination sources
-            params.set('source_types', combinationSources.join(','));
+        // Add all other filters
+        if (currentFilters.search) {
+            params.append('search', currentFilters.search);
         }
-
+        if (currentFilters.author) {
+            params.append('author', currentFilters.author);
+        }
+        if (currentFilters.minEngagement) {
+            params.append('min_engagement', currentFilters.minEngagement);
+        }
+        if (currentFilters.starred) {
+            params.append('starred', currentFilters.starred);
+        }
+        if (currentFilters.topic) {
+            params.append('topic', currentFilters.topic);
+        }
+        if (currentFilters.sort) {
+            params.append('sort', currentFilters.sort);
+        }
+        
         let endpoint = '/api/unified-feed';
         if (currentFeedGroup !== null) {
             endpoint = `/api/feed-groups/${currentFeedGroup}/feed`;
@@ -3709,6 +3739,9 @@ function applyFilters() {
         currentFilters.layout = layoutSelector.value;
     }
     
+    // Always keep combinations in sync
+    currentFilters.combinations = [...activeCombinations];
+    
     // Save to cache
     savePreferencesToCache();
     
@@ -3716,104 +3749,10 @@ function applyFilters() {
     currentPage = 0;
     hasMoreItems = true;
     
-    // Apply client-side filtering if we have items, otherwise reload
-    if (allFeedItems.length > 0) {
-        applyClientSideFilters();
-    } else {
-        loadFeedItems();
-    }
+    // All filtering is now done on the backend
+    loadFeedItems();
 }
 
-function applyClientSideFilters() {
-    let filteredItems = [...allFeedItems];
-    
-    // Apply search filter
-    if (currentFilters.search) {
-        const searchTerm = currentFilters.search.toLowerCase();
-        filteredItems = filteredItems.filter(item => 
-            item.title.toLowerCase().includes(searchTerm) ||
-            (item.content && item.content.toLowerCase().includes(searchTerm)) ||
-            (item.author && item.author.toLowerCase().includes(searchTerm))
-        );
-    }
-    
-    // Apply source filter
-    if (currentFilters.source) {
-        filteredItems = filteredItems.filter(item => item.source_type === currentFilters.source);
-    }
-    
-    // Apply starred filter
-    if (currentFilters.starred) {
-        if (currentFilters.starred === 'starred') {
-            filteredItems = filteredItems.filter(item => item.is_starred);
-        } else if (currentFilters.starred === 'unstarred') {
-            filteredItems = filteredItems.filter(item => !item.is_starred);
-        }
-    }
-    
-    // Apply date range filter
-    if (currentFilters.dateRange) {
-        const now = new Date();
-        const filterDate = getDateFromRange(currentFilters.dateRange, now);
-        filteredItems = filteredItems.filter(item => {
-            const itemDate = new Date(item.publication_date || item.created_at);
-            return itemDate >= filterDate;
-        });
-    }
-
-    //apply combination filters
-    if (activeCombinations.length > 0) {
-        filteredItems = applyCombinationFilters(filteredItems);
-    }
-    
-    // Apply author filter
-    if (currentFilters.author) {
-        const authorTerm = currentFilters.author.toLowerCase();
-        filteredItems = filteredItems.filter(item => 
-            item.author && item.author.toLowerCase().includes(authorTerm)
-        );
-    }
-    
-    // Apply engagement filter
-    if (currentFilters.minEngagement) {
-        const minEngagement = parseInt(currentFilters.minEngagement);
-        filteredItems = filteredItems.filter(item => {
-            const engagement = item.engagement_metrics || {};
-            const total = (engagement.likes || 0) + (engagement.reposts || 0) + (engagement.replies || 0);
-            return total >= minEngagement;
-        });
-    }
-    
-    // Apply topic filter
-    if (currentFilters.topic) {
-        filteredItems = filteredItems.filter(item => item.topic === currentFilters.topic);
-    }
-    
-    // Apply sorting
-    filteredItems.sort((a, b) => {
-        switch (currentFilters.sort) {
-            case 'publication_date':
-                return new Date(b.publication_date || b.created_at) - new Date(a.publication_date || a.created_at);
-            case 'created_at':
-                return new Date(b.created_at) - new Date(a.created_at);
-            case 'engagement':
-                const aEng = getEngagementScore(a);
-                const bEng = getEngagementScore(b);
-                return bEng - aEng;
-            default:
-                return 0;
-        }
-    });
-    
-    // Apply pagination
-    const startIndex = currentPage * currentFilters.limit;
-    const endIndex = startIndex + currentFilters.limit;
-    feedItems = filteredItems.slice(0, endIndex);
-    hasMoreItems = endIndex < filteredItems.length;
-    
-    renderFeedItems();
-    updateLoadMoreButton();
-}
 
 function getDateFromRange(range, now) {
     switch (range) {
@@ -3921,7 +3860,8 @@ function resetCustomizations() {
         minEngagement: '',
         starred: '',
         layout: 'cards',
-        topic: ''
+        topic: '',
+        combinations: [] // <-- Add combinations to filter state
     };
     
     // Clear cache
@@ -7248,19 +7188,19 @@ function addCombination() {
     dateSelect.value = '';
     
     updateCombinationList();
-    applyClientSideFilters();
+    applyFilters();
 }
 
 function removeCombination(id) {
     activeCombinations = activeCombinations.filter(combo => combo.id !== id);
     updateCombinationList();
-    applyClientSideFilters();
+    applyFilters();
 }
 
 function clearAllCombinations() {
     activeCombinations = [];
     updateCombinationList();
-    applyClientSideFilters();
+    applyFilters();
 }
 
 function updateCombinationList() {
@@ -7302,37 +7242,7 @@ function updateCombinationList() {
     });
 }
 
-function applyCombinationFilters(items) {
-    // Filter items based on active combinations
-    let filteredItems = [];
-    
-    activeCombinations.forEach(combo => {
-        const matchingItems = items.filter(item => {
-            // Check source match
-            const sourceMatch = item.source_type === combo.source;
-            
-            // Check date match
-            let dateMatch = true;
-            if (combo.date && combo.date !== 'alltime') {
-                const now = new Date();
-                const filterDate = getDateFromRange(combo.date, now);
-                const itemDate = new Date(item.publication_date);
-                dateMatch = itemDate >= filterDate;
-            }
-            
-            return sourceMatch && dateMatch;
-        });
-        
-        // Add matching items to filtered list (avoid duplicates)
-        matchingItems.forEach(item => {
-            if (!filteredItems.some(existing => existing.id === item.id)) {
-                filteredItems.push(item);
-            }
-        });
-    });
-    
-    return filteredItems;
-}
+
 
 
 </script>

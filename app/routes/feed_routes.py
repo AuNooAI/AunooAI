@@ -380,11 +380,23 @@ async def get_unified_feed(
     offset: int = Query(0, ge=0, description="Number of items to skip"),
     group_ids: Optional[str] = Query(None, description="Comma-separated group IDs to filter by"),
     source_types: Optional[str] = Query(None, description="Comma-separated source types to filter by"),
+    combination_sources: Optional[str] = Query(None, description="Comma-separated sources for combination filter (matches with combination_dates)"),
+    combination_dates: Optional[str] = Query(None, description="Comma-separated date ranges for combination filter (matches with combination_sources)"),
+    dateRange: Optional[str] = Query(None, description="Date range filter (today, week, month, quarter)"),
+    search: Optional[str] = Query(None, description="Search in title and content"),
+    author: Optional[str] = Query(None, description="Filter by author"),
+    min_engagement: Optional[int] = Query(None, description="Minimum engagement score"),
+    starred: Optional[str] = Query(None, description="Filter by starred status (starred/unstarred)"),
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    sort: Optional[str] = Query("publication_date", description="Sort by: publication_date, created_at, or engagement"),
     include_hidden: bool = Query(False, description="Include hidden items"),
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
 ):
-    """Get unified feed from all active subscribed groups."""
+    """Get unified feed from all active subscribed groups.
+    Supports combination_sources and combination_dates for advanced filtering.
+    All filters are applied server-side for better performance and accuracy.
+    """
     try:
         logger.info(f"API: Getting unified feed (limit={limit}, offset={offset})")
         
@@ -395,6 +407,18 @@ async def get_unified_feed(
                 group_id_list = [int(x.strip()) for x in group_ids.split(",") if x.strip()]
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid group_ids format")
+        
+        # Combination filter logic
+        combination_source_list = None
+        combination_date_list = None
+        if combination_sources and combination_dates:
+            combination_source_list = [x.strip() for x in combination_sources.split(",") if x.strip()]
+            combination_date_list = [x.strip() for x in combination_dates.split(",") if x.strip()]
+            if len(combination_source_list) != len(combination_date_list):
+                raise HTTPException(status_code=400, detail="combination_sources and combination_dates must have the same length")
+        else:
+            combination_source_list = None
+            combination_date_list = None
         
         source_type_list = None
         if source_types:
@@ -414,7 +438,16 @@ async def get_unified_feed(
             offset=offset,
             group_ids=group_id_list,
             source_types=source_type_list,
-            include_hidden=include_hidden
+            include_hidden=include_hidden,
+            combination_sources=combination_source_list,
+            combination_dates=combination_date_list,
+            dateRange=dateRange,
+            search=search,
+            author=author,
+            min_engagement=min_engagement,
+            starred=starred,
+            topic=topic,
+            sort=sort
         )
         
         if not result["success"]:
@@ -435,15 +468,36 @@ async def get_group_feed(
     limit: int = Query(50, ge=1, le=1000, description="Number of items to return"),
     offset: int = Query(0, ge=0, description="Number of items to skip"),
     source_types: Optional[str] = Query(None, description="Comma-separated source types to filter by"),
+    combination_sources: Optional[str] = Query(None, description="Comma-separated sources for combination filter (matches with combination_dates)"),
+    combination_dates: Optional[str] = Query(None, description="Comma-separated date ranges for combination filter (matches with combination_sources)"),
+    dateRange: Optional[str] = Query(None, description="Date range filter (today, week, month, quarter)"),
+    search: Optional[str] = Query(None, description="Search in title and content"),
+    author: Optional[str] = Query(None, description="Filter by author"),
+    min_engagement: Optional[int] = Query(None, description="Minimum engagement score"),
+    starred: Optional[str] = Query(None, description="Filter by starred status (starred/unstarred)"),
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    sort: Optional[str] = Query("publication_date", description="Sort by: publication_date, created_at, or engagement"),
     include_hidden: bool = Query(False, description="Include hidden items"),
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
 ):
-    """Get feed items for a specific group."""
+    """Get feed items for a specific group. Supports combination_sources and combination_dates for advanced filtering.
+    All filters are applied server-side for better performance and accuracy."""
     try:
         logger.info(f"API: Getting feed for group {group_id}")
         
-        # Parse source types
+        # Combination filter logic
+        combination_source_list = None
+        combination_date_list = None
+        if combination_sources and combination_dates:
+            combination_source_list = [x.strip() for x in combination_sources.split(",") if x.strip()]
+            combination_date_list = [x.strip() for x in combination_dates.split(",") if x.strip()]
+            if len(combination_source_list) != len(combination_date_list):
+                raise HTTPException(status_code=400, detail="combination_sources and combination_dates must have the same length")
+        else:
+            combination_source_list = None
+            combination_date_list = None
+        
         source_type_list = None
         if source_types:
             source_type_list = [x.strip() for x in source_types.split(",") if x.strip()]
@@ -454,7 +508,16 @@ async def get_group_feed(
             limit=limit,
             offset=offset,
             source_types=source_type_list,
-            include_hidden=include_hidden
+            include_hidden=include_hidden,
+            combination_sources=combination_source_list,
+            combination_dates=combination_date_list,
+            dateRange=dateRange,
+            search=search,
+            author=author,
+            min_engagement=min_engagement,
+            starred=starred,
+            topic=topic,
+            sort=sort
         )
         
         if not result["success"]:
