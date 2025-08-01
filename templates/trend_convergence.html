@@ -524,6 +524,15 @@
     
     <div id="errorContainer"></div>
     
+    <!-- Add consistency indicator -->
+    <div class="consistency-indicator" id="consistencyIndicator" style="display: none;">
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            <strong>Consistency Info:</strong>
+            <span id="consistencyMessage"></span>
+        </div>
+    </div>
+    
     <div id="trendConvergenceContainer" style="display: none;">
         <div class="convergence-container">
             <!-- Strategic Recommendations Section -->
@@ -670,6 +679,36 @@
                                 <small class="text-muted">
                                     <i class="fas fa-info-circle me-1"></i>
                                     <span id="contextStats">Context: 0 articles, ~0 tokens</span>
+                                </small>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="consistencyMode" class="form-label">Analysis Consistency</label>
+                            <select class="form-select" id="consistencyMode">
+                                <option value="deterministic">🎯 Deterministic - Maximum consistency, identical results</option>
+                                <option value="low_variance">🎲 Low Variance - High consistency with minor variations</option>
+                                <option value="balanced" selected>⚖️ Balanced - Good mix of consistency and insights</option>
+                                <option value="creative">🌟 Creative - Maximum variation and fresh perspectives</option>
+                            </select>
+                            <div class="form-text">
+                                <small class="text-muted">
+                                    Choose based on your needs: <strong>Deterministic</strong> for reports, 
+                                    <strong>Creative</strong> for brainstorming, <strong>Balanced</strong> for general use.
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="enableCaching" checked>
+                                <label class="form-check-label" for="enableCaching">
+                                    Enable Result Caching
+                                </label>
+                            </div>
+                            <div class="form-text">
+                                <small class="text-muted">
+                                    Cache results to improve response time and ensure consistency for identical parameters.
                                 </small>
                             </div>
                         </div>
@@ -929,13 +968,21 @@ async function loadTrendConvergenceAnalysis() {
         // Get sample size parameters
         const sampleSizeMode = document.getElementById('sampleSizeMode').value;
         const customLimit = document.getElementById('customLimit').value;
+        const consistencyMode = document.getElementById('consistencyMode').value;
+        const enableCaching = document.getElementById('enableCaching').checked;
+        
+        // Show consistency indicator
+        showConsistencyInfo(consistencyMode, enableCaching);
         
         // Build request parameters
         const params = new URLSearchParams({
             timeframe_days: actualTimeframe,
             model: model,
             analysis_depth: analysisDepth,
-            sample_size_mode: sampleSizeMode
+            sample_size_mode: sampleSizeMode,
+            consistency_mode: consistencyMode,
+            enable_caching: enableCaching,
+            cache_duration_hours: 24
         });
         
         // Add custom limit if specified
@@ -1560,6 +1607,8 @@ function saveConfigurationAndClose() {
     const sampleSizeMode = document.getElementById('sampleSizeMode').value;
     const customLimit = document.getElementById('customLimit').value;
     const profileId = document.getElementById('organizationalProfile').value;
+    const consistencyMode = document.getElementById('consistencyMode').value;
+    const enableCaching = document.getElementById('enableCaching').checked;
     
     if (!topic) {
         alert('Please select a topic');
@@ -1579,6 +1628,8 @@ function saveConfigurationAndClose() {
         sampleSizeMode,
         customLimit,
         profileId,
+        consistencyMode,
+        enableCaching,
         timestamp: new Date().toISOString()
     };
     
@@ -1736,6 +1787,12 @@ async function loadSavedConfiguration() {
             if (config.profileId) {
                 document.getElementById('organizationalProfile').value = config.profileId;
                 handleProfileChange();
+            }
+            if (config.consistencyMode) {
+                document.getElementById('consistencyMode').value = config.consistencyMode;
+            }
+            if (config.enableCaching !== undefined) {
+                document.getElementById('enableCaching').checked = config.enableCaching;
             }
             
             updateLoadButton();
@@ -2281,5 +2338,39 @@ document.addEventListener('DOMContentLoaded', async function() {
         showError('Failed to load available data.');
     }
 });
+
+// Consistency information display function
+function showConsistencyInfo(mode, cachingEnabled) {
+    const indicator = document.getElementById('consistencyIndicator');
+    const message = document.getElementById('consistencyMessage');
+    
+    let infoText = '';
+    switch(mode) {
+        case 'deterministic':
+            infoText = 'Using deterministic mode - results will be identical for same parameters.';
+            break;
+        case 'low_variance':
+            infoText = 'Using low variance mode - results will be highly consistent with minor variations.';
+            break;
+        case 'balanced':
+            infoText = 'Using balanced mode - good mix of consistency and fresh insights.';
+            break;
+        case 'creative':
+            infoText = 'Using creative mode - results may vary significantly between runs.';
+            break;
+    }
+    
+    if (cachingEnabled) {
+        infoText += ' Caching enabled for faster repeated queries.';
+    }
+    
+    message.textContent = infoText;
+    indicator.style.display = 'block';
+    
+    // Hide after 5 seconds
+    setTimeout(() => {
+        indicator.style.display = 'none';
+    }, 5000);
+}
 </script>
 {% endblock %} 
