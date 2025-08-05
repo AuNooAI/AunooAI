@@ -80,6 +80,7 @@ from elevenlabs.studio import (
     BodyCreatePodcastV1StudioPodcastsPostMode_Conversation,
     BodyCreatePodcastV1StudioPodcastsPostMode_Bulletin,
 )
+from utils.misc import masked_string
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -1246,21 +1247,6 @@ async def startup_event():
             logger.info("Application initialized successfully")
         else:
             logger.error("Failed to initialize application")
-            
-        # Start the keyword monitor background task with a delay to prevent blocking startup
-        async def delayed_keyword_monitor_start():
-            """Start keyword monitor after a short delay to prevent blocking startup"""
-            await asyncio.sleep(5)  # Wait 5 seconds after startup
-            try:
-                logger.info("Starting keyword monitor background task...")
-                asyncio.create_task(run_keyword_monitor())
-                logger.info("Keyword monitor background task started successfully")
-            except Exception as e:
-                logger.error(f"Failed to start keyword monitor background task: {str(e)}")
-        
-        # Start the delayed task
-        asyncio.create_task(delayed_keyword_monitor_start())
-        logger.info("Scheduled keyword monitor to start in 5 seconds")
             
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
@@ -2897,7 +2883,7 @@ async def reload_environment():
         masked_keys = {}
         for provider, key in api_keys.items():
             if key:
-                masked_key = key[:4] + "..." + key[-4:] if len(key) > 8 else "[SET]"
+                masked_key = masked_string(key)
                 masked_keys[provider] = masked_key
             else:
                 masked_keys[provider] = None
