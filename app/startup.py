@@ -1,6 +1,7 @@
 import logging
 import os
 from app.env_loader import load_environment, ensure_model_env_vars
+from utils.misc import masked_string
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ def initialize_application():
         logger.info("Available API keys:")
         for key, value in os.environ.items():
             if 'API_KEY' in key:
-                masked = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "[SET]"
+                masked = masked_string(value)
                 logger.info(f"  {key}={masked}")
     else:
         logger.info("Successfully configured AI models:")
@@ -55,7 +56,7 @@ def verify_firecrawl_config():
         
         if firecrawl_key or provider_key:
             key_to_use = provider_key or firecrawl_key
-            masked = f"{key_to_use[:4]}...{key_to_use[-4:]}" if len(key_to_use) > 8 else "[SET]"
+            masked = masked_string(key_to_use)
             logger.info(f"Firecrawl API key found: {masked}")
             
             # Set both environment variables to ensure consistency
@@ -93,11 +94,11 @@ def initialize_firecrawl():
         provider_key = os.environ.get("PROVIDER_FIRECRAWL_KEY")
         
         if firecrawl_key:
-            masked = f"{firecrawl_key[:4]}...{firecrawl_key[-4:]}" if len(firecrawl_key) > 8 else "[SET]"
+            masked = masked_string(firecrawl_key)
             logger.info(f"FIRECRAWL_API_KEY found: {masked}")
         
         if provider_key:
-            masked = f"{provider_key[:4]}...{provider_key[-4:]}" if len(provider_key) > 8 else "[SET]"
+            masked = masked_string(provider_key)
             logger.info(f"PROVIDER_FIRECRAWL_KEY found: {masked}")
         
         if not firecrawl_key and not provider_key:
