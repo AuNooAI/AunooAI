@@ -2,6 +2,7 @@ import os
 import logging
 from dotenv import load_dotenv
 from pathlib import Path
+from utils.misc import masked_string
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,7 @@ def ensure_model_env_vars():
         # Log the configured keys (masked for security)
         for key, value in os.environ.items():
             if "_API_KEY" in key and value:
-                masked_value = f"{value[:4]}...{value[-4:]}" if len(value) > 8 else "[SET]"
+                masked_value = masked_string(value)
                 logger.debug(f"API Key configured: {key}={masked_value}")
                 
     except Exception as e:
