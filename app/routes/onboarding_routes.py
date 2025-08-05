@@ -11,6 +11,7 @@ import yaml
 from dotenv import load_dotenv, set_key
 from litellm import completion
 from app.ai_models import ai_get_available_models  # Add this import at the top
+from utils.misc import masked_string
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -187,6 +188,7 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
                 
                 # Validation: if the call returns without raising an exception,
                 # we consider the key valid – no need to inspect the payload.
+                # TODO: Refactor to use factory class!
                 firecrawl.scrape_url("https://example.com", formats=["markdown"])
                 
                 # Save API key - using primary format
@@ -373,7 +375,8 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
         load_dotenv(dotenv_path=env_path, override=True)
         
         # Return the masked key in the response
-        masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "[SET]"
+        masked_key = masked_string(api_key)
+
         return JSONResponse(content={
             "status": "valid", 
             "configured": True,
