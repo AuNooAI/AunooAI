@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import asyncio
+from crawlers import CrawlerFactory
 
 # flake8: noqa  # Disable style warnings (long lines etc.) for this file
 
@@ -461,7 +462,7 @@ class BulkResearch:
 
     async def _batch_scrape_articles(self, urls: List[str], topic: str = None) -> Dict[str, Dict[str, Any]]:
         """
-        Batch scrape articles using Firecrawl's batch API or fallback to individual scraping
+        Batch scrape articles using web crawler's batch API or fallback to individual scraping
         
         Args:
             urls: List of URLs to scrape
@@ -510,40 +511,26 @@ class BulkResearch:
         if regular_urls:
             try:
                 # Try batch processing first
-                if self.research.firecrawl_app:
-                    logger.info(f"Attempting batch scraping for {len(regular_urls)} regular URLs")
-                    batch_results = await self._firecrawl_batch_scrape(regular_urls)
-                    
-                    for url, content in batch_results.items():
-                        if content:
-                            results[url] = {
-                                "content": content,
-                                "source": self.extract_source(url),
-                                "publication_date": self.article_analyzer.extract_publication_date(content),
-                                "title": self.article_analyzer.extract_title(content)
-                            }
-                            
-                            # Save raw content
-                            try:
-                                if topic:
-                                    self.db.save_raw_article(url, content, topic)
-                            except Exception as save_error:
-                                logger.error(f"Failed to save batch content: {save_error}")
-                        else:
-                            results[url] = None
-                else:
-                    logger.warning("Firecrawl not available, falling back to individual scraping")
-                    # Fallback to individual scraping
-                    for url in regular_urls:
+                logger.info(f"Attempting batch scraping for {len(regular_urls)} regular URLs")
+                batch_results = await self._web_crawler_batch_scrape(regular_urls)
+
+                for url, content in batch_results.items():
+                    if content:
+                        results[url] = {
+                            "content": content,
+                            "source": self.extract_source(url),
+                            "publication_date": self.article_analyzer.extract_publication_date(content),
+                            "title": self.article_analyzer.extract_title(content)
+                        }
+
+                        # Save raw content
                         try:
-                            article_content = await self.research.fetch_article_content(url, save_with_topic=bool(topic))
-                            if article_content and article_content.get("content"):
-                                results[url] = article_content
-                            else:
-                                results[url] = None
-                        except Exception as e:
-                            logger.error(f"Individual scraping failed for {url}: {e}")
-                            results[url] = None
+                            if topic:
+                                self.db.save_raw_article(url, content, topic)
+                        except Exception as save_error:
+                            logger.error(f"Failed to save batch content: {save_error}")
+                    else:
+                        results[url] = None
                             
             except Exception as e:
                 logger.error(f"Batch scraping failed: {e}")
@@ -562,9 +549,9 @@ class BulkResearch:
         
         return results
     
-    async def _firecrawl_batch_scrape(self, urls: List[str]) -> Dict[str, Optional[str]]:
+    def _web_crawler_batch_scrape(self, urls: List[str]) -> Dict[str, Optional[str]]:
         """
-        Use Firecrawl's batch API to scrape multiple URLs
+        Use web crawler's batch API to scrape multiple URLs
         
         Args:
             urls: List of URLs to scrape
@@ -573,124 +560,31 @@ class BulkResearch:
             Dictionary mapping URLs to scraped content
         """
         try:
-            # Prepare batch request
-            batch_response = self.research.firecrawl_app.async_batch_scrape_urls(
+            return CrawlerFactory.get_crawler(logger=logger).batch_scrape_urls(
                 urls,
-                formats=["markdown"],
-                onlyMainContent=True,
-                timeout=30000
+                {
+                    onlyMainContent: True,
+                    timeout: 30000
+                }
             )
             
-            if not batch_response or not batch_response.get('success'):
-                logger.error(f"Batch scrape failed: {batch_response}")
-                return {}
-            
-            batch_id = batch_response.get('id')
-            if not batch_id:
-                logger.error("No batch ID returned from Firecrawl")
-                return {}
-            
-            logger.info(f"Batch scrape submitted with ID: {batch_id}")
-            
-            # Poll for completion
-            return await self._poll_batch_completion(batch_id)
-            
         except Exception as e:
-            logger.error(f"Error in Firecrawl batch scraping: {e}")
+            logger.error(f"Error in web crawler batch scraping: {e}")
             return {}
-    
-    async def _poll_batch_completion(self, batch_id: str, max_wait_time: int = 300) -> Dict[str, Optional[str]]:
-        """
-        Poll Firecrawl batch API for completion
-        
-        Args:
-            batch_id: Batch job ID
-            max_wait_time: Maximum time to wait in seconds
-            
-        Returns:
-            Dictionary mapping URLs to scraped content
-        """
-        import time
-        
-        start_time = time.time()
-        poll_interval = 5  # Start with 5 second intervals
-        
-        while time.time() - start_time < max_wait_time:
-            try:
-                status_response = self.research.firecrawl_app.check_batch_scrape_status(batch_id)
-                
-                if not status_response:
-                    logger.warning(f"No status response for batch {batch_id}")
-                    await asyncio.sleep(poll_interval)
-                    continue
-                
-                status = status_response.get('status')
-                logger.debug(f"Batch {batch_id} status: {status}")
-                
-                if status == 'completed':
-                    # Get results
-                    results = {}
-                    data = status_response.get('data', [])
-                    
-                    for item in data:
-                        url = item.get('url')
-                        if item.get('success') and 'markdown' in item:
-                            # Apply token limiting
-                            content = item['markdown']
-                            from app.analyzers.article_analyzer import ArticleAnalyzer
-                            truncated_content = ArticleAnalyzer.truncate_text(None, content, max_chars=65000)
-                            
-                            if len(content) > len(truncated_content):
-                                logger.info(f"Truncated content for {url}: {len(content)} -> {len(truncated_content)} chars")
-                            
-                            results[url] = truncated_content
-                        else:
-                            results[url] = None
-                            logger.warning(f"Failed to scrape {url}: {item.get('error', 'Unknown error')}")
-                    
-                    logger.info(f"Batch {batch_id} completed with {len(results)} results")
-                    return results
-                    
-                elif status == 'failed':
-                    logger.error(f"Batch {batch_id} failed: {status_response.get('error', 'Unknown error')}")
-                    return {}
-                    
-                # Still processing, wait before next poll
-                await asyncio.sleep(poll_interval)
-                
-                # Increase poll interval gradually
-                poll_interval = min(poll_interval * 1.2, 30)
-                
-            except Exception as e:
-                logger.error(f"Error polling batch status: {e}")
-                await asyncio.sleep(poll_interval)
-        
-        logger.warning(f"Batch {batch_id} timed out after {max_wait_time} seconds")
-        return {}
 
     async def _direct_scrape(self, url):
         """Directly scrape the URL without saving to database.
         This is a workaround for foreign key constraint issues."""
         try:
             logger.debug(f"Performing direct scrape for URL: {url}")
-            
-            if not self.research.firecrawl_app:
-                logger.warning("Firecrawl is not configured. Cannot perform direct scrape.")
-                return {
-                    "content": "Article content cannot be fetched. Firecrawl is not configured.",
-                    "source": self.extract_source(url),
-                    "publication_date": datetime.datetime.now().date().isoformat(),
-                    "success": False
-                }
-            
-            # Try to scrape with Firecrawl directly
-            scrape_result = self.research.firecrawl_app.scrape_url(
-                url,
-                formats=["markdown"]
+
+            # Try to scrape with directly
+            scrape_result = CrawlerFactory.get_crawler(logger=logger).scrape_url(
+                url
             )
-            
+
             # Extract content
-            if isinstance(scrape_result, dict) and 'markdown' in scrape_result:
+            if 'markdown' in scrape_result:
                 content = scrape_result['markdown']
                 
                 # Extract publication date using ArticleAnalyzer
@@ -706,7 +600,7 @@ class BulkResearch:
                     "success": True
                 }
             else:
-                logger.warning(f"Unexpected response format from direct Firecrawl scrape for URL: {url}")
+                logger.warning(f"Unexpected response format from direct web crawler scrape for URL: {url}")
                 return {
                     "content": "Failed to fetch article content. Unexpected response format.",
                     "source": self.extract_source(url),
