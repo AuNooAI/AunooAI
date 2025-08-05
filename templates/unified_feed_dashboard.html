@@ -615,6 +615,14 @@
         box-shadow: 0 0 0 2px rgba(255, 105, 180, 0.2);
     }
 
+    .filter-select:disabled {
+        background-color: var(--light-gray);
+        color: var(--medium-gray);
+        border-color: var(--medium-gray);
+        cursor: not-allowed;
+        opacity: 0.7;
+    }
+
     .feed-controls-left,
     .feed-controls-right {
         display: flex;
@@ -2679,6 +2687,9 @@ function loadCachedPreferences() {
             // Restore combination filter UI
             if (currentFilters.combinations && Array.isArray(currentFilters.combinations)) {
                 activeCombinations = [...currentFilters.combinations];
+                if (activeCombinations.length > 0) {
+                    disableSourceAndDateRangeFilters();
+                }
                 updateCombinationList();
             }
         }
@@ -3753,6 +3764,40 @@ function applyFilters() {
     loadFeedItems();
 }
 
+
+function disableSourceAndDateRangeFilters() {
+    // Clear the values
+    currentFilters.source = '';
+    currentFilters.dateRange = '';
+
+    const sourceFilterEl = document.getElementById('sourceFilter');
+    const dateRangeFilterEl   = document.getElementById('dateFilter');
+
+    // Clear the values
+    sourceFilterEl.value = '';
+    dateRangeFilterEl.value   = '';
+
+    // Disable the controls
+    sourceFilterEl.disabled = true;
+    dateRangeFilterEl.disabled   = true;
+
+    // Add tooltip to explain why they are disabled
+    sourceFilterEl.title = 'Source filter is disabled when combination filter is active';
+    dateRangeFilterEl.title   = 'DateRange filter is disabled when combination filter is active';
+}
+
+function enableSourceAndDateRangeFilters() {
+    const sourceFilterEl = document.getElementById('sourceFilter');
+    const dateFilterEl   = document.getElementById('dateFilter');
+
+    // Enable the controls
+    sourceFilterEl.disabled = false;
+    dateFilterEl.disabled   = false;
+
+    // Remove tooltip when controls are active
+    sourceFilterEl.removeAttribute('title');
+    dateFilterEl.removeAttribute('title');
+}
 
 function getDateFromRange(range, now) {
     switch (range) {
@@ -7148,6 +7193,12 @@ function toggleMultiFilter() {
 }
 
 function addCombination() {
+    // Disable source and date range filters if this is the first combination
+    const isFirstCombination = activeCombinations.length === 0;
+    if (isFirstCombination) {
+        disableSourceAndDateRangeFilters();
+    }
+
     const sourceSelect = document.getElementById('newSource');
     const dateSelect = document.getElementById('newDate');
     const sourceValue = sourceSelect.value;
@@ -7193,12 +7244,16 @@ function addCombination() {
 
 function removeCombination(id) {
     activeCombinations = activeCombinations.filter(combo => combo.id !== id);
+    if (activeCombinations.length === 0) {
+        enableSourceAndDateRangeFilters();
+    }
     updateCombinationList();
     applyFilters();
 }
 
 function clearAllCombinations() {
     activeCombinations = [];
+    enableSourceAndDateRangeFilters();
     updateCombinationList();
     applyFilters();
 }
