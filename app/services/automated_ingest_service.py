@@ -29,6 +29,7 @@ import concurrent.futures
 import requests
 from app.config.config import load_config
 import time
+from crawlers import CrawlerFactory
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -905,19 +906,21 @@ class AutomatedIngestService:
             "vector_indexed": 0,
             "errors": []
         }
-        
+
         try:
             # Pre-scrape all articles in batch for efficiency
             article_uris = [article.get('uri') for article in articles if article.get('uri')]
             self.logger.info(f"🚀 Pre-scraping {len(article_uris)} articles in batch...")
-            
+
+
             scraped_content = await self.scrape_articles_batch(article_uris)
+
             self.logger.info(f"✅ Batch scraping completed: {len(scraped_content)} articles")
             
             for article in articles:
                 article_uri = article.get('uri', 'unknown')
                 article_title = article.get('title', 'Unknown Title')
-                
+
                 try:
                     self.logger.info(f"🔄 Starting processing for article: {article_title}")
                     self.logger.info(f"   URI: {article_uri}")
@@ -939,7 +942,7 @@ class AutomatedIngestService:
                     # Step 1.5: Get pre-scraped content
                     self.logger.info(f"📄 Step 2: Getting pre-scraped article content...")
                     raw_content = scraped_content.get(article_uri)
-                    
+
                     if raw_content:
                         try:
                             # Save raw content to database
@@ -1487,7 +1490,7 @@ class AutomatedIngestService:
     
     async def scrape_articles_batch(self, uris: List[str]) -> Dict[str, Optional[str]]:
         """
-        Scrape multiple articles using Firecrawl's batch API
+        Scrape multiple articles using web crawler's batch API
         
         Args:
             uris: List of article URIs to scrape
@@ -1499,7 +1502,7 @@ class AutomatedIngestService:
             return {}
             
         results = {}
-        
+
         try:
             self.logger.info(f"Starting batch scraping for {len(uris)} articles")
             
@@ -1517,17 +1520,9 @@ class AutomatedIngestService:
             if not uris_to_scrape:
                 self.logger.info("All articles already scraped, returning existing content")
                 return existing_articles
-            
-            # Initialize Research class for Firecrawl access
-            from app.research import Research
-            research = Research(self.db)
-            
-            if not research.firecrawl_app:
-                self.logger.warning("Firecrawl not available, falling back to individual scraping")
-                return await self._fallback_individual_scraping(uris)
-            
-            # Use Firecrawl batch API
-            batch_result = await self._firecrawl_batch_scrape(research.firecrawl_app, uris_to_scrape)
+
+            # Use web crawler's batch API
+            batch_result = await self._web_crawler_batch_scrape(CrawlerFactory.get_crawler(logger=logger), uris_to_scrape)
             
             # Combine existing and newly scraped content
             results.update(existing_articles)
@@ -1541,12 +1536,12 @@ class AutomatedIngestService:
             # Fallback to individual scraping on batch failure
             return await self._fallback_individual_scraping(uris)
     
-    async def _firecrawl_batch_scrape(self, firecrawl_app, uris: List[str]) -> Dict[str, Optional[str]]:
+    async def _web_crawler_batch_scrape(self, crawler, uris: List[str]) -> Dict[str, Optional[str]]:
         """
-        Use Firecrawl's batch API to scrape multiple URLs
+        Use web crawler's batch API to scrape multiple URLs
         
         Args:
-            firecrawl_app: Firecrawl application instance
+            crawler: Web crawler application instance
             uris: List of URIs to scrape
             
         Returns:
@@ -1554,28 +1549,12 @@ class AutomatedIngestService:
         """
         try:
             self.logger.info(f"Submitting batch scrape request for {len(uris)} URLs")
-            
-            # Submit batch request using async method - following Firecrawl documentation
-            # Documentation: https://docs.firecrawl.dev/features/batch-scrape
-            batch_response = firecrawl_app.async_batch_scrape_urls(
-                uris,
-                formats=['markdown']
+
+            # TODO: Rename function from async to something else?
+            results = crawler.batch_scrape_urls(
+                uris
             )
-            
-            if not batch_response or not getattr(batch_response, 'success', False):
-                self.logger.error(f"Batch scrape failed: {batch_response}")
-                return {}
-            
-            batch_id = getattr(batch_response, 'id', None)
-            if not batch_id:
-                self.logger.error("No batch ID returned from Firecrawl")
-                return {}
-            
-            self.logger.info(f"Batch scrape submitted with ID: {batch_id}")
-            
-            # Poll for completion
-            results = await self._poll_batch_completion(firecrawl_app, batch_id)
-            
+
             # Process results
             processed_results = {}
             for uri, content in results.items():
@@ -1596,85 +1575,7 @@ class AutomatedIngestService:
         except Exception as e:
             self.logger.error(f"Error in Firecrawl batch scraping: {e}")
             return {}
-    
-    async def _poll_batch_completion(self, firecrawl_app, batch_id: str, max_wait_time: int = 300) -> Dict[str, Optional[str]]:
-        """
-        Poll Firecrawl batch API for completion
-        
-        Args:
-            firecrawl_app: Firecrawl application instance
-            batch_id: Batch job ID
-            max_wait_time: Maximum time to wait in seconds
-            
-        Returns:
-            Dictionary mapping URIs to scraped content
-        """
-        start_time = time.time()
-        poll_interval = 5  # Start with 5 second intervals
-        
-        while time.time() - start_time < max_wait_time:
-            try:
-                status_response = firecrawl_app.check_batch_scrape_status(batch_id)
-                
-                if not status_response:
-                    self.logger.warning(f"No status response for batch {batch_id}")
-                    await asyncio.sleep(poll_interval)
-                    continue
-                
-                # Handle both dict and object responses
-                if hasattr(status_response, 'status'):
-                    status = status_response.status
-                    data = getattr(status_response, 'data', [])
-                    error = getattr(status_response, 'error', None)
-                else:
-                    status = status_response.get('status')
-                    data = status_response.get('data', [])
-                    error = status_response.get('error', None)
-                
-                self.logger.debug(f"Batch {batch_id} status: {status}")
-                
-                if status == 'completed':
-                    # Get results
-                    results = {}
-                    
-                    for item in data:
-                        if hasattr(item, 'url'):
-                            url = item.url
-                            success = getattr(item, 'success', False)
-                            markdown = getattr(item, 'markdown', None)
-                            item_error = getattr(item, 'error', None)
-                        else:
-                            url = item.get('url')
-                            success = item.get('success', False)
-                            markdown = item.get('markdown', None)
-                            item_error = item.get('error', None)
-                        
-                        if success and markdown:
-                            results[url] = markdown
-                        else:
-                            results[url] = None
-                            self.logger.warning(f"Failed to scrape {url}: {item_error or 'Unknown error'}")
-                    
-                    self.logger.info(f"Batch {batch_id} completed with {len(results)} results")
-                    return results
-                    
-                elif status == 'failed':
-                    self.logger.error(f"Batch {batch_id} failed: {error or 'Unknown error'}")
-                    return {}
-                    
-                # Still processing, wait before next poll
-                await asyncio.sleep(poll_interval)
-                
-                # Increase poll interval gradually
-                poll_interval = min(poll_interval * 1.2, 30)
-                
-            except Exception as e:
-                self.logger.error(f"Error polling batch status: {e}")
-                await asyncio.sleep(poll_interval)
-        
-        self.logger.warning(f"Batch {batch_id} timed out after {max_wait_time} seconds")
-        return {}
-    
+
     async def _fallback_individual_scraping(self, uris: List[str]) -> Dict[str, Optional[str]]:
         """
         Fallback to individual scraping if batch fails
