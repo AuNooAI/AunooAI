@@ -72,11 +72,11 @@ class KeywordMonitor:
         try:
             with self.db.get_connection() as conn:
                 cursor = conn.cursor()
-                
+
                 # Check if table exists and get its columns
                 cursor.execute("PRAGMA table_info(keyword_monitor_settings)")
                 columns = {col[1] for col in cursor.fetchall()}
-                
+
                 if not columns:
                     # Create table if it doesn't exist
                     cursor.execute("""
@@ -91,7 +91,14 @@ class KeywordMonitor:
                             is_enabled BOOLEAN NOT NULL DEFAULT 1,
                             daily_request_limit INTEGER NOT NULL DEFAULT 100,
                             search_date_range INTEGER NOT NULL DEFAULT 7,
-                            provider TEXT NOT NULL DEFAULT 'newsapi'
+                            provider TEXT NOT NULL DEFAULT 'newsapi',
+                            auto_ingest_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                            min_relevance_threshold REAL NOT NULL DEFAULT 0.0,
+                            quality_control_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                            auto_save_approved_only BOOLEAN NOT NULL DEFAULT FALSE,
+                            default_llm_model TEXT NOT NULL DEFAULT 'gpt-4o-mini',
+                            llm_temperature REAL NOT NULL DEFAULT 0.1,
+                            llm_max_tokens INTEGER NOT NULL DEFAULT 1000
                         )
                     """)
                     # Insert default settings
@@ -121,8 +128,13 @@ class KeywordMonitor:
                             ALTER TABLE keyword_monitor_settings 
                             ADD COLUMN provider TEXT NOT NULL DEFAULT 'newsapi'
                         """)
+                    if 'auto_ingest_enabled' not in columns:
+                        cursor.execute("""
+                            ALTER TABLE keyword_monitor_settings 
+                            ADD COLUMN auto_ingest_enabled BOOLEAN NOT NULL DEFAULT FALSE
+                        """)
                     conn.commit()
-                
+
                 # Load settings
                 cursor.execute("""
                     SELECT 
@@ -140,7 +152,7 @@ class KeywordMonitor:
                     WHERE id = 1
                 """)
                 settings = cursor.fetchone()
-                
+
                 if settings:
                     self.check_interval = settings[0] * settings[1]  # interval * unit
                     self.search_fields = settings[2]
@@ -341,12 +353,12 @@ class KeywordMonitor:
                         f"Checking keyword: {keyword_text} (topic: {topic}, "
                         f"requests_today: {self.collector.requests_today}/100)"
                     )
-                    
+
                     try:
                         # Calculate start_date based on search_date_range instead of last_checked
                         start_date = datetime.now() - timedelta(days=self.search_date_range)
-                        
                         logger.debug(f"Searching for articles with keyword: '{keyword_text}', topic: '{topic}', start_date: {start_date.isoformat()}")
+
                         articles = await self.collector.search_articles(
                             query=keyword_text,
                             topic=topic,
@@ -356,7 +368,7 @@ class KeywordMonitor:
                             language=self.language,
                             sort_by=self.sort_by
                         )
-                        
+
                         if not articles:
                             logger.warning(f"No articles found or error occurred for keyword: {keyword_text}")
                             continue
@@ -365,7 +377,7 @@ class KeywordMonitor:
                         # Log details of first few articles to help debug
                         for i, article in enumerate(articles[:3]):  # Log up to first 3 articles
                             logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
-                        
+
                         # Try auto-ingest pipeline if enabled (before processing individual articles)
                         auto_ingest_results = None
                         if self.should_auto_ingest():
@@ -378,8 +390,9 @@ class KeywordMonitor:
                                     WHERE kg.topic = ?
                                 """, (topic,))
                                 topic_keywords = [row[0] for row in cursor.fetchall()]
-                                
+
                                 auto_ingest_results = await self.auto_ingest_pipeline(articles, topic, topic_keywords)
+
                                 logger.info(f"Auto-ingest results: {auto_ingest_results}")
                             except Exception as e:
                                 logger.error(f"Auto-ingest pipeline failed: {e}")
@@ -573,7 +586,7 @@ class KeywordMonitor:
         job_id = f"keyword-monitor-{uuid.uuid4()}"
         job = KeywordMonitorJob(job_id, topic, len(articles))
         _keyword_monitor_jobs[job_id] = job
-        
+
         try:
             logger.info(f"Starting auto-ingest pipeline for {len(articles)} articles on topic '{topic}' (Job ID: {job_id})")
             
@@ -592,10 +605,10 @@ class KeywordMonitor:
                     'analyzed': False
                 }
                 formatted_articles.append(formatted_article)
-            
+
             # Process articles through the automated pipeline
             results = await self.auto_ingest_service.process_articles_batch(formatted_articles, topic, keywords)
-            
+
             # Update job status
             job.status = "completed"
             job.results = results
