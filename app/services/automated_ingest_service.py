@@ -956,6 +956,7 @@ class AutomatedIngestService:
                             self.logger.warning(f"   ⚠️ Failed to save raw content: {save_error}")
                     else:
                         self.logger.warning(f"   ❌ No content available from batch scraping for: {article_uri}")
+
                         # Try individual scraping as fallback
                         try:
                             raw_content = await self.scrape_article_content(article_uri)
@@ -1513,7 +1514,7 @@ class AutomatedIngestService:
                 if existing_raw and existing_raw.get('raw_markdown'):
                     existing_articles[uri] = existing_raw['raw_markdown']
                     self.logger.debug(f"Found existing content for {uri}")
-            
+
             # Filter out articles we already have
             uris_to_scrape = [uri for uri in uris if uri not in existing_articles]
             
@@ -1533,9 +1534,11 @@ class AutomatedIngestService:
             
         except Exception as e:
             self.logger.error(f"Error in batch scraping: {e}")
+
             # Fallback to individual scraping on batch failure
             return await self._fallback_individual_scraping(uris)
-    
+
+
     async def _web_crawler_batch_scrape(self, crawler, uris: List[str]) -> Dict[str, Optional[str]]:
         """
         Use web crawler's batch API to scrape multiple URLs
@@ -1550,13 +1553,13 @@ class AutomatedIngestService:
         try:
             self.logger.info(f"Submitting batch scrape request for {len(uris)} URLs")
 
-            # TODO: Rename function from async to something else?
             results = crawler.batch_scrape_urls(
                 uris
             )
 
             # Process results
             processed_results = {}
+
             for uri, content in results.items():
                 if content:
                     # Apply token limiting
