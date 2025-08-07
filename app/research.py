@@ -346,10 +346,9 @@ class Research:
             try:
                 logger.info(f"(fetch_article_content) Using web crawler to scrape content for URI: {uri}")
 
-                scrape_result = CrawlerFactory.get_crawler(logger=logger).scrape_url(
+                scrape_data = CrawlerFactory.get_crawler(logger=logger).scrape_url(
                     uri
                 )
-                scrape_data = self._normalize_scrape_result(scrape_result)
 
                 # Extract content
                 if 'markdown' in scrape_data:
@@ -429,10 +428,9 @@ class Research:
             # Try to scrape with web crawler
             logger.info(f"(_do_scrape) Using web crawler to scrape content for URI: {uri}")
 
-            scrape_result = CrawlerFactory.get_crawler(logger=logger).scrape_url(
+            scrape_data = CrawlerFactory.get_crawler(logger=logger).scrape_url(
                 uri
             )
-            scrape_data = self._normalize_scrape_result(scrape_result)
 
             logger.debug(f"Scrape result type: {type(scrape_result)}")
             logger.debug(f"Scrape result keys: {scrape_data.keys()}")
@@ -931,11 +929,9 @@ class Research:
             # Use web crawler to scrape the article
             try:
                 logger.info(f"(scrape_article) Using web crawler to scrape {uri}")
-                scrape_result = CrawlerFactory.get_crawler(logger=logger).scrape_url(
+                scrape_data = CrawlerFactory.get_crawler(logger=logger).scrape_url(
                     uri
                 )
-
-                scrape_data = self._normalize_scrape_result(scrape_result)
             except Exception as scrape_error:
                 logger.error(f"Web crawler API error: {str(scrape_error)}")
                 return {
@@ -1191,11 +1187,6 @@ class Research:
         except Exception as e:
             logger.error(f"Error reloading environment: {str(e)}")
             return False
-
-    def _normalize_scrape_result(self, scrape_result: Any) -> Dict[str, Any]:
-        """Convert web crawler scrape result to a plain dict with markdown, etc."""
-        # TODO: Validate results?
-        return scrape_result['data']
 
     def check_vector_indexing_status(self, uri: str) -> Dict[str, Any]:
         """Debug utility to check if an article is indexed in the vector database."""
