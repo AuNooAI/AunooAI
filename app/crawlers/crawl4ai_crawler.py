@@ -8,7 +8,7 @@ class Crawl4AICrawler(BaseCrawler):
     def initialize(self):
         self._logger.info("Testing crawl4ai with a basic request...")
         try:
-            test_data = self.scrape_url(url='https://www.example.com')['data']
+            test_data = self.scrape_url(url='https://www.example.com')
 
             if 'markdown' in test_data:
                 self._logger.info("crawl4ai test successful")
@@ -103,10 +103,12 @@ class Crawl4AICrawler(BaseCrawler):
         # TODO: Validation?
         markdown = self.get_page_code(url)['result']['markdown']
 
-        return {"data": {"markdown": markdown}}
+        return {
+            "markdown": markdown
+        }
 
     def batch_scrape_urls(self, urls, params={}):
         # TODO: Validation?
-        results = self.get_page_code(urls)['results']
+        batch_scrape_results = self.get_page_code(urls)['results']
 
-        return {result["url"]: result["markdown"] for result in results}
+        return {result["url"]: result["markdown"] for result in batch_scrape_results}

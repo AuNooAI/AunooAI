@@ -12,17 +12,19 @@ class FirecrawlCrawler(BaseCrawler):
             formats=['markdown'],
             **params
         )
-        return {result.metadata["url"]: result.markdown for result in batch_scrape_results.data}
+
+        return {result.metadata['sourceURL']: result.markdown for _, result in enumerate(batch_scrape_results.data)}
+
 
     def scrape_url(self, url):
         result = self.firecrawl_instance.scrape_url(url, formats=['markdown'])
-        return {"data": {"markdown": result.markdown}}
+        return {"markdown": result.markdown}
 
     def initialize(self):
         self.firecrawl_instance = FirecrawlApp(api_key=self._config['api_key'])
         self._logger.info("Testing firecrawl with a basic request...")
         try:
-            test_data = self.scrape_url(url='https://www.example.com')['data']
+            test_data = self.scrape_url(url='https://www.example.com')
 
             if 'markdown' in test_data:
                 self._logger.info("firecrawl test successful")

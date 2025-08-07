@@ -42,6 +42,3 @@ class CrawlerFactory:
             return CrawlerFactory.crawler_instance
         except Exception as e:
             logger.error(f"Error initializing web crawler: {str(e)}", exc_info=True)
-
-            import sys
-            sys.exit(1)
