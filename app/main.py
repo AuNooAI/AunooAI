@@ -1207,9 +1207,6 @@ async def get_active_database():
 @app.on_event("startup")
 async def startup_event():
     try:
-        # Use the new centralized application initialization
-        from app.startup import initialize_application
-        
         # Configure logging
         logging.basicConfig(
             level=logging.INFO,
@@ -1240,14 +1237,7 @@ async def startup_event():
             logger.info("Async database initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize async database: {e}")
-        
-        # Initialize the application
-        success = initialize_application()
-        if success:
-            logger.info("Application initialized successfully")
-        else:
-            logger.error("Failed to initialize application")
-            
+
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
         raise
