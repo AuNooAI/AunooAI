@@ -1,4 +1,4 @@
-![pylint](https://img.shields.io/badge/PyLint-5.34-orange?logo=python&logoColor=white)
+![pylint](https://img.shields.io/badge/PyLint-5.33-orange?logo=python&logoColor=white)
 ![tests.svg](badges/tests.svg)
 
 # Install
