@@ -2,6 +2,7 @@ import logging
 import os
 from app.env_loader import load_environment, ensure_model_env_vars
 from utils.misc import masked_string
+from crawlers import CrawlerFactory
 
 logger = logging.getLogger(__name__)
 
@@ -41,8 +42,8 @@ def initialize_application():
         for model in available_models:
             logger.info(f"  - {model['name']}")
     
-    # Initialize Firecrawl configuration
-    initialize_firecrawl()
+    # Initialize crawler
+    CrawlerFactory.get_crawler(logger=logger)
     
     return True
 
@@ -50,6 +51,7 @@ def verify_firecrawl_config():
     """
     Verify that Firecrawl API keys are properly configured
     """
+    # TODO: MOVE TO A CONFIG VALIDATION CLASS
     try:
         firecrawl_key = os.environ.get("FIRECRAWL_API_KEY")
         provider_key = os.environ.get("PROVIDER_FIRECRAWL_KEY")
@@ -75,47 +77,3 @@ def verify_firecrawl_config():
     except Exception as e:
         logger.error(f"Error verifying Firecrawl configuration: {str(e)}")
         return False
-
-def initialize_firecrawl():
-    """
-    Check and initialize Firecrawl API configuration at startup.
-    """
-    try:
-        # Check if the Firecrawl module is available
-        try:
-            from firecrawl import FirecrawlApp
-            logger.info("FirecrawlApp module is available")
-        except ImportError:
-            logger.error("FirecrawlApp module not found. Please install firecrawl package.")
-            return False
-
-        # Check for Firecrawl API keys
-        firecrawl_key = os.environ.get("FIRECRAWL_API_KEY")
-        provider_key = os.environ.get("PROVIDER_FIRECRAWL_KEY")
-        
-        if firecrawl_key:
-            masked = masked_string(firecrawl_key)
-            logger.info(f"FIRECRAWL_API_KEY found: {masked}")
-        
-        if provider_key:
-            masked = masked_string(provider_key)
-            logger.info(f"PROVIDER_FIRECRAWL_KEY found: {masked}")
-        
-        if not firecrawl_key and not provider_key:
-            logger.error("No Firecrawl API keys found in environment variables")
-            logger.error("Please set FIRECRAWL_API_KEY or PROVIDER_FIRECRAWL_KEY in your .env file")
-            return False
-        
-        # Test if the API key works by creating a temporary instance
-        key_to_use = firecrawl_key or provider_key
-        try:
-            test_instance = FirecrawlApp(api_key=key_to_use)
-            logger.info("Firecrawl API key verified successfully")
-            return True
-        except Exception as e:
-            logger.error(f"Error verifying Firecrawl API key: {str(e)}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"Error initializing Firecrawl: {str(e)}")
-        return False 
