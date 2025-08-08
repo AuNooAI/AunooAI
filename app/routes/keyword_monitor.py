@@ -22,6 +22,7 @@ from urllib.parse import urlencode
 from app.ai_models import LiteLLMModel
 import asyncio
 import uuid
+from app.database_query_facade import DatabaseQueryFacade
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -111,50 +112,30 @@ class PollingToggle(BaseModel):
 @router.post("/groups")
 async def create_group(group: KeywordGroup, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO keyword_groups (name, topic) VALUES (?, ?)",
-                (group.name, group.topic)
-            )
-            conn.commit()
-            return {"id": cursor.lastrowid}
+        return {"id": (DatabaseQueryFacade(db, logger)).create_keyword_monitor_group((group.name, group.topic))}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/keywords")
 async def add_keyword(keyword: Keyword, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO monitored_keywords (group_id, keyword) VALUES (?, ?)",
-                (keyword.group_id, keyword.keyword)
-            )
-            conn.commit()
-            return {"id": cursor.lastrowid}
+        return {"id": (DatabaseQueryFacade(db, logger)).create_keyword_monitor_group((keyword.group_id, keyword.keyword))}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/keywords/{keyword_id}")
 async def delete_keyword(keyword_id: int, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM monitored_keywords WHERE id = ?", (keyword_id,))
-            conn.commit()
-            return {"success": True}
+        (DatabaseQueryFacade(db, logger)).delete_keyword(keyword_id)
+        return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/groups/{group_id}")
 async def delete_group(group_id: int, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM keyword_groups WHERE id = ?", (group_id,))
-            conn.commit()
-            return {"success": True}
+        (DatabaseQueryFacade(db, logger)).delete_keyword(group_id)
+        return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -162,12 +143,7 @@ async def delete_group(group_id: int, db=Depends(get_database_instance), session
 async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instance), session=Depends(verify_session)):
     """Delete all keyword groups associated with a specific topic and clean up orphaned data"""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # First, get all group IDs associated with this topic
-            cursor.execute("SELECT id FROM keyword_groups WHERE topic = ?", (topic_name,))
-            groups = cursor.fetchall()
+            groups = (DatabaseQueryFacade(db, logger)).get_all_group_ids_associated_to_topic(topic_name)
             
             if not groups:
                 return {"success": True, "groups_deleted": 0}
@@ -178,8 +154,7 @@ async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instan
             # Find all keyword IDs belonging to these groups
             keyword_ids = []
             for group_id in group_ids:
-                cursor.execute("SELECT id FROM monitored_keywords WHERE group_id = ?", (group_id,))
-                keywords = cursor.fetchall()
+                keywords = (DatabaseQueryFacade(db, logger)).get_keyword_ids_associated_to_group(group_id)
                 keyword_ids.extend([kw[0] for kw in keywords])
             
             # Delete all keyword alerts related to these keywords
@@ -188,33 +163,24 @@ async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instan
                 ids_str = ','.join('?' for _ in keyword_ids)
                 
                 # Check if the keyword_article_matches table exists
-                cursor.execute("""
-                    SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name='keyword_article_matches'
-                """)
-                use_new_table = cursor.fetchone() is not None
+                use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
                 
                 if use_new_table:
                     # For the new table structure
                     for group_id in group_ids:
-                        cursor.execute("DELETE FROM keyword_article_matches WHERE group_id = ?", (group_id,))
-                        alerts_deleted += cursor.rowcount
+                        alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_new_table_structure(group_id)
                 else:
                     # For the original table structure
-                    cursor.execute(f"DELETE FROM keyword_alerts WHERE keyword_id IN ({ids_str})", keyword_ids)
-                    alerts_deleted = cursor.rowcount
+                    alerts_deleted = (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_old_table_structure(ids_str, keyword_ids)
             
             # Delete all keywords for these groups
             keywords_deleted = 0
             if group_ids:
                 ids_str = ','.join('?' for _ in group_ids)
-                cursor.execute(f"DELETE FROM monitored_keywords WHERE group_id IN ({ids_str})", group_ids)
-                keywords_deleted = cursor.rowcount
+                keywords_deleted = (DatabaseQueryFacade(db, logger)).delete_groups_keywords(ids_str, keyword_ids)
             
             # Delete all keyword groups for this topic
-            cursor.execute("DELETE FROM keyword_groups WHERE topic = ?", (topic_name,))
-            
-            conn.commit()
+            (DatabaseQueryFacade(db, logger)).delete_groups_keywords(topic_name)
             return {
                 "success": True, 
                 "groups_deleted": groups_deleted,
@@ -228,40 +194,22 @@ async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instan
 @router.post("/alerts/{alert_id}/read")
 async def mark_alert_read(alert_id: int, db=Depends(get_database_instance), session=Depends(verify_session_api)):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Check if the alert is in the keyword_article_matches table
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='keyword_article_matches'
-            """)
-            use_new_table = cursor.fetchone() is not None
-            
-            if use_new_table:
-                # Check if the alert ID is in the new table
-                cursor.execute("SELECT 1 FROM keyword_article_matches WHERE id = ?", (alert_id,))
-                if cursor.fetchone():
-                    # Update the new table
-                    cursor.execute(
-                        "UPDATE keyword_article_matches SET is_read = 1 WHERE id = ?",
-                        (alert_id,)
-                    )
-                else:
-                    # Update the old table
-                    cursor.execute(
-                        "UPDATE keyword_alerts SET is_read = 1 WHERE id = ?",
-                        (alert_id,)
-                    )
+        # Check if the alert is in the keyword_article_matches table
+        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+
+        if use_new_table:
+            # Check if the alert ID is in the new table
+            if (DatabaseQueryFacade(db, logger)).check_if_alert_id_exists_in_new_table_structure(alert_id):
+                # Update the new table
+                (DatabaseQueryFacade(db, logger)).mark_alert_as_read_or_unread_in_new_table(alert_id, 1)
             else:
                 # Update the old table
-                cursor.execute(
-                    "UPDATE keyword_alerts SET is_read = 1 WHERE id = ?",
-                    (alert_id,)
-                )
-            
-            conn.commit()
-            return {"success": True}
+                (DatabaseQueryFacade(db, logger)).mark_alert_as_read_or_unread_in_old_table(alert_id, 1)
+        else:
+            # Update the old table
+            (DatabaseQueryFacade(db, logger)).mark_alert_as_read_in_old_table(alert_id)
+
+        return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -287,12 +235,10 @@ async def check_now(request: CheckNowRequest = None, db=Depends(get_database_ins
         with db.get_connection() as conn:
             cursor = conn.cursor()
             if group_id:
-                cursor.execute("SELECT COUNT(*) FROM monitored_keywords WHERE group_id = ?", (group_id,))
-                keyword_count = cursor.fetchone()[0]
+                keyword_count = (DatabaseQueryFacade(db, logger)).get_number_of_monitored_keywords_by_group_id(group_id)
                 logger.info(f"Running manual keyword check for group {group_id} - {keyword_count} keywords configured")
             else:
-                cursor.execute("SELECT COUNT(*) FROM monitored_keywords")
-                keyword_count = cursor.fetchone()[0]
+                keyword_count = (DatabaseQueryFacade(db, logger)).get_total_number_of_keywords()
                 logger.info(f"Running manual keyword check - {keyword_count} keywords configured")
         
         monitor = KeywordMonitor(db)
@@ -338,51 +284,119 @@ async def get_alerts(
     show_read: bool = False
 ):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Initialize media bias for article enrichment
-            media_bias = MediaBias(db)
-            
-            # Modify the query to optionally include read articles
-            read_condition = "" if show_read else "AND ka.is_read = 0"
-            
-            cursor.execute(f"""
-                SELECT ka.*, a.*, mk.keyword as matched_keyword
-                FROM keyword_alerts ka
-                JOIN articles a ON ka.article_uri = a.uri
-                JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                WHERE 1=1 {read_condition}
-                ORDER BY ka.detected_at DESC
-                LIMIT 100
-            """)
-            
-            columns = [column[0] for column in cursor.description]
-            alerts = []
-            
-            for row in cursor.fetchall():
-                alert_data = dict(zip(columns, row))
-                
-                # Restructure for consistent response format
-                article_data = {
-                    "title": alert_data.get("title", ""),
-                    "url": alert_data.get("url", ""),
-                    "uri": alert_data.get("uri", ""),
-                    "summary": alert_data.get("summary", ""),
-                    "source": alert_data.get("source", ""),
-                    "publication_date": alert_data.get("publication_date", "")
-                }
-                
-                # Try to get media bias data using both source name and URL
-                bias_data = None
-                if article_data["source"]:
-                    # First try with the source name
-                    bias_data = media_bias.get_bias_for_source(article_data["source"])
-                
-                # If no match with source name, try with the URL
-                if not bias_data and article_data["url"]:
-                    bias_data = media_bias.get_bias_for_source(article_data["url"])
-                    
+        # Initialize media bias for article enrichment
+        media_bias = MediaBias(db)
+
+        (columns, rows) = (DatabaseQueryFacade(db, logger)).get_alerts(show_read)
+        alerts = []
+
+        for row in rows:
+            alert_data = dict(zip(columns, row))
+
+            # Restructure for consistent response format
+            article_data = {
+                "title": alert_data.get("title", ""),
+                "url": alert_data.get("url", ""),
+                "uri": alert_data.get("uri", ""),
+                "summary": alert_data.get("summary", ""),
+                "source": alert_data.get("source", ""),
+                "publication_date": alert_data.get("publication_date", "")
+            }
+
+            # Try to get media bias data using both source name and URL
+            bias_data = None
+            if article_data["source"]:
+                # First try with the source name
+                bias_data = media_bias.get_bias_for_source(article_data["source"])
+
+            # If no match with source name, try with the URL
+            if not bias_data and article_data["url"]:
+                bias_data = media_bias.get_bias_for_source(article_data["url"])
+
+            if bias_data:
+                article_data["bias"] = bias_data.get("bias")
+                article_data["factual_reporting"] = bias_data.get("factual_reporting")
+                article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
+                article_data["bias_country"] = bias_data.get("country")
+                article_data["press_freedom"] = bias_data.get("press_freedom")
+                article_data["media_type"] = bias_data.get("media_type")
+                article_data["popularity"] = bias_data.get("popularity")
+
+            # Add specific logging for the Tom's Hardware article
+            if "tomshardware.com" in article_data["url"] and "stargate" in article_data["url"]:
+                logger.info(f"STARGATE ARTICLE DEBUG: uri={article_data['url']}")
+                logger.info(f"STARGATE ARTICLE DEBUG: Data before enrichment lookup: {article_data}")
+
+            # Check for enrichment data in the articles table
+            try:
+                enrichment_row = (DatabaseQueryFacade(db, logger)).get_article_enrichment(article_data)
+                if enrichment_row:
+                    (category, sentiment, driver_type, time_to_impact,
+                     topic_alignment_score, keyword_relevance_score,
+                     confidence_score, overall_match_explanation,
+                     extracted_article_topics, extracted_article_keywords,
+                     auto_ingested, ingest_status, quality_score, quality_issues) = enrichment_row
+
+                    logger.info(f"API ENRICHMENT FOUND for {article_data['uri']}: category={category}, sentiment={sentiment}, driver_type={driver_type}, time_to_impact={time_to_impact}")
+                    if category:
+                        article_data["category"] = category
+                        logger.info(f"API CATEGORY ADDED to article_data: {category}")
+                        # Debug log to confirm it's in the article_data dictionary
+                        logger.info(f"VERIFIED: article_data now contains category: {article_data.get('category')}")
+
+                        # Special debugging for the Tom's Hardware article
+                        if "tomshardware.com" in article_data["url"] and "stargate" in article_data["url"]:
+                            logger.info(f"STARGATE ARTICLE DEBUG: Article data after adding category: {article_data}")
+                    if sentiment:
+                        article_data["sentiment"] = sentiment
+                    if driver_type:
+                        article_data["driver_type"] = driver_type
+                    if time_to_impact:
+                        article_data["time_to_impact"] = time_to_impact
+
+                    # Add relevance data if available
+                    if topic_alignment_score is not None:
+                        article_data["topic_alignment_score"] = topic_alignment_score
+                        logger.debug(f"Added topic_alignment_score: {topic_alignment_score} for {article_data['uri']}")
+                    if keyword_relevance_score is not None:
+                        article_data["keyword_relevance_score"] = keyword_relevance_score
+                        logger.debug(f"Added keyword_relevance_score: {keyword_relevance_score} for {article_data['uri']}")
+                    if confidence_score is not None:
+                        article_data["confidence_score"] = confidence_score
+                    if overall_match_explanation:
+                        article_data["overall_match_explanation"] = overall_match_explanation
+                    if extracted_article_topics:
+                        try:
+                            article_data["extracted_article_topics"] = json.loads(extracted_article_topics)
+                        except:
+                            article_data["extracted_article_topics"] = []
+                    if extracted_article_keywords:
+                        try:
+                            article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
+                        except:
+                            article_data["extracted_article_keywords"] = []
+
+                    # Add auto-ingest fields
+                    article_data["auto_ingested"] = bool(auto_ingested) if auto_ingested is not None else False
+                    article_data["ingest_status"] = ingest_status
+                    article_data["quality_score"] = quality_score
+                    article_data["quality_issues"] = quality_issues
+
+                    # Debug log to verify enrichment is in article_data
+                    if "Uncertainty" in article_data["title"]:
+                        logger.info(f"TEMPLATE DEBUG - AI Uncertainty article data after enrichment: {article_data}")
+                else:
+                    logger.info(f"API NO ENRICHMENT DATA for {article_data['uri']}")
+
+                    # Special debugging for the Tom's Hardware article
+                    if "tomshardware.com" in article_data["url"] and "stargate" in article_data["url"]:
+                        logger.info(f"STARGATE ARTICLE DEBUG: No enrichment found for Stargate article!")
+            except Exception as e:
+                # If enrichment columns don't exist, that's fine
+                logger.debug(f"No enrichment data available for article {article_data['uri']}: {e}")
+                pass
+
+                # Add bias data if found
                 if bias_data:
                     article_data["bias"] = bias_data.get("bias")
                     article_data["factual_reporting"] = bias_data.get("factual_reporting")
@@ -391,40 +405,133 @@ async def get_alerts(
                     article_data["press_freedom"] = bias_data.get("press_freedom")
                     article_data["media_type"] = bias_data.get("media_type")
                     article_data["popularity"] = bias_data.get("popularity")
-                
+
+                alerts.append({
+                    'id': alert_data.get("id", ""),
+                    'is_read': bool(alert_data.get("is_read", 0)),
+                    'detected_at': alert_data.get("detected_at", ""),
+                    'article': article_data,
+                    'matched_keyword': alert_data.get("matched_keyword", "")
+                })
+            
+            return {
+                "alerts": alerts
+            }
+    except Exception as e:
+        logger.error(f"Error fetching alerts: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/keyword-alerts", response_class=HTMLResponse)
+async def keyword_alerts_page(request: Request, session=Depends(verify_session), db: Database = Depends(get_database_instance)):
+    try:
+        # Initialize media bias for article enrichment
+        media_bias = MediaBias(db)
+
+        # Check which table structure to use
+        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+
+        rows = []
+        if use_new_table:
+            # Get all groups with their alerts and status using new table structure
+            rows = (DatabaseQueryFacade(db, logger)).get_all_groups_with_alerts_and_status_new_table_structure()
+        else:
+            # Fallback to old table structure
+            rows = (DatabaseQueryFacade(db, logger)).get_all_groups_with_alerts_and_status_old_table_structure()
+
+        groups = []
+        for row in rows:
+            group_id, name, topic, unread_count, total_count, growth_status = row
+
+            # Debug logging for the discrepancy
+            logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): unread_count={unread_count}, total_count={total_count}")
+
+            # Get keywords for this group
+            keywords = (DatabaseQueryFacade(db, logger)).get_keywords_associated_to_group(group_id)
+
+            # Get the most recent unread alerts for this group
+            fetched_articles = []
+            if use_new_table:
+                fetched_articles = (DatabaseQueryFacade(db, logger)).get_most_recent_unread_alerts_for_group_id_new_table_structure(group_id)
+            else:
+                fetched_articles = (DatabaseQueryFacade(db, logger)).get_most_recent_unread_alerts_for_group_id_old_table_structure(group_id)
+
+            alerts = []
+
+            # Debug logging for actual articles fetched
+            logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): fetched {len(fetched_articles)} articles (with LIMIT 25)")
+
+            # Let's also count total unread articles without the limit to see the real count
+            actual_unread_count = 0
+            if use_new_table:
+                (DatabaseQueryFacade(db, logger)).count_total_group_unread_articles_new_table_structure(group_id)
+            else:
+                (DatabaseQueryFacade(db, logger)).count_total_group_unread_articles_old_table_structure(group_id)
+
+            logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): actual unread count without limit = {actual_unread_count}")
+
+            for alert in fetched_articles:
+                (
+                    alert_id, article_uri, keyword_ids, matched_keyword,
+                    is_read, detected_at, title, summary, uri,
+                    news_source, publication_date,
+                    topic_alignment_score, keyword_relevance_score,
+                    confidence_score, overall_match_explanation,
+                    extracted_article_topics, extracted_article_keywords
+                ) = alert
+
+                # Get all matched keywords for this article and group
+                if keyword_ids:
+                    keyword_id_list = [int(kid.strip()) for kid in keyword_ids.split(',') if kid.strip()]
+                    if keyword_id_list:
+                        placeholders = ','.join(['?'] * len(keyword_id_list))
+                        matched_keywords = (DatabaseQueryFacade(db, logger)).get_all_matched_keywords_for_article_and_group(placeholders, keyword_id_list + [group_id])
+                    else:
+                        matched_keywords = []
+                else:
+                    matched_keywords = (DatabaseQueryFacade(db, logger)).get_all_matched_keywords_for_article_and_group_by_article_url_and_group_id(article_uri, group_id)
+
+
+                # Try to get media bias data using both source name and URL
+                # First try with the source name as it's more reliable
+                bias_data = media_bias.get_bias_for_source(news_source)
+
+                # If no match with source name, try with the URL
+                if not bias_data and uri:
+                    bias_data = media_bias.get_bias_for_source(uri)
+
+                article_data = {
+                    "url": uri,
+                    "uri": article_uri,
+                    "title": title,
+                    "summary": summary,
+                    "source": news_source,
+                    "publication_date": publication_date
+                }
+
                 # Add specific logging for the Tom's Hardware article
-                if "tomshardware.com" in article_data["url"] and "stargate" in article_data["url"]:
-                    logger.info(f"STARGATE ARTICLE DEBUG: uri={article_data['url']}")
+                if "tomshardware.com" in uri and "stargate" in uri:
+                    logger.info(f"STARGATE ARTICLE DEBUG: uri={uri}")
                     logger.info(f"STARGATE ARTICLE DEBUG: Data before enrichment lookup: {article_data}")
-                
+
                 # Check for enrichment data in the articles table
                 try:
-                    cursor.execute("""
-                        SELECT category, sentiment, driver_type, time_to_impact,
-                               topic_alignment_score, keyword_relevance_score, 
-                               confidence_score, overall_match_explanation,
-                               extracted_article_topics, extracted_article_keywords,
-                               auto_ingested, ingest_status, quality_score, quality_issues
-                        FROM articles 
-                        WHERE uri = ?
-                    """, (article_data["uri"],))
-                    enrichment_row = cursor.fetchone()
+                    enrichment_row = (DatabaseQueryFacade(db, logger)).get_article_enrichment_by_article_url(article_uri)
                     if enrichment_row:
                         (category, sentiment, driver_type, time_to_impact,
                          topic_alignment_score, keyword_relevance_score,
                          confidence_score, overall_match_explanation,
-                         extracted_article_topics, extracted_article_keywords,
-                         auto_ingested, ingest_status, quality_score, quality_issues) = enrichment_row
-                        
-                        logger.info(f"API ENRICHMENT FOUND for {article_data['uri']}: category={category}, sentiment={sentiment}, driver_type={driver_type}, time_to_impact={time_to_impact}")
+                         extracted_article_topics, extracted_article_keywords) = enrichment_row
+
+                        logger.info(f"API ENRICHMENT FOUND for {article_uri}: category={category}, sentiment={sentiment}, driver_type={driver_type}, time_to_impact={time_to_impact}")
                         if category:
                             article_data["category"] = category
                             logger.info(f"API CATEGORY ADDED to article_data: {category}")
                             # Debug log to confirm it's in the article_data dictionary
                             logger.info(f"VERIFIED: article_data now contains category: {article_data.get('category')}")
-                            
+
                             # Special debugging for the Tom's Hardware article
-                            if "tomshardware.com" in article_data["url"] and "stargate" in article_data["url"]:
+                            if "tomshardware.com" in uri and "stargate" in uri:
                                 logger.info(f"STARGATE ARTICLE DEBUG: Article data after adding category: {article_data}")
                         if sentiment:
                             article_data["sentiment"] = sentiment
@@ -432,14 +539,14 @@ async def get_alerts(
                             article_data["driver_type"] = driver_type
                         if time_to_impact:
                             article_data["time_to_impact"] = time_to_impact
-                        
+
                         # Add relevance data if available
                         if topic_alignment_score is not None:
                             article_data["topic_alignment_score"] = topic_alignment_score
-                            logger.debug(f"Added topic_alignment_score: {topic_alignment_score} for {article_data['uri']}")
+                            logger.debug(f"Added topic_alignment_score: {topic_alignment_score} for {article_uri}")
                         if keyword_relevance_score is not None:
                             article_data["keyword_relevance_score"] = keyword_relevance_score
-                            logger.debug(f"Added keyword_relevance_score: {keyword_relevance_score} for {article_data['uri']}")
+                            logger.debug(f"Added keyword_relevance_score: {keyword_relevance_score} for {article_uri}")
                         if confidence_score is not None:
                             article_data["confidence_score"] = confidence_score
                         if overall_match_explanation:
@@ -454,403 +561,55 @@ async def get_alerts(
                                 article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
                             except:
                                 article_data["extracted_article_keywords"] = []
-                        
-                        # Add auto-ingest fields
-                        article_data["auto_ingested"] = bool(auto_ingested) if auto_ingested is not None else False
-                        article_data["ingest_status"] = ingest_status
-                        article_data["quality_score"] = quality_score
-                        article_data["quality_issues"] = quality_issues
-                        
+
                         # Debug log to verify enrichment is in article_data
                         if "Uncertainty" in article_data["title"]:
                             logger.info(f"TEMPLATE DEBUG - AI Uncertainty article data after enrichment: {article_data}")
                     else:
-                        logger.info(f"API NO ENRICHMENT DATA for {article_data['uri']}")
-                        
+                        logger.info(f"API NO ENRICHMENT DATA for {article_uri}")
+
                         # Special debugging for the Tom's Hardware article
-                        if "tomshardware.com" in article_data["url"] and "stargate" in article_data["url"]:
+                        if "tomshardware.com" in uri and "stargate" in uri:
                             logger.info(f"STARGATE ARTICLE DEBUG: No enrichment found for Stargate article!")
                 except Exception as e:
                     # If enrichment columns don't exist, that's fine
-                    logger.debug(f"No enrichment data available for article {article_data['uri']}: {e}")
+                    logger.debug(f"No enrichment data available for article {article_uri}: {e}")
                     pass
-                    
-                    # Add bias data if found
-                    if bias_data:
-                        article_data["bias"] = bias_data.get("bias")
-                        article_data["factual_reporting"] = bias_data.get("factual_reporting")
-                        article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
-                        article_data["bias_country"] = bias_data.get("country")
-                        article_data["press_freedom"] = bias_data.get("press_freedom")
-                        article_data["media_type"] = bias_data.get("media_type")
-                        article_data["popularity"] = bias_data.get("popularity")
-                    
-                    alerts.append({
-                        'id': alert_data.get("id", ""),
-                        'is_read': bool(alert_data.get("is_read", 0)),
-                        'detected_at': alert_data.get("detected_at", ""),
-                        'article': article_data,
-                        'matched_keyword': alert_data.get("matched_keyword", "")
-                    })
-            
-            return {
-                "alerts": alerts
-            }
-    except Exception as e:
-        logger.error(f"Error fetching alerts: {str(e)}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/keyword-alerts", response_class=HTMLResponse)
-async def keyword_alerts_page(request: Request, session=Depends(verify_session), db: Database = Depends(get_database_instance)):
-    try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Initialize media bias for article enrichment
-            media_bias = MediaBias(db)
-            
-            # Check which table structure to use
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='keyword_article_matches'")
-            use_new_table = cursor.fetchone() is not None
-            
-            if use_new_table:
-                # Get all groups with their alerts and status using new table structure
-                cursor.execute("""
-                    WITH alert_counts AS (
-                        SELECT 
-                            kg.id as group_id,
-                            COUNT(DISTINCT CASE WHEN ka.is_read = 0 AND a.uri IS NOT NULL THEN ka.id END) as unread_count,
-                            COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) as total_count
-                        FROM keyword_groups kg
-                        LEFT JOIN keyword_article_matches ka ON kg.id = ka.group_id
-                        LEFT JOIN articles a ON ka.article_uri = a.uri
-                        GROUP BY kg.id
-                    ),
-                    growth_data AS (
-                        SELECT 
-                            kg.id as group_id,
-                            CASE 
-                                WHEN COUNT(CASE WHEN a.uri IS NOT NULL THEN ka.id END) = 0 THEN 'No data'
-                                WHEN MAX(ka.detected_at) < date('now', '-7 days') THEN 'Inactive' 
-                                WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 20 THEN 'High growth'
-                                WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 10 THEN 'Growing'
-                                ELSE 'Stable'
-                            END as growth_status
-                        FROM keyword_groups kg
-                        LEFT JOIN keyword_article_matches ka ON kg.id = ka.group_id
-                        LEFT JOIN articles a ON ka.article_uri = a.uri
-                        GROUP BY kg.id
-                    )
-                    SELECT 
-                        kg.id, 
-                        kg.name, 
-                        kg.topic,
-                        COALESCE(ac.unread_count, 0) as unread_count,
-                        COALESCE(ac.total_count, 0) as total_count,
-                        COALESCE(gd.growth_status, 'No data') as growth_status
-                    FROM keyword_groups kg
-                    LEFT JOIN alert_counts ac ON kg.id = ac.group_id
-                    LEFT JOIN growth_data gd ON kg.id = gd.group_id
-                    ORDER BY ac.unread_count DESC, kg.name
-                """)
-            else:
-                # Fallback to old table structure
-                cursor.execute("""
-                    WITH alert_counts AS (
-                        SELECT 
-                            kg.id as group_id,
-                            COUNT(DISTINCT CASE WHEN ka.read = 0 AND a.uri IS NOT NULL THEN ka.id END) as unread_count,
-                            COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) as total_count
-                        FROM keyword_groups kg
-                        LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
-                        LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id
-                        LEFT JOIN articles a ON ka.article_uri = a.uri
-                        GROUP BY kg.id
-                    ),
-                    growth_data AS (
-                        SELECT 
-                            kg.id as group_id,
-                            CASE 
-                                WHEN COUNT(CASE WHEN a.uri IS NOT NULL THEN ka.id END) = 0 THEN 'No data'
-                                WHEN MAX(ka.detected_at) < date('now', '-7 days') THEN 'Inactive' 
-                                WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 20 THEN 'High growth'
-                                WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 10 THEN 'Growing'
-                                ELSE 'Stable'
-                            END as growth_status
-                        FROM keyword_groups kg
-                        LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
-                        LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id
-                        LEFT JOIN articles a ON ka.article_uri = a.uri
-                        GROUP BY kg.id
-                    )
-                    SELECT 
-                        kg.id, 
-                        kg.name, 
-                        kg.topic,
-                        COALESCE(ac.unread_count, 0) as unread_count,
-                        COALESCE(ac.total_count, 0) as total_count,
-                        COALESCE(gd.growth_status, 'No data') as growth_status
-                    FROM keyword_groups kg
-                    LEFT JOIN alert_counts ac ON kg.id = ac.group_id
-                    LEFT JOIN growth_data gd ON kg.id = gd.group_id
-                    ORDER BY ac.unread_count DESC, kg.name
-                """)
-            
-            groups = []
-            for row in cursor.fetchall():
-                group_id, name, topic, unread_count, total_count, growth_status = row
-                
-                # Debug logging for the discrepancy
-                logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): unread_count={unread_count}, total_count={total_count}")
-                
-                # Get keywords for this group
-                cursor.execute(
-                    "SELECT keyword FROM monitored_keywords WHERE group_id = ?",
-                    (group_id,)
-                )
-                keywords = [keyword[0] for keyword in cursor.fetchall()]
-                
-                # Get the most recent unread alerts for this group
-                if use_new_table:
-                    cursor.execute("""
-                        SELECT 
-                            ka.id, 
-                            ka.article_uri,
-                            ka.keyword_ids,
-                            NULL as matched_keyword,
-                            ka.is_read,
-                            ka.detected_at,
-                            a.title,
-                            a.summary,
-                            a.uri,
-                            a.news_source,
-                            a.publication_date,
-                            a.topic_alignment_score,
-                            a.keyword_relevance_score,
-                            a.confidence_score,
-                            a.overall_match_explanation,
-                            a.extracted_article_topics,
-                            a.extracted_article_keywords
-                        FROM keyword_article_matches ka
-                        JOIN articles a ON ka.article_uri = a.uri
-                        WHERE ka.group_id = ? AND ka.is_read = 0
-                        ORDER BY ka.detected_at DESC
-                        LIMIT 25
-                    """, (group_id,))
-                else:
-                    cursor.execute("""
-                        SELECT 
-                            ka.id, 
-                            ka.article_uri,
-                            ka.keyword_id,
-                            mk.keyword as matched_keyword,
-                            ka.read as is_read,
-                            ka.detected_at,
-                            a.title,
-                            a.summary,
-                            a.uri,
-                            a.source as news_source,
-                            a.publication_date,
-                            a.topic_alignment_score,
-                            a.keyword_relevance_score,
-                            a.confidence_score,
-                            a.overall_match_explanation,
-                            a.extracted_article_topics,
-                            a.extracted_article_keywords
-                        FROM keyword_alerts ka
-                        JOIN articles a ON ka.article_uri = a.uri
-                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                        WHERE mk.group_id = ? AND ka.read = 0
-                        ORDER BY ka.detected_at DESC
-                        LIMIT 25
-                    """, (group_id,))
-                
-                alerts = []
-                fetched_articles = cursor.fetchall()
-                
-                # Debug logging for actual articles fetched
-                logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): fetched {len(fetched_articles)} articles (with LIMIT 25)")
-                
-                # Let's also count total unread articles without the limit to see the real count
-                if use_new_table:
-                    cursor.execute("""
-                        SELECT COUNT(*)
-                        FROM keyword_article_matches ka
-                        JOIN articles a ON ka.article_uri = a.uri
-                        WHERE ka.group_id = ? AND ka.is_read = 0
-                    """, (group_id,))
-                else:
-                    cursor.execute("""
-                        SELECT COUNT(*)
-                        FROM keyword_alerts ka
-                        JOIN articles a ON ka.article_uri = a.uri
-                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                        WHERE mk.group_id = ? AND ka.read = 0
-                    """, (group_id,))
-                
-                actual_unread_count = cursor.fetchone()[0]
-                logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): actual unread count without limit = {actual_unread_count}")
-                
-                for alert in fetched_articles:
-                    (
-                        alert_id, article_uri, keyword_ids, matched_keyword, 
-                        is_read, detected_at, title, summary, uri,
-                        news_source, publication_date,
-                        topic_alignment_score, keyword_relevance_score,
-                        confidence_score, overall_match_explanation,
-                        extracted_article_topics, extracted_article_keywords
-                    ) = alert
-                    
-                    # Get all matched keywords for this article and group
-                    if keyword_ids:
-                        keyword_id_list = [int(kid.strip()) for kid in keyword_ids.split(',') if kid.strip()]
-                        if keyword_id_list:
-                            placeholders = ','.join(['?'] * len(keyword_id_list))
-                            cursor.execute(f"""
-                                SELECT DISTINCT keyword
-                                FROM monitored_keywords
-                                WHERE id IN ({placeholders}) AND group_id = ?
-                            """, keyword_id_list + [group_id])
-                            matched_keywords = [kw[0] for kw in cursor.fetchall()]
-                        else:
-                            matched_keywords = []
-                    else:
-                        cursor.execute("""
-                            SELECT DISTINCT mk.keyword
-                            FROM keyword_alerts ka
-                            JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                            WHERE ka.article_uri = ? AND mk.group_id = ?
-                        """, (article_uri, group_id))
-                        matched_keywords = [kw[0] for kw in cursor.fetchall()]
-                    
-                    
-                    # Try to get media bias data using both source name and URL
-                    # First try with the source name as it's more reliable
-                    bias_data = media_bias.get_bias_for_source(news_source)
-                    
-                    # If no match with source name, try with the URL
-                    if not bias_data and uri:
-                        bias_data = media_bias.get_bias_for_source(uri)
-                    
-                    article_data = {
-                        "url": uri,
-                        "uri": article_uri,
-                        "title": title,
-                        "summary": summary,
-                        "source": news_source,
-                        "publication_date": publication_date
-                    }
-                    
-                    # Add specific logging for the Tom's Hardware article
-                    if "tomshardware.com" in uri and "stargate" in uri:
-                        logger.info(f"STARGATE ARTICLE DEBUG: uri={uri}")
-                        logger.info(f"STARGATE ARTICLE DEBUG: Data before enrichment lookup: {article_data}")
-                    
-                    # Check for enrichment data in the articles table
-                    try:
-                        cursor.execute("""
-                            SELECT category, sentiment, driver_type, time_to_impact,
-                                   topic_alignment_score, keyword_relevance_score, 
-                                   confidence_score, overall_match_explanation,
-                                   extracted_article_topics, extracted_article_keywords
-                            FROM articles 
-                            WHERE uri = ?
-                        """, (article_uri,))
-                        enrichment_row = cursor.fetchone()
-                        if enrichment_row:
-                            (category, sentiment, driver_type, time_to_impact,
-                             topic_alignment_score, keyword_relevance_score,
-                             confidence_score, overall_match_explanation,
-                             extracted_article_topics, extracted_article_keywords) = enrichment_row
-                            
-                            logger.info(f"API ENRICHMENT FOUND for {article_uri}: category={category}, sentiment={sentiment}, driver_type={driver_type}, time_to_impact={time_to_impact}")
-                            if category:
-                                article_data["category"] = category
-                                logger.info(f"API CATEGORY ADDED to article_data: {category}")
-                                # Debug log to confirm it's in the article_data dictionary
-                                logger.info(f"VERIFIED: article_data now contains category: {article_data.get('category')}")
-                                
-                                # Special debugging for the Tom's Hardware article
-                                if "tomshardware.com" in uri and "stargate" in uri:
-                                    logger.info(f"STARGATE ARTICLE DEBUG: Article data after adding category: {article_data}")
-                            if sentiment:
-                                article_data["sentiment"] = sentiment
-                            if driver_type:
-                                article_data["driver_type"] = driver_type
-                            if time_to_impact:
-                                article_data["time_to_impact"] = time_to_impact
-                            
-                            # Add relevance data if available
-                            if topic_alignment_score is not None:
-                                article_data["topic_alignment_score"] = topic_alignment_score
-                                logger.debug(f"Added topic_alignment_score: {topic_alignment_score} for {article_uri}")
-                            if keyword_relevance_score is not None:
-                                article_data["keyword_relevance_score"] = keyword_relevance_score
-                                logger.debug(f"Added keyword_relevance_score: {keyword_relevance_score} for {article_uri}")
-                            if confidence_score is not None:
-                                article_data["confidence_score"] = confidence_score
-                            if overall_match_explanation:
-                                article_data["overall_match_explanation"] = overall_match_explanation
-                            if extracted_article_topics:
-                                try:
-                                    article_data["extracted_article_topics"] = json.loads(extracted_article_topics)
-                                except:
-                                    article_data["extracted_article_topics"] = []
-                            if extracted_article_keywords:
-                                try:
-                                    article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
-                                except:
-                                    article_data["extracted_article_keywords"] = []
-                            
-                            # Debug log to verify enrichment is in article_data
-                            if "Uncertainty" in article_data["title"]:
-                                logger.info(f"TEMPLATE DEBUG - AI Uncertainty article data after enrichment: {article_data}")
-                        else:
-                            logger.info(f"API NO ENRICHMENT DATA for {article_uri}")
-                            
-                            # Special debugging for the Tom's Hardware article
-                            if "tomshardware.com" in uri and "stargate" in uri:
-                                logger.info(f"STARGATE ARTICLE DEBUG: No enrichment found for Stargate article!")
-                    except Exception as e:
-                        # If enrichment columns don't exist, that's fine
-                        logger.debug(f"No enrichment data available for article {article_uri}: {e}")
-                        pass
-                    
-                    # Add bias data if found
-                    if bias_data:
-                        article_data["bias"] = bias_data.get("bias")
-                        article_data["factual_reporting"] = bias_data.get("factual_reporting")
-                        article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
-                        article_data["bias_country"] = bias_data.get("country")
-                        article_data["press_freedom"] = bias_data.get("press_freedom")
-                        article_data["media_type"] = bias_data.get("media_type")
-                        article_data["popularity"] = bias_data.get("popularity")
-                    
-                    alerts.append({
-                        "id": alert_id,
-                        "article": article_data,
-                        "matched_keyword": matched_keywords[0] if matched_keywords else None,
-                        "matched_keywords": matched_keywords,
-                        "is_read": bool(is_read),
-                        "detected_at": detected_at
-                    })
-                
-                groups.append({
-                    "id": group_id,
-                    "name": name,
-                    "topic": topic,
-                    "unread_count": unread_count,
-                    "total_count": total_count, 
-                    "keywords": keywords,
-                    "alerts": alerts,
-                    "growth_status": growth_status
+                # Add bias data if found
+                if bias_data:
+                    article_data["bias"] = bias_data.get("bias")
+                    article_data["factual_reporting"] = bias_data.get("factual_reporting")
+                    article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
+                    article_data["bias_country"] = bias_data.get("country")
+                    article_data["press_freedom"] = bias_data.get("press_freedom")
+                    article_data["media_type"] = bias_data.get("media_type")
+                    article_data["popularity"] = bias_data.get("popularity")
+
+                alerts.append({
+                    "id": alert_id,
+                    "article": article_data,
+                    "matched_keyword": matched_keywords[0] if matched_keywords else None,
+                    "matched_keywords": matched_keywords,
+                    "is_read": bool(is_read),
+                    "detected_at": detected_at
                 })
-                
-                # Final debug log for this group
-                logger.info(f"GROUP FINAL - Group {group_id} '{name}' ({topic}): "
-                          f"unread_count={unread_count}, total_count={total_count}, "
-                          f"alerts_added={len(alerts)}, actual_unread={actual_unread_count}")
+
+            groups.append({
+                "id": group_id,
+                "name": name,
+                "topic": topic,
+                "unread_count": unread_count,
+                "total_count": total_count,
+                "keywords": keywords,
+                "alerts": alerts,
+                "growth_status": growth_status
+            })
+
+            # Final debug log for this group
+            logger.info(f"GROUP FINAL - Group {group_id} '{name}' ({topic}): "
+                      f"unread_count={unread_count}, total_count={total_count}, "
+                      f"alerts_added={len(alerts)}, actual_unread={actual_unread_count}")
                 
             # Debug: Log all groups being sent to template
             logger.info(f"TEMPLATE DATA - Sending {len(groups)} groups to template:")
@@ -915,131 +674,70 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
 @router.get("/settings")
 async def get_settings(db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Create keyword_monitor_status table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS keyword_monitor_status (
-                    id INTEGER PRIMARY KEY,
-                    requests_today INTEGER DEFAULT 0,
-                    last_reset_date TEXT,
-                    last_check_time TEXT,
-                    last_error TEXT
-                )
-            """)
-            
-            # Insert default row if it doesn't exist
-            cursor.execute("""
-                INSERT OR IGNORE INTO keyword_monitor_status (id, requests_today)
-                VALUES (1, 0)
-            """)
-            conn.commit()
-            
-            # Debug: Check both tables
-            cursor.execute("SELECT * FROM keyword_monitor_status WHERE id = 1")
-            status_data = cursor.fetchone()
-            logger.debug(f"Status data: {status_data}")
-            
-            cursor.execute("SELECT * FROM keyword_monitor_settings WHERE id = 1")
-            settings_data = cursor.fetchone()
-            logger.debug(f"Settings data: {settings_data}")
-            
-            # Get accurate keyword count
-            cursor.execute("""
-                SELECT COUNT(*) 
-                FROM monitored_keywords mk
-                WHERE EXISTS (
-                    SELECT 1 
-                    FROM keyword_groups kg 
-                    WHERE kg.id = mk.group_id
-                )
-            """)
-            total_keywords = cursor.fetchone()[0]
-            
-            # Log the count for debugging
-            logger.debug(f"Active keywords count: {total_keywords}")
-            
-            # Get settings and status together (including auto-ingest fields)
-            cursor.execute("""
-                SELECT 
-                    s.check_interval,
-                    s.interval_unit,
-                    s.search_fields,
-                    s.language,
-                    s.sort_by,
-                    s.page_size,
-                    s.daily_request_limit,
-                    s.is_enabled,
-                    s.provider,
-                    COALESCE(s.auto_ingest_enabled, FALSE) as auto_ingest_enabled,
-                    COALESCE(s.min_relevance_threshold, 0.0) as min_relevance_threshold,
-                    COALESCE(s.quality_control_enabled, TRUE) as quality_control_enabled,
-                    COALESCE(s.auto_save_approved_only, FALSE) as auto_save_approved_only,
-                    COALESCE(s.default_llm_model, 'gpt-4o-mini') as default_llm_model,
-                    COALESCE(s.llm_temperature, 0.1) as llm_temperature,
-                    COALESCE(s.llm_max_tokens, 1000) as llm_max_tokens,
-                    COALESCE(kms.requests_today, 0) as requests_today,
-                    kms.last_error
-                FROM keyword_monitor_settings s
-                LEFT JOIN (
-                    SELECT id, requests_today, last_error 
-                    FROM keyword_monitor_status 
-                    WHERE id = 1 AND last_reset_date = date('now')
-                ) kms ON kms.id = 1
-                WHERE s.id = 1
-            """)
-            
-            settings = cursor.fetchone()
-            logger.debug(f"Settings query result: {settings}")
-            
-            if settings:
-                response_data = {
-                    "check_interval": settings[0],
-                    "interval_unit": settings[1],
-                    "search_fields": settings[2],
-                    "language": settings[3],
-                    "sort_by": settings[4],
-                    "page_size": settings[5],
-                    "daily_request_limit": settings[6],
-                    "is_enabled": settings[7],
-                    "provider": settings[8],
-                    "auto_ingest_enabled": settings[9],
-                    "min_relevance_threshold": settings[10],
-                    "quality_control_enabled": settings[11],
-                    "auto_save_approved_only": settings[12],
-                    "default_llm_model": settings[13],
-                    "llm_temperature": settings[14],
-                    "llm_max_tokens": settings[15],
-                    "requests_today": settings[16] if settings[16] is not None else 0,
-                    "last_error": settings[17],
-                    "total_keywords": total_keywords
-                }
-                logger.debug(f"Returning response data: {response_data}")
-                return response_data
-            else:
-                return {
-                    "check_interval": 15,
-                    "interval_unit": 60,
-                    "search_fields": "title,description,content",
-                    "language": "en",
-                    "sort_by": "publishedAt",
-                    "page_size": 10,
-                    "daily_request_limit": 100,
-                    "is_enabled": True,
-                    "provider": "newsapi",
-                    "auto_ingest_enabled": False,
-                    "min_relevance_threshold": 0.0,
-                    "quality_control_enabled": True,
-                    "auto_save_approved_only": False,
-                    "default_llm_model": "gpt-4o-mini",
-                    "llm_temperature": 0.1,
-                    "llm_max_tokens": 1000,
-                    "requests_today": 0,
-                    "last_error": None,
-                    "total_keywords": total_keywords
-                }
-            
+        # Create keyword_monitor_status table if it doesn't exist
+        (DatabaseQueryFacade(db, logger)).create_keyword_monitor_table_if_not_exists_and_insert_default_value()
+
+        # Debug: Check both tables
+        (status_data, settings_data) = (DatabaseQueryFacade(db, logger)).check_keyword_monitor_status_and_settings_tables()
+        logger.debug(f"Status data: {status_data}")
+        logger.debug(f"Settings data: {settings_data}")
+
+        # Get accurate keyword count
+        total_keywords = (DatabaseQueryFacade(db, logger)).get_count_of_monitored_keywords()
+
+        # Log the count for debugging
+        logger.debug(f"Active keywords count: {total_keywords}")
+
+        # Get settings and status together (including auto-ingest fields)
+        settings = (DatabaseQueryFacade(db, logger)).get_settings_and_status_together()
+        logger.debug(f"Settings query result: {settings}")
+
+        if settings:
+            response_data = {
+                "check_interval": settings[0],
+                "interval_unit": settings[1],
+                "search_fields": settings[2],
+                "language": settings[3],
+                "sort_by": settings[4],
+                "page_size": settings[5],
+                "daily_request_limit": settings[6],
+                "is_enabled": settings[7],
+                "provider": settings[8],
+                "auto_ingest_enabled": settings[9],
+                "min_relevance_threshold": settings[10],
+                "quality_control_enabled": settings[11],
+                "auto_save_approved_only": settings[12],
+                "default_llm_model": settings[13],
+                "llm_temperature": settings[14],
+                "llm_max_tokens": settings[15],
+                "requests_today": settings[16] if settings[16] is not None else 0,
+                "last_error": settings[17],
+                "total_keywords": total_keywords
+            }
+            logger.debug(f"Returning response data: {response_data}")
+            return response_data
+        else:
+            return {
+                "check_interval": 15,
+                "interval_unit": 60,
+                "search_fields": "title,description,content",
+                "language": "en",
+                "sort_by": "publishedAt",
+                "page_size": 10,
+                "daily_request_limit": 100,
+                "is_enabled": True,
+                "provider": "newsapi",
+                "auto_ingest_enabled": False,
+                "min_relevance_threshold": 0.0,
+                "quality_control_enabled": True,
+                "auto_save_approved_only": False,
+                "default_llm_model": "gpt-4o-mini",
+                "llm_temperature": 0.1,
+                "llm_max_tokens": 1000,
+                "requests_today": 0,
+                "last_error": None,
+                "total_keywords": total_keywords
+            }
     except Exception as e:
         logger.error(f"Error getting settings: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1048,42 +746,11 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
 async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_database_instance), session=Depends(verify_session)):
     """Save keyword monitor settings"""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
             # Create table if it doesn't exist (with auto-ingest columns)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS keyword_monitor_settings (
-                    id INTEGER PRIMARY KEY,
-                    check_interval INTEGER NOT NULL,
-                    interval_unit INTEGER NOT NULL,
-                    search_fields TEXT NOT NULL,
-                    language TEXT NOT NULL,
-                    sort_by TEXT NOT NULL,
-                    page_size INTEGER NOT NULL,
-                    daily_request_limit INTEGER NOT NULL,
-                    provider TEXT NOT NULL DEFAULT 'newsapi',
-                    auto_ingest_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-                    min_relevance_threshold REAL NOT NULL DEFAULT 0.0,
-                    quality_control_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                    auto_save_approved_only BOOLEAN NOT NULL DEFAULT FALSE,
-                    default_llm_model TEXT NOT NULL DEFAULT 'gpt-4o-mini',
-                    llm_temperature REAL NOT NULL DEFAULT 0.1,
-                    llm_max_tokens INTEGER NOT NULL DEFAULT 1000
-                )
-            """)
+            (DatabaseQueryFacade(db, logger)).create_table_keyword_monitor_settings_if_not_exists()
             
             # Update or insert settings (including auto-ingest settings)
-            cursor.execute("""
-                INSERT OR REPLACE INTO keyword_monitor_settings (
-                    id, check_interval, interval_unit, search_fields,
-                    language, sort_by, page_size, daily_request_limit, provider,
-                    auto_ingest_enabled, min_relevance_threshold, quality_control_enabled,
-                    auto_save_approved_only, default_llm_model, llm_temperature, llm_max_tokens
-                ) VALUES (
-                    1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-                )
-            """, (
+            (DatabaseQueryFacade(db, logger)).update_or_insert_keyword_monitor_settings((
                 settings.check_interval,
                 settings.interval_unit,
                 settings.search_fields,
@@ -1101,7 +768,6 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
                 settings.llm_max_tokens
             ))
             
-            conn.commit()
             return {"success": True}
             
     except Exception as e:
@@ -1111,60 +777,24 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
 @router.get("/trends")
 async def get_trends(db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get data for the last 7 days
-            cursor.execute("""
-                WITH RECURSIVE dates(date) AS (
-                    SELECT date('now', '-6 days')
-                    UNION ALL
-                    SELECT date(date, '+1 day')
-                    FROM dates
-                    WHERE date < date('now')
-                ),
-                daily_counts AS (
-                    SELECT 
-                        kg.id as group_id,
-                        kg.name as group_name,
-                        date(ka.detected_at) as detection_date,
-                        COUNT(*) as article_count
-                    FROM keyword_alerts ka
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                    WHERE ka.detected_at >= date('now', '-6 days')
-                    GROUP BY kg.id, kg.name, date(ka.detected_at)
-                )
-                SELECT 
-                    kg.id,
-                    kg.name,
-                    dates.date,
-                    COALESCE(dc.article_count, 0) as count
-                FROM keyword_groups kg
-                CROSS JOIN dates
-                LEFT JOIN daily_counts dc 
-                    ON dc.group_id = kg.id 
-                    AND dc.detection_date = dates.date
-                ORDER BY kg.id, dates.date
-            """)
-            
-            results = cursor.fetchall()
-            
-            # Process results into the required format
-            trends = {}
-            for row in results:
-                group_id, group_name, date, count = row
-                if group_id not in trends:
-                    trends[group_id] = {
-                        'id': group_id,
-                        'name': group_name,
-                        'dates': [],
-                        'counts': []
-                    }
-                trends[group_id]['dates'].append(date)
-                trends[group_id]['counts'].append(count)
-            
-            return trends
+        # Get data for the last 7 days
+        results = (DatabaseQueryFacade(db, logger)).get_trends()
+
+        # Process results into the required format
+        trends = {}
+        for row in results:
+            group_id, group_name, date, count = row
+            if group_id not in trends:
+                trends[group_id] = {
+                    'id': group_id,
+                    'name': group_name,
+                    'dates': [],
+                    'counts': []
+                }
+            trends[group_id]['dates'].append(date)
+            trends[group_id]['counts'].append(count)
+
+        return trends
             
     except Exception as e:
         logger.error(f"Error getting trends: {str(e)}")
@@ -1173,132 +803,11 @@ async def get_trends(db=Depends(get_database_instance), session=Depends(verify_s
 @router.post("/toggle-polling")
 async def toggle_polling(toggle: PollingToggle, db=Depends(get_database_instance), session=Depends(verify_session_api)):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # First check if settings exist
-            cursor.execute("SELECT 1 FROM keyword_monitor_settings WHERE id = 1")
-            exists = cursor.fetchone() is not None
-            
-            if exists:
-                # Just update is_enabled if settings exist
-                cursor.execute("""
-                    UPDATE keyword_monitor_settings 
-                    SET is_enabled = ?
-                    WHERE id = 1
-                """, (toggle.enabled,))
-            else:
-                # Insert with defaults if no settings exist
-                cursor.execute("""
-                    INSERT INTO keyword_monitor_settings (
-                        id,
-                        check_interval,
-                        interval_unit,
-                        search_fields,
-                        language,
-                        sort_by,
-                        page_size,
-                        is_enabled
-                    ) VALUES (
-                        1,
-                        15,
-                        60,
-                        'title,description,content',
-                        'en',
-                        'publishedAt',
-                        10,
-                        ?
-                    )
-                """, (toggle.enabled,))
-            
-            conn.commit()
-            return {"status": "success", "enabled": toggle.enabled}
+        (DatabaseQueryFacade(db, logger)).toggle_polling(toggle)
+        return {"status": "success", "enabled": toggle.enabled}
             
     except Exception as e:
         logger.error(f"Error toggling polling: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@router.post("/fix-duplicate-alerts")
-async def fix_duplicate_alerts(db=Depends(get_database_instance), session=Depends(verify_session)):
-    """Fix duplicate alerts by removing duplicates and ensuring the unique constraint exists"""
-    try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Check if the unique constraint exists
-            cursor.execute("""
-                SELECT sql FROM sqlite_master 
-                WHERE type='table' AND name='keyword_alerts'
-            """)
-            table_def = cursor.fetchone()[0]
-            
-            # If the unique constraint is missing, we need to recreate the table
-            if "UNIQUE(keyword_id, article_uri)" not in table_def:
-                logger.info("Fixing keyword_alerts table: adding unique constraint")
-                
-                # Create a temporary table with the correct schema
-                cursor.execute("""
-                    CREATE TABLE keyword_alerts_temp (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        keyword_id INTEGER NOT NULL,
-                        article_uri TEXT NOT NULL,
-                        detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        is_read INTEGER DEFAULT 0,
-                        FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
-                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
-                        UNIQUE(keyword_id, article_uri)
-                    )
-                """)
-                
-                # Copy data to the temporary table, keeping only one row per keyword_id/article_uri pair
-                cursor.execute("""
-                    INSERT OR IGNORE INTO keyword_alerts_temp (keyword_id, article_uri, detected_at, is_read)
-                    SELECT keyword_id, article_uri, MIN(detected_at), MIN(is_read)
-                    FROM keyword_alerts
-                    GROUP BY keyword_id, article_uri
-                """)
-                
-                # Get the count of rows before and after to report how many duplicates were removed
-                cursor.execute("SELECT COUNT(*) FROM keyword_alerts")
-                before_count = cursor.fetchone()[0]
-                
-                cursor.execute("SELECT COUNT(*) FROM keyword_alerts_temp")
-                after_count = cursor.fetchone()[0]
-                
-                # Drop the original table and rename the temporary one
-                cursor.execute("DROP TABLE keyword_alerts")
-                cursor.execute("ALTER TABLE keyword_alerts_temp RENAME TO keyword_alerts")
-                
-                conn.commit()
-                
-                return {
-                    "success": True, 
-                    "message": f"Fixed keyword_alerts table: removed {before_count - after_count} duplicate alerts",
-                    "duplicates_removed": before_count - after_count
-                }
-            else:
-                # Even if the constraint exists, we should still remove any duplicates
-                # that might have been created before the constraint was added
-                cursor.execute("""
-                    DELETE FROM keyword_alerts
-                    WHERE id NOT IN (
-                        SELECT MIN(id)
-                        FROM keyword_alerts
-                        GROUP BY keyword_id, article_uri
-                    )
-                """)
-                
-                deleted_count = cursor.rowcount
-                conn.commit()
-                
-                return {
-                    "success": True,
-                    "message": f"Removed {deleted_count} duplicate alerts",
-                    "duplicates_removed": deleted_count
-                }
-                
-    except Exception as e:
-        logger.error(f"Error fixing duplicate alerts: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/export-alerts")
@@ -1319,70 +828,29 @@ async def export_alerts(db=Depends(get_database_instance), session=Depends(verif
             'Detection Time'
         ])
         
-        # Get all alerts with related data
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Check if the keyword_article_matches table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='keyword_article_matches'
-            """)
-            use_new_table = cursor.fetchone() is not None
-            
-            if use_new_table:
-                # Use the new table structure
-                cursor.execute("""
-                    SELECT 
-                        kg.name as group_name,
-                        kg.topic,
-                        a.title,
-                        a.news_source,
-                        a.uri,
-                        a.publication_date,
-                        (
-                            SELECT GROUP_CONCAT(keyword, ', ')
-                            FROM monitored_keywords
-                            WHERE id IN (SELECT value FROM json_each('['||REPLACE(kam.keyword_ids, ',', ',')||']'))
-                        ) as matched_keywords,
-                        kam.detected_at
-                    FROM keyword_article_matches kam
-                    JOIN keyword_groups kg ON kam.group_id = kg.id
-                    JOIN articles a ON kam.article_uri = a.uri
-                    ORDER BY kam.detected_at DESC
-                """)
-            else:
-                # Use the original table structure
-                cursor.execute("""
-                    SELECT 
-                        kg.name as group_name,
-                        kg.topic,
-                        a.title,
-                        a.news_source,
-                        a.uri,
-                        a.publication_date,
-                        mk.keyword as matched_keyword,
-                        ka.detected_at
-                    FROM keyword_alerts ka
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                    JOIN articles a ON ka.article_uri = a.uri
-                    ORDER BY ka.detected_at DESC
-                """)
-            
-            # Write data
-            for row in cursor.fetchall():
-                writer.writerow([
-                    row[0],  # group_name
-                    row[1],  # topic
-                    row[2],  # title
-                    row[3],  # news_source
-                    row[4],  # uri
-                    row[5],  # publication_date
-                    row[6],  # matched_keywords
-                    row[7]   # detected_at
-                ])
-        
+        # Check if the keyword_article_matches table exists
+        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+
+        if use_new_table:
+            # Use the new table structure
+            rows = (DatabaseQueryFacade(db, logger)).get_all_alerts_for_export_new_table_structure()
+        else:
+            # Use the original table structure
+            rows = (DatabaseQueryFacade(db, logger)).get_all_alerts_for_export_old_table_structure()
+
+        # Write data
+        for row in rows:
+            writer.writerow([
+                row[0],  # group_name
+                row[1],  # topic
+                row[2],  # title
+                row[3],  # news_source
+                row[4],  # uri
+                row[5],  # publication_date
+                row[6],  # matched_keywords
+                row[7]   # detected_at
+            ])
+
         # Prepare the output
         output.seek(0)
         
@@ -1423,75 +891,31 @@ async def export_group_alerts(
             'Is Read'
         ])
         
-        # Get alerts for the specific group
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Check if the keyword_article_matches table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='keyword_article_matches'
-            """)
-            use_new_table = cursor.fetchone() is not None
-            
-            if use_new_table:
-                # Use the new table structure
-                cursor.execute("""
-                    SELECT 
-                        kg.name as group_name,
-                        kg.topic,
-                        a.title,
-                        a.news_source,
-                        a.uri,
-                        a.publication_date,
-                        (
-                            SELECT GROUP_CONCAT(keyword, ', ')
-                            FROM monitored_keywords
-                            WHERE id IN (SELECT value FROM json_each('['||REPLACE(kam.keyword_ids, ',', ',')||']'))
-                        ) as matched_keywords,
-                        kam.detected_at,
-                        kam.is_read
-                    FROM keyword_article_matches kam
-                    JOIN keyword_groups kg ON kam.group_id = kg.id
-                    JOIN articles a ON kam.article_uri = a.uri
-                    WHERE kg.id = ? AND kg.topic = ?
-                    ORDER BY kam.detected_at DESC
-                """, (group_id, topic))
-            else:
-                # Use the original table structure
-                cursor.execute("""
-                    SELECT 
-                        kg.name as group_name,
-                        kg.topic,
-                        a.title,
-                        a.news_source,
-                        a.uri,
-                        a.publication_date,
-                        mk.keyword as matched_keyword,
-                        ka.detected_at,
-                        ka.is_read
-                    FROM keyword_alerts ka
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                    JOIN articles a ON ka.article_uri = a.uri
-                    WHERE kg.id = ? AND kg.topic = ?
-                    ORDER BY ka.detected_at DESC
-                """, (group_id, topic))
-            
-            # Write data
-            for row in cursor.fetchall():
-                writer.writerow([
-                    row[0],  # group_name
-                    row[1],  # topic
-                    row[2],  # title
-                    row[3],  # news_source
-                    row[4],  # uri
-                    row[5],  # publication_date
-                    row[6],  # matched_keywords
-                    row[7],  # detected_at
-                    'Yes' if row[8] else 'No'  # is_read
-                ])
-        
+        # Check if the keyword_article_matches table exists
+        # Check if the keyword_article_matches table exists
+        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+
+        if use_new_table:
+            # Use the new table structure
+            rows = (DatabaseQueryFacade(db, logger)).get_all_group_and_topic_alerts_for_export_new_table_structure(group_id, topic)
+        else:
+            # Use the original table structure
+            rows = (DatabaseQueryFacade(db, logger)).get_all_group_and_topic_alerts_for_export_old_table_structure(group_id, topic)
+
+        # Write data
+        for row in rows:
+            writer.writerow([
+                row[0],  # group_name
+                row[1],  # topic
+                row[2],  # title
+                row[3],  # news_source
+                row[4],  # uri
+                row[5],  # publication_date
+                row[6],  # matched_keywords
+                row[7],  # detected_at
+                'Yes' if row[8] else 'No'  # is_read
+            ])
+
         # Prepare the output
         output.seek(0)
         
@@ -1511,58 +935,27 @@ async def export_group_alerts(
         raise HTTPException(status_code=500, detail=str(e))
 
 async def save_keyword_alert(db: Database, article_data: dict):
-    with db.get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR IGNORE INTO keyword_alert_articles 
-            (url, title, summary, source, topic, keywords)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            article_data['url'],
-            article_data['title'],
-            article_data['summary'],
-            article_data['source'],
-            article_data['topic'],
-            ','.join(article_data['matched_keywords'])
-        ))
+    (DatabaseQueryFacade(db, logger)).save_keyword_alert(article_data)
 
 @router.post("/alerts/{alert_id}/unread")
 async def mark_alert_unread(alert_id: int, db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Check if the alert is in the keyword_article_matches table
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='keyword_article_matches'
-            """)
-            use_new_table = cursor.fetchone() is not None
-            
-            if use_new_table:
-                # Check if the alert ID is in the new table
-                cursor.execute("SELECT 1 FROM keyword_article_matches WHERE id = ?", (alert_id,))
-                if cursor.fetchone():
-                    # Update the new table
-                    cursor.execute(
-                        "UPDATE keyword_article_matches SET is_read = 0 WHERE id = ?",
-                        (alert_id,)
-                    )
-                else:
-                    # Update the old table
-                    cursor.execute(
-                        "UPDATE keyword_alerts SET is_read = 0 WHERE id = ?",
-                        (alert_id,)
-                    )
+        # Check if the alert is in the keyword_article_matches table
+        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+
+        if use_new_table:
+            # Check if the alert ID is in the new table
+            if (DatabaseQueryFacade(db, logger)).check_if_alert_id_exists_in_new_table_structure(alert_id):
+                # Update the new table
+                (DatabaseQueryFacade(db, logger)).mark_alert_as_read_or_unread_in_new_table(alert_id, 0)
             else:
                 # Update the old table
-                cursor.execute(
-                    "UPDATE keyword_alerts SET is_read = 0 WHERE id = ?",
-                    (alert_id,)
-                )
-            
-            conn.commit()
-            return {"success": True}
+                (DatabaseQueryFacade(db, logger)).mark_alert_as_read_or_unread_in_old_table(alert_id, 0)
+        else:
+            # Update the old table
+            (DatabaseQueryFacade(db, logger)).mark_alert_as_read_in_old_table(alert_id)
+
+        return {"success": True}
     except Exception as e:
         logger.error(f"Error in mark_alert_unread: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1593,292 +986,160 @@ async def get_group_alerts(
         # Initialize media bias for article enrichment only if not skipping
         media_bias = MediaBias(db) if not skip_media_bias else None
         
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Determine if we're using the new table structure
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='keyword_article_matches'")
-            use_new_table = cursor.fetchone() is not None
-            
+        # Determine if we're using the new table structure
+        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+
+        if use_new_table:
+            # Using new structure (keyword_article_matches table) with pagination
+            alert_results = (DatabaseQueryFacade(db, logger)).get_alerts_by_group_id_from_new_table_structure(show_read, group_id, page_size, offset)
+        else:
+            # Fallback to old structure (keyword_alerts table) with pagination
+            alert_results = count_unread_articles_by_group_id_from_new_table_structureget_alerts_by_group_id_from_old_table_structure(show_read, group_id, page_size, offset)
+
+        # Get unread count for this group
+        if use_new_table:
+            unread_count = (DatabaseQueryFacade(db, logger)).count_unread_articles_by_group_id_from_new_table_structure(group_id)
+        else:
+            unread_count = (DatabaseQueryFacade(db, logger)).count_unread_articles_by_group_id_from_old_table_structure(group_id)
+
+        # Get total count for this group
+        if use_new_table:
+            total_count = (DatabaseQueryFacade(db, logger)).count_total_articles_by_group_id_from_new_table_structure(group_id)
+        else:
+            total_count = (DatabaseQueryFacade(db, logger)).count_total_articles_by_group_id_from_old_table_structure(group_id)
+
+        alerts = []
+        for alert in alert_results:
             if use_new_table:
-                read_condition = "" if show_read else "AND ka.is_read = 0"
-                
-                # Using new structure (keyword_article_matches table) with pagination
-                cursor.execute(f"""
-                    SELECT 
-                        ka.id, 
-                        ka.article_uri,
-                        ka.keyword_ids,
-                        NULL as matched_keyword,
-                        ka.is_read,
-                        ka.detected_at,
-                        a.title,
-                        a.summary,
-                        a.uri,
-                        a.news_source,
-                        a.publication_date,
-                        a.topic_alignment_score,
-                        a.keyword_relevance_score,
-                        a.confidence_score,
-                        a.overall_match_explanation,
-                        a.extracted_article_topics,
-                        a.extracted_article_keywords,
-                        a.category,
-                        a.sentiment,
-                        a.driver_type,
-                        a.time_to_impact,
-                        a.future_signal,
-                        a.bias,
-                        a.factual_reporting,
-                        a.mbfc_credibility_rating,
-                        a.bias_country,
-                        a.press_freedom,
-                        a.media_type,
-                        a.popularity,
-                        a.auto_ingested,
-                        a.ingest_status,
-                        a.quality_score,
-                        a.quality_issues
-                    FROM keyword_article_matches ka
-                    JOIN articles a ON ka.article_uri = a.uri
-                    WHERE ka.group_id = ? {read_condition}
-                    ORDER BY ka.detected_at DESC
-                    LIMIT ? OFFSET ?
-                """, (group_id, page_size, offset))
+                alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
             else:
-                # Fallback to old structure (keyword_alerts table) with pagination
-                read_condition = "" if show_read else "AND ka.is_read = 0"
-                cursor.execute(f"""
-                    SELECT 
-                        ka.id, 
-                        ka.article_uri,
-                        ka.keyword_id,
-                        mk.keyword as matched_keyword,
-                        ka.is_read,
-                        ka.detected_at,
-                        a.title,
-                        a.summary,
-                        a.uri,
-                        a.news_source,
-                        a.publication_date,
-                        a.topic_alignment_score,
-                        a.keyword_relevance_score,
-                        a.confidence_score,
-                        a.overall_match_explanation,
-                        a.extracted_article_topics,
-                        a.extracted_article_keywords,
-                        a.category,
-                        a.sentiment,
-                        a.driver_type,
-                        a.time_to_impact,
-                        a.future_signal,
-                        a.bias,
-                        a.factual_reporting,
-                        a.mbfc_credibility_rating,
-                        a.bias_country,
-                        a.press_freedom,
-                        a.media_type,
-                        a.popularity,
-                        a.auto_ingested,
-                        a.ingest_status,
-                        a.quality_score,
-                        a.quality_issues
-                    FROM keyword_alerts ka
-                    JOIN articles a ON ka.article_uri = a.uri
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    WHERE mk.group_id = ? {read_condition}
-                    ORDER BY ka.detected_at DESC
-                    LIMIT ? OFFSET ?
-                """, (group_id, page_size, offset))
-            
-            # Store the results before doing other queries
-            alert_results = cursor.fetchall()
-            
-            # Get unread count for this group
+                alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
+
+            # Get all matched keywords for this article and group
             if use_new_table:
-                cursor.execute("""
-                    SELECT COUNT(ka.id)
-                    FROM keyword_article_matches ka
-                    WHERE ka.group_id = ? AND ka.is_read = 0
-                """, (group_id,))
-            else:
-                cursor.execute("""
-                    SELECT COUNT(ka.id)
-                    FROM keyword_alerts ka
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    WHERE mk.group_id = ? AND ka.is_read = 0
-                """, (group_id,))
-                
-            unread_count = cursor.fetchone()[0]
-            
-            # Get total count for this group
-            if use_new_table:
-                cursor.execute("""
-                    SELECT COUNT(ka.id)
-                    FROM keyword_article_matches ka
-                    WHERE ka.group_id = ?
-                """, (group_id,))
-            else:
-                cursor.execute("""
-                    SELECT COUNT(ka.id)
-                    FROM keyword_alerts ka
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    WHERE mk.group_id = ?
-                """, (group_id,))
-                
-            total_count = cursor.fetchone()[0]
-            
-            alerts = []
-            for alert in alert_results:
-                if use_new_table:
-                    alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
-                else:
-                    alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
-                
-                # Get all matched keywords for this article and group
-                if use_new_table:
-                    # For new table, keyword_ids is a comma-separated string
-                    if keyword_ids:
-                        keyword_id_list = [int(kid.strip()) for kid in keyword_ids.split(',') if kid.strip()]
-                        if keyword_id_list:
-                            placeholders = ','.join(['?'] * len(keyword_id_list))
-                            cursor.execute(f"""
-                                SELECT DISTINCT keyword
-                                FROM monitored_keywords
-                                WHERE id IN ({placeholders}) AND group_id = ?
-                            """, keyword_id_list + [group_id])
-                            matched_keywords = [kw[0] for kw in cursor.fetchall()]
-                        else:
-                            matched_keywords = []
+                # For new table, keyword_ids is a comma-separated string
+                if keyword_ids:
+                    keyword_id_list = [int(kid.strip()) for kid in keyword_ids.split(',') if kid.strip()]
+                    if keyword_id_list:
+                        placeholders = ','.join(['?'] * len(keyword_id_list))
+                        matched_keywords = (DatabaseQueryFacade(db, logger)).get_all_matched_keywords_for_article_and_group(placeholders, keyword_id_list + [group_id])
                     else:
                         matched_keywords = []
                 else:
-                    cursor.execute("""
-                        SELECT DISTINCT mk.keyword
-                        FROM keyword_alerts ka
-                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                        WHERE ka.article_uri = ? AND mk.group_id = ?
-                    """, (article_uri, group_id))
-                    matched_keywords = [kw[0] for kw in cursor.fetchall()]
-                
-                # Check if we already have media bias data from the database
-                has_db_bias_data = bias or factual_reporting or mbfc_credibility_rating or bias_country
-                
-                # Try to get media bias data only if not skipping and not already in database
-                bias_data = None
-                
-                if not skip_media_bias and media_bias and news_source and not has_db_bias_data:
-                    # First try with the original source name
-                    bias_data = media_bias.get_bias_for_source(news_source)
-                    
-                    # If no match, try a few common variations (reduced from many)
-                    if not bias_data:
-                        source_lower = news_source.lower()
-                        variations = [
-                            source_lower,
-                            source_lower.replace(" ", ""),
-                            source_lower + ".com"
-                        ]
-                        
-                        for variation in variations:
-                            bias_data = media_bias.get_bias_for_source(variation)
-                            if bias_data:
-                                break
-                
-                    # If no match with source variations, try with the URL
-                    if not bias_data and uri:
-                        bias_data = media_bias.get_bias_for_source(uri)
-                
-                    # If we found bias data, ensure the source is enabled
-                    if bias_data and 'enabled' in bias_data and bias_data['enabled'] == 0:
-                        try:
-                            with db.get_connection() as conn:
-                                cursor = conn.cursor()
-                                cursor.execute(
-                                    "UPDATE mediabias SET enabled = 1 WHERE source = ?",
-                                    (bias_data.get('source'),)
-                                )
-                                conn.commit()
-                                # Update the bias data to show it's now enabled
-                                bias_data['enabled'] = 1
-                        except Exception as e:
-                            logger.error(f"Error enabling media bias source {bias_data.get('source')}: {e}")
-                
-                article_data = {
-                    "url": uri,
-                    "uri": article_uri,
-                    "title": title,
-                    "summary": summary,
-                    "source": news_source,
-                    "publication_date": publication_date,
-                    "topic_alignment_score": topic_alignment_score,
-                    "keyword_relevance_score": keyword_relevance_score,
-                    "confidence_score": confidence_score,
-                    "overall_match_explanation": overall_match_explanation,
-                    "extracted_article_topics": extracted_article_topics,
-                    "extracted_article_keywords": extracted_article_keywords,
-                    "category": category,
-                    "sentiment": sentiment,
-                    "driver_type": driver_type,
-                    "time_to_impact": time_to_impact,
-                    "future_signal": future_signal,
-                    "bias": bias,
-                    "factual_reporting": factual_reporting,
-                    "mbfc_credibility_rating": mbfc_credibility_rating,
-                    "bias_country": bias_country,
-                    "press_freedom": press_freedom,
-                    "media_type": media_type,
-                    "popularity": popularity,
-                    "auto_ingested": bool(auto_ingested) if auto_ingested is not None else False,
-                    "ingest_status": ingest_status,
-                    "quality_score": quality_score,
-                    "quality_issues": quality_issues
-                }
-                
-                # Parse JSON fields for extracted topics and keywords
-                if extracted_article_topics:
+                    matched_keywords = []
+            else:
+                matched_keywords = (DatabaseQueryFacade(db,logger)).get_all_matched_keywords_for_article_and_group_by_article_url_and_group_id(article_uri, group_id)
+
+            # Check if we already have media bias data from the database
+            has_db_bias_data = bias or factual_reporting or mbfc_credibility_rating or bias_country
+
+            # Try to get media bias data only if not skipping and not already in database
+            bias_data = None
+
+            if not skip_media_bias and media_bias and news_source and not has_db_bias_data:
+                # First try with the original source name
+                bias_data = media_bias.get_bias_for_source(news_source)
+
+                # If no match, try a few common variations (reduced from many)
+                if not bias_data:
+                    source_lower = news_source.lower()
+                    variations = [
+                        source_lower,
+                        source_lower.replace(" ", ""),
+                        source_lower + ".com"
+                    ]
+
+                    for variation in variations:
+                        bias_data = media_bias.get_bias_for_source(variation)
+                        if bias_data:
+                            break
+
+                # If no match with source variations, try with the URL
+                if not bias_data and uri:
+                    bias_data = media_bias.get_bias_for_source(uri)
+
+                # If we found bias data, ensure the source is enabled
+                if bias_data and 'enabled' in bias_data and bias_data['enabled'] == 0:
                     try:
-                        article_data["extracted_article_topics"] = json.loads(extracted_article_topics)
-                    except:
-                        article_data["extracted_article_topics"] = []
-                else:
+                        (DatabaseQueryFacade(db, logger)).update_media_bias()
+                        # Update the bias data to show it's now enabled
+                        bias_data['enabled'] = 1
+                    except Exception as e:
+                        logger.error(f"Error enabling media bias source {bias_data.get('source')}: {e}")
+
+            article_data = {
+                "url": uri,
+                "uri": article_uri,
+                "title": title,
+                "summary": summary,
+                "source": news_source,
+                "publication_date": publication_date,
+                "topic_alignment_score": topic_alignment_score,
+                "keyword_relevance_score": keyword_relevance_score,
+                "confidence_score": confidence_score,
+                "overall_match_explanation": overall_match_explanation,
+                "extracted_article_topics": extracted_article_topics,
+                "extracted_article_keywords": extracted_article_keywords,
+                "category": category,
+                "sentiment": sentiment,
+                "driver_type": driver_type,
+                "time_to_impact": time_to_impact,
+                "future_signal": future_signal,
+                "bias": bias,
+                "factual_reporting": factual_reporting,
+                "mbfc_credibility_rating": mbfc_credibility_rating,
+                "bias_country": bias_country,
+                "press_freedom": press_freedom,
+                "media_type": media_type,
+                "popularity": popularity,
+                "auto_ingested": bool(auto_ingested) if auto_ingested is not None else False,
+                "ingest_status": ingest_status,
+                "quality_score": quality_score,
+                "quality_issues": quality_issues
+            }
+
+            # Parse JSON fields for extracted topics and keywords
+            if extracted_article_topics:
+                try:
+                    article_data["extracted_article_topics"] = json.loads(extracted_article_topics)
+                except:
                     article_data["extracted_article_topics"] = []
-                    
-                if extracted_article_keywords:
-                    try:
-                        article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
-                    except:
-                        article_data["extracted_article_keywords"] = []
-                else:
+            else:
+                article_data["extracted_article_topics"] = []
+
+            if extracted_article_keywords:
+                try:
+                    article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
+                except:
                     article_data["extracted_article_keywords"] = []
-                
-                # Log relevance data if available
-                if topic_alignment_score is not None or keyword_relevance_score is not None:
-                    logger.debug(f"Relevance data for {article_uri}: Topic: {topic_alignment_score}, Keywords: {keyword_relevance_score}")
-                
-                # Override with dynamic bias data if found and database doesn't have it
-                if bias_data and not has_db_bias_data:
-                    article_data["bias"] = bias_data.get("bias")
-                    article_data["factual_reporting"] = bias_data.get("factual_reporting")
-                    article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
-                    article_data["bias_country"] = bias_data.get("country")
-                    article_data["press_freedom"] = bias_data.get("press_freedom")
-                    article_data["media_type"] = bias_data.get("media_type")
-                    article_data["popularity"] = bias_data.get("popularity")
-                
-                alerts.append({
-                    "id": alert_id,
-                    "article": article_data,
-                    "matched_keyword": matched_keywords[0] if matched_keywords else None,
-                    "matched_keywords": matched_keywords,
-                    "is_read": bool(is_read),
-                    "detected_at": detected_at
-                })
+            else:
+                article_data["extracted_article_keywords"] = []
+
+            # Log relevance data if available
+            if topic_alignment_score is not None or keyword_relevance_score is not None:
+                logger.debug(f"Relevance data for {article_uri}: Topic: {topic_alignment_score}, Keywords: {keyword_relevance_score}")
+
+            # Override with dynamic bias data if found and database doesn't have it
+            if bias_data and not has_db_bias_data:
+                article_data["bias"] = bias_data.get("bias")
+                article_data["factual_reporting"] = bias_data.get("factual_reporting")
+                article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
+                article_data["bias_country"] = bias_data.get("country")
+                article_data["press_freedom"] = bias_data.get("press_freedom")
+                article_data["media_type"] = bias_data.get("media_type")
+                article_data["popularity"] = bias_data.get("popularity")
+
+            alerts.append({
+                "id": alert_id,
+                "article": article_data,
+                "matched_keyword": matched_keywords[0] if matched_keywords else None,
+                "matched_keywords": matched_keywords,
+                "is_read": bool(is_read),
+                "detected_at": detected_at
+            })
             
             # Get group name
-            cursor.execute("SELECT name FROM keyword_groups WHERE id = ?", (group_id,))
-            group_row = cursor.fetchone()
-            group_name = group_row[0] if group_row else "Unknown Group"
+            group_name = (DatabaseQueryFacade(db, logger)).get_group_name(group_id)
             
             # Calculate pagination info
             total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
@@ -1911,72 +1172,52 @@ async def get_group_alerts(
 async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_instance), session=Depends(verify_session)):
     """Delete all articles associated with a specific topic and their related data"""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Check if the keyword_article_matches table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='keyword_article_matches'
-            """)
-            use_new_table = cursor.fetchone() is not None
-            
-            alerts_deleted = 0
-            articles_deleted = 0
-            
-            # First find relevant article URIs
-            article_uris = []
-            
-            # From news_search_results
-            cursor.execute("""
-                SELECT article_uri FROM news_search_results 
-                WHERE topic = ?
-            """, (topic_name,))
-            article_uris.extend([row[0] for row in cursor.fetchall()])
-            
-            # From paper_search_results
-            cursor.execute("""
-                SELECT article_uri FROM paper_search_results 
-                WHERE topic = ?
-            """, (topic_name,))
-            article_uris.extend([row[0] for row in cursor.fetchall()])
-            
-            # Direct topic reference if the column exists
-            cursor.execute("PRAGMA table_info(articles)")
-            columns = cursor.fetchall()
-            has_topic_column = any(col[1] == 'topic' for col in columns)
-            
-            if has_topic_column:
-                cursor.execute("SELECT uri FROM articles WHERE topic = ?", (topic_name,))
-                article_uris.extend([row[0] for row in cursor.fetchall()])
-            
-            # Remove duplicates
-            article_uris = list(set(article_uris))
-            
-            if article_uris:
-                # Delete related keyword alerts first
-                if use_new_table:
-                    for uri in article_uris:
-                        cursor.execute("DELETE FROM keyword_article_matches WHERE article_uri = ?", (uri,))
-                        alerts_deleted += cursor.rowcount
-                else:
-                    for uri in article_uris:
-                        cursor.execute("DELETE FROM keyword_alerts WHERE article_uri = ?", (uri,))
-                        alerts_deleted += cursor.rowcount
-                
-                # Delete news_search_results
-                cursor.execute("DELETE FROM news_search_results WHERE topic = ?", (topic_name,))
-                
-                # Delete paper_search_results
-                cursor.execute("DELETE FROM paper_search_results WHERE topic = ?", (topic_name,))
-                
-                # Delete articles
+        # Check if the keyword_article_matches table exists
+        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+
+        alerts_deleted = 0
+        articles_deleted = 0
+
+        # First find relevant article URIs
+        article_uris = []
+
+        # From news_search_results
+        article_uris.extend([row[0] for row in(DatabaseQueryFacade(db, logger)).get_article_urls_from_news_search_results_by_topic(topic_name)])
+
+        # From paper_search_results
+        article_uris.extend([row[0] for row in(DatabaseQueryFacade(db, logger)).get_article_urls_from_paper_search_results_by_topic(topic_name)])
+
+        # Direct topic reference if the column exists
+        cursor.execute("PRAGMA table_info(articles)")
+        columns = cursor.fetchall()
+        has_topic_column = any(col[1] == 'topic' for col in columns)
+
+        if has_topic_column:
+            article_uris.extend([row[0] for row in(DatabaseQueryFacade(db, logger)).article_urls_by_topic(topic_name)])
+
+        # Remove duplicates
+        article_uris = list(set(article_uris))
+
+        if article_uris:
+            # Delete related keyword alerts first
+            if use_new_table:
                 for uri in article_uris:
-                    cursor.execute("DELETE FROM articles WHERE uri = ?", (uri,))
-                    if cursor.rowcount > 0:
-                        articles_deleted += cursor.rowcount
-            
-            conn.commit()
+                    alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_article_matches_by_url(uri)
+            else:
+                for uri in article_uris:
+                    alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_alerts_by_url(uri)
+
+            # Delete news_search_results
+            (DatabaseQueryFacade(db, logger)).delete_news_search_results_by_topic(topic_name)
+
+            # Delete paper_search_results
+            (DatabaseQueryFacade(db, logger)).delete_paper_search_results_by_topic(topic_name)
+
+            # Delete articles
+            for uri in article_uris:
+                if (DatabaseQueryFacade(db, logger)).delete_article_by_url(uri) > 0:
+                    articles_deleted += cursor.rowcount
+
             return {
                 "success": True, 
                 "articles_deleted": articles_deleted,
@@ -2087,13 +1328,9 @@ async def clean_orphaned_topics(db=Depends(get_database_instance), session=Depen
         except Exception as e:
             logger.error(f"Error loading config: {str(e)}")
             active_topics = set()
-        
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
+
             # Check if keyword_groups table exists
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='keyword_groups'")
-            if not cursor.fetchone():
+            if (DatabaseQueryFacade(db, logger)).check_if_keyword_groups_table_exists():
                 return {
                     "status": "success",
                     "message": "No keyword_groups table found",
@@ -2102,8 +1339,7 @@ async def clean_orphaned_topics(db=Depends(get_database_instance), session=Depen
             
             # Get all topics referenced in keyword groups
             try:
-                cursor.execute("SELECT DISTINCT topic FROM keyword_groups")
-                keyword_topics = set(row[0] for row in cursor.fetchall())
+                keyword_topics = (DatabaseQueryFacade(db, logger)).get_all_topics_referenced_in_keyword_groups()
             except sqlite3.OperationalError as e:
                 logger.error(f"Database error: {str(e)}")
                 return {
@@ -2160,12 +1396,8 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
             logger.error(f"Error loading config: {str(e)}")
             active_topics = set()
         
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
             # Check if articles table exists
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles'")
-            if not cursor.fetchone():
+            if not (DatabaseQueryFacade(db, logger)).check_if_articles_table_exists():
                 return {
                     "status": "success",
                     "message": "No articles table found",
@@ -2177,19 +1409,12 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
             
             # Check if articles table has a topic column
             try:
-                cursor.execute("PRAGMA table_info(articles)")
-                columns = cursor.fetchall()
-                has_topic_column = any(col[1] == 'topic' for col in columns)
+                has_topic_column = (DatabaseQueryFacade(db, logger)).check_if_articles_table_has_topic_column()
                 
                 # First, check direct topic references if the column exists
                 if has_topic_column:
                     try:
-                        cursor.execute("""
-                            SELECT uri, topic FROM articles
-                            WHERE topic IS NOT NULL AND topic != ''
-                        """)
-                        
-                        for row in cursor.fetchall():
+                        for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_articles():
                             uri, topic = row
                             if topic not in active_topics:
                                 orphaned_article_uris.add(uri)
@@ -2199,17 +1424,9 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                 logger.error(f"Error checking articles schema: {str(e)}")
             
             # Check if news_search_results table exists
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='news_search_results'")
-            if cursor.fetchone():
+            if not (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists():
                 try:
-                    # Next, check news_search_results references
-                    cursor.execute("""
-                        SELECT nsr.article_uri, nsr.topic
-                        FROM news_search_results nsr
-                        GROUP BY nsr.article_uri, nsr.topic
-                    """)
-                    
-                    for row in cursor.fetchall():
+                    for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_news_search_results():
                         uri, topic = row
                         if topic not in active_topics:
                             orphaned_article_uris.add(uri)
@@ -2217,17 +1434,9 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                     logger.error(f"Error querying news_search_results: {str(e)}")
             
             # Check if paper_search_results table exists
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_search_results'")
-            if cursor.fetchone():
+            if not (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists():
                 try:
-                    # Check paper_search_results references
-                    cursor.execute("""
-                        SELECT psr.article_uri, psr.topic
-                        FROM paper_search_results psr
-                        GROUP BY psr.article_uri, psr.topic
-                    """)
-                    
-                    for row in cursor.fetchall():
+                    for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_paper_search_results():
                         uri, topic = row
                         if topic not in active_topics:
                             orphaned_article_uris.add(uri)
@@ -2240,30 +1449,12 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                 has_paper_results = False
                 
                 # Check if search result tables exist
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='news_search_results'")
-                has_news_results = cursor.fetchone() is not None
+                has_news_results = (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists()
                 
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_search_results'")
-                has_paper_results = cursor.fetchone() is not None
+                has_paper_results = (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists()
                 
                 if has_news_results or has_paper_results:
-                    query = """
-                        SELECT a.uri FROM articles a
-                        WHERE 1=1
-                    """
-                    
-                    if has_news_results:
-                        query += """ AND NOT EXISTS (
-                            SELECT 1 FROM news_search_results nsr WHERE nsr.article_uri = a.uri
-                        )"""
-                    
-                    if has_paper_results:
-                        query += """ AND NOT EXISTS (
-                            SELECT 1 FROM paper_search_results psr WHERE psr.article_uri = a.uri
-                        )"""
-                    
-                    cursor.execute(query)
-                    orphaned_article_uris.update(row[0] for row in cursor.fetchall())
+                    orphaned_article_uris.update((DatabaseQueryFacade(db, logger)).get_orphaned_urls_from_news_results_and_or_paper_results(has_news_results, has_paper_results))
             except sqlite3.OperationalError as e:
                 logger.error(f"Error checking articles without search results: {str(e)}")
             
@@ -2279,11 +1470,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
             articles_deleted = 0
             
             # Check if keyword_article_matches table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='keyword_article_matches'
-            """)
-            use_new_table = cursor.fetchone() is not None
+            use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
             
             # Process articles in smaller batches to avoid SQL parameter limits
             batch_size = 100
@@ -2295,11 +1482,9 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                 try:
                     for uri in batch:
                         if use_new_table:
-                            cursor.execute("DELETE FROM keyword_article_matches WHERE article_uri = ?", (uri,))
-                            alerts_deleted += cursor.rowcount
+                            alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_new_table_structure_by_url(uri)
                         else:
-                            cursor.execute("DELETE FROM keyword_alerts WHERE article_uri = ?", (uri,))
-                            alerts_deleted += cursor.rowcount
+                            alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_old_table_structure_by_url(uri)
                 except sqlite3.OperationalError as e:
                     logger.error(f"Error deleting alerts: {str(e)}")
             
@@ -2309,13 +1494,11 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                     placeholders = ','.join(['?'] * len(batch))
                     
                     # Check if tables exist before attempting delete
-                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='news_search_results'")
-                    if cursor.fetchone():
-                        cursor.execute(f"DELETE FROM news_search_results WHERE article_uri IN ({placeholders})", batch)
+                    if (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists():
+                        (DatabaseQueryFacade(db, logger)).delete_news_search_results_by_article_urls(placeholders, batch)
                     
-                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='paper_search_results'")
-                    if cursor.fetchone():
-                        cursor.execute(f"DELETE FROM paper_search_results WHERE article_uri IN ({placeholders})", batch)
+                    if (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists():
+                        (DatabaseQueryFacade(db, logger)).delete_paper_search_results_by_article_urls(placeholders, batch)
                 except sqlite3.OperationalError as e:
                     logger.error(f"Error deleting search results: {str(e)}")
             
@@ -2323,8 +1506,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
             for batch in article_batches:
                 try:
                     placeholders = ','.join(['?'] * len(batch))
-                    cursor.execute(f"DELETE FROM articles WHERE uri IN ({placeholders})", batch)
-                    articles_deleted += cursor.rowcount
+                    articles_deleted += (DatabaseQueryFacade(db, logger)).delete_articles_by_article_urls(placeholders, batch)
                 except sqlite3.OperationalError as e:
                     logger.error(f"Error deleting articles: {str(e)}")
             
@@ -2388,33 +1570,14 @@ async def get_keyword_monitor_status(db=Depends(get_database_instance), session=
         task_status = get_task_status()
         
         # Get settings from the database
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get monitor settings
-            cursor.execute("""
-                SELECT 
-                    check_interval,
-                    interval_unit,
-                    is_enabled,
-                    search_date_range,
-                    daily_request_limit
-                FROM keyword_monitor_settings 
-                WHERE id = 1
-            """)
-            settings = cursor.fetchone()
-            
-            # Get keyword count
-            cursor.execute("SELECT COUNT(*) FROM monitored_keywords")
-            keyword_count = cursor.fetchone()[0]
-            
-            # Get request count for today
-            cursor.execute("""
-                SELECT requests_today, last_reset_date 
-                FROM keyword_monitor_status 
-                WHERE id = 1
-            """)
-            status_row = cursor.fetchone()
+        # Get monitor settings
+        settings = (DatabaseQueryFacade(db, logger)).get_monitor_settings()
+
+        # Get keyword count
+        keyword_count = (DatabaseQueryFacade(db, logger)).get_total_number_of_keywords()
+
+        # Get request count for today
+        status_row =  (DatabaseQueryFacade(db, logger)).get_request_count_for_today()
             
         # Format response
         response = {
@@ -2478,16 +1641,9 @@ async def analyze_relevance(
         # Get monitoring keywords from the group if group_id is provided
         keywords_str = ""
         if request.group_id:
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT keyword FROM monitored_keywords 
-                    WHERE group_id = ?
-                    ORDER BY keyword
-                """, (request.group_id,))
-                keywords = [row[0] for row in cursor.fetchall()]
-                keywords_str = ", ".join(keywords)
-                logger.info(f"Found {len(keywords)} monitoring keywords for group {request.group_id}: {keywords_str}")
+            keywords = (DatabaseQueryFacade(db, logger)).get_keywords_associated_to_group_ordered_by_keyword(request.group_id)
+            keywords_str = ", ".join(keywords)
+            logger.info(f"Found {len(keywords)} monitoring keywords for group {request.group_id}: {keywords_str}")
         
         # Initialize the relevance calculator with the specified model
         try:
@@ -2498,39 +1654,34 @@ async def analyze_relevance(
         
         # Fetch articles from database
         articles = []
-        with db.get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            for uri in request.article_uris:
-                cursor.execute("SELECT * FROM articles WHERE uri = ?", (uri,))
-                article_row = cursor.fetchone()
-                
-                if not article_row:
-                    logger.warning(f"Article not found in database: {uri}")
-                    continue
-                
-                article = dict(article_row)
-                
-                # Try to get raw content if available
-                cursor.execute("SELECT raw_markdown FROM raw_articles WHERE uri = ?", (uri,))
-                raw_row = cursor.fetchone()
-                
-                # Use raw content if available, otherwise fall back to summary
-                content = ""
-                if raw_row and raw_row[0]:
-                    content = raw_row[0]
-                elif article.get('summary'):
-                    content = article['summary']
-                elif article.get('title'):
-                    content = article['title']
-                
-                articles.append({
-                    'uri': article['uri'],
-                    'title': article.get('title', ''),
-                    'source': article.get('news_source', ''),
-                    'content': content
-                })
+
+        for uri in request.article_uris:
+            article_row = (DatabaseQueryFacade(db, logger)).get_articles_by_url(uri)
+
+            if not article_row:
+                logger.warning(f"Article not found in database: {uri}")
+                continue
+
+            article = dict(article_row)
+
+            # Try to get raw content if available
+            raw_row = (DatabaseQueryFacade(db, logger)).get_raw_articles_markdown_by_url(uri)
+
+            # Use raw content if available, otherwise fall back to summary
+            content = ""
+            if raw_row and raw_row[0]:
+                content = raw_row[0]
+            elif article.get('summary'):
+                content = article['summary']
+            elif article.get('title'):
+                content = article['title']
+
+            articles.append({
+                'uri': article['uri'],
+                'title': article.get('title', ''),
+                'source': article.get('news_source', ''),
+                'content': content
+            })
         
         if not articles:
             raise HTTPException(status_code=404, detail="No articles found for the provided URIs")
@@ -2548,48 +1699,35 @@ async def analyze_relevance(
         
         # Save results to database
         updated_count = 0
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            for analyzed_article in analyzed_articles:
-                try:
-                    # Convert lists to JSON strings for storage
-                    extracted_topics = json.dumps(analyzed_article.get('extracted_article_topics', []))
-                    extracted_keywords = json.dumps(analyzed_article.get('extracted_article_keywords', []))
-                    
-                    cursor.execute("""
-                        UPDATE articles 
-                        SET topic_alignment_score = ?,
-                            keyword_relevance_score = ?,
-                            confidence_score = ?,
-                            overall_match_explanation = ?,
-                            extracted_article_topics = ?,
-                            extracted_article_keywords = ?
-                        WHERE uri = ?
-                    """, (
-                        analyzed_article.get('topic_alignment_score', 0.0),
-                        analyzed_article.get('keyword_relevance_score', 0.0),
-                        analyzed_article.get('confidence_score', 0.0),
-                        analyzed_article.get('overall_match_explanation', ''),
-                        extracted_topics,
-                        extracted_keywords,
-                        analyzed_article['uri']
-                    ))
-                    
-                    if cursor.rowcount > 0:
-                        updated_count += 1
-                        logger.info(f"✅ Successfully updated article '{analyzed_article.get('title', 'Unknown')[:50]}...' - "
-                                   f"Topic: {analyzed_article.get('topic_alignment_score', 0.0):.2f}, "
-                                   f"Keywords: {analyzed_article.get('keyword_relevance_score', 0.0):.2f}, "
-                                   f"Confidence: {analyzed_article.get('confidence_score', 0.0):.2f}")
-                    else:
-                        logger.warning(f"⚠️ No rows updated for article {analyzed_article['uri']}")
-                        
-                except Exception as e:
-                    logger.error(f"Failed to save relevance data for article {analyzed_article['uri']}: {str(e)}")
-                    continue
-            
-            conn.commit()
+
+        for analyzed_article in analyzed_articles:
+            try:
+                # Convert lists to JSON strings for storage
+                extracted_topics = json.dumps(analyzed_article.get('extracted_article_topics', []))
+                extracted_keywords = json.dumps(analyzed_article.get('extracted_article_keywords', []))
+
+                (DatabaseQueryFacade(db, logger)).update_article_by_url((
+                    analyzed_article.get('topic_alignment_score', 0.0),
+                    analyzed_article.get('keyword_relevance_score', 0.0),
+                    analyzed_article.get('confidence_score', 0.0),
+                    analyzed_article.get('overall_match_explanation', ''),
+                    extracted_topics,
+                    extracted_keywords,
+                    analyzed_article['uri']
+                ))
+
+                if cursor.rowcount > 0:
+                    updated_count += 1
+                    logger.info(f"✅ Successfully updated article '{analyzed_article.get('title', 'Unknown')[:50]}...' - "
+                               f"Topic: {analyzed_article.get('topic_alignment_score', 0.0):.2f}, "
+                               f"Keywords: {analyzed_article.get('keyword_relevance_score', 0.0):.2f}, "
+                               f"Confidence: {analyzed_article.get('confidence_score', 0.0):.2f}")
+                else:
+                    logger.warning(f"⚠️ No rows updated for article {analyzed_article['uri']}")
+
+            except Exception as e:
+                logger.error(f"Failed to save relevance data for article {analyzed_article['uri']}: {str(e)}")
+                continue
         
         logger.info(f"✅ Relevance analysis completed successfully! "
                    f"Analyzed: {len(analyzed_articles)} articles, "
@@ -2779,23 +1917,14 @@ async def enable_auto_ingest(
 ):
     """Enable or disable auto-ingest functionality"""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Update auto_ingest_enabled setting
-            cursor.execute("""
-                UPDATE keyword_monitor_settings 
-                SET auto_ingest_enabled = ?
-                WHERE id = 1
-            """, (toggle.enabled,))
-            
-            conn.commit()
-            
-            return {
-                "success": True,
-                "auto_ingest_enabled": toggle.enabled,
-                "message": f"Auto-ingest {'enabled' if toggle.enabled else 'disabled'} successfully"
-            }
+        # Update auto_ingest_enabled setting
+        (DatabaseQueryFacade(db, logger)).enable_or_disable_auto_ingest(toggle)
+
+        return {
+            "success": True,
+            "auto_ingest_enabled": toggle.enabled,
+            "message": f"Auto-ingest {'enabled' if toggle.enabled else 'disabled'} successfully"
+        }
             
     except Exception as e:
         logger.error(f"Error toggling auto-ingest: {str(e)}")
@@ -2816,74 +1945,49 @@ async def get_auto_ingest_status(
 ):
     """Get current auto-ingest status and settings"""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get auto-ingest settings
-            cursor.execute("""
-                SELECT 
-                    auto_ingest_enabled,
-                    min_relevance_threshold,
-                    quality_control_enabled,
-                    auto_save_approved_only,
-                    default_llm_model,
-                    llm_temperature,
-                    llm_max_tokens
-                FROM keyword_monitor_settings 
-                WHERE id = 1
-            """)
-            settings = cursor.fetchone()
-            
-            if settings:
-                # Get processing statistics
-                cursor.execute("""
-                    SELECT 
-                        COUNT(*) as total_auto_ingested,
-                        COUNT(CASE WHEN ingest_status = 'approved' THEN 1 END) as approved_count,
-                        COUNT(CASE WHEN ingest_status = 'failed' THEN 1 END) as failed_count,
-                        AVG(quality_score) as avg_quality_score
-                    FROM articles 
-                    WHERE auto_ingested = 1
-                """)
-                stats = cursor.fetchone()
-                
-                return {
-                    "success": True,
-                    "settings": {
-                        "auto_ingest_enabled": bool(settings[0]),
-                        "min_relevance_threshold": float(settings[1] or 0.0),
-                        "quality_control_enabled": bool(settings[2]),
-                        "auto_save_approved_only": bool(settings[3]),
-                        "default_llm_model": settings[4] or "gpt-4o-mini",
-                        "llm_temperature": float(settings[5] or 0.1),
-                        "llm_max_tokens": int(settings[6] or 1000)
-                    },
-                    "statistics": {
-                        "total_auto_ingested": stats[0] if stats else 0,
-                        "approved_count": stats[1] if stats else 0,
-                        "failed_count": stats[2] if stats else 0,
-                        "avg_quality_score": float(stats[3]) if stats and stats[3] else 0.0
-                    }
+        settings = (DatabaseQueryFacade(db, logger)).get_auto_ingest_settings()
+
+        if settings:
+            # Get processing statistics
+            stats = (DatabaseQueryFacade(db, logger)).get_processing_statistics()
+
+            return {
+                "success": True,
+                "settings": {
+                    "auto_ingest_enabled": bool(settings[0]),
+                    "min_relevance_threshold": float(settings[1] or 0.0),
+                    "quality_control_enabled": bool(settings[2]),
+                    "auto_save_approved_only": bool(settings[3]),
+                    "default_llm_model": settings[4] or "gpt-4o-mini",
+                    "llm_temperature": float(settings[5] or 0.1),
+                    "llm_max_tokens": int(settings[6] or 1000)
+                },
+                "statistics": {
+                    "total_auto_ingested": stats[0] if stats else 0,
+                    "approved_count": stats[1] if stats else 0,
+                    "failed_count": stats[2] if stats else 0,
+                    "avg_quality_score": float(stats[3]) if stats and stats[3] else 0.0
                 }
-            else:
-                return {
-                    "success": True,
-                    "settings": {
-                        "auto_ingest_enabled": False,
-                        "min_relevance_threshold": 0.0,
-                        "quality_control_enabled": True,
-                        "auto_save_approved_only": False,
-                        "default_llm_model": "gpt-4o-mini",
-                        "llm_temperature": 0.1,
-                        "llm_max_tokens": 1000
-                    },
-                    "statistics": {
-                        "total_auto_ingested": 0,
-                        "approved_count": 0,
-                        "failed_count": 0,
-                        "avg_quality_score": 0.0
-                    }
+            }
+        else:
+            return {
+                "success": True,
+                "settings": {
+                    "auto_ingest_enabled": False,
+                    "min_relevance_threshold": 0.0,
+                    "quality_control_enabled": True,
+                    "auto_save_approved_only": False,
+                    "default_llm_model": "gpt-4o-mini",
+                    "llm_temperature": 0.1,
+                    "llm_max_tokens": 1000
+                },
+                "statistics": {
+                    "total_auto_ingested": 0,
+                    "approved_count": 0,
+                    "failed_count": 0,
+                    "avg_quality_score": 0.0
                 }
+            }
                 
     except Exception as e:
         logger.error(f"Error getting auto-ingest status: {str(e)}")
