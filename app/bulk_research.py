@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import asyncio
+from app.database_query_facade import DatabaseQueryFacade
 
 # flake8: noqa  # Disable style warnings (long lines etc.) for this file
 
@@ -457,7 +458,7 @@ class BulkResearch:
                 
                 # If analysis successful, move to main articles table
                 if analysis:
-                    await self.research.move_alert_to_articles(url)
+                    await (DatabaseQueryFacade(self.db, logger)).research.move_alert_to_articles(url)
 
     async def _batch_scrape_articles(self, urls: List[str], topic: str = None) -> Dict[str, Dict[str, Any]]:
         """

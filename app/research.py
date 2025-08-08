@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.env_loader import load_environment, ensure_model_env_vars
 from app.analyzers.article_analyzer import ArticleAnalyzer
 from dotenv import load_dotenv
+from app.database_query_facade import DatabaseQueryFacade
 
 # Add import for the collector factory
 from app.collectors.collector_factory import CollectorFactory
@@ -365,20 +366,12 @@ class Research:
                                 title = self.extract_title_from_content(content, f"Bluesky Post - {self.extract_source(uri)}")
                                 
                                 # Only save if we have real content - no placeholders
-                                cursor = self.db.get_connection().cursor()
-                                cursor.execute(
-                                    "SELECT 1 FROM articles WHERE uri = ?", 
-                                    (uri,)
-                                )
-                                if not cursor.fetchone():
+                                article = (DatabaseQueryFacade(self.db, logger)).get_article_by_url(uri)
+                                if not article:
                                     # Create real article entry with extracted content
-                                    cursor.execute("""
-                                        INSERT INTO articles 
-                                        (uri, title, news_source, submission_date, topic, analyzed, summary)
-                                        VALUES (?, ?, ?, datetime('now'), ?, ?, ?)
-                                    """, (uri, title, self.extract_source(uri), 
+                                    (DatabaseQueryFacade(self.db, logger)).create_article_with_extracted_content((uri, title, self.extract_source(uri),
                                           self.current_topic, False, content[:500] + "..." if len(content) > 500 else content))
-                                
+
                                 # Save raw content
                                 self.db.save_raw_article(uri, content, self.current_topic)
                                 logger.info(
@@ -447,14 +440,10 @@ class Research:
                             title = self.extract_title_from_content(content, self.extract_source(uri))
                             
                             # Only create article entry if we have real content - no placeholders
-                            cursor = self.db.get_connection().cursor()
-                            cursor.execute("SELECT 1 FROM articles WHERE uri = ?", (uri,))
-                            if not cursor.fetchone():
+                            article = (DatabaseQueryFacade(self.db, logger)).get_article(uri)
+                            if not article:
                                 # Create real article entry with extracted content
-                                cursor.execute("""
-                                    INSERT INTO articles (uri, title, news_source, submission_date, topic, analyzed, summary)
-                                    VALUES (?, ?, ?, datetime('now'), ?, ?, ?)
-                                """, (uri, title, self.extract_source(uri), self.current_topic, False, 
+                                (DatabaseQueryFacade(self.db, logger)).create_article_with_extracted_content((uri, title, self.extract_source(uri), self.current_topic, False,
                                       content[:500] + "..." if len(content) > 500 else content))
                                 logger.debug(f"Created article entry with real content for URI: {uri}, title: {title}")
                             
@@ -1217,31 +1206,6 @@ class Research:
         except Exception as e:
             logger.error(f"Error loading categories: {str(e)}", exc_info=True)
             return []
-
-    async def move_alert_to_articles(self, url: str) -> None:
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            # First get the alert article
-            cursor.execute("""
-                SELECT * FROM keyword_alert_articles 
-                WHERE url = ? AND moved_to_articles = FALSE
-            """, (url,))
-            alert = cursor.fetchone()
-            
-            if alert:
-                # Insert into articles table with analyzed flag
-                cursor.execute("""
-                    INSERT INTO articles (url, title, summary, source, topic, analyzed)
-                    VALUES (?, ?, ?, ?, ?, FALSE)
-                """, (alert['url'], alert['title'], alert['summary'], 
-                     alert['source'], alert['topic']))
-                
-                # Mark as moved
-                cursor.execute("""
-                    UPDATE keyword_alert_articles 
-                    SET moved_to_articles = TRUE
-                    WHERE url = ?
-                """, (url,))
 
     def reload_environment(self):
         """Reload environment variables and reinitialize clients."""
