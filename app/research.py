@@ -440,7 +440,7 @@ class Research:
                             title = self.extract_title_from_content(content, self.extract_source(uri))
                             
                             # Only create article entry if we have real content - no placeholders
-                            article = (DatabaseQueryFacade(self.db, logger)).get_article(uri)
+                            article = (DatabaseQueryFacade(self.db, logger)).get_article_by_url(uri)
                             if not article:
                                 # Create real article entry with extracted content
                                 (DatabaseQueryFacade(self.db, logger)).create_article_with_extracted_content((uri, title, self.extract_source(uri), self.current_topic, False,

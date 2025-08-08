@@ -377,7 +377,7 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT 1 FROM articles WHERE uri = ?",
-                (uri,)
+                (url,)
             )
 
             return cursor.fetchone()
@@ -442,3 +442,36 @@ class DatabaseQueryFacade:
             cursor.execute(query, params)
             for row in cursor.fetchall():
                 yield dict(row)
+
+    #### ROUTES QUERIES ####
+    def enriched_articles(self, limit):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            # Query for articles that have a non-null and non-empty category
+            query = """
+                    SELECT *
+                    FROM articles
+                    WHERE category IS NOT NULL \
+                      AND category != ''
+                    ORDER BY submission_date DESC
+                        LIMIT ? \
+                    """
+
+            cursor.execute(query, (limit,))
+            articles = []
+
+            for row in cursor.fetchall():
+                # Convert row to dictionary
+                article_dict = {}
+                for idx, col in enumerate(cursor.description):
+                    article_dict[col[0]] = row[idx]
+
+                # Process tags
+                if article_dict.get('tags'):
+                    article_dict['tags'] = article_dict['tags'].split(',')
+                else:
+                    article_dict['tags'] = []
+
+                articles.append(article_dict)
+
+            return articles
