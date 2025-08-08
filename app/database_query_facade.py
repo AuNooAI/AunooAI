@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+import sqlite3
 
 class DatabaseQueryFacade:
     def __init__(self, db, logger):
@@ -417,3 +418,27 @@ class DatabaseQueryFacade:
                                SET moved_to_articles = TRUE
                                WHERE url = ?
                                """, (url,))
+
+    #### REINDEX CHROMA DB QUERIES ####
+    def get_iter_articles(self, limit: int | None = None):
+        with self.db.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            query = (
+                """
+                SELECT a.*, r.raw_markdown AS raw
+                FROM articles a
+                         LEFT JOIN raw_articles r ON a.uri = r.uri
+                ORDER BY a.rowid
+                """
+            )
+            if limit:
+                query += " LIMIT ?"
+                params = (limit,)
+            else:
+                params = ()
+
+            cursor.execute(query, params)
+            for row in cursor.fetchall():
+                yield dict(row)

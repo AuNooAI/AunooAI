@@ -39,33 +39,10 @@ if str(ROOT_DIR) not in sys.path:
 from app.config.settings import DATABASE_DIR  # type: ignore
 from app.vector_store import upsert_article, get_chroma_client
 from app.database import Database
+from app.database_query_facade import DatabaseQueryFacade
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
-
-def iter_articles(db: Database, limit: int | None = None):
-    """Yield article dicts including *raw_markdown* when available."""
-    query = (
-        """
-        SELECT a.*, r.raw_markdown AS raw
-        FROM articles a
-        LEFT JOIN raw_articles r ON a.uri = r.uri
-        ORDER BY a.rowid
-        """
-    )
-    if limit:
-        query += " LIMIT ?"
-        params = (limit,)
-    else:
-        params = ()
-
-    with db.get_connection() as conn:
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        cur.execute(query, params)
-        for row in cur.fetchall():
-            yield dict(row)
 
 
 def check_collection_info(client):
@@ -147,7 +124,7 @@ def main():
     
     # Count articles to index
     total_articles = 0
-    for _ in iter_articles(db, args.limit):
+    for _ in (DatabaseQueryFacade(db, logger)).get_iter_articles(args.limit):
         total_articles += 1
     
     logger.info(f"Will index {total_articles} articles from database")
@@ -155,8 +132,9 @@ def main():
     # Re-index articles
     total = 0
     failed = 0
-    
-    for i, article in enumerate(iter_articles(db, args.limit), 1):
+
+    # TODO: Redundant with above!
+    for i, article in enumerate((DatabaseQueryFacade(db, logger)).get_iter_articles(args.limit), 1):
         try:
             upsert_article(article)
             total += 1
