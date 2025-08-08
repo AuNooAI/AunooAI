@@ -8,6 +8,7 @@ from app.collectors.arxiv_collector import ArxivCollector
 from app.collectors.bluesky_collector import BlueskyCollector
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from app.database import Database, get_database_instance
+from app.database_query_facade import DatabaseQueryFacade
 from app.research import Research
 from app.analytics import Analytics
 from app.report import Report
@@ -244,19 +245,7 @@ async def root(
         config_topics = {topic["name"]: topic for topic in config["topics"]}
         
         # Get topics from database with article counts and last article dates
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT 
-                    topic, 
-                    COUNT(DISTINCT uri) as article_count,
-                    MAX(publication_date) as last_article_date
-                FROM articles 
-                WHERE topic IS NOT NULL AND topic != ''
-                GROUP BY topic
-            """)
-            db_topics = {row[0]: {"article_count": row[1], "last_article_date": row[2]} 
-                        for row in cursor.fetchall()}
+        db_topics = (DatabaseQueryFacade(db, logger)).get_topics_with_article_counts()
         
         # Prepare active topics list
         active_topics = []
@@ -1100,10 +1089,7 @@ async def debug_settings():
 @app.get("/api/debug_articles")
 async def debug_articles():
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM articles")
-            articles = cursor.fetchall()
+        (DatabaseQueryFacade(db, logger)).debug_articles()
         return JSONResponse(content={"article_count": len(articles), "articles": articles})
     except Exception as e:
         logger.error(f"Error in debug_articles: {str(e)}", exc_info=True)
@@ -1894,22 +1880,15 @@ async def dashboard(
 ):
     try:
         # Get rate limit status
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT requests_today, last_error 
-                FROM keyword_monitor_status 
-                WHERE id = 1
-            """)
-            row = cursor.fetchone()
-            requests_today = row[0] if row else 0
-            last_error = row[1] if row and len(row) > 1 else None
-            
-            # Check if rate limited
-            is_rate_limited = (
-                last_error and 
-                ("Rate limit exceeded" in last_error or "limit reached" in last_error)
-            )
+        row = (DatabaseQueryFacade(db, logger)).get_rate_limit_status()
+        requests_today = row[0] if row else 0
+        last_error = row[1] if row and len(row) > 1 else None
+
+        # Check if rate limited
+        is_rate_limited = (
+            last_error and
+            ("Rate limit exceeded" in last_error or "limit reached" in last_error)
+        )
 
         # Get topics from config
         config = load_config()
@@ -2434,52 +2413,38 @@ async def save_firecrawl_config(config: NewsAPIConfig):  # Reusing the same mode
 @app.get("/keyword-monitor", response_class=HTMLResponse)
 async def keyword_monitor_page(request: Request, session=Depends(verify_session)):
     try:
-        with db.get_connection() as conn:
-            # First, make the connection row factory return dictionaries
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            # Get keyword groups and their keywords
-            cursor.execute("""
-                SELECT kg.id, kg.name, kg.topic, 
-                       mk.id as keyword_id, 
-                       mk.keyword
-                FROM keyword_groups kg
-                LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
-                ORDER BY kg.name, mk.keyword
-            """)
-            rows = cursor.fetchall()
-            
-            # Group the results
-            groups = {}
-            for row in rows:
-                group_id = row['id']
-                if group_id not in groups:
-                    groups[group_id] = {
-                        'id': group_id,
-                        'name': row['name'],
-                        'topic': row['topic'],
-                        'keywords': []
-                    }
-                if row['keyword_id']:
-                    groups[group_id]['keywords'].append({
-                        'id': row['keyword_id'],
-                        'keyword': row['keyword']
-                    })
-            
-            # Get topics from config instead of database
-            config = load_config()
-            topics = [{"id": topic["name"], "name": topic["name"]} 
-                     for topic in config.get("topics", [])]
-            
-            return templates.TemplateResponse(
-                "keyword_monitor.html",
-                get_template_context(request, {
-                    "keyword_groups": list(groups.values()),
-                    "topics": topics,
-                    "session": session
+        rows = (DatabaseQueryFacade(db, logger)).get_monitor_page_keywords()
+
+        # Group the results
+        groups = {}
+        for row in rows:
+            group_id = row['id']
+            if group_id not in groups:
+                groups[group_id] = {
+                    'id': group_id,
+                    'name': row['name'],
+                    'topic': row['topic'],
+                    'keywords': []
+                }
+            if row['keyword_id']:
+                groups[group_id]['keywords'].append({
+                    'id': row['keyword_id'],
+                    'keyword': row['keyword']
                 })
-            )
+
+        # Get topics from config instead of database
+        config = load_config()
+        topics = [{"id": topic["name"], "name": topic["name"]}
+                 for topic in config.get("topics", [])]
+
+        return templates.TemplateResponse(
+            "keyword_monitor.html",
+            get_template_context(request, {
+                "keyword_groups": list(groups.values()),
+                "topics": topics,
+                "session": session
+            })
+        )
     except Exception as e:
         logger.error(f"Error in keyword monitor page: {str(e)}")
         logger.error(traceback.format_exc())  # Add this to get full traceback
@@ -2488,216 +2453,134 @@ async def keyword_monitor_page(request: Request, session=Depends(verify_session)
 @app.get("/keyword-alerts", response_class=HTMLResponse)
 async def keyword_alerts_page(request: Request, session=Depends(verify_session)):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Define status colors mapping
-            status_colors = {
-                'NEW': 'primary',
-                'Exploding': 'danger',
-                'Surging': 'warning',
-                'Growing': 'success',
-                'Stable': 'secondary',
-                'Declining': 'info',
-                'No Data': 'secondary'
-            }
-            
-            # Get the last check time
-            cursor.execute("""
-                SELECT 
-                    MAX(last_checked) as last_check_time,
-                    (SELECT check_interval FROM keyword_monitor_settings WHERE id = 1) as check_interval,
-                    (SELECT interval_unit FROM keyword_monitor_settings WHERE id = 1) as interval_unit,
-                    (SELECT last_error FROM keyword_monitor_status WHERE id = 1) as last_error,
-                    (SELECT is_enabled FROM keyword_monitor_settings WHERE id = 1) as is_enabled
-                FROM monitored_keywords
-            """)
-            row = cursor.fetchone()
-            last_check = row[0]
-            check_interval = row[1] if row[1] else 15
-            interval_unit = row[2] if row[2] else 60  # Default to minutes
-            last_error = row[3]
-            is_enabled = row[4] if row[4] is not None else True  # Default to enabled
+        # Define status colors mapping
+        status_colors = {
+            'NEW': 'primary',
+            'Exploding': 'danger',
+            'Surging': 'warning',
+            'Growing': 'success',
+            'Stable': 'secondary',
+            'Declining': 'info',
+            'No Data': 'secondary'
+        }
 
-            # Format the display interval
-            if interval_unit == 3600:  # Hours
-                display_interval = f"{check_interval} hour{'s' if check_interval != 1 else ''}"
-            elif interval_unit == 86400:  # Days
-                display_interval = f"{check_interval} day{'s' if check_interval != 1 else ''}"
-            else:  # Minutes
-                display_interval = f"{check_interval} minute{'s' if check_interval != 1 else ''}"
+        row = (DatabaseQueryFacade(db, logger)).get_monitored_keywords_for_keyword_alerts_page()
+        last_check = row[0]
+        check_interval = row[1] if row[1] else 15
+        interval_unit = row[2] if row[2] else 60  # Default to minutes
+        last_error = row[3]
+        is_enabled = row[4] if row[4] is not None else True  # Default to enabled
 
-            # Calculate next check time
-            now = datetime.now()
-            if last_check:
-                last_check_time = datetime.fromisoformat(last_check.replace('Z', '+00:00'))
-                next_check = last_check_time + timedelta(seconds=check_interval * interval_unit)
-                
-                # Only show next check time if it's in the future
-                if next_check > now:
-                    next_check_time = next_check.isoformat()
-                else:
-                    next_check_time = now.isoformat()
+        # Format the display interval
+        if interval_unit == 3600:  # Hours
+            display_interval = f"{check_interval} hour{'s' if check_interval != 1 else ''}"
+        elif interval_unit == 86400:  # Days
+            display_interval = f"{check_interval} day{'s' if check_interval != 1 else ''}"
+        else:  # Minutes
+            display_interval = f"{check_interval} minute{'s' if check_interval != 1 else ''}"
+
+        # Calculate next check time
+        now = datetime.now()
+        if last_check:
+            last_check_time = datetime.fromisoformat(last_check.replace('Z', '+00:00'))
+            next_check = last_check_time + timedelta(seconds=check_interval * interval_unit)
+
+            # Only show next check time if it's in the future
+            if next_check > now:
+                next_check_time = next_check.isoformat()
             else:
-                last_check_time = None
                 next_check_time = now.isoformat()
+        else:
+            last_check_time = None
+            next_check_time = now.isoformat()
 
-            # Format the last_check_time for display
-            display_last_check = last_check_time.strftime('%Y-%m-%d %H:%M:%S') if last_check_time else None
+        # Format the last_check_time for display
+        display_last_check = last_check_time.strftime('%Y-%m-%d %H:%M:%S') if last_check_time else None
 
-            # Get all groups with their alerts and status
-            cursor.execute("""
-                WITH alert_counts AS (
-                    SELECT 
-                        kg.id as group_id,
-                        COUNT(DISTINCT ka.id) as unread_count
-                    FROM keyword_groups kg
-                    LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
-                    LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id AND ka.is_read = 0
-                    GROUP BY kg.id
-                )
-                SELECT 
-                    kg.id,
-                    kg.name,
-                    kg.topic,
-                    ac.unread_count,
-                    (
-                        SELECT GROUP_CONCAT(keyword, '||')
-                        FROM monitored_keywords
-                        WHERE group_id = kg.id
-                    ) as keywords
-                FROM keyword_groups kg
-                LEFT JOIN alert_counts ac ON kg.id = ac.group_id
-                ORDER BY ac.unread_count DESC, kg.name
-            """)
-            
-            groups_data = cursor.fetchall()
-            
-            # Get alerts for each group
-            groups = []
-            for group_id, name, topic, unread_count, keywords in groups_data:
-                # First, check if the keyword_article_matches table exists
-                cursor.execute("""
-                    SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name='keyword_article_matches'
-                """)
-                use_new_table = cursor.fetchone() is not None
-                
-                if use_new_table:
-                    # Use the new table structure
-                    cursor.execute("""
-                        SELECT 
-                            kam.id,
-                            kam.detected_at,
-                            kam.article_uri,
-                            a.title,
-                            a.uri as url,
-                            a.news_source,
-                            a.publication_date,
-                            a.summary,
-                            kam.keyword_ids,
-                            (
-                                SELECT GROUP_CONCAT(keyword, '||')
-                                FROM monitored_keywords
-                                WHERE id IN (SELECT value FROM json_each('['||REPLACE(kam.keyword_ids, ',', ',')||']'))
-                            ) as matched_keywords
-                        FROM keyword_article_matches kam
-                        JOIN articles a ON kam.article_uri = a.uri
-                        WHERE kam.group_id = ? AND kam.is_read = 0
-                        ORDER BY kam.detected_at DESC
-                    """, (group_id,))
-                    
-                    rows = cursor.fetchall()
-                    alerts = []
-                    
-                    for row in rows:
-                        alert_id, detected_at, article_uri, title, url, news_source, publication_date, summary, keyword_ids, matched_keywords = row
-                        
-                        # Convert the matched_keywords string to a list
-                        keywords_list = matched_keywords.split('||') if matched_keywords else []
-                        
-                        alerts.append({
-                            'id': alert_id,
-                            'detected_at': detected_at,
-                            'article': {
-                                'uri': article_uri,
-                                'title': title,
-                                'url': url,
-                                'source': news_source,
-                                'publication_date': publication_date,
-                                'summary': summary
-                            },
-                            'matched_keyword': keywords_list[0] if keywords_list else "",
-                            'matched_keywords': keywords_list
-                        })
-                else:
-                    # Fallback to the original query if the new table doesn't exist
-                    cursor.execute("""
-                        SELECT 
-                            ka.id,
-                            ka.detected_at,
-                            ka.article_uri,
-                            a.title,
-                            a.uri as url,
-                            a.news_source,
-                            a.publication_date,
-                            a.summary,
-                            mk.keyword as matched_keyword
-                        FROM keyword_alerts ka
-                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                        JOIN articles a ON ka.article_uri = a.uri
-                        WHERE mk.group_id = ? AND ka.is_read = 0
-                        ORDER BY ka.detected_at DESC
-                    """, (group_id,))
-                    
-                    alerts = [
-                        {
-                            'id': alert_id,
-                            'detected_at': detected_at,
-                            'article': {
-                                'uri': article_uri,
-                                'title': title,
-                                'url': url,
-                                'source': news_source,
-                                'publication_date': publication_date,
-                                'summary': summary
-                            },
-                            'matched_keyword': matched_keyword,
-                            'matched_keywords': [matched_keyword] if matched_keyword else []
-                        }
-                        for alert_id, detected_at, article_uri, title, url, news_source, 
-                            publication_date, summary, matched_keyword in cursor.fetchall()
-                    ]
-                
-                growth_status = 'No Data'
-                if unread_count:
-                    growth_status = 'NEW'  # We'll make it more sophisticated later
-                
-                groups.append({
-                    'id': group_id,
-                    'name': name,
-                    'topic': topic,
-                    'alerts': alerts,
-                    'keywords': keywords.split('||') if keywords else [],
-                    'growth_status': growth_status,
-                    'unread_count': unread_count or 0
-                })
-            
-            return templates.TemplateResponse(
-                "keyword_alerts.html",
-                get_template_context(request, {
-                    "groups": groups,
-                    "last_check_time": display_last_check,
-                    "display_interval": display_interval,
-                    "next_check_time": next_check_time,
-                    "last_error": last_error,
-                    "session": session,
-                    "now": now.isoformat(),
-                    "is_enabled": is_enabled,
-                    "status_colors": status_colors  # Add this line
-                })
-            )
-            
+        # Get all groups with their alerts and status
+        groups_data = (DatabaseQueryFacade(db, logger)).get_all_groups_with_their_alerts_and_status()
+
+        # Get alerts for each group
+        groups = []
+        for group_id, name, topic, unread_count, keywords in groups_data:
+            # First, check if the keyword_article_matches table exists
+            use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+
+            if use_new_table:
+                # Use the new table structure
+                rows = (DatabaseQueryFacade(db, logger)).get_keywords_and_articles_for_keywords_alert_page_using_new_structure(group_id)
+                alerts = []
+
+                for row in rows:
+                    alert_id, detected_at, article_uri, title, url, news_source, publication_date, summary, keyword_ids, matched_keywords = row
+
+                    # Convert the matched_keywords string to a list
+                    keywords_list = matched_keywords.split('||') if matched_keywords else []
+
+                    alerts.append({
+                        'id': alert_id,
+                        'detected_at': detected_at,
+                        'article': {
+                            'uri': article_uri,
+                            'title': title,
+                            'url': url,
+                            'source': news_source,
+                            'publication_date': publication_date,
+                            'summary': summary
+                        },
+                        'matched_keyword': keywords_list[0] if keywords_list else "",
+                        'matched_keywords': keywords_list
+                    })
+            else:
+                # Fallback to the original query if the new table doesn't exist
+                alerts = [
+                    {
+                        'id': alert_id,
+                        'detected_at': detected_at,
+                        'article': {
+                            'uri': article_uri,
+                            'title': title,
+                            'url': url,
+                            'source': news_source,
+                            'publication_date': publication_date,
+                            'summary': summary
+                        },
+                        'matched_keyword': matched_keyword,
+                        'matched_keywords': [matched_keyword] if matched_keyword else []
+                    }
+                    for alert_id, detected_at, article_uri, title, url, news_source,
+                        publication_date, summary, matched_keyword in (DatabaseQueryFacade(db, logger)).get_keywords_and_articles_for_keywords_alert_page_using_old_structure(group_id)
+                ]
+
+            growth_status = 'No Data'
+            if unread_count:
+                growth_status = 'NEW'  # We'll make it more sophisticated later
+
+            groups.append({
+                'id': group_id,
+                'name': name,
+                'topic': topic,
+                'alerts': alerts,
+                'keywords': keywords.split('||') if keywords else [],
+                'growth_status': growth_status,
+                'unread_count': unread_count or 0
+            })
+
+        return templates.TemplateResponse(
+            "keyword_alerts.html",
+            get_template_context(request, {
+                "groups": groups,
+                "last_check_time": display_last_check,
+                "display_interval": display_interval,
+                "next_check_time": next_check_time,
+                "last_error": last_error,
+                "session": session,
+                "now": now.isoformat(),
+                "is_enabled": is_enabled,
+                "status_colors": status_colors  # Add this line
+            })
+        )
+
     except Exception as e:
         logger.error(f"Error loading keyword alerts page: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -2998,51 +2881,24 @@ async def search_articles_for_podcast(
 async def list_podcasts(db: Database = Depends(get_database_instance)):
     """Get list of generated podcasts."""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Check if podcasts table exists
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='podcasts'
-            """)
-            
-            if not cursor.fetchone():
-                # Create podcasts table if it doesn't exist
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS podcasts (
-                        id TEXT PRIMARY KEY,
-                        title TEXT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        audio_url TEXT,
-                        transcript TEXT,
-                        status TEXT DEFAULT 'pending',
-                        config JSON
-                    )
-                """)
-                conn.commit()
-                return JSONResponse(content=[])
-            
-            # Get all completed podcasts
-            cursor.execute("""
-                SELECT id, title, created_at, audio_url, transcript
-                FROM podcasts
-                WHERE status = 'completed'
-                ORDER BY created_at DESC
-                LIMIT 50
-            """)
-            
-            podcasts = []
-            for row in cursor.fetchall():
-                podcasts.append({
-                    "id": row[0],
-                    "title": row[1],
-                    "created_at": row[2],
-                    "audio_url": row[3],
-                    "transcript": row[4]
-                })
-            
-            return JSONResponse(content=podcasts)
+        if not (DatabaseQueryFacade(db, logger)).check_if_table_podcasts_exists():
+            # Create podcasts table if it doesn't exist
+            (DatabaseQueryFacade(db, logger)).create_table_podcasts()
+
+            return JSONResponse(content=[])
+
+        # Get all completed podcasts
+        podcasts = []
+        for row in (DatabaseQueryFacade(db, logger)).get_all_completed_podcasts():
+            podcasts.append({
+                "id": row[0],
+                "title": row[1],
+                "created_at": row[2],
+                "audio_url": row[3],
+                "transcript": row[4]
+            })
+
+        return JSONResponse(content=podcasts)
             
     except Exception as e:
         logger.error(f"Error listing podcasts: {str(e)}")
@@ -3181,19 +3037,12 @@ async def create_podcast(
             if not podcast_id:
                 raise ValueError("No podcast ID received from ElevenLabs")
                 
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO podcasts (
-                        id, title, created_at, status, config, article_uris
-                    ) VALUES (?, ?, CURRENT_TIMESTAMP, 'processing', ?, ?)
-                """, (
+            (DatabaseQueryFacade(db, logger)).create_podcast((
                     podcast_id,
                     data.get('title'),
                     json.dumps(data),
                     json.dumps([a['uri'] for a in articles])
                 ))
-                conn.commit()
             
             logger.info(f"Successfully saved podcast {podcast_id} to database")
             return JSONResponse(content={"podcast_id": podcast_id})
@@ -3247,14 +3096,7 @@ async def get_podcast_status(
             transcript = project.get('transcript')
             
             # Update database with completed status
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE podcasts 
-                    SET status = ?, audio_url = ?, transcript = ?
-                    WHERE id = ?
-                """, ('completed', audio_url, transcript, podcast_id))
-                conn.commit()
+            (DatabaseQueryFacade(db, logger)).update_podcast_status(('completed', audio_url, transcript, podcast_id))
         
         return JSONResponse(content={
             "status": status,
@@ -3308,35 +3150,8 @@ async def get_flow_data(
     Each record contains the source, category, sentiment, and driver_type for an article.
     """
     logger.info("Fetching flow data: timeframe=%s, topic=%s, limit=%s", timeframe, topic, limit)
-    query = (
-        "SELECT COALESCE(news_source, 'Unknown') AS source, "
-        "COALESCE(category, 'Unknown') AS category, "
-        "COALESCE(sentiment, 'Unknown') AS sentiment, "
-        "COALESCE(driver_type, 'Unknown') AS driver_type, "
-        "submission_date "
-        "FROM articles WHERE 1=1"
-    )
-    params = []
 
-    if topic:
-        query += " AND topic = ?"
-        params.append(topic)
-
-    if timeframe != "all":
-        try:
-            days = int(timeframe)
-            query += " AND submission_date >= date('now', ?)"
-            params.append(f'-{days} days')
-        except ValueError:
-            logger.warning("Invalid timeframe value provided: %s", timeframe)
-
-    query += " ORDER BY submission_date DESC LIMIT ?"
-    params.append(limit)
-
-    with db.get_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        rows = cursor.fetchall()
+    rows = (DatabaseQueryFacade(db, logger)).get_flow_data(topic, timeframe, limit)
 
     data = [
         {

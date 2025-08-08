@@ -475,3 +475,254 @@ class DatabaseQueryFacade:
                 articles.append(article_dict)
 
             return articles
+
+    def get_topics_with_article_counts(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    topic, 
+                    COUNT(DISTINCT uri) as article_count,
+                    MAX(publication_date) as last_article_date
+                FROM articles 
+                WHERE topic IS NOT NULL AND topic != ''
+                GROUP BY topic
+            """)
+            db_topics = {row[0]: {"article_count": row[1], "last_article_date": row[2]}
+                        for row in cursor.fetchall()}
+            return db_topics
+
+    def debug_articles(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM articles")
+            articles = cursor.fetchall()
+            return articles
+
+    def get_rate_limit_status(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           SELECT requests_today, last_error
+                           FROM keyword_monitor_status
+                           WHERE id = 1
+                           """)
+            row = cursor.fetchone()
+
+            return row
+
+    def get_monitor_page_keywords(self):
+        with self.db.get_connection() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+
+            # Get keyword groups and their keywords
+            cursor.execute("""
+                SELECT kg.id, kg.name, kg.topic, 
+                       mk.id as keyword_id, 
+                       mk.keyword
+                FROM keyword_groups kg
+                LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                ORDER BY kg.name, mk.keyword
+            """)
+            return cursor.fetchall()
+
+    def get_monitored_keywords_for_keyword_alerts_page(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT MAX(last_checked)                                                  as last_check_time,
+                                  (SELECT check_interval FROM keyword_monitor_settings WHERE id = 1) as check_interval,
+                                  (SELECT interval_unit FROM keyword_monitor_settings WHERE id = 1)  as interval_unit,
+                                  (SELECT last_error FROM keyword_monitor_status WHERE id = 1)       as last_error,
+                                  (SELECT is_enabled FROM keyword_monitor_settings WHERE id = 1)     as is_enabled
+                           FROM monitored_keywords
+                           """)
+
+            return cursor.fetchone()
+
+    def get_all_groups_with_their_alerts_and_status(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           WITH alert_counts AS (SELECT kg.id                 as group_id,
+                                                        COUNT(DISTINCT ka.id) as unread_count
+                                                 FROM keyword_groups kg
+                                                          LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                                                          LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id AND ka.is_read = 0
+                                                 GROUP BY kg.id)
+                           SELECT kg.id,
+                                  kg.name,
+                                  kg.topic,
+                                  ac.unread_count,
+                                  (SELECT GROUP_CONCAT(keyword, '||')
+                                   FROM monitored_keywords
+                                   WHERE group_id = kg.id) as keywords
+                           FROM keyword_groups kg
+                                    LEFT JOIN alert_counts ac ON kg.id = ac.group_id
+                           ORDER BY ac.unread_count DESC, kg.name
+                           """)
+
+            return cursor.fetchall()
+
+    def check_if_keyword_article_matches_table_exists(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='keyword_article_matches'
+            """)
+
+            return cursor.fetchone() is not None
+
+    def get_keywords_and_articles_for_keywords_alert_page_using_new_structure(self, group_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT kam.id,
+                                  kam.detected_at,
+                                  kam.article_uri,
+                                  a.title,
+                                  a.uri                                                                            as url,
+                                  a.news_source,
+                                  a.publication_date,
+                                  a.summary,
+                                  kam.keyword_ids,
+                                  (SELECT GROUP_CONCAT(keyword, '||')
+                                   FROM monitored_keywords
+                                   WHERE id IN (SELECT value
+                                                FROM json_each('[' || REPLACE(kam.keyword_ids, ',', ',') || ']'))) as matched_keywords
+                           FROM keyword_article_matches kam
+                                    JOIN articles a ON kam.article_uri = a.uri
+                           WHERE kam.group_id = ?
+                             AND kam.is_read = 0
+                           ORDER BY kam.detected_at DESC
+                           """, (group_id,))
+
+            return cursor.fetchall()
+
+    def get_keywords_and_articles_for_keywords_alert_page_using_old_structure(self, group_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT ka.id,
+                                  ka.detected_at,
+                                  ka.article_uri,
+                                  a.title,
+                                  a.uri      as url,
+                                  a.news_source,
+                                  a.publication_date,
+                                  a.summary,
+                                  mk.keyword as matched_keyword
+                           FROM keyword_alerts ka
+                                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                                    JOIN articles a ON ka.article_uri = a.uri
+                           WHERE mk.group_id = ?
+                             AND ka.is_read = 0
+                           ORDER BY ka.detected_at DESC
+                           """, (group_id,))
+
+            return cursor.fetchall()
+
+    def check_if_table_podcasts_exists(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT name
+                           FROM sqlite_master
+                           WHERE type = 'table'
+                             AND name = 'podcasts'
+                           """)
+
+            return cursor.fetchone()
+
+    def create_table_podcasts(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS podcasts (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    audio_url TEXT,
+                    transcript TEXT,
+                    status TEXT DEFAULT 'pending',
+                    config JSON
+                )
+            """)
+            conn.commit()
+
+    def get_all_completed_podcasts(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT id, title, created_at, audio_url, transcript
+                           FROM podcasts
+                           WHERE status = 'completed'
+                           ORDER BY created_at DESC LIMIT 50
+                           """)
+
+            return cursor.fetchall()
+
+    def create_podcast(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO podcasts (id, title, created_at, status, config, article_uris)
+                           VALUES (?, ?, CURRENT_TIMESTAMP, 'processing', ?, ?)
+                           """, params)
+            conn.commit()
+
+    def update_podcast_status(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           UPDATE podcasts
+                           SET status     = ?,
+                               audio_url  = ?,
+                               transcript = ?
+                           WHERE id = ?
+                           """, params)
+            conn.commit()
+
+    def get_flow_data(self, topic, timeframe, limit):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = (
+                "SELECT COALESCE(news_source, 'Unknown') AS source, "
+                "COALESCE(category, 'Unknown') AS category, "
+                "COALESCE(sentiment, 'Unknown') AS sentiment, "
+                "COALESCE(driver_type, 'Unknown') AS driver_type, "
+                "submission_date "
+                "FROM articles WHERE 1=1"
+            )
+            params = []
+
+            if topic:
+                query += " AND topic = ?"
+                params.append(topic)
+
+            if timeframe != "all":
+                try:
+                    days = int(timeframe)
+                    query += " AND submission_date >= date('now', ?)"
+                    params.append(f'-{days} days')
+                except ValueError:
+                    logger.warning("Invalid timeframe value provided: %s", timeframe)
+
+            query += " ORDER BY submission_date DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            return cursor.fetchall()
+
