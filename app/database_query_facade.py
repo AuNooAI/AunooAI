@@ -550,6 +550,302 @@ class DatabaseQueryFacade:
 
             return articles
 
+    def create_model_bias_arena_runs(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO model_bias_arena_runs
+                           (name, description, benchmark_model, selected_models, article_count, rounds, current_round,
+                            status)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, 'running')
+                           """,
+                           (name, description, benchmark_model, json.dumps(selected_models), len(articles), rounds, 1))
+
+            return cursor.lastrowid
+
+    def store_evaluation_results(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO model_bias_arena_results
+                           (run_id, article_uri, model_name, response_text, bias_score,
+                            confidence_score, response_time_ms, error_message)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                           """, (run_id, article_uri, model_name, response_text, bias_score,
+                                 confidence_score, response_time_ms, error_message))
+            conn.commit()
+
+    def store_ontological_results(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO model_bias_arena_results
+                           (run_id, article_uri, model_name, response_text,
+                            response_time_ms, sentiment, sentiment_explanation, future_signal,
+                            future_signal_explanation, time_to_impact, time_to_impact_explanation,
+                            driver_type, driver_type_explanation, category, category_explanation,
+                            political_bias, political_bias_explanation, factuality, factuality_explanation,
+                            round_number)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                           """, params)
+            conn.commit()
+
+    def update_run_status(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           UPDATE model_bias_arena_runs
+                           SET status       = ?,
+                               completed_at = CURRENT_TIMESTAMP
+                           WHERE id = ?
+                           """, params)
+            conn.commit()
+
+    def get_run_details(self, run_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT id,
+                                  name,
+                                  description,
+                                  benchmark_model,
+                                  selected_models,
+                                  article_count,
+                                  rounds,
+                                  current_round,
+                                  created_at,
+                                  completed_at,
+                                  status
+                           FROM model_bias_arena_runs
+                           WHERE id = ?
+                           """, (run_id,))
+
+            return cursor.fetchone()
+
+    def get_ontological_results_with_article_info(self, run_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT r.model_name,
+                                  r.article_uri,
+                                  r.sentiment,
+                                  r.sentiment_explanation,
+                                  r.future_signal,
+                                  r.future_signal_explanation,
+                                  r.time_to_impact,
+                                  r.time_to_impact_explanation,
+                                  r.driver_type,
+                                  r.driver_type_explanation,
+                                  r.category,
+                                  r.category_explanation,
+                                  r.political_bias,
+                                  r.political_bias_explanation,
+                                  r.factuality,
+                                  r.factuality_explanation,
+                                  r.confidence_score,
+                                  r.response_time_ms,
+                                  r.error_message,
+                                  r.response_text,
+                                  r.round_number,
+                                  maa.article_title,
+                                  maa.article_summary
+                           FROM model_bias_arena_results r
+                                    JOIN model_bias_arena_articles maa ON r.article_uri = maa.article_uri
+                               AND r.run_id = maa.run_id
+                           WHERE r.run_id = ?
+                           ORDER BY r.article_uri, r.model_name, r.round_number
+                           """, (run_id,))
+
+            return cursor.fetchall()
+
+    def get_benchmark_data_including_media_bias_info(self, run_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT a.uri,
+                                  a.title,
+                                  a.sentiment,
+                                  a.future_signal,
+                                  a.time_to_impact,
+                                  a.driver_type,
+                                  a.category,
+                                  a.sentiment_explanation,
+                                  a.future_signal_explanation,
+                                  a.time_to_impact_explanation,
+                                  a.driver_type_explanation,
+                                  a.bias,
+                                  a.factual_reporting,
+                                  a.mbfc_credibility_rating,
+                                  a.bias_country,
+                                  a.press_freedom,
+                                  a.media_type,
+                                  a.popularity,
+                                  a.news_source
+                           FROM model_bias_arena_articles maa
+                                    JOIN articles a ON maa.article_uri = a.uri
+                           WHERE maa.run_id = ?
+                           ORDER BY a.uri
+                           """, (run_id,))
+
+            return cursor.fetchall()
+
+    def delete_run(self, run_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("DELETE FROM model_bias_arena_runs WHERE id = ?", (run_id,))
+            conn.commit()
+
+            return cursor.rowcount
+
+    def get_source_bias_validation_data(self, url):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT bias,
+                                  factual_reporting,
+                                  mbfc_credibility_rating,
+                                  bias_country,
+                                  press_freedom,
+                                  media_type,
+                                  popularity
+                           FROM articles
+                           WHERE uri = ?
+                           """, (url,))
+
+            return cursor.fetchone()
+
+    def get_run_articles(self, run_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT article_uri, article_title, article_summary
+                           FROM model_bias_arena_articles
+                           WHERE run_id = ?
+                           ORDER BY id
+                           """, (run_id,))
+
+            return cursor.fetchall()
+
+    def get_all_bias_evaluation_runs(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT id,
+                                  name,
+                                  description,
+                                  benchmark_model,
+                                  selected_models,
+                                  article_count,
+                                  rounds,
+                                  current_round,
+                                  created_at,
+                                  completed_at,
+                                  status
+                           FROM model_bias_arena_runs
+                           ORDER BY created_at DESC
+                           """)
+
+            return cursor.fetchall()
+
+    def update_run(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           UPDATE model_bias_arena_runs
+                           SET current_round = ?
+                           WHERE id = ?
+                           """, (round_num, run_id))
+            conn.commit()
+
+    def get_topics_from_article(self, article_url):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT DISTINCT topic FROM articles WHERE uri = ?", (article_url,))
+
+            return cursor.fetchone()
+
+    def get_run_info(self, run_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT rounds, current_round
+                           FROM model_bias_arena_runs
+                           WHERE id = ?
+                           """, (run_id,))
+
+            return cursor.fetchone()
+
+    def add_articles_to_run(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO model_bias_arena_articles
+                               (run_id, article_uri, article_title, article_summary)
+                           VALUES (?, ?, ?, ?)
+                           """, params)
+
+            conn.commit()
+
+    def sample_articles(self, count, topic):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Only select articles that have all required ontological fields populated (benchmark data)
+            query = """
+                    SELECT uri, \
+                           title, \
+                           summary, \
+                           news_source, \
+                           topic, \
+                           category,
+                           sentiment, \
+                           future_signal, \
+                           time_to_impact, \
+                           driver_type,
+                           bias, \
+                           factual_reporting, \
+                           mbfc_credibility_rating, \
+                           bias_country
+                    FROM articles
+                    WHERE summary IS NOT NULL
+                      AND LENGTH(summary) > 100
+                      AND analyzed = 1
+                      AND sentiment IS NOT NULL \
+                      AND sentiment != ''
+                AND future_signal IS NOT NULL AND future_signal != ''
+                AND time_to_impact IS NOT NULL AND time_to_impact != ''
+                AND driver_type IS NOT NULL AND driver_type != ''
+                AND category IS NOT NULL AND category != ''
+                AND (news_source IS NOT NULL AND news_source != '') \
+                    """
+            params = []
+
+            if topic:
+                query += " AND topic = ?"
+                params.append(topic)
+
+            query += " ORDER BY RANDOM() LIMIT ?"
+            params.append(count)
+
+            cursor.execute(query, params)
+
+            return cursor.fetchall()
+
     def get_topics_with_article_counts(self):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()

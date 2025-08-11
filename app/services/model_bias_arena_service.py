@@ -11,6 +11,7 @@ from statistics import mean, stdev
 import sqlite3
 
 from app.database import Database, get_database_instance
+from app.database_query_facade import DatabaseQueryFacade
 from app.ai_models import LiteLLMModel, get_available_models
 from app.analyzers.prompt_manager import PromptManager
 
@@ -61,62 +62,33 @@ class ModelBiasArenaService:
     def sample_articles(self, count: int = 25, topic: Optional[str] = None) -> List[Dict[str, Any]]:
         """Sample articles that have complete benchmark ontological data."""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Only select articles that have all required ontological fields populated (benchmark data)
-                query = """
-                    SELECT uri, title, summary, news_source, topic, category,
-                           sentiment, future_signal, time_to_impact, driver_type,
-                           bias, factual_reporting, mbfc_credibility_rating, bias_country
-                    FROM articles 
-                    WHERE summary IS NOT NULL 
-                    AND LENGTH(summary) > 100
-                    AND analyzed = 1
-                    AND sentiment IS NOT NULL AND sentiment != ''
-                    AND future_signal IS NOT NULL AND future_signal != ''
-                    AND time_to_impact IS NOT NULL AND time_to_impact != ''
-                    AND driver_type IS NOT NULL AND driver_type != ''
-                    AND category IS NOT NULL AND category != ''
-                    AND (news_source IS NOT NULL AND news_source != '')
-                """
-                params = []
-                
-                if topic:
-                    query += " AND topic = ?"
-                    params.append(topic)
-                    
-                query += " ORDER BY RANDOM() LIMIT ?"
-                params.append(count)
-                
-                cursor.execute(query, params)
-                articles = []
-                
-                for row in cursor.fetchall():
-                    articles.append({
-                        "uri": row[0],
-                        "title": row[1],
-                        "summary": row[2],
-                        "news_source": row[3],
-                        "topic": row[4],
-                        "category": row[5],
-                        # Include benchmark values for reference
-                        "benchmark_sentiment": row[6],
-                        "benchmark_future_signal": row[7],
-                        "benchmark_time_to_impact": row[8],
-                        "benchmark_driver_type": row[9],
-                        # Store source bias data for post-analysis validation (NOT used in analysis prompts)
-                        "source_bias": row[10],
-                        "source_factual_reporting": row[11],
-                        "source_credibility": row[12],
-                        "source_country": row[13]
-                    })
-                
-                logger.info(f"Sampled {len(articles)} articles with complete benchmark ontological data")
-                if len(articles) == 0:
-                    logger.warning("No articles found with complete benchmark data. Make sure you have analyzed articles with ontological fields.")
-                
-                return articles
+            articles = []
+
+            for row in (DatabaseQueryFacade(self.db, logger)).sample_articles(count, topic):
+                articles.append({
+                    "uri": row[0],
+                    "title": row[1],
+                    "summary": row[2],
+                    "news_source": row[3],
+                    "topic": row[4],
+                    "category": row[5],
+                    # Include benchmark values for reference
+                    "benchmark_sentiment": row[6],
+                    "benchmark_future_signal": row[7],
+                    "benchmark_time_to_impact": row[8],
+                    "benchmark_driver_type": row[9],
+                    # Store source bias data for post-analysis validation (NOT used in analysis prompts)
+                    "source_bias": row[10],
+                    "source_factual_reporting": row[11],
+                    "source_credibility": row[12],
+                    "source_country": row[13]
+                })
+
+            logger.info(f"Sampled {len(articles)} articles with complete benchmark ontological data")
+            if len(articles) == 0:
+                logger.warning("No articles found with complete benchmark data. Make sure you have analyzed articles with ontological fields.")
+
+            return articles
                 
         except Exception as e:
             logger.error(f"Error sampling articles: {e}")
@@ -136,29 +108,14 @@ class ModelBiasArenaService:
             articles = self.sample_articles(count=article_count, topic=topic)
             if not articles:
                 raise ValueError("No articles found to sample")
-            
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Create the run
-                cursor.execute("""
-                    INSERT INTO model_bias_arena_runs 
-                    (name, description, benchmark_model, selected_models, article_count, rounds, current_round, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'running')
-                """, (name, description, benchmark_model, json.dumps(selected_models), len(articles), rounds, 1))
-                
-                run_id = cursor.lastrowid
-                
-                # Add articles to the run
-                for article in articles:
-                    cursor.execute("""
-                        INSERT INTO model_bias_arena_articles 
-                        (run_id, article_uri, article_title, article_summary)
-                        VALUES (?, ?, ?, ?)
-                    """, (run_id, article["uri"], article["title"], article["summary"]))
-                
-                conn.commit()
-                return run_id
+
+            run_id = (DatabaseQueryFacade(self.db, logger)).create_model_bias_arena_runs((name, description, benchmark_model, json.dumps(selected_models), len(articles), rounds, 1))
+
+            # Add articles to the run
+            for article in articles:
+                (DatabaseQueryFacade(self.db, logger)).add_articles_to_run((run_id, article["uri"], article["title"], article["summary"]))
+
+            return run_id
                 
         except Exception as e:
             logger.error(f"Error creating bias evaluation run: {e}")
@@ -176,17 +133,10 @@ class ModelBiasArenaService:
             benchmark_model = run_details["benchmark_model"]
             
             # Get rounds info - need to update query to include new fields
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT rounds, current_round
-                    FROM model_bias_arena_runs
-                    WHERE id = ?
-                """, (run_id,))
-                round_info = cursor.fetchone()
-                if not round_info:
-                    raise ValueError(f"Run {run_id} not found")
-                total_rounds, current_round = round_info
+            round_info = (DatabaseQueryFacade(self.db, logger)).get_run_info(run_id)
+            if not round_info:
+                raise ValueError(f"Run {run_id} not found")
+            total_rounds, current_round = round_info
             
             # Get articles for this run
             articles = self.get_run_articles(run_id)
@@ -204,13 +154,10 @@ class ModelBiasArenaService:
             topic_config = None
             if articles:
                 try:
-                    with self.db.get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT DISTINCT topic FROM articles WHERE uri = ?", (articles[0]["article_uri"],))
-                        row = cursor.fetchone()
-                        if row and row[0] and row[0] in topic_configs:
-                            topic_config = topic_configs[row[0]]
-                            logger.info(f"Using topic config for: {row[0]}")
+                    row = (DatabaseQueryFacade(self.db, logger)).get_topics_from_article(articles[0]["article_uri"],)
+                    if row and row[0] and row[0] in topic_configs:
+                        topic_config = topic_configs[row[0]]
+                        logger.info(f"Using topic config for: {row[0]}")
                 except Exception as e:
                     logger.warning(f"Could not determine topic from articles: {e}")
             
@@ -244,15 +191,7 @@ class ModelBiasArenaService:
                 logger.info(f"Starting Round {round_num} of {total_rounds}")
                 
                 # Update current round in database
-                with self.db.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        UPDATE model_bias_arena_runs 
-                        SET current_round = ?
-                        WHERE id = ?
-                    """, (round_num, run_id))
-                    conn.commit()
-                
+                (DatabaseQueryFacade(self.db, logger)).update_run((round_num, run_id))
                 round_results = {}
                 
                 # Evaluate each model for this round
@@ -372,16 +311,7 @@ class ModelBiasArenaService:
                                error_message: str = None):
         """Store evaluation result in database."""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO model_bias_arena_results 
-                    (run_id, article_uri, model_name, response_text, bias_score, 
-                     confidence_score, response_time_ms, error_message)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (run_id, article_uri, model_name, response_text, bias_score,
-                      confidence_score, response_time_ms, error_message))
-                conn.commit()
+            (DatabaseQueryFacade(self.db, logger)).store_evaluation_results((run_id, article_uri, model_name, response_text, bias_score, confidence_score, response_time_ms, error_message))
         except Exception as e:
             logger.error(f"Error storing evaluation result: {e}")
     
@@ -395,18 +325,7 @@ class ModelBiasArenaService:
                                 round_number: int = 1):
         """Store ontological analysis result in database."""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO model_bias_arena_results 
-                    (run_id, article_uri, model_name, response_text, 
-                     response_time_ms, sentiment, sentiment_explanation, future_signal, 
-                     future_signal_explanation, time_to_impact, time_to_impact_explanation,
-                     driver_type, driver_type_explanation, category, category_explanation,
-                     political_bias, political_bias_explanation, factuality, factuality_explanation,
-                     round_number)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
+            (DatabaseQueryFacade(self.db, logger)).store_ontological_results((
                     run_id, article_uri, model_name, response_text,
                     response_time_ms,
                     extracted_fields.get("sentiment"),
@@ -425,54 +344,37 @@ class ModelBiasArenaService:
                     extracted_fields.get("factuality_explanation"),
                     round_number
                 ))
-                conn.commit()
         except Exception as e:
             logger.error(f"Error storing ontological result: {e}")
     
     def _update_run_status(self, run_id: int, status: str):
         """Update run status."""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE model_bias_arena_runs 
-                    SET status = ?, completed_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                """, (status, run_id))
-                conn.commit()
+            (DatabaseQueryFacade(self.db, logger)).update_run_status((status, run_id))
         except Exception as e:
             logger.error(f"Error updating run status: {e}")
     
     def get_runs(self) -> List[Dict[str, Any]]:
         """Get all bias evaluation runs."""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, name, description, benchmark_model, selected_models,
-                           article_count, rounds, current_round, created_at, completed_at, status
-                    FROM model_bias_arena_runs
-                    ORDER BY created_at DESC
-                """)
-                
-                runs = []
-                for row in cursor.fetchall():
-                    runs.append({
-                        "id": row[0],
-                        "name": row[1],
-                        "description": row[2],
-                        "benchmark_model": row[3],
-                        "selected_models": json.loads(row[4]),
-                        "article_count": row[5],
-                        "rounds": row[6],
-                        "current_round": row[7],
-                        "created_at": row[8],
-                        "completed_at": row[9],
-                        "status": row[10]
-                    })
-                
-                return runs
-                
+            runs = []
+            for row in (DatabaseQueryFacade(self.db, logger)).get_all_bias_evaluation_runs():
+                runs.append({
+                    "id": row[0],
+                    "name": row[1],
+                    "description": row[2],
+                    "benchmark_model": row[3],
+                    "selected_models": json.loads(row[4]),
+                    "article_count": row[5],
+                    "rounds": row[6],
+                    "current_round": row[7],
+                    "created_at": row[8],
+                    "completed_at": row[9],
+                    "status": row[10]
+                })
+
+            return runs
+
         except Exception as e:
             logger.error(f"Error getting runs: {e}")
             return []
@@ -480,31 +382,22 @@ class ModelBiasArenaService:
     def get_run_details(self, run_id: int) -> Optional[Dict[str, Any]]:
         """Get details for a specific run."""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, name, description, benchmark_model, selected_models,
-                           article_count, rounds, current_round, created_at, completed_at, status
-                    FROM model_bias_arena_runs
-                    WHERE id = ?
-                """, (run_id,))
-                
-                row = cursor.fetchone()
-                if row:
-                    return {
-                        "id": row[0],
-                        "name": row[1],
-                        "description": row[2],
-                        "benchmark_model": row[3],
-                        "selected_models": row[4],  # Keep as JSON string for now
-                        "article_count": row[5],
-                        "rounds": row[6],
-                        "current_round": row[7],
-                        "created_at": row[8],
-                        "completed_at": row[9],
-                        "status": row[10]
-                    }
-                return None
+            row = (DatabaseQueryFacade(self.db, logger)).get_run_details(run_id)
+            if row:
+                return {
+                    "id": row[0],
+                    "name": row[1],
+                    "description": row[2],
+                    "benchmark_model": row[3],
+                    "selected_models": row[4],  # Keep as JSON string for now
+                    "article_count": row[5],
+                    "rounds": row[6],
+                    "current_round": row[7],
+                    "created_at": row[8],
+                    "completed_at": row[9],
+                    "status": row[10]
+                }
+            return None
                 
         except Exception as e:
             logger.error(f"Error getting run details: {e}")
@@ -513,25 +406,15 @@ class ModelBiasArenaService:
     def get_run_articles(self, run_id: int) -> List[Dict[str, Any]]:
         """Get articles for a specific run."""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT article_uri, article_title, article_summary
-                    FROM model_bias_arena_articles
-                    WHERE run_id = ?
-                    ORDER BY id
-                """, (run_id,))
-                
-                articles = []
-                for row in cursor.fetchall():
-                    articles.append({
-                        "article_uri": row[0],
-                        "article_title": row[1],
-                        "article_summary": row[2]
-                    })
-                
-                return articles
-                
+            articles = []
+            for row in (DatabaseQueryFacade(self.db, logger)).get_run_articles(run_id):
+                articles.append({
+                    "article_uri": row[0],
+                    "article_title": row[1],
+                    "article_summary": row[2]
+                })
+
+            return articles
         except Exception as e:
             logger.error(f"Error getting run articles: {e}")
             return []
@@ -539,88 +422,56 @@ class ModelBiasArenaService:
     def get_run_results(self, run_id: int) -> Dict[str, Any]:
         """Get comprehensive results for a run including matrix view and benchmark comparison."""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get run details
-                run_details = self.get_run_details(run_id)
-                if not run_details:
-                    return {}
-                
-                # Get all ontological results with article info
-                cursor.execute("""
-                    SELECT r.model_name, r.article_uri, r.sentiment, r.sentiment_explanation,
-                           r.future_signal, r.future_signal_explanation, r.time_to_impact, 
-                           r.time_to_impact_explanation, r.driver_type, r.driver_type_explanation,
-                           r.category, r.category_explanation, r.political_bias, r.political_bias_explanation,
-                           r.factuality, r.factuality_explanation, r.confidence_score, 
-                           r.response_time_ms, r.error_message, r.response_text, r.round_number,
-                           maa.article_title, maa.article_summary
-                    FROM model_bias_arena_results r
-                    JOIN model_bias_arena_articles maa ON r.article_uri = maa.article_uri 
-                        AND r.run_id = maa.run_id
-                    WHERE r.run_id = ?
-                    ORDER BY r.article_uri, r.model_name, r.round_number
-                """, (run_id,))
-                
-                results = cursor.fetchall()
-                
-                # Get benchmark data (original article data) for comparison including media bias info
-                cursor.execute("""
-                    SELECT a.uri, a.title, a.sentiment, a.future_signal, a.time_to_impact,
-                           a.driver_type, a.category, a.sentiment_explanation, 
-                           a.future_signal_explanation, a.time_to_impact_explanation,
-                           a.driver_type_explanation, a.bias, a.factual_reporting,
-                           a.mbfc_credibility_rating, a.bias_country, a.press_freedom,
-                           a.media_type, a.popularity, a.news_source
-                    FROM model_bias_arena_articles maa
-                    JOIN articles a ON maa.article_uri = a.uri
-                    WHERE maa.run_id = ?
-                    ORDER BY a.uri
-                """, (run_id,))
-                
-                benchmark_rows = cursor.fetchall()
-                benchmark_data = {}
-                for row in benchmark_rows:
-                    benchmark_data[row[0]] = {
-                        "title": row[1],
-                        "sentiment": row[2],
-                        "future_signal": row[3], 
-                        "time_to_impact": row[4],
-                        "driver_type": row[5],
-                        "category": row[6],
-                        "sentiment_explanation": row[7],
-                        "future_signal_explanation": row[8],
-                        "time_to_impact_explanation": row[9],
-                        "driver_type_explanation": row[10],
-                        "bias": row[11],
-                        "factual_reporting": row[12],
-                        "mbfc_credibility_rating": row[13],
-                        "bias_country": row[14],
-                        "press_freedom": row[15],
-                        "media_type": row[16],
-                        "popularity": row[17],
-                        "source": row[18],  # Using news_source
-                        "publication": row[18]  # Using news_source for both
-                    }
-                
-                # Build matrix data structure
-                matrix_data = self._build_matrix_data(results, benchmark_data)
-                
-                # Calculate model statistics
-                statistics = self._calculate_model_statistics(results)
-                
-                # Perform outlier analysis
-                outlier_analysis = self._analyze_model_outliers(matrix_data, run_details["benchmark_model"])
-                
-                return {
-                    "run_details": run_details,
-                    "matrix_data": matrix_data,
-                    "benchmark_data": benchmark_data,
-                    "statistics": statistics,
-                    "outlier_analysis": outlier_analysis
+            # Get run details
+            run_details = self.get_run_details(run_id)
+            if not run_details:
+                return {}
+
+            # Get all ontological results with article info
+            results = (DatabaseQueryFacade(self.db, logger)).get_ontological_results_with_article_info(run_id)
+
+            # Get benchmark data (original article data) for comparison including media bias info
+            benchmark_rows = (DatabaseQueryFacade(self.db, logger)).get_benchmark_data_including_media_bias_info(run_id)
+            benchmark_data = {}
+            for row in benchmark_rows:
+                benchmark_data[row[0]] = {
+                    "title": row[1],
+                    "sentiment": row[2],
+                    "future_signal": row[3],
+                    "time_to_impact": row[4],
+                    "driver_type": row[5],
+                    "category": row[6],
+                    "sentiment_explanation": row[7],
+                    "future_signal_explanation": row[8],
+                    "time_to_impact_explanation": row[9],
+                    "driver_type_explanation": row[10],
+                    "bias": row[11],
+                    "factual_reporting": row[12],
+                    "mbfc_credibility_rating": row[13],
+                    "bias_country": row[14],
+                    "press_freedom": row[15],
+                    "media_type": row[16],
+                    "popularity": row[17],
+                    "source": row[18],  # Using news_source
+                    "publication": row[18]  # Using news_source for both
                 }
-                
+
+            # Build matrix data structure
+            matrix_data = self._build_matrix_data(results, benchmark_data)
+
+            # Calculate model statistics
+            statistics = self._calculate_model_statistics(results)
+
+            # Perform outlier analysis
+            outlier_analysis = self._analyze_model_outliers(matrix_data, run_details["benchmark_model"])
+
+            return {
+                "run_details": run_details,
+                "matrix_data": matrix_data,
+                "benchmark_data": benchmark_data,
+                "statistics": statistics,
+                "outlier_analysis": outlier_analysis
+            }
         except Exception as e:
             logger.error(f"Error getting run results: {e}")
             return {}
@@ -982,11 +833,7 @@ class ModelBiasArenaService:
     def delete_run(self, run_id: int) -> bool:
         """Delete a bias evaluation run and all its results."""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("DELETE FROM model_bias_arena_runs WHERE id = ?", (run_id,))
-                conn.commit()
-                return cursor.rowcount > 0
+            return (DatabaseQueryFacade(self.db, logger)).delete_run(run_id) > 0
         except Exception as e:
             logger.error(f"Error deleting run: {e}")
             return False
@@ -1512,30 +1359,20 @@ Performance Bars: Each █ represents 5% (20 blocks = 100%)
         try:
             articles = self.get_run_articles(run_id)
             validation_data = {}
-            
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                for article in articles:
-                    cursor.execute("""
-                        SELECT bias, factual_reporting, mbfc_credibility_rating, 
-                               bias_country, press_freedom, media_type, popularity
-                        FROM articles 
-                        WHERE uri = ?
-                    """, (article["article_uri"],))
-                    
-                    row = cursor.fetchone()
-                    if row:
-                        validation_data[article["article_uri"]] = {
-                            "known_political_bias": row[0],
-                            "known_factual_reporting": row[1], 
-                            "known_credibility_rating": row[2],
-                            "source_country": row[3],
-                            "press_freedom_score": row[4],
-                            "media_type": row[5],
-                            "popularity_score": row[6]
-                        }
-            
+
+            for article in articles:
+                row = (DatabaseQueryFacade(self.db, logger)).get_source_bias_validation_data(article["article_uri"])
+                if row:
+                    validation_data[article["article_uri"]] = {
+                        "known_political_bias": row[0],
+                        "known_factual_reporting": row[1],
+                        "known_credibility_rating": row[2],
+                        "source_country": row[3],
+                        "press_freedom_score": row[4],
+                        "media_type": row[5],
+                        "popularity_score": row[6]
+                    }
+
             return validation_data
             
         except Exception as e:
