@@ -7,6 +7,7 @@ import logging
 
 from pydantic import BaseModel
 from app.database import Database, get_database_instance
+from app.database_query_facade import DatabaseQueryFacade
 from app.security.session import verify_session, verify_session_api, verify_session_api
 
 router = APIRouter()
@@ -23,70 +24,33 @@ async def keyword_alerts_page_old(
 ) -> HTMLResponse:
     """Legacy route - replaced by keyword_monitor.py implementation"""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            monitor_enabled = get_monitor_settings(cursor)
-            last_check_time = get_last_check_time(cursor) 
-            alerts = get_unread_alerts(cursor)
-            
-            return templates.TemplateResponse(
-                "keyword_alerts.html",
-                {
-                    "request": request,
-                    "session": session,
-                    "alerts": alerts,
-                    "last_check_time": last_check_time,
-                    "settings": {"is_enabled": monitor_enabled}
-                }
-            )
-            
+        monitor_enabled = get_monitor_settings()
+        last_check_time = get_last_check_time()
+        alerts = get_unread_alerts()
+
+        return templates.TemplateResponse(
+            "keyword_alerts.html",
+            {
+                "request": request,
+                "session": session,
+                "alerts": alerts,
+                "last_check_time": last_check_time,
+                "settings": {"is_enabled": monitor_enabled}
+            }
+        )
+
     except Exception as e:
         logger.error(f"Error loading keyword alerts page: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-def get_monitor_settings(cursor) -> bool:
-    cursor.execute("SELECT is_enabled FROM keyword_monitor_settings WHERE id = 1")
-    settings = cursor.fetchone()
-    return bool(settings[0]) if settings else False
+def get_monitor_settings() -> bool:
+    return (DatabaseQueryFacade(db, logger)).get_is_keyword_monitor_enabled()
 
-def get_last_check_time(cursor) -> Optional[datetime]:
-    cursor.execute("SELECT MAX(check_time) FROM keyword_monitor_checks")
-    last_check = cursor.fetchone()[0]
-    return last_check if last_check else None
+def get_last_check_time() -> Optional[datetime]:
+    return (DatabaseQueryFacade(db, logger)).get_keyword_monitor_last_check_time()
 
-def get_unread_alerts(cursor) -> List[Dict]:
-    cursor.execute("""
-        SELECT 
-            ka.id,
-            ka.group_id,
-            ka.detected_at,
-            ka.matched_keyword,
-            a.uri,
-            a.title,
-            a.url,
-            a.source,
-            a.publication_date,
-            a.summary,
-            a.category,
-            a.sentiment,
-            a.driver_type,
-            a.time_to_impact,
-            a.future_signal,
-            a.bias,
-            a.factual_reporting,
-            a.mbfc_credibility_rating,
-            a.bias_country,
-            a.press_freedom,
-            a.media_type,
-            a.popularity
-        FROM keyword_alerts ka
-        JOIN articles a ON ka.article_uri = a.uri
-        WHERE ka.read = 0
-        ORDER BY ka.detected_at DESC
-    """)
-    
-    alerts_data = cursor.fetchall()
+def get_unread_alerts() -> List[Dict]:
+    alerts_data = (DatabaseQueryFacade(db, logger)).get_unread_alerts()
     return [
         {
             'id': row[0],
@@ -127,29 +91,20 @@ async def bulk_delete_articles(
     session=Depends(verify_session_api)
 ):
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            deleted_count = 0
-            
-            for uri in request.uris:
-                # First delete related keyword alerts
-                cursor.execute("DELETE FROM keyword_alerts WHERE article_uri = ?", (uri,))
-                
-                # Check if keyword_article_matches table exists and delete from there too
-                cursor.execute("""
-                    SELECT name FROM sqlite_master 
-                    WHERE type='table' AND name='keyword_article_matches'
-                """)
-                if cursor.fetchone():
-                    cursor.execute("DELETE FROM keyword_article_matches WHERE article_uri = ?", (uri,))
-                
-                # Then delete the article
-                cursor.execute("DELETE FROM articles WHERE uri = ?", (uri,))
-                if cursor.rowcount > 0:
-                    deleted_count += 1
-            
-            conn.commit()
-            
+        deleted_count = 0
+
+        for uri in request.uris:
+            # First delete related keyword alerts
+            (DatabaseQueryFacade(db, logger)).delete_keyword_alerts_by_article_url(uri)
+
+            # Check if keyword_article_matches table exists and delete from there too
+            if (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists():
+                (DatabaseQueryFacade(db, logger)).delete_keyword_alerts_by_article_url_from_new_table(uri)
+
+            # Then delete the article
+            if (DatabaseQueryFacade(db, logger)).delete_article_by_url(uri) > 0:
+                deleted_count += 1
+
             # Return both the deleted articles count and affected alerts count
             return {
                 "status": "success", 

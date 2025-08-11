@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.database import Database, get_database_instance
+from app.database_query_facade import DatabaseQueryFacade
 from app.security.session import verify_session
 from datetime import datetime, timezone
 import logging
@@ -74,12 +75,9 @@ async def index(
 ):
     try:
         # Test database connection
-        db_status = {"status": "error", "message": "Disconnected"}
         try:
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT 1")  # Simple test query
-                db_status = {"status": "success", "message": "Connected"}
+            (DatabaseQueryFacade(db, logger)).test_data_select()
+            db_status = {"status": "success", "message": "Connected"}
         except Exception as e:
             logger.error(f"Database connection error: {str(e)}")
             db_status = {"status": "error", "message": str(e)}
@@ -97,30 +95,22 @@ async def index(
             if not providers_configured:
                 api_status = {"status": "warning", "message": "Not Configured"}
             else:
-                # Get current API usage
-                with db.get_connection() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        SELECT requests_today, last_error
-                        FROM keyword_monitor_status 
-                        WHERE id = 1
-                    """)
-                    result = cursor.fetchone()
-                    if result:
-                        requests_today = result[0] or 0
-                        last_error = result[1]
-                        
-                        # Default daily limit (can be made configurable)
-                        daily_limit = 100
-                        
-                        if last_error and ("Rate limit exceeded" in last_error or "limit reached" in last_error):
-                            api_status = {"status": "warning", "message": "Rate Limited"}
-                        elif requests_today >= daily_limit:
-                            api_status = {"status": "warning", "message": "Near Limit"}
-                        else:
-                            api_status = {"status": "success", "message": "Operational"}
+                result = (DatabaseQueryFacade(db, logger)).get_rate_limit_status()
+                if result:
+                    requests_today = result[0] or 0
+                    last_error = result[1]
+
+                    # Default daily limit (can be made configurable)
+                    daily_limit = 100
+
+                    if last_error and ("Rate limit exceeded" in last_error or "limit reached" in last_error):
+                        api_status = {"status": "warning", "message": "Rate Limited"}
+                    elif requests_today >= daily_limit:
+                        api_status = {"status": "warning", "message": "Near Limit"}
                     else:
                         api_status = {"status": "success", "message": "Operational"}
+                else:
+                    api_status = {"status": "success", "message": "Operational"}
 
         except Exception as e:
             logger.error(f"API status check error: {str(e)}")
@@ -135,45 +125,18 @@ async def index(
         }
 
         # Get topic statistics
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT 
-                    topic,
-                    COUNT(*) as article_count,
-                    strftime('%Y-%m-%dT%H:%M:%S.000Z', 
-                        MAX(COALESCE(submission_date, publication_date))
-                    ) as last_article_date
-                FROM articles 
-                WHERE topic IS NOT NULL 
-                AND topic != ''
-                GROUP BY topic 
-                ORDER BY CASE 
-                    WHEN MAX(COALESCE(submission_date, publication_date)) IS NULL THEN 1 
-                    ELSE 0 
-                END,
-                last_article_date DESC
-            """)
-            active_topics = [
-                {
-                    "name": row[0],
-                    "article_count": row[1],
-                    "last_article_date": row[2]
-                }
-                for row in cursor.fetchall()
-            ]
+        active_topics = [
+            {
+                "name": row[0],
+                "article_count": row[1],
+                "last_article_date": row[2]
+            }
+            for row in (DatabaseQueryFacade(db, logger)).get_topic_statistics()
+        ]
 
         # Get last check time with proper timezone format
         try:
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT strftime('%Y-%m-%dT%H:%M:%S.000Z', last_check_time) 
-                    FROM keyword_monitor_status 
-                    WHERE id = 1
-                """)
-                result = cursor.fetchone()
-                last_check_time = result[0] if result else None
+            last_check_time = (DatabaseQueryFacade(db, logger)).get_last_check_time_using_timezone_format()
         except Exception as e:
             logger.error(f"Error getting last check time: {str(e)}")
             last_check_time = None

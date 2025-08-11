@@ -8,6 +8,8 @@ and outlier scenarios based on Auspex's analyzed articles and categories.
 import json
 import logging
 import matplotlib
+from app.database_query_facade import DatabaseQueryFacade
+
 matplotlib.use('Agg')  # Use non-interactive backend to avoid GUI threading issues
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -188,22 +190,16 @@ class ForecastChartService:
         all_topics = self.db.get_topics()
         logger.info(f"All topics in database: {[t.get('id') or t.get('name') for t in all_topics]}")
         
+        total_topic_articles, articles_with_categories, sample_categories = (DatabaseQueryFacade(self.db, logger)).get_total_articles_and_sample_categories_for_topic(topic)
+
         # Check total articles for this topic (case-insensitive)
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?)", (topic,))
-            total_topic_articles = cursor.fetchone()[0]
-            logger.info(f"Total articles for topic '{topic}': {total_topic_articles}")
-            
-            # Check articles with categories
-            cursor.execute("SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != ''", (topic,))
-            articles_with_categories = cursor.fetchone()[0]
-            logger.info(f"Articles with categories for topic '{topic}': {articles_with_categories}")
-            
-            # Show some sample categories
-            cursor.execute("SELECT DISTINCT category FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != '' LIMIT 10", (topic,))
-            sample_categories = [row[0] for row in cursor.fetchall()]
-            logger.info(f"Sample categories for topic '{topic}': {sample_categories}")
+        logger.info(f"Total articles for topic '{topic}': {total_topic_articles}")
+
+        # Check articles with categories
+        logger.info(f"Articles with categories for topic '{topic}': {articles_with_categories}")
+
+        # Show some sample categories
+        logger.info(f"Sample categories for topic '{topic}': {sample_categories}")
         
         # Get topic options to understand available categories
         # First try with exact match, then with case-insensitive match
@@ -212,16 +208,13 @@ class ForecastChartService:
         
         if not categories:
             # Try case-insensitive search for topic name
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT DISTINCT topic FROM articles WHERE LOWER(topic) = LOWER(?)", (topic,))
-                actual_topic_result = cursor.fetchone()
-                if actual_topic_result:
-                    actual_topic = actual_topic_result[0]
-                    logger.info(f"Found actual topic case: '{actual_topic}' for requested: '{topic}'")
-                    topic_options = self.analyzer.get_topic_options(actual_topic)
-                    categories = topic_options.get('categories', [])
-                    topic = actual_topic  # Use the actual case
+            actual_topic_result = (DatabaseQueryFacade(self.db, logger)).get_topic(topic)
+            if actual_topic_result:
+                actual_topic = actual_topic_result[0]
+                logger.info(f"Found actual topic case: '{actual_topic}' for requested: '{topic}'")
+                topic_options = self.analyzer.get_topic_options(actual_topic)
+                categories = topic_options.get('categories', [])
+                topic = actual_topic  # Use the actual case
         
         logger.info(f"Topic options for '{topic}': {topic_options}")
         logger.info(f"Categories found: {categories}")
@@ -229,15 +222,12 @@ class ForecastChartService:
         if not categories:
             logger.warning(f"No categories found for topic: {topic}. Trying without curated filter...")
             # Try to get categories without the curated filter requirement
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT DISTINCT category FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != ''", (topic,))
-                raw_categories = [row[0] for row in cursor.fetchall()]
-                logger.info(f"Raw categories found: {raw_categories}")
-                if raw_categories:
-                    categories = raw_categories
-                else:
-                    return {'themes': [], 'consensus_bands': [], 'outlier_markers': []}
+            raw_categories = (DatabaseQueryFacade(self.db, logger)).get_categories_for_topic(topic)
+            logger.info(f"Raw categories found: {raw_categories}")
+            if raw_categories:
+                categories = raw_categories
+            else:
+                return {'themes': [], 'consensus_bands': [], 'outlier_markers': []}
         
         # Filter categories if specific ones were selected
         if selected_categories:
@@ -320,16 +310,13 @@ class ForecastChartService:
         # Calculate total articles safely - use direct database query
         total_articles = 0
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                if categories:
-                    placeholders = ', '.join(['?' for _ in categories])
-                    cursor.execute(f"SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?) AND category IN ({placeholders})", 
-                                 [topic] + categories)
-                else:
-                    cursor.execute("SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?)", (topic,))
-                total_articles = cursor.fetchone()[0]
-                logger.info(f"Total articles counted: {total_articles}")
+            if categories:
+                placeholders = ', '.join(['?' for _ in categories])
+                total_articles = (DatabaseQueryFacade(self.db, logger)).get_articles_count_from_topic_and_categories(placeholders, [topic] + categories)
+            else:
+                total_articles = (DatabaseQueryFacade(self.db, logger)).get_article_count_for_topic(topic)
+
+            logger.info(f"Total articles counted: {total_articles}")
         except Exception as e:
             logger.error(f"Error calculating total articles: {str(e)}", exc_info=True)
             # Fallback to analyzer method
@@ -686,35 +673,20 @@ class ForecastChartService:
     def _get_category_articles(self, category: str, topic: str, timeframe: str) -> List[Dict]:
         """Get sample articles for a category to use in outlier context."""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get recent articles for this category and topic
-                cursor.execute("""
-                    SELECT title, news_source, uri, sentiment, future_signal, 
-                           time_to_impact, publication_date
-                    FROM articles 
-                    WHERE LOWER(topic) = LOWER(?) 
-                      AND LOWER(category) = LOWER(?)
-                      AND date(publication_date) >= date('now', '-' || ? || ' days')
-                    ORDER BY publication_date DESC
-                    LIMIT 5
-                """, (topic, category, timeframe))
-                
-                articles = []
-                for row in cursor.fetchall():
-                    articles.append({
-                        'title': row[0],
-                        'source': row[1],
-                        'uri': row[2],
-                        'sentiment': row[3],
-                        'future_signal': row[4],
-                        'time_to_impact': row[5],
-                        'publication_date': row[6]
-                    })
-                
-                logger.info(f"Found {len(articles)} sample articles for {category}")
-                return articles
+            articles = []
+            for row in (DatabaseQueryFacade(self.db, logger)).get_recent_articles_for_topic_and_category((topic, category, timeframe)):
+                articles.append({
+                    'title': row[0],
+                    'source': row[1],
+                    'uri': row[2],
+                    'sentiment': row[3],
+                    'future_signal': row[4],
+                    'time_to_impact': row[5],
+                    'publication_date': row[6]
+                })
+
+            logger.info(f"Found {len(articles)} sample articles for {category}")
+            return articles
                 
         except Exception as e:
             logger.error(f"Error getting articles for category {category}: {str(e)}")

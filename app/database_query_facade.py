@@ -444,6 +444,75 @@ class DatabaseQueryFacade:
                 yield dict(row)
 
     #### ENDPOINTS QUERIES ####
+    def get_is_keyword_monitor_enabled(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT is_enabled FROM keyword_monitor_settings WHERE id = 1")
+
+            settings = cursor.fetchone()
+            return bool(settings[0]) if settings else False
+
+    def get_keyword_monitor_last_check_time(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT MAX(check_time) FROM keyword_monitor_checks")
+
+            last_check = cursor.fetchone()[0]
+            return last_check if last_check else None
+
+    def get_unread_alerts(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT ka.id,
+                                  ka.group_id,
+                                  ka.detected_at,
+                                  ka.matched_keyword,
+                                  a.uri,
+                                  a.title,
+                                  a.url,
+                                  a.source,
+                                  a.publication_date,
+                                  a.summary,
+                                  a.category,
+                                  a.sentiment,
+                                  a.driver_type,
+                                  a.time_to_impact,
+                                  a.future_signal,
+                                  a.bias,
+                                  a.factual_reporting,
+                                  a.mbfc_credibility_rating,
+                                  a.bias_country,
+                                  a.press_freedom,
+                                  a.media_type,
+                                  a.popularity
+                           FROM keyword_alerts ka
+                                    JOIN articles a ON ka.article_uri = a.uri
+                           WHERE ka.read = 0
+                           ORDER BY ka.detected_at DESC
+                           """)
+
+            return cursor.fetchall()
+
+    def delete_keyword_alerts_by_article_url(self, url):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("DELETE FROM keyword_alerts WHERE article_uri = ?", (url,))
+
+            conn.commit()
+
+    def delete_keyword_alerts_by_article_url_from_new_table(self, url):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("DELETE FROM keyword_article_matches WHERE article_uri = ?", (url,))
+
+            conn.commit()
+
     def get_total_articles_and_sample_categories_for_topic(self, topic: str):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -2336,6 +2405,266 @@ class DatabaseQueryFacade:
             cursor.execute("SELECT raw_markdown FROM raw_articles WHERE uri = ?", (uri,))
 
             return cursor.fetchone()
+
+    def get_podcasts_for_newsletter_inclusion(self, column_names):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Build a query that works with the available columns
+            # Base columns we need
+            select_columns = ["id", "title", "created_at"]
+            if "audio_url" in column_names:
+                select_columns.append("audio_url")
+            if "topic" in column_names:
+                select_columns.append("topic")
+
+            # Execute query to get recent podcasts
+            cursor.execute(
+                f"""
+                SELECT {', '.join(select_columns)}
+                FROM podcasts
+                ORDER BY created_at DESC
+                LIMIT 20
+                """
+            )
+
+            podcasts = cursor.fetchall()
+
+            # Format results
+            result = []
+            for podcast in podcasts:
+                podcast_dict = {}
+                for i, col in enumerate(select_columns):
+                    podcast_dict[col] = podcast[i]
+                result.append(podcast_dict)
+
+            return result
+
+    def generate_tts_podcast(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                INSERT INTO podcasts (
+                    id, title, status, created_at, transcript, metadata
+                ) VALUES (?, ?, 'processing', CURRENT_TIMESTAMP, ?, ?)
+                """,
+                params,
+            )
+            conn.commit()
+
+
+    def mark_podcast_generation_as_complete(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE podcasts
+                SET status = 'completed',
+                    audio_url = ?,
+                    completed_at = CURRENT_TIMESTAMP,
+                    error = NULL,
+                    metadata = ?
+                WHERE id = ?
+                """,
+                params,
+            )
+            conn.commit()
+
+    def log_error_generating_podcast(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                """
+                UPDATE podcasts
+                SET status       = 'error',
+                    error        = ?,
+                    completed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """,
+                params,
+            )
+            conn.commit()
+
+    def test_data_select(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT 1")
+
+    def get_keyword_monitor_is_enabled_and_daily_request_limit(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT is_enabled, daily_request_limit
+                FROM keyword_monitor_settings WHERE id = 1
+            """)
+
+            return cursor.fetchone()
+
+    def get_topic_statistics(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT 
+                    topic,
+                    COUNT(*) as article_count,
+                    strftime('%Y-%m-%dT%H:%M:%S.000Z', 
+                        MAX(COALESCE(submission_date, publication_date))
+                    ) as last_article_date
+                FROM articles 
+                WHERE topic IS NOT NULL 
+                AND topic != ''
+                GROUP BY topic 
+                ORDER BY CASE 
+                    WHEN MAX(COALESCE(submission_date, publication_date)) IS NULL THEN 1 
+                    ELSE 0 
+                END,
+                last_article_date DESC
+            """)
+
+            return cursor.fetchall()
+
+    def get_last_check_time_using_timezone_format(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT strftime('%Y-%m-%dT%H:%M:%S.000Z', last_check_time)
+                           FROM keyword_monitor_status
+                           WHERE id = 1
+                           """)
+            result = cursor.fetchone()
+
+            return  result[0] if result else None
+
+    def get_podcast_transcript(self, podcast_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           SELECT title, transcript, metadata
+                           FROM podcasts
+                           WHERE id = ?
+                           """, (podcast_id,))
+
+            return cursor.fetchone()
+
+    def get_all_podcasts(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT id,
+                                  title,
+                                  status,
+                                  audio_url,
+                                  created_at,
+                                  completed_at,
+                                  error,
+                                  transcript,
+                                  metadata
+                           FROM podcasts
+                           ORDER BY created_at DESC
+                           """)
+
+            return cursor.fetchall()
+
+    def get_podcast_generation_status(self, podcast_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT id,
+                                  title,
+                                  status,
+                                  audio_url,
+                                  created_at,
+                                  completed_at,
+                                  error,
+                                  transcript,
+                                  metadata
+                           FROM podcasts
+                           WHERE id = ?
+                           """, (podcast_id,))
+
+            return cursor.fetchone()
+
+    def get_podcast_audio_file(self, podcast_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT audio_url
+                FROM podcasts
+                WHERE id = ?
+            """, (podcast_id,))
+
+            return cursor.fetchone()
+
+    def delete_podcast(self, podcast_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Delete podcast record
+            cursor.execute("""
+                           DELETE
+                           FROM podcasts
+                           WHERE id = ?
+                           """, (podcast_id,))
+            conn.commit()
+
+    def search_for_articles_based_on_query_date_range_and_topic(self, query, topic, start_date, end_date):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Build search query
+            search_conditions = []
+            params = []
+
+            if query:
+                # Add fuzzy search on title and summary
+                search_conditions.append("(title LIKE ? OR summary LIKE ?)")
+                params.extend([f"%{query}%", f"%{query}%"])
+
+            if topic:
+                search_conditions.append("topic = ?")
+                params.append(topic)
+
+            if start_date:
+                search_conditions.append("publication_date >= ?")
+                params.append(start_date)
+
+            if end_date:
+                search_conditions.append("publication_date <= ?")
+                params.append(end_date)
+
+            # Construct the WHERE clause
+            where_clause = " AND ".join(search_conditions) if search_conditions else "1=1"
+
+            query = f"""
+                SELECT * FROM articles 
+                WHERE {where_clause}
+                ORDER BY publication_date DESC
+                LIMIT {limit}
+            """
+
+            cursor.execute(query, params)
+            articles = cursor.fetchall()
+
+            # Convert to list of dictionaries with column names
+            column_names = [description[0] for description in cursor.description]
+            result = []
+
+            for row in articles:
+                article_dict = dict(zip(column_names, row))
+                result.append(article_dict)
+
+            return result
 
     def update_article_by_url(self, params):
         with self.db.get_connection() as conn:

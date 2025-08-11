@@ -17,6 +17,7 @@ from elevenlabs.studio import (
     BodyCreatePodcastV1StudioPodcastsPostMode_Bulletin,
 )
 from app.database import Database, get_database_instance, get_db_session
+from app.database_query_facade import DatabaseQueryFacade
 import logging
 from pydub import AudioSegment
 import asyncio
@@ -462,22 +463,12 @@ async def generate_tts_podcast(request: TTSPodcastRequest, session=Depends(verif
     try:
         # Generate a unique podcast ID
         db = get_database_instance()
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO podcasts (
-                    id, title, status, created_at, transcript, metadata
-                ) VALUES (?, ?, 'processing', CURRENT_TIMESTAMP, ?, ?)
-                """,
-                (
+        (DatabaseQueryFacade(db, logger)).generate_tts_podcast((
                     podcast_id,
                     f"{request.podcast_name} - {request.episode_title}",
                     request.script or "",
                     json.dumps({}),
-                ),
-            )
-            conn.commit()
+                ))
 
         # Launch background processing task in a separate thread so that the
         # current ASGI worker is freed immediately.
@@ -729,25 +720,11 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
             meta["guest_title"] = request.guest_title
 
         db = get_database_instance()
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE podcasts
-                SET status = 'completed',
-                    audio_url = ?,
-                    completed_at = CURRENT_TIMESTAMP,
-                    error = NULL,
-                    metadata = ?
-                WHERE id = ?
-                """,
-                (
+        (DatabaseQueryFacade(db, logger)).mark_podcast_generation_as_complete((
                     f"/static/audio/{output_filename}",
                     json.dumps(meta),
                     podcast_id,
-                ),
-            )
-            conn.commit()
+                ))
 
         logger.info("[Worker] Podcast %s completed", podcast_id)
 
@@ -755,17 +732,7 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
         logger.error("[Worker] Error generating TTS podcast %s: %s", podcast_id, err, exc_info=True)
         try:
             db = get_database_instance()
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    UPDATE podcasts
-                    SET status = 'error', error = ?, completed_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                    """,
-                    (str(err), podcast_id),
-                )
-                conn.commit()
+            (DatabaseQueryFacade(db, logger)).log_error_generating_podcast((str(err), podcast_id))
         except Exception as db_err:
             logger.error("[Worker] Failed updating error status for %s: %s", podcast_id, db_err)
 
@@ -893,20 +860,13 @@ async def create_podcast(request: PodcastRequest, db: Database = Depends(get_dat
             raise
 
         # Save to database
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO podcasts (
-                    id, title, created_at, status, config, article_uris
-                ) VALUES (?, ?, CURRENT_TIMESTAMP, 'processing', ?, ?)
-            """, (
+        (DatabaseQueryFacade(db, logger)).create_podcast((
                 response["podcast_id"],
                 request.title,
                 None,  # config
                 ','.join(request.article_uris),  # article_uris as comma-separated string
                 json.dumps({})  # metadata
             ))
-            conn.commit()
 
         return PodcastResponse(
             podcast_id=response["podcast_id"],
@@ -927,34 +887,26 @@ async def create_podcast(request: PodcastRequest, db: Database = Depends(get_dat
 async def get_podcast_transcript(podcast_id: str, session=Depends(verify_session)):
     """Get the transcript of a podcast."""
     try:
-        with get_database_instance().get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT title, transcript, metadata
-                FROM podcasts
-                WHERE id = ?
-            """, (podcast_id,))
-            
-            result = cursor.fetchone()
-            
-            if not result:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Podcast {podcast_id} not found"
-                )
-            
-            title = result[0]
-            transcript = result[1] or ""
-            metadata = json.loads(result[2]) if result[2] else {}
-            
-            # Return as plain text with a filename
-            return PlainTextResponse(
-                content=transcript,
-                headers={
-                    "Content-Disposition": f'attachment; filename="{title.replace(" ", "_")}_transcript.txt"'
-                }
+        result = (DatabaseQueryFacade(db, logger)).get_podcast_transcript(podcast_id)
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Podcast {podcast_id} not found"
             )
-            
+
+        title = result[0]
+        transcript = result[1] or ""
+        metadata = json.loads(result[2]) if result[2] else {}
+
+        # Return as plain text with a filename
+        return PlainTextResponse(
+            content=transcript,
+            headers={
+                "Content-Disposition": f'attachment; filename="{title.replace(" ", "_")}_transcript.txt"'
+            }
+        )
+
     except HTTPException:
         raise
     except Exception as e:
@@ -968,33 +920,25 @@ async def get_podcast_transcript(podcast_id: str, session=Depends(verify_session
 async def list_podcasts(session=Depends(verify_session)):
     """List all podcasts."""
     try:
-        with get_database_instance().get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, title, status, audio_url, created_at, completed_at, error, transcript, metadata
-                FROM podcasts
-                ORDER BY created_at DESC
-            """)
-            
-            podcasts = []
-            for row in cursor.fetchall():
-                # Handle null values and ensure proper JSON encoding
-                podcast = {
-                    "podcast_id": row[0],
-                    "title": row[1],
-                    "status": row[2],
-                    "audio_url": row[3],
-                    "created_at": row[4],
-                    "completed_at": row[5],
-                    "error": row[6],
-                    "transcript": row[7] if row[7] else "",
-                    "metadata": json.loads(row[8]) if row[8] else {}
-                }
-                podcasts.append(podcast)
-            
-            # Return as JSONResponse with proper encoding
-            return JSONResponse(content=podcasts)
-            
+        podcasts = []
+        for row in (DatabaseQueryFacade(get_database_instance(), logger)).get_all_podcasts():
+            # Handle null values and ensure proper JSON encoding
+            podcast = {
+                "podcast_id": row[0],
+                "title": row[1],
+                "status": row[2],
+                "audio_url": row[3],
+                "created_at": row[4],
+                "completed_at": row[5],
+                "error": row[6],
+                "transcript": row[7] if row[7] else "",
+                "metadata": json.loads(row[8]) if row[8] else {}
+            }
+            podcasts.append(podcast)
+
+        # Return as JSONResponse with proper encoding
+        return JSONResponse(content=podcasts)
+
     except Exception as e:
         logger.error(f"Error listing podcasts: {str(e)}")
         raise HTTPException(
@@ -1006,33 +950,25 @@ async def list_podcasts(session=Depends(verify_session)):
 async def get_podcast_status(podcast_id: str, session=Depends(verify_session)):
     """Get the status of a podcast generation."""
     try:
-        with get_database_instance().get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, title, status, audio_url, created_at, completed_at, error, transcript, metadata
-                FROM podcasts
-                WHERE id = ?
-            """, (podcast_id,))
-            
-            result = cursor.fetchone()
-            
-            if not result:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Podcast {podcast_id} not found"
-                )
-            
-            return {
-                "podcast_id": result[0],
-                "title": result[1],
-                "status": result[2],
-                "audio_url": result[3],
-                "created_at": result[4],
-                "completed_at": result[5],
-                "error": result[6],
-                "transcript": result[7],
-                "metadata": json.loads(result[8]) if result[8] else {}
-            }
+        result = (DatabaseQueryFacade(get_database_instance(), logger)).get_podcast_generation_status(podcast_id)
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Podcast {podcast_id} not found"
+            )
+
+        return {
+            "podcast_id": result[0],
+            "title": result[1],
+            "status": result[2],
+            "audio_url": result[3],
+            "created_at": result[4],
+            "completed_at": result[5],
+            "error": result[6],
+            "transcript": result[7],
+            "metadata": json.loads(result[8]) if result[8] else {}
+        }
             
     except HTTPException:
         raise
@@ -1142,41 +1078,30 @@ async def get_voice(voice_id: str, session=Depends(verify_session)):
 async def delete_podcast(podcast_id: str, session=Depends(verify_session)):
     """Delete a podcast and its associated audio file."""
     try:
-        with get_database_instance().get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT audio_url
-                FROM podcasts
-                WHERE id = ?
-            """, (podcast_id,))
-            
-            result = cursor.fetchone()
-            
-            if not result:
-                raise HTTPException(
-                    status_code=404,
-                    detail=f"Podcast {podcast_id} not found"
-                )
-            
-            audio_url = result[0]
-            
-            # Delete podcast record
-            cursor.execute("""
-                DELETE FROM podcasts
-                WHERE id = ?
-            """, (podcast_id,))
-            conn.commit()
-            
-            # Delete audio file
-            if audio_url and audio_url.startswith("/static/audio/"):
-                # Derive the file system path of the generated audio
-                ensure_audio_directory()
-                filename = audio_url.split("/static/audio/")[1]
-                audio_path = AUDIO_DIR / filename
-                if audio_path.exists():
-                    audio_path.unlink()
-            
-            return {"message": f"Podcast {podcast_id} and associated audio file deleted successfully"}
+        result = (DatabaseQueryFacade(get_database_instance(), logger)).get_podcast_audio_file(podcast_id)
+
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Podcast {podcast_id} not found"
+            )
+
+        audio_url = result[0]
+
+        # Delete podcast record
+        # TODO: But when is the audio record deleted???
+        (DatabaseQueryFacade(get_database_instance(), logger)).delete_podcast(podcast_id)
+
+        # Delete audio file
+        if audio_url and audio_url.startswith("/static/audio/"):
+            # Derive the file system path of the generated audio
+            ensure_audio_directory()
+            filename = audio_url.split("/static/audio/")[1]
+            audio_path = AUDIO_DIR / filename
+            if audio_path.exists():
+                audio_path.unlink()
+
+        return {"message": f"Podcast {podcast_id} and associated audio file deleted successfully"}
             
     except Exception as e:
         logger.error(f"Error deleting podcast: {str(e)}")
@@ -1464,22 +1389,13 @@ async def dia_generate_podcast(request: DiaPodcastRequest, session=Depends(verif
     # Pre-insert DB row so UI can poll status
     try:
         db = get_database_instance()
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO podcasts (
-                    id, title, status, created_at, transcript, metadata
-                ) VALUES (?, ?, 'processing', CURRENT_TIMESTAMP, ?, ?)
-                """,
+        (DatabaseQueryFacade(db, logger)).generate_tts_podcast(
                 (
                     podcast_id,
                     f"{request.podcast_name} - {request.episode_title}",
                     request.text or "",
                     json.dumps({}),
-                ),
-            )
-            conn.commit()
+                ),)
 
         # Run heavy generation in background thread so HTTP returns fast
         threading.Thread(
@@ -1568,25 +1484,11 @@ async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
         }
 
         db = get_database_instance()
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE podcasts
-                SET status = 'completed',
-                    audio_url = ?,
-                    completed_at = CURRENT_TIMESTAMP,
-                    error = NULL,
-                    metadata = ?
-                WHERE id = ?
-                """,
-                (
+        (DatabaseQueryFacade(db, logger)).mark_podcast_generation_as_complete((
                     f"/static/audio/{output_filename}",
                     json.dumps(meta),
                     podcast_id,
-                ),
-            )
-            conn.commit()
+                ),)
 
         logger.info("[DiaWorker] Podcast %s completed", podcast_id)
 
@@ -1594,17 +1496,7 @@ async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
         logger.error("[DiaWorker] Error %s: %s", podcast_id, err, exc_info=True)
         try:
             db = get_database_instance()
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    UPDATE podcasts
-                    SET status = 'error', error = ?, completed_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                    """,
-                    (str(err), podcast_id),
-                )
-                conn.commit()
+            (DatabaseQueryFacade(db, logger)).log_error_generating_podcast((str(err), podcast_id),)
         except Exception as db_err:
             logger.error("[DiaWorker] DB update fail %s: %s", podcast_id, db_err)
 

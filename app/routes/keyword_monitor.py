@@ -1212,8 +1212,9 @@ async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_inst
 
             # Delete articles
             for uri in article_uris:
-                if (DatabaseQueryFacade(db, logger)).delete_article_by_url(uri) > 0:
-                    articles_deleted += cursor.rowcount
+                articles_deleted_count = (DatabaseQueryFacade(db, logger)).delete_article_by_url(uri)
+                if articles_deleted_count > 0:
+                    articles_deleted += articles_deleted_count
 
             return {
                 "success": True, 
@@ -1507,8 +1508,6 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                 except sqlite3.OperationalError as e:
                     logger.error(f"Error deleting articles: {str(e)}")
             
-            conn.commit()
-            
             return {
                 "status": "success",
                 "message": f"Cleaned up {articles_deleted} orphaned articles",
@@ -1703,7 +1702,7 @@ async def analyze_relevance(
                 extracted_topics = json.dumps(analyzed_article.get('extracted_article_topics', []))
                 extracted_keywords = json.dumps(analyzed_article.get('extracted_article_keywords', []))
 
-                (DatabaseQueryFacade(db, logger)).update_article_by_url((
+                updated_article_count = (DatabaseQueryFacade(db, logger)).update_article_by_url((
                     analyzed_article.get('topic_alignment_score', 0.0),
                     analyzed_article.get('keyword_relevance_score', 0.0),
                     analyzed_article.get('confidence_score', 0.0),
@@ -1713,7 +1712,7 @@ async def analyze_relevance(
                     analyzed_article['uri']
                 ))
 
-                if cursor.rowcount > 0:
+                if updated_article_count > 0:
                     updated_count += 1
                     logger.info(f"✅ Successfully updated article '{analyzed_article.get('title', 'Unknown')[:50]}...' - "
                                f"Topic: {analyzed_article.get('topic_alignment_score', 0.0):.2f}, "

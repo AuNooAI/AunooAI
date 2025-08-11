@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 from starlette.templating import Jinja2Templates
 
 from app.database import Database, get_database_instance
+from app.database_query_facade import DatabaseQueryFacade
 from app.schemas.newsletter import (
     NewsletterRequest, 
     NewsletterResponse, 
@@ -895,42 +896,9 @@ async def send_email(
 async def get_podcasts(db: Database = Depends(get_database_instance)):
     """Get available podcasts for newsletter inclusion."""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            # Get column information to handle table schema dynamically
-            cursor.execute("PRAGMA table_info(podcasts)")
-            table_info = cursor.fetchall()
-            column_names = [col[1] for col in table_info]  # Column name is at index 1
-            
-            # Build a query that works with the available columns
-            # Base columns we need
-            select_columns = ["id", "title", "created_at"]
-            if "audio_url" in column_names:
-                select_columns.append("audio_url")
-            if "topic" in column_names:
-                select_columns.append("topic")
-            
-            # Execute query to get recent podcasts
-            cursor.execute(
-                f"""
-                SELECT {', '.join(select_columns)}
-                FROM podcasts
-                ORDER BY created_at DESC
-                LIMIT 20
-                """
-            )
-            
-            podcasts = cursor.fetchall()
-            
-            # Format results
-            result = []
-            for podcast in podcasts:
-                podcast_dict = {}
-                for i, col in enumerate(select_columns):
-                    podcast_dict[col] = podcast[i]
-                result.append(podcast_dict)
-            
-            return result
+        column_names = (DatabaseQueryFacade(db, logger)).get_podcasts_columns()
+
+        return (DatabaseQueryFacade(db, logger)).get_podcasts_for_newsletter_inclusion(column_names)
             
     except Exception as e:
         logger.error(f"Error getting podcasts: {str(e)}", exc_info=True)
@@ -983,52 +951,8 @@ async def search_articles(
                     status_code=400,
                     detail="Invalid end_date format. Use YYYY-MM-DD."
                 )
-        
-        # Build search query
-        search_conditions = []
-        params = []
-        
-        if query:
-            # Add fuzzy search on title and summary
-            search_conditions.append("(title LIKE ? OR summary LIKE ?)")
-            params.extend([f"%{query}%", f"%{query}%"])
-        
-        if topic:
-            search_conditions.append("topic = ?")
-            params.append(topic)
-            
-        if start_date:
-            search_conditions.append("publication_date >= ?")
-            params.append(start_date)
-            
-        if end_date:
-            search_conditions.append("publication_date <= ?")
-            params.append(end_date)
-            
-        # Construct the WHERE clause
-        where_clause = " AND ".join(search_conditions) if search_conditions else "1=1"
-        
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            query = f"""
-                SELECT * FROM articles 
-                WHERE {where_clause}
-                ORDER BY publication_date DESC
-                LIMIT {limit}
-            """
-            
-            cursor.execute(query, params)
-            articles = cursor.fetchall()
-            
-            # Convert to list of dictionaries with column names
-            column_names = [description[0] for description in cursor.description]
-            result = []
-            
-            for row in articles:
-                article_dict = dict(zip(column_names, row))
-                result.append(article_dict)
-                
-        return result
+
+        return (DatabaseQueryFacade(db, logger)).search_for_articles_based_on_query_date_range_and_topic(query, topic, start_date, end_date)
         
     except HTTPException:
         raise

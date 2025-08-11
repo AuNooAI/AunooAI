@@ -60,10 +60,7 @@ class KeywordMonitor:
         self.auto_ingest_service = None
         if AutomatedIngestService:
             self.auto_ingest_service = AutomatedIngestService(db)
-        # Enable foreign keys at connection level
-        with self.db.get_connection() as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
-            conn.commit()
+
         self._load_settings()
         self._init_tables()
         self.check_and_reset_counter()  # Check for reset during initialization
