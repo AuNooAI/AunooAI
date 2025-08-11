@@ -478,6 +478,22 @@
         border-color: #fff;
     }
 
+    /* High-contrast modal switch fix (white-on-white issue) */
+    .modal .form-switch .form-check-input {
+        background-color: #adb5bd !important;
+        border: 1px solid #6c757d !important;
+        background-image: none !important;
+    }
+    .modal .form-switch .form-check-input::after {
+        background: #ffffff !important;
+        border: 1px solid #495057 !important;
+    }
+    .modal .form-switch .form-check-input:checked {
+        background-color: var(--primary-color) !important;
+        border-color: var(--primary-color) !important;
+    }
+    .modal .form-check-label { color: var(--text-color) !important; }
+
 
 
     .modal-header {
@@ -513,7 +529,7 @@
         overflow: visible; /* allow tooltips to overflow */
         position: relative;
         will-change: auto; /* avoid constant reflow on scroll */
-        contain: layout paint; /* isolate layout/paint to prevent scrollbar thrash */
+        /* contain removed to avoid tooltip clipping across stacking contexts */
     }
 
     .convergence-container::before {
@@ -575,7 +591,7 @@
         position: relative;
         overflow: visible; /* allow tooltips to overflow */
         transition: all 0.3s ease;
-        z-index: 1; /* lower than tooltips */
+        z-index: auto; /* don't create stacking context that traps tooltips */
         border: 1px solid rgba(255, 255, 255, 0.3);
         box-shadow: 
             0 4px 16px rgba(0, 0, 0, 0.1),
@@ -703,7 +719,7 @@
         transition: all 0.3s ease;
         position: relative;
         overflow: visible;
-        z-index: 1; /* lower than tooltips */
+        z-index: auto; /* don't create stacking context that traps tooltips */
         box-shadow: 
             0 3px 12px rgba(0, 0, 0, 0.08),
             inset 0 1px 0 rgba(255, 255, 255, 0.8);
@@ -774,7 +790,7 @@
         transition: all 0.3s ease;
         position: relative;
         overflow: visible;
-        z-index: 1; /* lower than tooltips */
+        z-index: auto; /* don't create stacking context that traps tooltips */
         box-shadow: 
             0 3px 12px rgba(0, 0, 0, 0.08),
             inset 0 1px 0 rgba(255, 255, 255, 0.8);
@@ -877,9 +893,31 @@
         border: 1px solid rgba(255, 255, 255, 0.15);
     }
 
+    /* Use a single global tooltip to avoid stacking/overflow within cards */
+    /* Keep original tooltips hidden only if global tooltip is present */
+    body:has(#globalExplainabilityTooltip) .explainable-item .explainability-tooltip { display: none !important; }
+    #globalExplainabilityTooltip.explainability-tooltip { z-index: 2147483647 !important; }
+
     /* Prevent tooltips from being clipped by any ancestor */
-    .strategic-timeline, .framework-grid, .next-steps-grid { overflow: visible; }
-    .framework-item, .next-step-item { overflow: visible; }
+    .strategic-timeline, .framework-grid, .next-steps-grid { 
+        overflow: visible; 
+        z-index: auto; /* don't create stacking context */
+    }
+    .framework-item, .next-step-item { 
+        overflow: visible; 
+    }
+    
+    /* Ensure main container doesn't create stacking context */
+    .container {
+        z-index: auto;
+    }
+    
+    /* Ensure cards don't create transform-based stacking contexts on hover */
+    .timeline-card:hover,
+    .framework-item:hover,
+    .next-step-item:hover {
+        z-index: auto;
+    }
 
     .explainability-tooltip::before {
         content: '';
@@ -1657,6 +1695,82 @@
 </div>
 
 <script>
+// Helper function for robust tooltip positioning
+function positionTooltip(tooltip, icon) {
+    // Force tooltip to be visible first to measure it
+    tooltip.style.visibility = 'visible';
+    tooltip.style.opacity = '0';
+    tooltip.style.display = 'block';
+    
+    const rect = icon.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+    
+    // Calculate horizontal position (centered on icon)
+    let leftPos = rect.left + rect.width / 2;
+    
+    // Calculate vertical position (above icon by default)
+    let topPos = rect.top - tooltipRect.height - 15;
+    
+    // If tooltip would go above viewport, show it below instead
+    if (topPos < 10) {
+        topPos = rect.bottom + 15;
+        tooltip.classList.add('tooltip-below');
+    } else {
+        tooltip.classList.remove('tooltip-below');
+    }
+    
+    // Ensure tooltip doesn't go off screen horizontally
+    const tooltipWidth = tooltipRect.width;
+    if (leftPos - tooltipWidth/2 < 10) {
+        leftPos = 10 + tooltipWidth/2;
+    } else if (leftPos + tooltipWidth/2 > viewportWidth - 10) {
+        leftPos = viewportWidth - 10 - tooltipWidth/2;
+    }
+    
+    tooltip.style.left = leftPos + 'px';
+    tooltip.style.top = topPos + 'px';
+    tooltip.style.transform = 'translateX(-50%)';
+    tooltip.style.zIndex = '999999';
+    
+    // Now make it fully visible
+    requestAnimationFrame(() => {
+        tooltip.style.opacity = '1';
+        tooltip.style.visibility = 'visible';
+    });
+}
+
+// Global tooltip element management for top-level stacking
+function getGlobalTooltipElement() {
+    let tooltip = document.getElementById('globalExplainabilityTooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.id = 'globalExplainabilityTooltip';
+        tooltip.className = 'explainability-tooltip';
+        document.body.appendChild(tooltip);
+    }
+    return tooltip;
+}
+
+function showGlobalTooltip(icon, htmlContent) {
+    const tooltip = getGlobalTooltipElement();
+    tooltip.innerHTML = htmlContent;
+    tooltip.style.display = 'block';
+    console.debug('Explainability tooltip: show', {icon});
+    positionTooltip(tooltip, icon);
+}
+
+function hideGlobalTooltip() {
+    const tooltip = document.getElementById('globalExplainabilityTooltip');
+    if (tooltip) {
+        tooltip.style.opacity = '0';
+        tooltip.style.visibility = 'hidden';
+        tooltip.style.display = 'none';
+        console.debug('Explainability tooltip: hide');
+    }
+}
+
 // Configuration and state management
 let currentAnalysisData = null;
 
@@ -1849,20 +1963,12 @@ function populateTimelineCard(containerId, timeframeData) {
         const icon = li.querySelector('.explainability-icon');
         
         icon.addEventListener('mouseenter', (e) => {
-            // Force tooltip to be visible first to measure it
-            tooltip.style.visibility = 'visible';
-            tooltip.style.opacity = '0';
-            
-            const rect = icon.getBoundingClientRect();
-            const tooltipRect = tooltip.getBoundingClientRect();
-            
-            tooltip.style.left = (rect.left + rect.width / 2) + 'px';
-            tooltip.style.top = (rect.top - tooltipRect.height - 15) + 'px';
-            tooltip.style.transform = 'translateX(-50%)';
-            tooltip.style.zIndex = '99999999';
-            
-            // Now make it fully visible
-            tooltip.style.opacity = '1';
+            // Render the tooltip at document.body level to avoid stacking issues
+            showGlobalTooltip(icon, tooltip.innerHTML);
+        });
+        
+        icon.addEventListener('mouseleave', (e) => {
+            hideGlobalTooltip();
         });
         
         ul.appendChild(li);
@@ -1908,20 +2014,11 @@ function populateExecutiveFramework(framework) {
         const icon = item.querySelector('.explainability-icon');
         
         icon.addEventListener('mouseenter', (e) => {
-            // Force tooltip to be visible first to measure it
-            tooltip.style.visibility = 'visible';
-            tooltip.style.opacity = '0';
-            
-            const rect = icon.getBoundingClientRect();
-            const tooltipRect = tooltip.getBoundingClientRect();
-            
-            tooltip.style.left = (rect.left + rect.width / 2) + 'px';
-            tooltip.style.top = (rect.top - tooltipRect.height - 15) + 'px';
-            tooltip.style.transform = 'translateX(-50%)';
-            tooltip.style.zIndex = '99999999';
-            
-            // Now make it fully visible
-            tooltip.style.opacity = '1';
+            showGlobalTooltip(icon, tooltip.innerHTML);
+        });
+        
+        icon.addEventListener('mouseleave', (e) => {
+            hideGlobalTooltip();
         });
         
         grid.appendChild(item);
@@ -1960,20 +2057,11 @@ function populateNextSteps(nextSteps) {
         const icon = item.querySelector('.explainability-icon');
         
         icon.addEventListener('mouseenter', (e) => {
-            // Force tooltip to be visible first to measure it
-            tooltip.style.visibility = 'visible';
-            tooltip.style.opacity = '0';
-            
-            const rect = icon.getBoundingClientRect();
-            const tooltipRect = tooltip.getBoundingClientRect();
-            
-            tooltip.style.left = (rect.left + rect.width / 2) + 'px';
-            tooltip.style.top = (rect.top - tooltipRect.height - 15) + 'px';
-            tooltip.style.transform = 'translateX(-50%)';
-            tooltip.style.zIndex = '99999999';
-            
-            // Now make it fully visible
-            tooltip.style.opacity = '1';
+            showGlobalTooltip(icon, tooltip.innerHTML);
+        });
+        
+        icon.addEventListener('mouseleave', (e) => {
+            hideGlobalTooltip();
         });
         
         grid.appendChild(item);
