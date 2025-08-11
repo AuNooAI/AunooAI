@@ -6,6 +6,7 @@ import logging
 import os
 import json
 from app.database import Database
+from app.database_query_facade import DatabaseQueryFacade
 
 logger = logging.getLogger(__name__)
 
