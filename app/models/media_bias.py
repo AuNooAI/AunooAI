@@ -9,6 +9,7 @@ import sqlite3
 from urllib.parse import urlparse
 
 from app.database import Database
+from app.database_query_facade import DatabaseQueryFacade
 
 logger = logging.getLogger(__name__)
 
@@ -108,59 +109,20 @@ class MediaBias:
     
     def _ensure_tables(self) -> None:
         """Ensure the required tables exist in the database."""
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Create media_bias table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS mediabias (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source TEXT NOT NULL UNIQUE,
-                    country TEXT,
-                    bias TEXT,
-                    factual_reporting TEXT,
-                    press_freedom TEXT,
-                    media_type TEXT,
-                    popularity TEXT,
-                    mbfc_credibility_rating TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    enabled INTEGER DEFAULT 1
-                )
-            """)
-            
-            # Check if the updated_at column exists, add it if not
-            try:
-                cursor.execute("PRAGMA table_info(mediabias)")
-                columns = [column[1] for column in cursor.fetchall()]
-                
-                if 'updated_at' not in columns:
-                    logger.info("Adding updated_at column to mediabias table")
-                    cursor.execute("""
-                        ALTER TABLE mediabias
-                        ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    """)
-            except Exception as e:
-                # Table might not exist yet, which is fine since we're creating it above
-                logger.debug(f"Could not check for updated_at column: {str(e)}")
-            
-            # Create mediabias_settings table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS mediabias_settings (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    enabled BOOLEAN DEFAULT 0,
-                    last_updated TIMESTAMP,
-                    source_file TEXT
-                )
-            """)
-            
-            # Insert default settings if not exist
-            cursor.execute("""
-                INSERT OR IGNORE INTO mediabias_settings (id, enabled, last_updated, source_file)
-                VALUES (1, 0, NULL, NULL)
-            """)
-            
-            conn.commit()
+        (DatabaseQueryFacade(self.db, logger)).create_media_bias_table()
+        # Check if the updated_at column exists, add it if not
+        try:
+            columns = (DatabaseQueryFacade(self.db, logger)).check_if_media_bias_has_updated_at_column()
+
+            if 'updated_at' not in columns:
+                logger.info("Adding updated_at column to mediabias table")
+                (DatabaseQueryFacade(self.db, logger)).add_updated_at_column_to_media_bias_table()
+        except Exception as e:
+            # Table might not exist yet, which is fine since we're creating it above
+            logger.debug(f"Could not check for updated_at column: {str(e)}")
+
+        # Create mediabias_settings table if it doesn't exist
+        (DatabaseQueryFacade(self.db, logger)).create_media_bias_settings_table_and_insert_default_values()
     
     def import_from_csv(self, file_path: str) -> Tuple[int, int]:
         """Import media bias data from a CSV file.
@@ -182,126 +144,81 @@ class MediaBias:
                 try:
                     csv_reader = csv.DictReader(csv_file)
                     
-                    with self.db.get_connection() as conn:
-                        try:
-                            cursor = conn.cursor()
-                            
-                            # Process each row in the CSV
-                            for row in csv_reader:
-                                try:
-                                    # Skip rows without a source
-                                    source = row.get('source', '').strip()
-                                    if not source:
-                                        logger.warning(f"Skipping row with empty source: {row}")
-                                        failed_count += 1
-                                        continue
-                                    
-                                    # Insert or update the source with enabled=1 by default
-                                    # Always ensure sources are enabled when importing
-                                    cursor.execute("""
-                                        INSERT INTO mediabias (
-                                            source, country, bias, factual_reporting,
-                                            press_freedom, media_type, popularity,
-                                            mbfc_credibility_rating, updated_at, enabled
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
-                                        ON CONFLICT(source) DO UPDATE SET
-                                            country = excluded.country,
-                                            bias = excluded.bias,
-                                            factual_reporting = excluded.factual_reporting,
-                                            press_freedom = excluded.press_freedom,
-                                            media_type = excluded.media_type,
-                                            popularity = excluded.popularity,
-                                            mbfc_credibility_rating = excluded.mbfc_credibility_rating,
-                                            updated_at = CURRENT_TIMESTAMP,
-                                            enabled = 1
-                                    """, (
-                                        source,
-                                        row.get('country', ''),
-                                        row.get('bias', ''),
-                                        row.get('factual_reporting', ''),
-                                        row.get('press_freedom', ''),
-                                        row.get('media_type', ''),
-                                        row.get('popularity', ''),
-                                        row.get('mbfc_credibility_rating', '')
-                                    ))
-                                    
-                                    imported_count += 1
-                                    
-                                except Exception as e:
-                                    logger.error(f"Error importing row {row}: {str(e)}")
+                    try:
+                        # Process each row in the CSV
+                        for row in csv_reader:
+                            try:
+                                # Skip rows without a source
+                                source = row.get('source', '').strip()
+                                if not source:
+                                    logger.warning(f"Skipping row with empty source: {row}")
                                     failed_count += 1
-                                    
-                        except Exception as table_error:
-                            # If we get a table error (like missing column), try to recover
-                            logger.warning(f"Table error during import: {str(table_error)}")
-                            logger.info("Recreating mediabias table and retrying import")
-                            
-                            # Drop and recreate the table
-                            cursor.execute("DROP TABLE IF EXISTS mediabias")
-                            cursor.execute("""
-                                CREATE TABLE mediabias (
-                                    id INTEGER PRIMARY KEY,
-                                    source TEXT UNIQUE,
-                                    country TEXT,
-                                    bias TEXT,
-                                    factual_reporting TEXT,
-                                    press_freedom TEXT,
-                                    media_type TEXT,
-                                    popularity TEXT,
-                                    mbfc_credibility_rating TEXT,
-                                    updated_at TIMESTAMP,
-                                    enabled INTEGER DEFAULT 1
-                                )
-                            """)
-                            
-                            # Reset the file pointer and skip header
-                            csv_file.seek(0)
-                            next(csv_reader)
-                            
-                            # Retry processing rows
-                            for row in csv_reader:
-                                try:
-                                    # Skip rows without a source
-                                    source = row.get('source', '').strip()
-                                    if not source:
-                                        logger.warning(f"Skipping row with empty source: {row}")
-                                        failed_count += 1
-                                        continue
-                                    
-                                    # Insert the source with enabled=1 by default
-                                    cursor.execute("""
-                                        INSERT INTO mediabias (
-                                            source, country, bias, factual_reporting,
-                                            press_freedom, media_type, popularity,
-                                            mbfc_credibility_rating, updated_at, enabled
-                                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
-                                    """, (
-                                        source,
-                                        row.get('country', ''),
-                                        row.get('bias', ''),
-                                        row.get('factual_reporting', ''),
-                                        row.get('press_freedom', ''),
-                                        row.get('media_type', ''),
-                                        row.get('popularity', ''),
-                                        row.get('mbfc_credibility_rating', '')
-                                    ))
-                                    
-                                    imported_count += 1
-                                    
-                                except Exception as e:
-                                    logger.error(f"Error in retry - importing row {row}: {str(e)}")
+                                    continue
+
+                                # Insert or update the source with enabled=1 by default
+                                # Always ensure sources are enabled when importing
+                                (DatabaseQueryFacade(self.db, logger)).insert_media_bias((
+                                    source,
+                                    row.get('country', ''),
+                                    row.get('bias', ''),
+                                    row.get('factual_reporting', ''),
+                                    row.get('press_freedom', ''),
+                                    row.get('media_type', ''),
+                                    row.get('popularity', ''),
+                                    row.get('mbfc_credibility_rating', ''),
+                                    1
+                                ))
+
+                                imported_count += 1
+
+                            except Exception as e:
+                                logger.error(f"Error importing row {row}: {str(e)}")
+                                failed_count += 1
+
+                    except Exception as table_error:
+                        # If we get a table error (like missing column), try to recover
+                        logger.warning(f"Table error during import: {str(table_error)}")
+                        logger.info("Recreating mediabias table and retrying import")
+
+                        # Drop and recreate the table
+                        (DatabaseQueryFacade(self.db, logger)).drop_media_bias_table()
+                        (DatabaseQueryFacade(self.db, logger)).create_media_bias_table()
+
+                        # Reset the file pointer and skip header
+                        csv_file.seek(0)
+                        next(csv_reader)
+
+                        # Retry processing rows
+                        for row in csv_reader:
+                            try:
+                                # Skip rows without a source
+                                source = row.get('source', '').strip()
+                                if not source:
+                                    logger.warning(f"Skipping row with empty source: {row}")
                                     failed_count += 1
-                            
-                            # Update settings
-                            cursor.execute("""
-                                UPDATE mediabias_settings
-                                SET enabled = 1,
-                                    source_file = ?,
-                                    last_updated = CURRENT_TIMESTAMP
-                                WHERE id = 1
-                            """, (file_path,))
-                            
-                            conn.commit()
+                                    continue
+
+                                # Insert the source with enabled=1 by default
+                                (DatabaseQueryFacade(self.db, logger)).insert_media_bias((
+                                    source,
+                                    row.get('country', ''),
+                                    row.get('bias', ''),
+                                    row.get('factual_reporting', ''),
+                                    row.get('press_freedom', ''),
+                                    row.get('media_type', ''),
+                                    row.get('popularity', ''),
+                                    row.get('mbfc_credibility_rating', ''),
+                                    1
+                                ))
+
+                                imported_count += 1
+
+                            except Exception as e:
+                                logger.error(f"Error in retry - importing row {row}: {str(e)}")
+                                failed_count += 1
+
+                        # Update settings
+                        (DatabaseQueryFacade(self.db, logger)).update_media_bias_settings(file_path)
                             
                     logger.info(f"Imported {imported_count} sources, failed {failed_count}")
                     return imported_count, failed_count
@@ -319,31 +236,22 @@ class MediaBias:
         Returns:
             List of dictionaries containing media bias data
         """
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT 
-                    source, country, bias, factual_reporting,
-                    press_freedom, media_type, popularity,
-                    mbfc_credibility_rating
-                FROM mediabias
-                ORDER BY source ASC
-            """)
-            
-            sources = []
-            for row in cursor.fetchall():
-                sources.append({
-                    'source': row[0],
-                    'country': row[1],
-                    'bias': row[2],
-                    'factual_reporting': row[3],
-                    'press_freedom': row[4],
-                    'media_type': row[5],
-                    'popularity': row[6],
-                    'mbfc_credibility_rating': row[7]
-                })
-            
-            return sources
+        rows = (DatabaseQueryFacade(self.db, logger)).get_all_media_bias_sources()
+
+        sources = []
+        for row in rows:
+            sources.append({
+                'source': row[0],
+                'country': row[1],
+                'bias': row[2],
+                'factual_reporting': row[3],
+                'press_freedom': row[4],
+                'media_type': row[5],
+                'popularity': row[6],
+                'mbfc_credibility_rating': row[7]
+            })
+
+        return sources
     
     def get_status(self) -> Dict[str, Any]:
         """Get the current status of media bias enrichment.
@@ -353,36 +261,26 @@ class MediaBias:
             total sources count, and last updated timestamp
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get settings
-                cursor.execute("""
-                    SELECT enabled, last_updated, source_file
-                    FROM mediabias_settings
-                    WHERE id = 1
-                """)
-                
-                row = cursor.fetchone()
-                if not row:
-                    return {
-                        "enabled": False,
-                        "total_sources": 0,
-                        "last_updated": None
-                    }
-                    
-                enabled, last_updated, source_file = row
-                
-                # Get total sources
-                cursor.execute("SELECT COUNT(*) FROM mediabias")
-                total_sources = cursor.fetchone()[0]
-                
+            # Get settings
+            row = (DatabaseQueryFacade(self.db, logger)).get_media_bias_status()
+            if not row:
                 return {
-                    "enabled": bool(enabled),
-                    "total_sources": total_sources,
-                    "last_updated": last_updated,
-                    "source_file": source_file
+                    "enabled": False,
+                    "total_sources": 0,
+                    "last_updated": None
                 }
+
+            enabled, last_updated, source_file = row
+
+            # Get total sources
+            total_sources = (DatabaseQueryFacade(self.db, logger)).get_total_media_bias_sources()
+
+            return {
+                "enabled": bool(enabled),
+                "total_sources": total_sources,
+                "last_updated": last_updated,
+                "source_file": source_file
+            }
                 
         except Exception as e:
             self.logger.error(f"Error getting media bias status: {str(e)}")
@@ -403,23 +301,13 @@ class MediaBias:
             True if successful, False otherwise
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Update settings
-                cursor.execute("""
-                    UPDATE mediabias_settings
-                    SET enabled = ?, last_updated = CURRENT_TIMESTAMP
-                    WHERE id = 1
-                """, (1 if enabled else 0,))
-                
-                conn.commit()
-                
-                self.logger.info(
-                    f"Media bias enrichment {'enabled' if enabled else 'disabled'}"
-                )
-                return True
-                
+            (DatabaseQueryFacade(self.db, logger)).enable_media_bias_sources(enabled)
+
+            self.logger.info(
+                f"Media bias enrichment {'enabled' if enabled else 'disabled'}"
+            )
+            return True
+
         except Exception as e:
             self.logger.error(f"Error setting media bias enabled state: {str(e)}")
             return False
@@ -431,21 +319,7 @@ class MediaBias:
             True if successful, False otherwise
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Delete all media bias data
-                cursor.execute("DELETE FROM mediabias")
-                
-                # Reset settings but keep enabled state
-                cursor.execute("""
-                    UPDATE mediabias_settings
-                    SET last_updated = NULL,
-                        source_file = NULL
-                    WHERE id = 1
-                """)
-                
-                conn.commit()
+            (DatabaseQueryFacade(self.db, logger)).reset_media_bias_sources()
             return True
         except Exception as e:
             logger.error(f"Error resetting media bias data: {str(e)}")
@@ -504,16 +378,10 @@ class MediaBias:
                 self.logger.debug(f"Found exact match for {normalized_source} using source {source_domain} (disabled)")
                 # Auto-enable this source for future requests
                 try:
-                    with self.db.get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            "UPDATE mediabias SET enabled = 1 WHERE source = ?",
-                            (s.get('source'),)
-                        )
-                        conn.commit()
-                        # Update the current record
-                        s['enabled'] = 1
-                        self.logger.info(f"Auto-enabled media bias source: {s.get('source')}")
+                    (DatabaseQueryFacade(self.db, logger)).enable_media_source(s.get('source'))
+                    # Update the current record
+                    s['enabled'] = 1
+                    self.logger.info(f"Auto-enabled media bias source: {s.get('source')}")
                 except Exception as e:
                     self.logger.error(f"Error auto-enabling source {s.get('source')}: {e}")
                 return s
@@ -525,20 +393,14 @@ class MediaBias:
                 self.logger.debug(f"Found domain match for {normalized_source} using source {source_domain} (disabled)")
                 # Auto-enable this source for future requests
                 try:
-                    with self.db.get_connection() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute(
-                            "UPDATE mediabias SET enabled = 1 WHERE source = ?",
-                            (s.get('source'),)
-                        )
-                        conn.commit()
-                        # Update the current record
-                        s['enabled'] = 1
-                        self.logger.info(f"Auto-enabled media bias source: {s.get('source')}")
+                    (DatabaseQueryFacade(self.db, logger)).enable_media_source(s.get('source'))
+                    # Update the current record
+                    s['enabled'] = 1
+                    self.logger.info(f"Auto-enabled media bias source: {s.get('source')}")
                 except Exception as e:
                     self.logger.error(f"Error auto-enabling source {s.get('source')}: {e}")
                 return s
-                
+
         self.logger.debug(f"No match found for {normalized_source}")
         return None
     
@@ -587,59 +449,31 @@ class MediaBias:
         Returns:
             Tuple containing (list of sources, total count)
         """
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        (total_count, rows) = (DatabaseQueryFacade(self.db, logger)).search_media_bias_sources(
+            query,
+            bias_filter,
+            factual_filter,
+            country_filter,
+            page,
+            per_page
+        )
             
-            # Build base query
-            query_parts = ["SELECT * FROM mediabias WHERE 1=1"]
-            params = []
-            
-            # Add filters
-            if query:
-                query_parts.append("AND source LIKE ?")
-                params.append(f"%{query}%")
-                
-            if bias_filter:
-                query_parts.append("AND bias LIKE ?")
-                params.append(f"%{bias_filter}%")
-                
-            if factual_filter:
-                query_parts.append("AND factual_reporting LIKE ?")
-                params.append(f"%{factual_filter}%")
-                
-            if country_filter:
-                query_parts.append("AND country LIKE ?")
-                params.append(f"%{country_filter}%")
-            
-            # Get total count first
-            count_query = f"SELECT COUNT(*) FROM ({' '.join(query_parts)})"
-            cursor.execute(count_query, params)
-            total_count = cursor.fetchone()[0]
-            
-            # Add pagination
-            query_parts.append("ORDER BY source ASC LIMIT ? OFFSET ?")
-            offset = (page - 1) * per_page
-            params.extend([per_page, offset])
-            
-            # Get data
-            cursor.execute(' '.join(query_parts), params)
-            
-            # Format results
-            sources = []
-            for row in cursor.fetchall():
-                sources.append({
-                    'id': row[0],
-                    'source': row[1],
-                    'country': row[2],
-                    'bias': row[3],
-                    'factual_reporting': row[4],
-                    'press_freedom': row[5],
-                    'media_type': row[6],
-                    'popularity': row[7],
-                    'mbfc_credibility_rating': row[8]
-                })
-            
-            return sources, total_count
+        # Format results
+        sources = []
+        for row in rows:
+            sources.append({
+                'id': row[0],
+                'source': row[1],
+                'country': row[2],
+                'bias': row[3],
+                'factual_reporting': row[4],
+                'press_freedom': row[5],
+                'media_type': row[6],
+                'popularity': row[7],
+                'mbfc_credibility_rating': row[8]
+            })
+
+        return sources, total_count
     
     def add_source(self, source_data: Dict[str, Any]) -> int:
         """Add a new media bias source.
@@ -651,46 +485,28 @@ class MediaBias:
             ID of the newly added source
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Validate required fields
-                source = source_data.get('source', '').strip()
-                if not source:
-                    raise ValueError("Source URL is required")
-                
-                # Insert data
-                cursor.execute("""
-                    INSERT INTO mediabias (
-                        source, country, bias, factual_reporting,
-                        press_freedom, media_type, popularity,
-                        mbfc_credibility_rating, updated_at, enabled
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1)
-                """, (
-                    source,
-                    source_data.get('country', ''),
-                    source_data.get('bias', ''),
-                    source_data.get('factual_reporting', ''),
-                    source_data.get('press_freedom', ''),
-                    source_data.get('media_type', ''),
-                    source_data.get('popularity', ''),
-                    source_data.get('mbfc_credibility_rating', ''),
-                    source_data.get('enabled', 1)
-                ))
-                
-                # Get the newly inserted ID
-                source_id = cursor.lastrowid
-                
-                # Update last_updated in settings
-                cursor.execute("""
-                    UPDATE mediabias_settings
-                    SET last_updated = CURRENT_TIMESTAMP
-                    WHERE id = 1
-                """)
-                
-                conn.commit()
-                return source_id
-                
+            # Validate required fields
+            source = source_data.get('source', '').strip()
+            if not source:
+                raise ValueError("Source URL is required")
+
+            # Insert data
+            source_id = (DatabaseQueryFacade(self.db, logger)).insert_media_bias((
+                source,
+                source_data.get('country', ''),
+                source_data.get('bias', ''),
+                source_data.get('factual_reporting', ''),
+                source_data.get('press_freedom', ''),
+                source_data.get('media_type', ''),
+                source_data.get('popularity', ''),
+                source_data.get('mbfc_credibility_rating', ''),
+                source_data.get('enabled', 1)
+            ))
+
+            # Update last_updated in settings
+            (DatabaseQueryFacade(self.db, logger)).update_media_bias_last_updated()
+            return source_id
+
         except Exception as e:
             logger.error(f"Error adding source: {str(e)}")
             raise
@@ -706,55 +522,33 @@ class MediaBias:
             True if successful, False otherwise
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Validate source existence
-                cursor.execute("SELECT id FROM mediabias WHERE id = ?", (source_id,))
-                if not cursor.fetchone():
-                    raise ValueError(f"Source with ID {source_id} not found")
-                
-                # Validate required fields
-                source = source_data.get('source', '').strip()
-                if not source:
-                    raise ValueError("Source URL is required")
-                
-                # Update data
-                cursor.execute("""
-                    UPDATE mediabias SET
-                        source = ?,
-                        country = ?,
-                        bias = ?,
-                        factual_reporting = ?,
-                        press_freedom = ?,
-                        media_type = ?,
-                        popularity = ?,
-                        mbfc_credibility_rating = ?,
-                        updated_at = CURRENT_TIMESTAMP,
-                        enabled = ?
-                    WHERE id = ?
-                """, (
-                    source,
-                    source_data.get('country', ''),
-                    source_data.get('bias', ''),
-                    source_data.get('factual_reporting', ''),
-                    source_data.get('press_freedom', ''),
-                    source_data.get('media_type', ''),
-                    source_data.get('popularity', ''),
-                    source_data.get('mbfc_credibility_rating', ''),
-                    source_data.get('enabled', 1),
-                    source_id
-                ))
-                
-                # Update last_updated in settings
-                cursor.execute("""
-                    UPDATE mediabias_settings
-                    SET last_updated = CURRENT_TIMESTAMP
-                    WHERE id = 1
-                """)
-                
-                conn.commit()
-                return True
+            # Validate source existence
+            if not (DatabaseQueryFacade(self.db, logger)).get_media_bias_source(source_id):
+                raise ValueError(f"Source with ID {source_id} not found")
+
+            # Validate required fields
+            source = source_data.get('source', '').strip()
+            if not source:
+                raise ValueError("Source URL is required")
+
+            # Update data
+            (DatabaseQueryFacade(self.db, logger)).update_media_bias_source((
+                           source,
+                           source_data.get('country', ''),
+                           source_data.get('bias', ''),
+                           source_data.get('factual_reporting', ''),
+                           source_data.get('press_freedom', ''),
+                           source_data.get('media_type', ''),
+                           source_data.get('popularity', ''),
+                           source_data.get('mbfc_credibility_rating', ''),
+                           source_data.get('enabled', 1),
+                           source_id
+                       ))
+
+            # Update last_updated in settings
+            (DatabaseQueryFacade(self.db, logger)).update_media_bias_last_updated()
+
+            return True
                 
         except Exception as e:
             logger.error(f"Error updating source: {str(e)}")
@@ -770,29 +564,18 @@ class MediaBias:
             True if successful, False otherwise
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Validate source existence
-                cursor.execute("SELECT id FROM mediabias WHERE id = ?", (source_id,))
-                if not cursor.fetchone():
-                    raise ValueError(f"Source with ID {source_id} not found")
-                
-                # Delete the source
-                cursor.execute("DELETE FROM mediabias WHERE id = ?", (source_id,))
-                
-                # Update last_updated in settings
-                cursor.execute("""
-                    UPDATE mediabias_settings
-                    SET last_updated = CURRENT_TIMESTAMP
-                    WHERE id = 1
-                """)
-                
-                conn.commit()
-                
-                # Return success if a row was affected
-                return cursor.rowcount > 0
-                
+            # Validate source existence
+            if not (DatabaseQueryFacade(self.db, logger)).get_media_bias_source(source_id):
+                raise ValueError(f"Source with ID {source_id} not found")
+
+            # Delete the source
+            (DatabaseQueryFacade(self.db, logger)).delete_media_bias_source(source_id)
+
+            # Update last_updated in settings
+            (DatabaseQueryFacade(self.db, logger)).update_media_bias_last_updated()
+            # Return success if a row was affected
+            return cursor.rowcount > 0
+
         except Exception as e:
             logger.error(f"Error deleting source: {str(e)}")
             raise
@@ -807,33 +590,21 @@ class MediaBias:
             Dictionary with source data or None if not found
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT 
-                        id, source, country, bias, factual_reporting,
-                        press_freedom, media_type, popularity,
-                        mbfc_credibility_rating
-                    FROM mediabias
-                    WHERE id = ?
-                """, (source_id,))
-                
-                row = cursor.fetchone()
-                if not row:
-                    return None
-                    
-                return {
-                    'id': row[0],
-                    'source': row[1],
-                    'country': row[2],
-                    'bias': row[3],
-                    'factual_reporting': row[4],
-                    'press_freedom': row[5],
-                    'media_type': row[6],
-                    'popularity': row[7],
-                    'mbfc_credibility_rating': row[8]
-                }
+            row = (DatabaseQueryFacade(self.db, logger)).get_media_bias_source_by_id(source_id)
+            if not row:
+                return None
+
+            return {
+                'id': row[0],
+                'source': row[1],
+                'country': row[2],
+                'bias': row[3],
+                'factual_reporting': row[4],
+                'press_freedom': row[5],
+                'media_type': row[6],
+                'popularity': row[7],
+                'mbfc_credibility_rating': row[8]
+            }
                 
         except Exception as e:
             logger.error(f"Error getting source by ID: {str(e)}")
@@ -846,26 +617,13 @@ class MediaBias:
             Dictionary with lists of unique values for each filter
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get unique biases
-                cursor.execute("SELECT DISTINCT bias FROM mediabias WHERE bias IS NOT NULL AND bias != ''")
-                biases = [row[0] for row in cursor.fetchall()]
-                
-                # Get unique factual reporting levels
-                cursor.execute("SELECT DISTINCT factual_reporting FROM mediabias WHERE factual_reporting IS NOT NULL AND factual_reporting != ''")
-                factual_levels = [row[0] for row in cursor.fetchall()]
-                
-                # Get unique countries
-                cursor.execute("SELECT DISTINCT country FROM mediabias WHERE country IS NOT NULL AND country != ''")
-                countries = [row[0] for row in cursor.fetchall()]
-                
-                return {
-                    'biases': biases,
-                    'factual_levels': factual_levels,
-                    'countries': countries
-                }
+            (biases, factual_levels, countries) = (DatabaseQueryFacade(self.db, logger)).get_media_bias_filter_options()
+
+            return {
+                'biases': biases,
+                'factual_levels': factual_levels,
+                'countries': countries
+            }
                 
         except Exception as e:
             logger.error(f"Error getting filter options: {str(e)}")
@@ -874,23 +632,7 @@ class MediaBias:
     def _load_sources(self):
         """Load media bias sources from the database."""
         try:
-            sources = []
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT * FROM mediabias")
-                rows = cursor.fetchall()
-                
-                # Convert to dictionaries with column names
-                cursor.execute("PRAGMA table_info(mediabias)")
-                columns = [col[1] for col in cursor.fetchall()]
-                
-                for row in rows:
-                    source = {}
-                    for i, column in enumerate(columns):
-                        source[column] = row[i]
-                    sources.append(source)
-                
-                return sources
+            return (DatabaseQueryFacade(self.db, logger)).load_media_bias_sources_from_database()
         except Exception as e:
             logger.error(f"Error loading media bias sources: {e}")
             return [] 

@@ -443,9 +443,6 @@ class DatabaseQueryFacade:
             for row in cursor.fetchall():
                 yield dict(row)
 
-    # NEWSAPI COLLECTOR
-    def
-
     #### ENDPOINTS QUERIES ####
     def enriched_articles(self, limit):
         with self.db.get_connection() as conn:
@@ -1983,3 +1980,346 @@ class DatabaseQueryFacade:
             cursor.execute("SELECT daily_request_limit FROM keyword_monitor_settings WHERE id = 1")
 
             return cursor.fetchone()
+        
+    #### MEDIA BIAS ####
+    def create_media_bias_table(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS mediabias (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL UNIQUE,
+                    country TEXT,
+                    bias TEXT,
+                    factual_reporting TEXT,
+                    press_freedom TEXT,
+                    media_type TEXT,
+                    popularity TEXT,
+                    mbfc_credibility_rating TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    enabled INTEGER DEFAULT 1
+                )
+            """)
+
+            conn.commit()
+
+    def check_if_media_bias_has_updated_at_column(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("PRAGMA table_info(mediabias)")
+
+            return [column[1] for column in cursor.fetchall()]
+
+    def add_updated_at_column_to_media_bias_table(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           ALTER TABLE mediabias
+                               ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                           """)
+
+            conn.commit()
+            
+    def create_media_bias_settings_table_and_insert_default_values(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS mediabias_settings (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    enabled BOOLEAN DEFAULT 0,
+                    last_updated TIMESTAMP,
+                    source_file TEXT
+                )
+            """)
+            
+            # Insert default settings if not exist
+            cursor.execute("""
+                INSERT OR IGNORE INTO mediabias_settings (id, enabled, last_updated, source_file)
+                VALUES (1, 0, NULL, NULL)
+            """)
+
+            conn.commit()
+
+    def insert_media_bias(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO mediabias (source, country, bias, factual_reporting,
+                                                  press_freedom, media_type, popularity,
+                                                  mbfc_credibility_rating, updated_at, enabled)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 1) ON CONFLICT(source) DO
+                           UPDATE SET
+                               country = excluded.country,
+                               bias = excluded.bias,
+                               factual_reporting = excluded.factual_reporting,
+                               press_freedom = excluded.press_freedom,
+                               media_type = excluded.media_type,
+                               popularity = excluded.popularity,
+                               mbfc_credibility_rating = excluded.mbfc_credibility_rating,
+                               updated_at = CURRENT_TIMESTAMP,
+                               enabled = ?
+                           """, params)
+
+            conn.commit()
+
+            return cursor.lastrowid
+
+    def update_media_bias_source(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           UPDATE mediabias
+                           SET source                  = ?,
+                               country                 = ?,
+                               bias                    = ?,
+                               factual_reporting       = ?,
+                               press_freedom           = ?,
+                               media_type              = ?,
+                               popularity              = ?,
+                               mbfc_credibility_rating = ?,
+                               updated_at              = CURRENT_TIMESTAMP,
+                               enabled                 = ?
+                           WHERE id = ?
+                           """, params)
+
+            conn.commit()
+
+    def drop_media_bias_table(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DROP TABLE IF EXISTS mediabias")
+
+    def update_media_bias_settings(self, file_path):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           UPDATE mediabias_settings
+                           SET enabled      = 1,
+                               source_file  = ?,
+                               last_updated = CURRENT_TIMESTAMP
+                           WHERE id = 1
+                           """, (file_path,))
+
+            conn.commit()
+
+    def get_all_media_bias_sources(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT source,
+                                  country,
+                                  bias,
+                                  factual_reporting,
+                                  press_freedom,
+                                  media_type,
+                                  popularity,
+                                  mbfc_credibility_rating
+                           FROM mediabias
+                           ORDER BY source ASC
+                           """)
+
+            return cursor.fetchall()
+
+    def get_media_bias_status(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT enabled, last_updated, source_file
+                           FROM mediabias_settings
+                           WHERE id = 1
+                           """)
+
+
+            return cursor.fetchone()
+
+    def get_media_bias_source(self, source_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT id FROM mediabias WHERE id = ?", (source_id,))
+
+            return cursor.fetchone()
+
+    def delete_media_bias_source(self, source_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("DELETE FROM mediabias WHERE id = ?", (source_id,))
+
+            conn.commit()
+
+    def get_total_media_bias_sources(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) FROM mediabias")
+
+            return cursor.fetchone()[0]
+
+    def enable_media_bias_sources(self, enabled):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           UPDATE mediabias_settings
+                           SET enabled      = ?,
+                               last_updated = CURRENT_TIMESTAMP
+                           WHERE id = 1
+                           """, (1 if enabled else 0,))
+
+            conn.commit()
+
+    def update_media_bias_last_updated(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           UPDATE mediabias_settings
+                           SET last_updated = CURRENT_TIMESTAMP
+                           WHERE id = 1
+                           """)
+
+            conn.commit()
+
+    def reset_media_bias_sources(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Delete all media bias data
+            cursor.execute("DELETE FROM mediabias")
+
+            # Reset settings but keep enabled state
+            cursor.execute("""
+                           UPDATE mediabias_settings
+                           SET last_updated = NULL,
+                               source_file  = NULL
+                           WHERE id = 1
+                           """)
+
+            conn.commit()
+
+    def enable_media_source(self, source):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE mediabias SET enabled = 1 WHERE source = ?",
+                (source,)
+            )
+            conn.commit()
+
+    def search_media_bias_sources(self, query, bias_filter, factual_filter, country_filter, page, per_page):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Build base query
+            query_parts = ["SELECT * FROM mediabias WHERE 1=1"]
+            params = []
+
+            # Add filters
+            if query:
+                query_parts.append("AND source LIKE ?")
+                params.append(f"%{query}%")
+
+            if bias_filter:
+                query_parts.append("AND bias LIKE ?")
+                params.append(f"%{bias_filter}%")
+
+            if factual_filter:
+                query_parts.append("AND factual_reporting LIKE ?")
+                params.append(f"%{factual_filter}%")
+
+            if country_filter:
+                query_parts.append("AND country LIKE ?")
+                params.append(f"%{country_filter}%")
+
+            # Get total count first
+            count_query = f"SELECT COUNT(*) FROM ({' '.join(query_parts)})"
+            cursor.execute(count_query, params)
+            total_count = cursor.fetchone()[0]
+
+            # Add pagination
+            query_parts.append("ORDER BY source ASC LIMIT ? OFFSET ?")
+            offset = (page - 1) * per_page
+            params.extend([per_page, offset])
+
+            # Get data
+            cursor.execute(' '.join(query_parts), params)
+
+            return total_count, cursor.fetchall()
+
+    def delete_media_bias_source(self, source_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("DELETE FROM mediabias WHERE id = ?", (source_id,))
+
+            conn.commit()
+
+    def get_media_bias_source_by_id(self, source_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT id,
+                                  source,
+                                  country,
+                                  bias,
+                                  factual_reporting,
+                                  press_freedom,
+                                  media_type,
+                                  popularity,
+                                  mbfc_credibility_rating
+                           FROM mediabias
+                           WHERE id = ?
+                           """, (source_id,))
+
+            return cursor.fetchone()
+
+    def get_media_bias_filter_options(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get unique biases
+            cursor.execute("SELECT DISTINCT bias FROM mediabias WHERE bias IS NOT NULL AND bias != ''")
+            biases = [row[0] for row in cursor.fetchall()]
+
+            # Get unique factual reporting levels
+            cursor.execute(
+                "SELECT DISTINCT factual_reporting FROM mediabias WHERE factual_reporting IS NOT NULL AND factual_reporting != ''")
+            factual_levels = [row[0] for row in cursor.fetchall()]
+
+            # Get unique countries
+            cursor.execute("SELECT DISTINCT country FROM mediabias WHERE country IS NOT NULL AND country != ''")
+            countries = [row[0] for row in cursor.fetchall()]
+
+            return biases, factual_levels, countries
+
+    def load_media_bias_sources_from_database(self):
+        sources = []
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM mediabias")
+            rows = cursor.fetchall()
+
+            # Convert to dictionaries with column names
+            cursor.execute("PRAGMA table_info(mediabias)")
+            columns = [col[1] for col in cursor.fetchall()]
+
+            for row in rows:
+                source = {}
+                for i, column in enumerate(columns):
+                    source[column] = row[i]
+                sources.append(source)
+
+            return sources
+
