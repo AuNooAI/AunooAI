@@ -232,15 +232,13 @@ async def check_now(request: CheckNowRequest = None, db=Depends(get_database_ins
             group_id = request.group_id
         
         # Log number of keywords being monitored
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            if group_id:
-                keyword_count = (DatabaseQueryFacade(db, logger)).get_number_of_monitored_keywords_by_group_id(group_id)
-                logger.info(f"Running manual keyword check for group {group_id} - {keyword_count} keywords configured")
-            else:
-                keyword_count = (DatabaseQueryFacade(db, logger)).get_total_number_of_keywords()
-                logger.info(f"Running manual keyword check - {keyword_count} keywords configured")
-        
+        if group_id:
+            keyword_count = (DatabaseQueryFacade(db, logger)).get_number_of_monitored_keywords_by_group_id(group_id)
+            logger.info(f"Running manual keyword check for group {group_id} - {keyword_count} keywords configured")
+        else:
+            keyword_count = (DatabaseQueryFacade(db, logger)).get_total_number_of_keywords()
+            logger.info(f"Running manual keyword check - {keyword_count} keywords configured")
+
         monitor = KeywordMonitor(db)
         
         # Note: KeywordMonitor.check_keywords() doesn't support group_id parameter
