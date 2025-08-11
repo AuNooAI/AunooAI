@@ -444,6 +444,78 @@ class DatabaseQueryFacade:
                 yield dict(row)
 
     #### ENDPOINTS QUERIES ####
+    def get_total_articles_and_sample_categories_for_topic(self, topic: str):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?)", (topic,))
+            total_topic_articles = cursor.fetchone()[0]
+
+            cursor.execute("SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != ''", (topic,))
+            articles_with_categories = cursor.fetchone()[0]
+
+            cursor.execute("SELECT DISTINCT category FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != '' LIMIT 10", (topic,))
+            sample_categories = [row[0] for row in cursor.fetchall()]
+
+            return total_topic_articles, articles_with_categories, sample_categories
+
+    def get_topic(self, topic):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT DISTINCT topic FROM articles WHERE LOWER(topic) = LOWER(?)", (topic,))
+
+            return cursor.fetchone()
+
+    def get_articles_count_from_topic_and_categories(self, placeholders, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                f"SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?) AND category IN ({placeholders})", params)
+
+            return cursor.fetchone()[0]
+
+    def get_article_count_for_topic(self, topic):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?)", (topic,))
+
+            return cursor.fetchone()[0]
+
+    def get_recent_articles_for_topic_and_category(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT title,
+                                  news_source,
+                                  uri,
+                                  sentiment,
+                                  future_signal,
+                                  time_to_impact,
+                                  publication_date
+                           FROM articles
+                           WHERE LOWER(topic) = LOWER(?)
+                             AND LOWER(category) = LOWER(?)
+                             AND date (publication_date) >= date ('now'
+                               , '-' || ? || ' days')
+                           ORDER BY publication_date DESC
+                               LIMIT 5
+                           """, params)
+
+            return cursor.fetchall()
+
+    def get_categories_for_topic(self, topic):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT DISTINCT category FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != ''",
+                (topic,))
+            return [row[0] for row in cursor.fetchall()]
+
     def get_podcasts_columns(self):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
