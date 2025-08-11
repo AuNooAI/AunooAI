@@ -443,7 +443,10 @@ class DatabaseQueryFacade:
             for row in cursor.fetchall():
                 yield dict(row)
 
-    #### ROUTES QUERIES ####
+    # NEWSAPI COLLECTOR
+    def
+
+    #### ENDPOINTS QUERIES ####
     def enriched_articles(self, limit):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -1955,5 +1958,28 @@ class DatabaseQueryFacade:
                            FROM articles
                            WHERE auto_ingested = 1
                            """)
+
+            return cursor.fetchone()
+
+    def stamp_keyword_monitor_status_table_with_todays_date(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                INSERT INTO keyword_monitor_status 
+                (id, requests_today, last_check_time, last_reset_date)
+                VALUES (1, ?, datetime('now'), ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    requests_today = excluded.requests_today,
+                    last_check_time = excluded.last_check_time,
+                    last_reset_date = excluded.last_reset_date
+            """, (self.requests_today, today))
+            conn.commit()
+
+    def get_keyword_monitor_status_daily_request_limit(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT daily_request_limit FROM keyword_monitor_settings WHERE id = 1")
 
             return cursor.fetchone()

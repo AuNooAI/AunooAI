@@ -26,41 +26,27 @@ class NewsAPICollector(ArticleCollector):
     def _init_request_counter(self):
         """Initialize request counter from database"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                logger.debug("Initializing request counter")
-                # Get today's request count and last reset date
-                cursor.execute("""
-                    SELECT requests_today, last_reset_date 
-                    FROM keyword_monitor_status 
-                    WHERE id = 1
-                """)
-                row = cursor.fetchone()
-                today = datetime.now().date().isoformat()
-                
-                logger.debug(f"Current status row: {row}, today: {today}")
-                
-                if row:
-                    requests_today, last_reset = row
-                    
-                    if not last_reset or last_reset < today:
-                        # Reset counter for new day
-                        self.requests_today = 0
-                        cursor.execute("""
-                            UPDATE keyword_monitor_status 
-                            SET requests_today = 0,
-                                last_reset_date = ?
-                            WHERE id = 1
-                        """, (today,))
-                        conn.commit()
-                        logger.debug("Reset counter for new day")
-                    else:
-                        self.requests_today = requests_today
-                        logger.debug(f"Using existing count: {requests_today}")
-                else:
+            logger.debug("Initializing request counter")
+
+            row = (DatabaseQueryFacade(self.db, logger)).get_request_count_for_today()
+            today = datetime.now().date().isoformat()
+
+            logger.debug(f"Current status row: {row}, today: {today}")
+
+            if row:
+                requests_today, last_reset = row
+
+                if not last_reset or last_reset < today:
+                    # Reset counter for new day
                     self.requests_today = 0
-                    logger.debug("No existing count found, starting at 0")
+                    (DatabaseQueryFacade(self.db, logger)).reset_keyword_monitoring_counter((today,))
+                    logger.debug("Reset counter for new day")
+                else:
+                    self.requests_today = requests_today
+                    logger.debug(f"Using existing count: {requests_today}")
+            else:
+                self.requests_today = 0
+                logger.debug("No existing count found, starting at 0")
                 
         except Exception as e:
             logger.error(f"Error initializing request counter: {str(e)}")
@@ -73,32 +59,24 @@ class NewsAPICollector(ArticleCollector):
             self.requests_today += 1
             
             # Update in database
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                today = datetime.now().date().isoformat()
-                
-                # Make sure we have a row in the status table with today's date
-                cursor.execute("""
-                    INSERT OR REPLACE INTO keyword_monitor_status 
-                    (id, requests_today, last_check_time, last_reset_date)
-                    VALUES (1, ?, datetime('now'), ?)
-                """, (self.requests_today, today))
-                conn.commit()
-                
-                logger.debug(f"Updated NewsAPI request count to {self.requests_today}")
-                
-                # Check if we're at or near the limit
-                # Default limit is 100 (NewsAPI free tier)
-                daily_limit = 100
-                
-                # Get configured limit if available
-                cursor.execute("SELECT daily_request_limit FROM keyword_monitor_settings WHERE id = 1")
-                limit_row = cursor.fetchone()
-                if limit_row and limit_row[0]:
-                    daily_limit = limit_row[0]
-                
-                if self.requests_today >= daily_limit:
-                    logger.warning(f"NewsAPI request limit reached: {self.requests_today}/{daily_limit}")
+            today = datetime.now().date().isoformat()
+
+            # Make sure we have a row in the status table with today's date
+            (DatabaseQueryFacade(self.db, logger)).stamp_keyword_monitor_status_table_with_todays_date((self.requests_today, today))
+
+            logger.debug(f"Updated NewsAPI request count to {self.requests_today}")
+
+            # Check if we're at or near the limit
+            # Default limit is 100 (NewsAPI free tier)
+            daily_limit = 100
+
+            # Get configured limit if available
+            limit_row = (DatabaseQueryFacade(self.db, logger)).get_keyword_monitor_status_daily_request_limit()
+            if limit_row and limit_row[0]:
+                daily_limit = limit_row[0]
+
+            if self.requests_today >= daily_limit:
+                logger.warning(f"NewsAPI request limit reached: {self.requests_today}/{daily_limit}")
         except Exception as e:
             logger.error(f"Error updating request counter: {str(e)}")
 
