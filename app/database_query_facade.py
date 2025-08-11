@@ -444,6 +444,80 @@ class DatabaseQueryFacade:
                 yield dict(row)
 
     #### ENDPOINTS QUERIES ####
+    def get_podcasts_columns(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("PRAGMA table_info(podcasts)")
+
+            table_info = cursor.fetchall()
+
+            return [col[1] for col in table_info]
+
+    def generate_latest_podcasts(self, column_names, has_transcript, has_topic, has_audio_url):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Build list of columns to select based on what's available
+            select_columns = ['id']
+            if 'title' in column_names:
+                select_columns.append('title')
+            else:
+                select_columns.append("'Untitled Podcast' as title")
+
+            if 'created_at' in column_names:
+                select_columns.append('created_at')
+            else:
+                select_columns.append('NULL as created_at')
+
+            if has_audio_url:
+                select_columns.append('audio_url')
+
+            if has_transcript:
+                select_columns.append('transcript_text')
+
+            # Build query
+            query = f"SELECT {', '.join(select_columns)} FROM podcasts "
+
+            # Add WHERE clause if we can filter by topic
+            params = []
+            if has_topic:
+                query += "WHERE topic = ? OR topic IS NULL OR topic = 'General' "
+                params.append(topic)
+
+            # Add ORDER BY and LIMIT
+            query += "ORDER BY created_at DESC LIMIT 1"
+
+            # Execute query
+
+            cursor.execute(query, params)
+
+            return cursor.fetchone()
+
+    def get_articles_for_date_range(self, limit, topic, start_date, end_date):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # SQL limit clause
+            limit_clause = f"LIMIT {limit}" if limit else ""
+
+            cursor.execute(
+                f"""
+                SELECT * FROM articles 
+                WHERE topic = ? 
+                AND publication_date BETWEEN ? AND ?
+                ORDER BY publication_date DESC
+                {limit_clause}
+                """,
+                (topic, start_date, end_date)
+            )
+            articles = cursor.fetchall()
+
+            # Convert to list of dictionaries with column names
+            column_names = [description[0] for description in cursor.description]
+
+            return column_names, articles
+
     def enriched_articles(self, limit):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()

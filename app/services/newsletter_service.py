@@ -7,6 +7,7 @@ from app.database import Database
 from app.ai_models import get_ai_model
 from app.schemas.newsletter import NewsletterRequest
 from app.services.chart_service import ChartService
+from app.database_query_facade import DatabaseQueryFacade
 
 logger = logging.getLogger(__name__)
 
@@ -1166,50 +1167,20 @@ The content would be based on the provided articles and would follow the specifi
         # Try to find podcasts in database, but handle gracefully if the table doesn't exist
         # or has different columns
         try:
-            cursor = self.db.get_connection().cursor()
             # Get column info first to build a query that will work
-            cursor.execute("PRAGMA table_info(podcasts)")
-            table_info = cursor.fetchall()
-            column_names = [col[1] for col in table_info]  # Column name is at index 1
+            column_names = (DatabaseQueryFacade(self.db, logger)).get_podcasts_columns()
             
             # Build a query that works with the available columns
             has_transcript = 'transcript_text' in column_names
             has_topic = 'topic' in column_names
             has_audio_url = 'audio_url' in column_names
-            
-            # Build list of columns to select based on what's available
-            select_columns = ['id']
-            if 'title' in column_names:
-                select_columns.append('title')
-            else:
-                select_columns.append("'Untitled Podcast' as title")
-                
-            if 'created_at' in column_names:
-                select_columns.append('created_at')
-            else:
-                select_columns.append('NULL as created_at')
-                
-            if has_audio_url:
-                select_columns.append('audio_url')
-                
-            if has_transcript:
-                select_columns.append('transcript_text')
-                
-            # Build query
-            query = f"SELECT {', '.join(select_columns)} FROM podcasts "
-            
-            # Add WHERE clause if we can filter by topic
-            params = []
-            if has_topic:
-                query += "WHERE topic = ? OR topic IS NULL OR topic = 'General' "
-                params.append(topic)
-            
-            # Add ORDER BY and LIMIT
-            query += "ORDER BY created_at DESC LIMIT 1"
-            
-            # Execute query
-            cursor.execute(query, params)
-            podcast_data = cursor.fetchone()
+
+            podcast_data = (DatabaseQueryFacade(self.db, logger)).generate_latest_podcasts(
+                column_names,
+                has_transcript,
+                has_topic,
+                has_audio_url
+            )
             
         except Exception as e:
             logger.error(f"Error fetching podcast data: {str(e)}")
@@ -1330,31 +1301,13 @@ The content would be based on the provided articles and would follow the specifi
             # Convert dates to strings for SQL
             start_str = start_date.strftime("%Y-%m-%d")
             end_str = end_date.strftime("%Y-%m-%d")
-            
-            # SQL limit clause
-            limit_clause = f"LIMIT {limit}" if limit else ""
-            
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    f"""
-                    SELECT * FROM articles 
-                    WHERE topic = ? 
-                    AND publication_date BETWEEN ? AND ?
-                    ORDER BY publication_date DESC
-                    {limit_clause}
-                    """,
-                    (topic, start_str, end_str)
-                )
-                articles = cursor.fetchall()
-                
-                # Convert to list of dictionaries with column names
-                column_names = [description[0] for description in cursor.description]
-                result = []
-                
-                for row in articles:
-                    article_dict = dict(zip(column_names, row))
-                    result.append(article_dict)
+
+            column_names, articles = (DatabaseQueryFacade(self.db, logger)).get_articles_for_date_range(limit, topic, start_str, end_str)
+
+            result = []
+            for row in articles:
+                article_dict = dict(zip(column_names, row))
+                result.append(article_dict)
             
             if not result:
                 logger.warning(f"No articles found for topic '{topic}' in the date range {start_date} to {end_date}")
