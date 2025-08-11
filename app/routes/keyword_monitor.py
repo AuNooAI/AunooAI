@@ -992,7 +992,7 @@ async def get_group_alerts(
             alert_results = (DatabaseQueryFacade(db, logger)).get_alerts_by_group_id_from_new_table_structure(show_read, group_id, page_size, offset)
         else:
             # Fallback to old structure (keyword_alerts table) with pagination
-            alert_results = count_unread_articles_by_group_id_from_new_table_structureget_alerts_by_group_id_from_old_table_structure(show_read, group_id, page_size, offset)
+            alert_results = (DatabaseQueryFacade(db, logger)).get_alerts_by_group_id_from_old_table_structure(show_read, group_id, page_size, offset)
 
         # Get unread count for this group
         if use_new_table:
@@ -1007,6 +1007,7 @@ async def get_group_alerts(
             total_count = (DatabaseQueryFacade(db, logger)).count_total_articles_by_group_id_from_old_table_structure(group_id)
 
         alerts = []
+        index = 0
         for alert in alert_results:
             if use_new_table:
                 alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
@@ -1135,7 +1136,7 @@ async def get_group_alerts(
                 "is_read": bool(is_read),
                 "detected_at": detected_at
             })
-            
+
             # Get group name
             group_name = (DatabaseQueryFacade(db, logger)).get_group_name(group_id)
             
@@ -1144,22 +1145,22 @@ async def get_group_alerts(
             has_next = page < total_pages
             has_prev = page > 1
             
-            # Return the response data
-            return {
-                "topic": topic,
-                "group_id": group_id, 
-                "group_name": group_name,
-                "alerts": alerts,
-                "unread_count": unread_count,
-                "total_count": total_count,
-                "pagination": {
-                    "page": page,
-                    "page_size": page_size,
-                    "total_pages": total_pages,
-                    "has_next": has_next,
-                    "has_prev": has_prev
-                }
+        # Return the response data
+        return {
+            "topic": topic,
+            "group_id": group_id,
+            "group_name": group_name,
+            "alerts": alerts,
+            "unread_count": unread_count,
+            "total_count": total_count,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "has_next": has_next,
+                "has_prev": has_prev
             }
+        }
             
     except Exception as e:
         logger.error(f"Error getting group alerts: {str(e)}")
@@ -1186,12 +1187,10 @@ async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_inst
         article_uris.extend([row[0] for row in(DatabaseQueryFacade(db, logger)).get_article_urls_from_paper_search_results_by_topic(topic_name)])
 
         # Direct topic reference if the column exists
-        cursor.execute("PRAGMA table_info(articles)")
-        columns = cursor.fetchall()
-        has_topic_column = any(col[1] == 'topic' for col in columns)
+        has_topic_column = (DatabaseQueryFacade(db, logger)).check_if_articles_table_has_topic_column()
 
         if has_topic_column:
-            article_uris.extend([row[0] for row in(DatabaseQueryFacade(db, logger)).article_urls_by_topic(topic_name)])
+            article_uris.extend([row[0] for row in (DatabaseQueryFacade(db, logger)).article_urls_by_topic(topic_name)])
 
         # Remove duplicates
         article_uris = list(set(article_uris))
