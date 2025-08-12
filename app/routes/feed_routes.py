@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel, Field
 
 from app.database import get_database_instance, Database
+from app.database_query_facade import DatabaseQueryFacade
 from app.security.session import verify_session, verify_session_api
 from app.services.feed_group_service import FeedGroupService
 from app.services.unified_feed_service import UnifiedFeedService
@@ -554,48 +555,39 @@ async def add_tags_to_feed_item(
         
         if not clean_tags:
             raise HTTPException(status_code=400, detail="No valid tags provided")
-        
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT tags FROM feed_items WHERE id = ?", (item_id,))
-            result = cursor.fetchone()
-            
-            if not result:
-                raise HTTPException(status_code=404, detail="Feed item not found")
-            
-            # Get existing tags
-            existing_tags_str = result[0] or ""
-            existing_tags = []
-            
-            if existing_tags_str:
-                try:
-                    existing_tags = json.loads(existing_tags_str) if existing_tags_str.startswith('[') else existing_tags_str.split(',')
-                except (json.JSONDecodeError, AttributeError):
-                    existing_tags = existing_tags_str.split(',') if existing_tags_str else []
-            
-            # Combine with new tags (avoiding duplicates)
-            all_tags = list(existing_tags)
-            for tag in clean_tags:
-                if tag not in all_tags:
-                    all_tags.append(tag)
-            
-            # Update database
-            tags_json = json.dumps(all_tags)
-            cursor.execute("""
-                UPDATE feed_items 
-                SET tags = ?, updated_at = CURRENT_TIMESTAMP 
-                WHERE id = ?
-            """, (tags_json, item_id))
-            
-            conn.commit()
-            
-            logger.info(f"API: Added tags {clean_tags} to feed item {item_id}")
-            return {
-                "success": True,
-                "message": f"Added {len(clean_tags)} tags to item",
-                "tags_added": clean_tags,
-                "total_tags": len(all_tags)
-            }
+
+        result = (DatabaseQueryFacade(db, logger)).get_feed_item_tags(item_id)
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Feed item not found")
+
+        # Get existing tags
+        existing_tags_str = result[0] or ""
+        existing_tags = []
+
+        if existing_tags_str:
+            try:
+                existing_tags = json.loads(existing_tags_str) if existing_tags_str.startswith('[') else existing_tags_str.split(',')
+            except (json.JSONDecodeError, AttributeError):
+                existing_tags = existing_tags_str.split(',') if existing_tags_str else []
+
+        # Combine with new tags (avoiding duplicates)
+        all_tags = list(existing_tags)
+        for tag in clean_tags:
+            if tag not in all_tags:
+                all_tags.append(tag)
+
+        # Update database
+        tags_json = json.dumps(all_tags)
+        (DatabaseQueryFacade(db, logger)).update_feed_tags((tags_json, item_id))
+
+        logger.info(f"API: Added tags {clean_tags} to feed item {item_id}")
+        return {
+            "success": True,
+            "message": f"Added {len(clean_tags)} tags to item",
+            "tags_added": clean_tags,
+            "total_tags": len(all_tags)
+        }
             
     except HTTPException:
         raise
@@ -673,16 +665,7 @@ async def collect_by_source(
         feed_service = UnifiedFeedService(db)
         
         # Collect from all active groups for this source type
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT DISTINCT g.id, g.name
-                FROM feed_keyword_groups g
-                JOIN feed_group_sources s ON g.id = s.group_id
-                WHERE g.is_active = 1 AND s.source_type = ? AND s.enabled = 1
-            """, (source_type,))
-            
-            groups = cursor.fetchall()
+        groups = (DatabaseQueryFacade(db, logger)).get_feed_keywords_by_source_type(source_type)
             
         if not groups:
             return {
@@ -726,43 +709,18 @@ async def get_group_stats(
     try:
         logger.info(f"API: Getting stats for group {group_id}")
         
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
+        total_items, source_counts, recent_items = (DatabaseQueryFacade(db, logger)).get_statistics_for_specific_feed_group(group_id)
             
-            # Get total items count
-            cursor.execute("""
-                SELECT COUNT(*) FROM feed_items 
-                WHERE group_id = ?
-            """, (group_id,))
-            total_items = cursor.fetchone()[0]
-            
-            # Get counts by source type
-            cursor.execute("""
-                SELECT source_type, COUNT(*) 
-                FROM feed_items 
-                WHERE group_id = ? 
-                GROUP BY source_type
-            """, (group_id,))
-            source_counts = dict(cursor.fetchall())
-            
-            # Get recent items count (last 7 days)
-            cursor.execute("""
-                SELECT COUNT(*) FROM feed_items 
-                WHERE group_id = ? 
-                AND publication_date >= datetime('now', '-7 days')
-            """, (group_id,))
-            recent_items = cursor.fetchone()[0]
-            
-            stats = {
-                "success": True,
-                "group_id": group_id,
-                "total_items": total_items,
-                "recent_items": recent_items,
-                "source_breakdown": source_counts
-            }
-            
-            logger.info(f"API: Retrieved stats for group {group_id}: {total_items} items")
-            return stats
+        stats = {
+            "success": True,
+            "group_id": group_id,
+            "total_items": total_items,
+            "recent_items": recent_items,
+            "source_breakdown": source_counts
+        }
+
+        logger.info(f"API: Retrieved stats for group {group_id}: {total_items} items")
+        return stats
             
     except Exception as e:
         logger.error(f"API: Error getting group stats: {str(e)}")
@@ -778,102 +736,80 @@ async def get_feed_item_enrichment(
     try:
         logger.info(f"API: Getting enrichment data for feed item {item_id}")
         
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get the feed item URL
-            cursor.execute("""
-                SELECT url FROM feed_items WHERE id = ?
-            """, (item_id,))
-            result = cursor.fetchone()
-            
-            if not result:
-                raise HTTPException(status_code=404, detail="Feed item not found")
-            
-            item_url = result[0]
-            
-            # Look for enrichment data in the articles table using URL
-            cursor.execute("""
-                SELECT 
-                    category, sentiment, driver_type, time_to_impact,
-                    topic_alignment_score, keyword_relevance_score, confidence_score,
-                    overall_match_explanation, extracted_article_topics, 
-                    extracted_article_keywords, auto_ingested, ingest_status,
-                    quality_score, quality_issues, sentiment_explanation,
-                    future_signal, future_signal_explanation, driver_type_explanation,
-                    time_to_impact_explanation, summary, tags,
-                    submission_date, analyzed
-                FROM articles 
-                WHERE uri = ?
-            """, (item_url,))
-            
-            enrichment_data = cursor.fetchone()
-            
-            if not enrichment_data:
-                return {
-                    "success": True,
-                    "enriched": False,
-                    "message": "No enrichment data found for this item"
-                }
-            
-            # Parse the enrichment data
-            (category, sentiment, driver_type, time_to_impact,
-             topic_alignment_score, keyword_relevance_score, confidence_score,
-             overall_match_explanation, extracted_article_topics,
-             extracted_article_keywords, auto_ingested, ingest_status,
-             quality_score, quality_issues, sentiment_explanation,
-             future_signal, future_signal_explanation, driver_type_explanation,
-             time_to_impact_explanation, summary, tags,
-             submission_date, analyzed) = enrichment_data
-            
-            # Article is enriched if it has any non-null enrichment data
-            # Check all the enrichment fields to see if any have meaningful data
-            is_enriched = bool(
-                category or sentiment or driver_type or time_to_impact or
-                topic_alignment_score or keyword_relevance_score or confidence_score or
-                overall_match_explanation or extracted_article_topics or 
-                extracted_article_keywords or quality_score or quality_issues or
-                sentiment_explanation or future_signal or future_signal_explanation or
-                driver_type_explanation or time_to_impact_explanation or
-                (summary and summary.strip()) or (tags and tags.strip()) or
-                analyzed == 1
-            )
-            
-            logger.info(f"API: Enrichment check for {item_url}: category={category}, sentiment={sentiment}, analyzed={analyzed}, topic_alignment_score={topic_alignment_score}, quality_score={quality_score}, is_enriched={is_enriched}")
-            logger.info(f"API: All enrichment data for {item_url}: {enrichment_data}")
-            
-            enrichment_result = {
+        result = (DatabaseQueryFacade(db, logger)).get_feed_item_url(item_id)
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Feed item not found")
+
+        item_url = result[0]
+
+        enrichment_data = (DatabaseQueryFacade(db, logger)).get_enrichment_data_for_article(item_url)
+
+        if not enrichment_data:
+            return {
                 "success": True,
-                "enriched": is_enriched,
-                "data": {
-                    "category": category,
-                    "sentiment": sentiment,
-                    "sentiment_explanation": sentiment_explanation,
-                    "driver_type": driver_type,
-                    "driver_type_explanation": driver_type_explanation,
-                    "time_to_impact": time_to_impact,
-                    "time_to_impact_explanation": time_to_impact_explanation,
-                    "future_signal": future_signal,
-                    "future_signal_explanation": future_signal_explanation,
-                    "topic_alignment_score": topic_alignment_score,
-                    "keyword_relevance_score": keyword_relevance_score,
-                    "confidence_score": confidence_score,
-                    "overall_match_explanation": overall_match_explanation,
-                    "extracted_topics": extracted_article_topics,
-                    "extracted_keywords": extracted_article_keywords,
-                    "summary": summary,
-                    "tags": tags,
-                    "quality_score": quality_score,
-                    "quality_issues": quality_issues,
-                    "auto_ingested": bool(auto_ingested),
-                    "ingest_status": ingest_status,
-                    "submission_date": submission_date,
-                    "analyzed": bool(analyzed)
-                }
+                "enriched": False,
+                "message": "No enrichment data found for this item"
             }
-            
-            logger.info(f"API: Retrieved enrichment data for item {item_id}: enriched={bool(category)}")
-            return enrichment_result
+
+        # Parse the enrichment data
+        (category, sentiment, driver_type, time_to_impact,
+         topic_alignment_score, keyword_relevance_score, confidence_score,
+         overall_match_explanation, extracted_article_topics,
+         extracted_article_keywords, auto_ingested, ingest_status,
+         quality_score, quality_issues, sentiment_explanation,
+         future_signal, future_signal_explanation, driver_type_explanation,
+         time_to_impact_explanation, summary, tags,
+         submission_date, analyzed) = enrichment_data
+
+        # Article is enriched if it has any non-null enrichment data
+        # Check all the enrichment fields to see if any have meaningful data
+        is_enriched = bool(
+            category or sentiment or driver_type or time_to_impact or
+            topic_alignment_score or keyword_relevance_score or confidence_score or
+            overall_match_explanation or extracted_article_topics or
+            extracted_article_keywords or quality_score or quality_issues or
+            sentiment_explanation or future_signal or future_signal_explanation or
+            driver_type_explanation or time_to_impact_explanation or
+            (summary and summary.strip()) or (tags and tags.strip()) or
+            analyzed == 1
+        )
+
+        logger.info(f"API: Enrichment check for {item_url}: category={category}, sentiment={sentiment}, analyzed={analyzed}, topic_alignment_score={topic_alignment_score}, quality_score={quality_score}, is_enriched={is_enriched}")
+        logger.info(f"API: All enrichment data for {item_url}: {enrichment_data}")
+
+        enrichment_result = {
+            "success": True,
+            "enriched": is_enriched,
+            "data": {
+                "category": category,
+                "sentiment": sentiment,
+                "sentiment_explanation": sentiment_explanation,
+                "driver_type": driver_type,
+                "driver_type_explanation": driver_type_explanation,
+                "time_to_impact": time_to_impact,
+                "time_to_impact_explanation": time_to_impact_explanation,
+                "future_signal": future_signal,
+                "future_signal_explanation": future_signal_explanation,
+                "topic_alignment_score": topic_alignment_score,
+                "keyword_relevance_score": keyword_relevance_score,
+                "confidence_score": confidence_score,
+                "overall_match_explanation": overall_match_explanation,
+                "extracted_topics": extracted_article_topics,
+                "extracted_keywords": extracted_article_keywords,
+                "summary": summary,
+                "tags": tags,
+                "quality_score": quality_score,
+                "quality_issues": quality_issues,
+                "auto_ingested": bool(auto_ingested),
+                "ingest_status": ingest_status,
+                "submission_date": submission_date,
+                "analyzed": bool(analyzed)
+            }
+        }
+
+        logger.info(f"API: Retrieved enrichment data for item {item_id}: enriched={bool(category)}")
+        return enrichment_result
             
     except HTTPException:
         raise
@@ -891,91 +827,50 @@ async def save_enriched_feed_item(
     try:
         logger.info(f"API: Saving enriched feed item {item_id} to articles database")
         
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Get the feed item details
-            cursor.execute("""
-                SELECT url, title, content, author, publication_date, source_type, group_id
-                FROM feed_items WHERE id = ?
-            """, (item_id,))
-            feed_item = cursor.fetchone()
-            
-            if not feed_item:
-                raise HTTPException(status_code=404, detail="Feed item not found")
-            
-            url, title, content, author, publication_date, source_type, group_id = feed_item
-            
-            # Get enrichment data from articles table
-            cursor.execute("""
-                SELECT 
-                    category, sentiment, driver_type, time_to_impact,
-                    topic_alignment_score, keyword_relevance_score, confidence_score,
-                    overall_match_explanation, extracted_article_topics, 
-                    extracted_article_keywords, auto_ingested, ingest_status,
-                    quality_score, quality_issues, sentiment_explanation,
-                    future_signal, future_signal_explanation, driver_type_explanation,
-                    time_to_impact_explanation, summary, tags, topic
-                FROM articles 
-                WHERE uri = ?
-            """, (url,))
-            
-            enrichment_data = cursor.fetchone()
-            
-            if not enrichment_data:
-                # Create a basic article entry without enrichment
-                cursor.execute("""
-                    INSERT INTO articles (
-                        uri, title, summary, news_source, publication_date, 
-                        submission_date, analyzed, topic
-                    ) VALUES (?, ?, ?, ?, ?, datetime('now'), 0, 'General')
-                """, (url, title, content or '', source_type, publication_date))
-                
-                article_id = cursor.lastrowid
-                logger.info(f"API: Created basic article entry with ID {article_id}")
-                
-            else:
-                # Check if article already exists with enrichment
-                cursor.execute("SELECT id FROM articles WHERE uri = ? AND analyzed = 1", (url,))
-                existing = cursor.fetchone()
-                
-                if existing:
-                    logger.info(f"API: Enriched article already exists with ID {existing[0]}")
-                    return {
-                        "success": True,
-                        "message": "Article already saved",
-                        "article_id": existing[0],
-                        "already_existed": True
-                    }
-                
-                # Update the existing article entry to mark as analyzed and ensure it's complete
-                (category, sentiment, driver_type, time_to_impact,
-                 topic_alignment_score, keyword_relevance_score, confidence_score,
-                 overall_match_explanation, extracted_article_topics,
-                 extracted_article_keywords, auto_ingested, ingest_status,
-                 quality_score, quality_issues, sentiment_explanation,
-                 future_signal, future_signal_explanation, driver_type_explanation,
-                 time_to_impact_explanation, summary, tags, topic) = enrichment_data
-                
-                cursor.execute("""
-                    UPDATE articles SET
-                        analyzed = 1,
-                        title = COALESCE(title, ?),
-                        summary = COALESCE(summary, ?),
-                        news_source = COALESCE(news_source, ?),
-                        publication_date = COALESCE(publication_date, ?),
-                        topic = COALESCE(topic, 'General')
-                    WHERE uri = ?
-                """, (title, summary or content or '', source_type, publication_date, url))
-                
-                # Get the article ID
-                cursor.execute("SELECT id FROM articles WHERE uri = ?", (url,))
-                article_result = cursor.fetchone()
-                article_id = article_result[0] if article_result else None
-                
-                logger.info(f"API: Updated existing article with ID {article_id} as analyzed")
-            
-            conn.commit()
+        # Get the feed item details
+        feed_item = (DatabaseQueryFacade(db, logger)).get_feed_item_details(item_id)
+
+        if not feed_item:
+            raise HTTPException(status_code=404, detail="Feed item not found")
+
+        url, title, content, author, publication_date, source_type, group_id = feed_item
+
+        # Get enrichment data from articles table
+        enrichment_data = (DatabaseQueryFacade(db, logger)).get_enrichment_data_for_article_with_extra_fields(url)
+
+        if not enrichment_data:
+            # Create a basic article entry without enrichment
+            article_id = (DatabaseQueryFacade(db, logger)).create_article_without_enrichment((url, title, content or '', source_type, publication_date))
+            logger.info(f"API: Created basic article entry with ID {article_id}")
+
+        else:
+            # Check if article already exists with enrichment
+            existing = (DatabaseQueryFacade(db, logger)).check_if_article_exists_with_enrichment(url)
+
+            if existing:
+                logger.info(f"API: Enriched article already exists with ID {existing[0]}")
+                return {
+                    "success": True,
+                    "message": "Article already saved",
+                    "article_id": existing[0],
+                    "already_existed": True
+                }
+
+            # Update the existing article entry to mark as analyzed and ensure it's complete
+            (category, sentiment, driver_type, time_to_impact,
+             topic_alignment_score, keyword_relevance_score, confidence_score,
+             overall_match_explanation, extracted_article_topics,
+             extracted_article_keywords, auto_ingested, ingest_status,
+             quality_score, quality_issues, sentiment_explanation,
+             future_signal, future_signal_explanation, driver_type_explanation,
+             time_to_impact_explanation, summary, tags, topic) = enrichment_data
+
+            (DatabaseQueryFacade(db, logger)).update_feed_article_data((title, summary or content or '', source_type, publication_date, url))
+
+            # Get the article ID
+            article_id = (DatabaseQueryFacade(db, logger)).get_article_id_by_url(url)
+
+            logger.info(f"API: Updated existing article with ID {article_id} as analyzed")
             
             return {
                 "success": True,
@@ -1002,13 +897,9 @@ async def feed_system_health(
         logger.info("API: Checking feed system health")
         
         # Check database connectivity
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM feed_keyword_groups")
-            group_count = cursor.fetchone()[0]
-            
-            cursor.execute("SELECT COUNT(*) FROM feed_items")
-            item_count = cursor.fetchone()[0]
+        group_count = (DatabaseQueryFacade(db, logger)).get_keyword_groups_count()
+
+        item_count = (DatabaseQueryFacade(db, logger)).get_feed_item_count()
         
         # Check services
         feed_group_service = FeedGroupService(db)

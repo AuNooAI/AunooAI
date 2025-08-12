@@ -443,7 +443,464 @@ class DatabaseQueryFacade:
             for row in cursor.fetchall():
                 yield dict(row)
 
-    #### ENDPOINTS QUERIES ####
+    #### ENDPOINT QUERIES ####
+    def get_feed_item_tags(self, item_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT tags FROM feed_items WHERE id = ?", (item_id,))
+
+            return cursor.fetchone()
+
+    def get_feed_item_url(self, item_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT url FROM feed_items WHERE id = ?
+            """, (item_id,))
+            return cursor.fetchone()
+
+    def get_enrichment_data_for_article(self, item_url):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT category,
+                                  sentiment,
+                                  driver_type,
+                                  time_to_impact,
+                                  topic_alignment_score,
+                                  keyword_relevance_score,
+                                  confidence_score,
+                                  overall_match_explanation,
+                                  extracted_article_topics,
+                                  extracted_article_keywords,
+                                  auto_ingested,
+                                  ingest_status,
+                                  quality_score,
+                                  quality_issues,
+                                  sentiment_explanation,
+                                  future_signal,
+                                  future_signal_explanation,
+                                  driver_type_explanation,
+                                  time_to_impact_explanation,
+                                  summary,
+                                  tags,
+                                  submission_date,
+                                  analyzed
+                           FROM articles
+                           WHERE uri = ?
+                           """, (item_url,))
+
+            return cursor.fetchone()
+
+    def get_enrichment_data_for_article_with_extra_fields(self, item_url):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT 
+                    category, sentiment, driver_type, time_to_impact,
+                    topic_alignment_score, keyword_relevance_score, confidence_score,
+                    overall_match_explanation, extracted_article_topics, 
+                    extracted_article_keywords, auto_ingested, ingest_status,
+                    quality_score, quality_issues, sentiment_explanation,
+                    future_signal, future_signal_explanation, driver_type_explanation,
+                    time_to_impact_explanation, summary, tags, topic
+                FROM articles 
+                WHERE uri = ?
+            """, (url,))
+
+            return cursor.fetchone()
+
+    def update_feed_article_data(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           UPDATE articles
+                           SET analyzed         = 1,
+                               title            = COALESCE(title, ?),
+                               summary          = COALESCE(summary, ?),
+                               news_source      = COALESCE(news_source, ?),
+                               publication_date = COALESCE(publication_date, ?),
+                               topic            = COALESCE(topic, 'General')
+                           WHERE uri = ?
+                           """, params)
+
+            conn.commit()
+
+    def extract_topics_from_article(self, topic_filter, category_filter, limit):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = """
+                    SELECT uri, \
+                           title, \
+                           summary, \
+                           topic, \
+                           category, \
+                           tags,
+                           sentiment, \
+                           future_signal, \
+                           driver_type, \
+                           time_to_impact,
+                           submission_date
+                    FROM articles
+                    WHERE analyzed = 1
+                      AND summary IS NOT NULL
+                      AND summary != ''
+                AND LENGTH(summary) > 50 \
+                    """
+            params = []
+
+            if topic_filter:
+                query += " AND topic = ?"
+                params.append(topic_filter)
+
+            if category_filter:
+                query += " AND category = ?"
+                params.append(category_filter)
+
+            query += " ORDER BY submission_date DESC"
+
+            if limit:
+                query += " LIMIT ?"
+                params.append(limit)
+
+            return cursor.fetchall()
+
+    def create_feed_group(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO feed_keyword_groups
+                               (name, description, color, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?)
+                           """, params)
+
+            conn.commit()
+
+            return cursor.lastrowid
+
+    def get_feed_groups_including_inactive(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = "SELECT * FROM feed_keyword_groups ORDER BY name"
+
+            cursor.execute(query, params)
+
+            return cursor.fetchall()
+
+    def get_feed_groups_excluding_inactive(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = "SELECT * FROM feed_keyword_groups WHERE is_active = 1 ORDER BY name"
+
+            cursor.execute(query, params)
+
+            return cursor.fetchall()
+
+    def get_feed_group_sources(self, group_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT id, source_type, keywords, enabled, last_checked, created_at
+                           FROM feed_group_sources
+                           WHERE group_id = ?
+                           ORDER BY source_type
+                           """, (group_id,))
+
+            return cursor.fetchall()
+
+    def get_feed_group_by_id(self, group_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT * FROM feed_keyword_groups WHERE id = ?",
+                (group_id,)
+            )
+
+            return cursor.fetchone()
+
+    def update_feed_group(self, name, description, color, is_active, group_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Prepare update data
+            updates = []
+            params = []
+
+            if name is not None:
+                updates.append("name = ?")
+                params.append(name)
+
+            if description is not None:
+                updates.append("description = ?")
+                params.append(description)
+
+            if color is not None:
+                updates.append("color = ?")
+                params.append(color)
+
+            if is_active is not None:
+                updates.append("is_active = ?")
+                params.append(is_active)
+
+            # Add updated_at timestamp
+            updates.append("updated_at = ?")
+            params.append(datetime.now().isoformat())
+            params.append(group_id)
+
+            # Execute update
+            cursor.execute(f"""
+                UPDATE feed_keyword_groups 
+                SET {', '.join(updates)}
+                WHERE id = ?
+            """, params)
+
+            conn.commit()
+
+    def delete_feed_group(self, group_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "DELETE FROM feed_keyword_groups WHERE id = ?",
+                (group_id,)
+            )
+
+            conn.commit()
+
+    def create_default_feed_subscription(self, group_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO user_feed_subscriptions (group_id)
+                           VALUES (?)
+                           """, (group_id,))
+
+            conn.commit()
+
+    def update_group_source(self, keywords, enabled, date_range_days, custom_start_date, custom_end_date):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Prepare update data
+            updates = []
+            params = []
+
+            if keywords is not None:
+                updates.append("keywords = ?")
+                params.append(json.dumps(keywords))
+
+            if enabled is not None:
+                updates.append("enabled = ?")
+                params.append(enabled)
+
+            if date_range_days is not None:
+                updates.append("date_range_days = ?")
+                params.append(date_range_days)
+
+            if custom_start_date is not None:
+                updates.append("custom_start_date = ?")
+                params.append(custom_start_date)
+
+            if custom_end_date is not None:
+                updates.append("custom_end_date = ?")
+                params.append(custom_end_date)
+
+            params.append(source_id)
+
+            # Execute update
+            cursor.execute(f"""
+                                UPDATE feed_group_sources 
+                                SET {', '.join(updates)}
+                                WHERE id = ?
+                            """, params)
+
+            conn.commit()
+
+    def get_source_by_id(self, source_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT * FROM feed_group_sources WHERE id = ?",
+                (source_id,)
+            )
+
+            return cursor.fetchone()
+
+    def get_group_source(self, group_id, source_type):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT id
+                           FROM feed_group_sources
+                           WHERE group_id = ?
+                             AND source_type = ?
+                           """, (group_id, source_type))
+
+            return cursor.fetchone()
+
+    def delete_group_source(self, source_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "DELETE FROM feed_group_sources WHERE id = ?",
+                (source_id,)
+            )
+
+            conn.commit()
+
+    def add_source_to_group(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO feed_group_sources
+                           (group_id, source_type, keywords, enabled, date_range_days,
+                            custom_start_date, custom_end_date, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                           """, params)
+
+            conn.commit()
+            return  cursor.lastrowid
+
+    def get_feed_group_by_name(self, name):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id FROM feed_keyword_groups WHERE name = ?",
+                (name,)
+            )
+            return cursor.fetchone()
+
+    def get_keyword_groups_count(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) FROM feed_keyword_groups")
+
+            return cursor.fetchone()[0]
+
+    def get_feed_item_count(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) FROM feed_items")
+
+            return cursor.fetchone()[0]
+
+    def get_article_id_by_url(self, url):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT id FROM articles WHERE uri = ?", (url,))
+
+            article_result = cursor.fetchone()
+            return article_result[0] if article_result else None
+
+    def check_if_article_exists_with_enrichment(self, url):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT id FROM articles WHERE uri = ? AND analyzed = 1", (url,))
+
+            return cursor.fetchone()
+
+    def create_article_without_enrichment(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO articles (uri, title, summary, news_source, publication_date,
+                                                 submission_date, analyzed, topic)
+                           VALUES (?, ?, ?, ?, ?, datetime('now'), 0, 'General')
+                           """, params)
+
+            conn.commit()
+
+            return cursor.lastrowid
+
+    def get_feed_item_details(self, item_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT url, title, content, author, publication_date, source_type, group_id
+                FROM feed_items WHERE id = ?
+            """, (item_id,))
+
+            return cursor.fetchone()
+
+    def update_feed_tags(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                UPDATE feed_items 
+                SET tags = ?, updated_at = CURRENT_TIMESTAMP 
+                WHERE id = ?
+            """, params)
+
+            conn.commit()
+
+    def get_feed_keywords_by_source_type(self, source_type):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT DISTINCT g.id, g.name
+                FROM feed_keyword_groups g
+                JOIN feed_group_sources s ON g.id = s.group_id
+                WHERE g.is_active = 1 AND s.source_type = ? AND s.enabled = 1
+            """, (source_type,))
+
+            cursor.fetchall()
+
+    def get_statistics_for_specific_feed_group(self, group_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get total items count
+            cursor.execute("""
+                           SELECT COUNT(*)
+                           FROM feed_items
+                           WHERE group_id = ?
+                           """, (group_id,))
+            total_items = cursor.fetchone()[0]
+
+            # Get counts by source type
+            cursor.execute("""
+                           SELECT source_type, COUNT(*)
+                           FROM feed_items
+                           WHERE group_id = ?
+                           GROUP BY source_type
+                           """, (group_id,))
+            source_counts = dict(cursor.fetchall())
+
+            # Get recent items count (last 7 days)
+            cursor.execute("""
+                           SELECT COUNT(*)
+                           FROM feed_items
+                           WHERE group_id = ?
+                             AND publication_date >= datetime('now', '-7 days')
+                           """, (group_id,))
+            recent_items = cursor.fetchone()[0]
+
+            return total_items, source_counts, recent_items
+
     def get_is_keyword_monitor_enabled(self):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
