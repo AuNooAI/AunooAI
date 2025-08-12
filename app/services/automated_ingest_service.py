@@ -71,16 +71,7 @@ class AutomatedIngestService:
             
         # Get from database settings
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT default_llm_model, llm_temperature, llm_max_tokens
-                    FROM keyword_monitor_settings 
-                    WHERE id = 1
-                """)
-                settings = cursor.fetchone()
-                if settings:
-                    return settings[0] or "gpt-4o-mini"
+            return (DatabaseQueryFacade(db, logger)).get_configured_llm_model()
         except Exception as e:
             self.logger.warning(f"Could not get LLM settings from database: {e}")
         
@@ -94,19 +85,12 @@ class AutomatedIngestService:
             Dictionary containing temperature and max_tokens
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT llm_temperature, llm_max_tokens
-                    FROM keyword_monitor_settings 
-                    WHERE id = 1
-                """)
-                settings = cursor.fetchone()
-                if settings:
-                    return {
-                        "temperature": settings[0] or 0.1,
-                        "max_tokens": settings[1] or 1000
-                    }
+            settings = (DatabaseQueryFacade(db, logger)).get_llm_parameters()
+            if settings:
+                return {
+                    "temperature": settings[0] or 0.1,
+                    "max_tokens": settings[1] or 1000
+                }
         except Exception as e:
             self.logger.warning(f"Could not get LLM parameters from database: {e}")
         
@@ -1038,40 +1022,7 @@ class AutomatedIngestService:
                                 try:
                                     self.logger.info(f"💾 Step 6: Saving to database...")
                                     # Update the existing article record with auto-ingest data AND enrichment data
-                                    with self.db.get_connection() as conn:
-                                        cursor = conn.cursor()
-                                        cursor.execute("""
-                                            UPDATE articles 
-                                            SET 
-                                                title = COALESCE(?, title),
-                                                summary = COALESCE(?, summary),
-                                                auto_ingested = 1,
-                                                ingest_status = ?,
-                                                quality_score = ?,
-                                                quality_issues = ?,
-                                                category = ?,
-                                                sentiment = ?,
-                                                bias = ?,
-                                                factual_reporting = ?,
-                                                mbfc_credibility_rating = ?,
-                                                bias_source = ?,
-                                                bias_country = ?,
-                                                press_freedom = ?,
-                                                media_type = ?,
-                                                popularity = ?,
-                                                topic_alignment_score = ?,
-                                                keyword_relevance_score = ?,
-                                                future_signal = ?,
-                                                future_signal_explanation = ?,
-                                                sentiment_explanation = ?,
-                                                time_to_impact = ?,
-                                                driver_type = ?,
-                                                tags = ?,
-                                                analyzed = ?,
-                                                confidence_score = ?,
-                                                overall_match_explanation = ?
-                                            WHERE uri = ?
-                                        """, (
+                                    (DatabaseQueryFacade(db, logger)).save_approved_article((
                                             enriched_article.get("title"),
                                             enriched_article.get("summary"),
                                             enriched_article.get("ingest_status"),
@@ -1100,7 +1051,6 @@ class AutomatedIngestService:
                                             enriched_article.get("overall_match_explanation"),
                                             enriched_article.get("uri")
                                         ))
-                                        conn.commit()
                                         
                                     results["saved"] += 1
                                     self.logger.info(f"   ✅ Database update completed")
@@ -1164,24 +1114,13 @@ class AutomatedIngestService:
                             # Update the article record even for failed quality check (unless dry run)
                             if not dry_run:
                                 try:
-                                    with self.db.get_connection() as conn:
-                                        cursor = conn.cursor()
-                                        cursor.execute("""
-                                            UPDATE articles 
-                                            SET 
-                                                auto_ingested = 1,
-                                                ingest_status = ?,
-                                                quality_score = ?,
-                                                quality_issues = ?
-                                            WHERE uri = ?
-                                        """, (
+                                    (DatabaseQueryFacade(db, logger)).update_ingested_article((
                                             enriched_article.get("ingest_status"),
                                             quality_result.get("quality_score"),
                                             enriched_article.get("quality_issues"),
                                             enriched_article.get("uri")
                                         ))
-                                        conn.commit()
-                                        
+
                                     self.logger.info(f"   ✅ Updated failed quality check article in database")
                                 except Exception as save_error:
                                     error_msg = f"Error updating failed article {enriched_article.get('uri', 'unknown')}: {str(save_error)}"
@@ -1255,16 +1194,7 @@ class AutomatedIngestService:
             Relevance threshold value (0.0-1.0)
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT min_relevance_threshold
-                    FROM keyword_monitor_settings 
-                    WHERE id = 1
-                """)
-                settings = cursor.fetchone()
-                if settings and settings[0] is not None:
-                    return float(settings[0])
+            return (DatabaseQueryFacade(db, logger)).get_min_relevance_threshold()
         except Exception as e:
             self.logger.warning(f"Could not get relevance threshold from database: {e}")
         
@@ -1278,32 +1208,18 @@ class AutomatedIngestService:
             Dictionary containing all auto-ingest configuration
         """
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT 
-                        auto_ingest_enabled,
-                        min_relevance_threshold,
-                        quality_control_enabled,
-                        auto_save_approved_only,
-                        default_llm_model,
-                        llm_temperature,
-                        llm_max_tokens
-                    FROM keyword_monitor_settings 
-                    WHERE id = 1
-                """)
-                settings = cursor.fetchone()
-                
-                if settings:
-                    return {
-                        "auto_ingest_enabled": bool(settings[0]),
-                        "min_relevance_threshold": float(settings[1] or 0.0),
-                        "quality_control_enabled": bool(settings[2]),
-                        "auto_save_approved_only": bool(settings[3]),
-                        "default_llm_model": settings[4] or "gpt-4o-mini",
-                        "llm_temperature": float(settings[5] or 0.1),
-                        "llm_max_tokens": int(settings[6] or 1000)
-                    }
+            settings = (DatabaseQueryFacade(db, logger)).get_auto_ingest_settings()
+
+            if settings:
+                return {
+                    "auto_ingest_enabled": bool(settings[0]),
+                    "min_relevance_threshold": float(settings[1] or 0.0),
+                    "quality_control_enabled": bool(settings[2]),
+                    "auto_save_approved_only": bool(settings[3]),
+                    "default_llm_model": settings[4] or "gpt-4o-mini",
+                    "llm_temperature": float(settings[5] or 0.1),
+                    "llm_max_tokens": int(settings[6] or 1000)
+                }
         except Exception as e:
             self.logger.error(f"Error getting auto-ingest settings: {e}")
         
@@ -1333,89 +1249,44 @@ class AutomatedIngestService:
         
         try:
             # Get articles for the topic through keyword matches
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Check which table structure to use
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='keyword_article_matches'")
-                use_new_table = cursor.fetchone() is not None
-                
-                if use_new_table:
-                    # Use new table structure
-                    cursor.execute("""
-                        SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                        FROM articles a
-                        JOIN keyword_article_matches ka ON a.uri = ka.article_uri
-                        JOIN keyword_groups kg ON ka.group_id = kg.id
-                        WHERE kg.topic = ?
-                        ORDER BY ka.detected_at DESC
-                    """, (topic_id,))
-                else:
-                    # Use old table structure
-                    cursor.execute("""
-                        SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                        FROM articles a
-                        JOIN keyword_alerts ka ON a.uri = ka.article_uri
-                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                        JOIN keyword_groups kg ON mk.group_id = kg.id
-                        WHERE kg.topic = ?
-                        ORDER BY ka.detected_at DESC
-                    """, (topic_id,))
-                
-                all_articles = []
-                for row in cursor.fetchall():
-                    all_articles.append({
-                        "uri": row[0],
-                        "title": row[1],
-                        "summary": row[2],
-                        "news_source": row[3],
-                        "topic": row[4]
-                    })
-                
-                # For processing, filter to only unprocessed AND unread articles
-                if use_new_table:
-                    cursor.execute("""
-                        SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                        FROM articles a
-                        JOIN keyword_article_matches ka ON a.uri = ka.article_uri
-                        JOIN keyword_groups kg ON ka.group_id = kg.id
-                        WHERE kg.topic = ?
-                        AND (a.auto_ingested IS NULL OR a.auto_ingested = 0)
-                        AND ka.is_read = 0
-                        ORDER BY ka.detected_at DESC
-                    """, (topic_id,))
-                else:
-                    cursor.execute("""
-                        SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                        FROM articles a
-                        JOIN keyword_alerts ka ON a.uri = ka.article_uri
-                        JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                        JOIN keyword_groups kg ON mk.group_id = kg.id
-                        WHERE kg.topic = ?
-                        AND (a.auto_ingested IS NULL OR a.auto_ingested = 0)
-                        AND ka.is_read = 0
-                        ORDER BY ka.detected_at DESC
-                    """, (topic_id,))
-                
-                unprocessed_unread_articles = []
-                for row in cursor.fetchall():
-                    unprocessed_unread_articles.append({
-                        "uri": row[0],
-                        "title": row[1],
-                        "summary": row[2],
-                        "news_source": row[3],
-                        "topic": row[4]
-                    })
-                
-                # Get keywords for the topic
-                cursor.execute("""
-                    SELECT mk.keyword
-                    FROM monitored_keywords mk
-                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                    WHERE kg.topic = ?
-                """, (topic_id,))
-                
-                keywords = [row[0] for row in cursor.fetchall()]
+            # Check which table structure to use
+            use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+
+            if use_new_table:
+                # Use new table structure
+                rows = (DatabaseQueryFacade(db, logger)).get_topic_articles_to_ingest_using_new_table_structure(topic_id)
+            else:
+                # Use old table structure
+                rows = (DatabaseQueryFacade(db, logger)).get_topic_articles_to_ingest_using_old_table_structure(topic_id)
+
+            all_articles = []
+            for row in rows:
+                all_articles.append({
+                    "uri": row[0],
+                    "title": row[1],
+                    "summary": row[2],
+                    "news_source": row[3],
+                    "topic": row[4]
+                })
+
+            # For processing, filter to only unprocessed AND unread articles
+            if use_new_table:
+                rows = (DatabaseQueryFacade(db, logger)).get_topic_unprocessed_and_unread_articles_using_new_table_structure(topic_id)
+            else:
+                rows = (DatabaseQueryFacade(db, logger)).get_topic_unprocessed_and_unread_articles_using_old_table_structure(topic_id)
+
+            unprocessed_unread_articles = []
+            for row in rows:
+                unprocessed_unread_articles.append({
+                    "uri": row[0],
+                    "title": row[1],
+                    "summary": row[2],
+                    "news_source": row[3],
+                    "topic": row[4]
+                })
+
+            # Get keywords for the topic
+            keywords = (DatabaseQueryFacade(db, logger)).get_topic_keywords(topic_id)
             
             if not all_articles:
                 return {

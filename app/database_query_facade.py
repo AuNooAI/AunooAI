@@ -638,6 +638,181 @@ class DatabaseQueryFacade:
         profile_query = "SELECT is_default FROM organizational_profiles WHERE id = ?"
         return self.db.fetch_one(profile_query, (profile_id,))
 
+    #### AUTOMATED INGEST SERVICE ####
+    def get_configured_llm_model(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           SELECT default_llm_model, llm_temperature, llm_max_tokens
+                           FROM keyword_monitor_settings
+                           WHERE id = 1
+                           """)
+            settings = cursor.fetchone()
+            if settings:
+                return settings[0] or "gpt-4o-mini"
+
+    def get_llm_parameters(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           SELECT llm_temperature, llm_max_tokens
+                           FROM keyword_monitor_settings
+                           WHERE id = 1
+                           """)
+            return cursor.fetchone()
+
+    def save_approved_article(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           UPDATE articles
+                           SET title                     = COALESCE(?, title),
+                               summary                   = COALESCE(?, summary),
+                               auto_ingested             = 1,
+                               ingest_status             = ?,
+                               quality_score             = ?,
+                               quality_issues            = ?,
+                               category                  = ?,
+                               sentiment                 = ?,
+                               bias                      = ?,
+                               factual_reporting         = ?,
+                               mbfc_credibility_rating   = ?,
+                               bias_source               = ?,
+                               bias_country              = ?,
+                               press_freedom             = ?,
+                               media_type                = ?,
+                               popularity                = ?,
+                               topic_alignment_score     = ?,
+                               keyword_relevance_score   = ?,
+                               future_signal             = ?,
+                               future_signal_explanation = ?,
+                               sentiment_explanation     = ?,
+                               time_to_impact            = ?,
+                               driver_type               = ?,
+                               tags                      = ?,
+                               analyzed                  = ?,
+                               confidence_score          = ?,
+                               overall_match_explanation = ?
+                           WHERE uri = ?
+                           """, params)
+            conn.commit()
+
+    def get_min_relevance_threshold(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           SELECT min_relevance_threshold
+                           FROM keyword_monitor_settings
+                           WHERE id = 1
+                           """)
+            settings = cursor.fetchone()
+            if settings and settings[0] is not None:
+                return float(settings[0])
+
+    def get_auto_ingest_settings(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           SELECT auto_ingest_enabled,
+                                  min_relevance_threshold,
+                                  quality_control_enabled,
+                                  auto_save_approved_only,
+                                  default_llm_model,
+                                  llm_temperature,
+                                  llm_max_tokens
+                           FROM keyword_monitor_settings
+                           WHERE id = 1
+                           """)
+            return cursor.fetchone()
+
+    def update_ingested_article(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                           UPDATE articles
+                           SET auto_ingested  = 1,
+                               ingest_status  = ?,
+                               quality_score  = ?,
+                               quality_issues = ?
+                           WHERE uri = ?
+                           """, params)
+            conn.commit()
+
+    def get_topic_articles_to_ingest_using_new_table_structure(self, topic_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
+                           FROM articles a
+                                    JOIN keyword_article_matches ka ON a.uri = ka.article_uri
+                                    JOIN keyword_groups kg ON ka.group_id = kg.id
+                           WHERE kg.topic = ?
+                           ORDER BY ka.detected_at DESC
+                           """, (topic_id,))
+
+            return cursor.fetchall()
+
+    def get_topic_articles_to_ingest_using_old_table_structure(self, topic_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Use old table structure
+            cursor.execute("""
+                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
+                           FROM articles a
+                                    JOIN keyword_alerts ka ON a.uri = ka.article_uri
+                                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                                    JOIN keyword_groups kg ON mk.group_id = kg.id
+                           WHERE kg.topic = ?
+                           ORDER BY ka.detected_at DESC
+                           """, (topic_id,))
+
+            return cursor.fetchall()
+
+    def get_topic_unprocessed_and_unread_articles_using_new_table_structure(self, topic_id):
+        with self.db.get_connection() as conn:
+            cursor.execute("""
+                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
+                           FROM articles a
+                                    JOIN keyword_article_matches ka ON a.uri = ka.article_uri
+                                    JOIN keyword_groups kg ON ka.group_id = kg.id
+                           WHERE kg.topic = ?
+                             AND (a.auto_ingested IS NULL OR a.auto_ingested = 0)
+                             AND ka.is_read = 0
+                           ORDER BY ka.detected_at DESC
+                           """, (topic_id,))
+
+            return cursor.fetchall()
+
+    def get_topic_unprocessed_and_unread_articles_using_old_table_structure(self, topic_id):
+        with self.db.get_connection() as conn:
+            cursor.execute("""
+                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
+                           FROM articles a
+                                    JOIN keyword_alerts ka ON a.uri = ka.article_uri
+                                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                                    JOIN keyword_groups kg ON mk.group_id = kg.id
+                           WHERE kg.topic = ?
+                             AND (a.auto_ingested IS NULL OR a.auto_ingested = 0)
+                             AND ka.is_read = 0
+                           ORDER BY ka.detected_at DESC
+                           """, (topic_id,))
+            return cursor.fetchall()
+
+    def get_topic_keywords(self, topic_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT mk.keyword
+                           FROM monitored_keywords mk
+                                    JOIN keyword_groups kg ON mk.group_id = kg.id
+                           WHERE kg.topic = ?
+                           """, (topic_id,))
+
+            return [row[0] for row in cursor.fetchall()]
+
     #### TOPIC MAP ROUTES ####
     def get_unique_topics(self):
         with self.db.get_connection() as conn:
