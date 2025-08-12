@@ -71,7 +71,7 @@ class AutomatedIngestService:
             
         # Get from database settings
         try:
-            return (DatabaseQueryFacade(db, logger)).get_configured_llm_model()
+            return (DatabaseQueryFacade(self.db, logger)).get_configured_llm_model()
         except Exception as e:
             self.logger.warning(f"Could not get LLM settings from database: {e}")
         
@@ -85,7 +85,7 @@ class AutomatedIngestService:
             Dictionary containing temperature and max_tokens
         """
         try:
-            settings = (DatabaseQueryFacade(db, logger)).get_llm_parameters()
+            settings = (DatabaseQueryFacade(self.db, logger)).get_llm_parameters()
             if settings:
                 return {
                     "temperature": settings[0] or 0.1,
@@ -1022,7 +1022,7 @@ class AutomatedIngestService:
                                 try:
                                     self.logger.info(f"💾 Step 6: Saving to database...")
                                     # Update the existing article record with auto-ingest data AND enrichment data
-                                    (DatabaseQueryFacade(db, logger)).save_approved_article((
+                                    (DatabaseQueryFacade(self.db, logger)).save_approved_article((
                                             enriched_article.get("title"),
                                             enriched_article.get("summary"),
                                             enriched_article.get("ingest_status"),
@@ -1114,7 +1114,7 @@ class AutomatedIngestService:
                             # Update the article record even for failed quality check (unless dry run)
                             if not dry_run:
                                 try:
-                                    (DatabaseQueryFacade(db, logger)).update_ingested_article((
+                                    (DatabaseQueryFacade(self.db, logger)).update_ingested_article((
                                             enriched_article.get("ingest_status"),
                                             quality_result.get("quality_score"),
                                             enriched_article.get("quality_issues"),
@@ -1194,7 +1194,7 @@ class AutomatedIngestService:
             Relevance threshold value (0.0-1.0)
         """
         try:
-            return (DatabaseQueryFacade(db, logger)).get_min_relevance_threshold()
+            return (DatabaseQueryFacade(self.db, logger)).get_min_relevance_threshold()
         except Exception as e:
             self.logger.warning(f"Could not get relevance threshold from database: {e}")
         
@@ -1208,7 +1208,7 @@ class AutomatedIngestService:
             Dictionary containing all auto-ingest configuration
         """
         try:
-            settings = (DatabaseQueryFacade(db, logger)).get_auto_ingest_settings()
+            settings = (DatabaseQueryFacade(self.db, logger)).get_auto_ingest_settings()
 
             if settings:
                 return {
@@ -1250,14 +1250,14 @@ class AutomatedIngestService:
         try:
             # Get articles for the topic through keyword matches
             # Check which table structure to use
-            use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+            use_new_table = (DatabaseQueryFacade(self.db, logger)).check_if_keyword_article_matches_table_exists()
 
             if use_new_table:
                 # Use new table structure
-                rows = (DatabaseQueryFacade(db, logger)).get_topic_articles_to_ingest_using_new_table_structure(topic_id)
+                rows = (DatabaseQueryFacade(self.db, logger)).get_topic_articles_to_ingest_using_new_table_structure(topic_id)
             else:
                 # Use old table structure
-                rows = (DatabaseQueryFacade(db, logger)).get_topic_articles_to_ingest_using_old_table_structure(topic_id)
+                rows = (DatabaseQueryFacade(self.db, logger)).get_topic_articles_to_ingest_using_old_table_structure(topic_id)
 
             all_articles = []
             for row in rows:
@@ -1271,9 +1271,9 @@ class AutomatedIngestService:
 
             # For processing, filter to only unprocessed AND unread articles
             if use_new_table:
-                rows = (DatabaseQueryFacade(db, logger)).get_topic_unprocessed_and_unread_articles_using_new_table_structure(topic_id)
+                rows = (DatabaseQueryFacade(self.db, logger)).get_topic_unprocessed_and_unread_articles_using_new_table_structure(topic_id)
             else:
-                rows = (DatabaseQueryFacade(db, logger)).get_topic_unprocessed_and_unread_articles_using_old_table_structure(topic_id)
+                rows = (DatabaseQueryFacade(self.db, logger)).get_topic_unprocessed_and_unread_articles_using_old_table_structure(topic_id)
 
             unprocessed_unread_articles = []
             for row in rows:
@@ -1286,7 +1286,7 @@ class AutomatedIngestService:
                 })
 
             # Get keywords for the topic
-            keywords = (DatabaseQueryFacade(db, logger)).get_topic_keywords(topic_id)
+            keywords = (DatabaseQueryFacade(self.db, logger)).get_topic_keywords(topic_id)
             
             if not all_articles:
                 return {
