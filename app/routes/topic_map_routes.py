@@ -10,6 +10,7 @@ import json
 
 from app.security.session import verify_session
 from app.database import Database, get_database_instance
+from app.database_query_facade import DatabaseQueryFacade
 from app.vector_store import get_chroma_client
 from app.services.topic_map_service import TopicMapService
 
@@ -153,31 +154,16 @@ async def get_filter_options(
     """Get available topics and categories for filter dropdowns."""
     
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
+        # Get unique topics
+        topics = (DatabaseQueryFacade(db, logger)).get_unique_topics()
+
+        # Get unique categories
+        categories = (DatabaseQueryFacade(db, logger)).get_unique_categories()
             
-            # Get unique topics
-            cursor.execute("""
-                SELECT DISTINCT topic 
-                FROM articles 
-                WHERE topic IS NOT NULL AND topic != '' AND analyzed = 1
-                ORDER BY topic
-            """)
-            topics = [row[0] for row in cursor.fetchall()]
-            
-            # Get unique categories
-            cursor.execute("""
-                SELECT DISTINCT category 
-                FROM articles 
-                WHERE category IS NOT NULL AND category != '' AND analyzed = 1
-                ORDER BY category
-            """)
-            categories = [row[0] for row in cursor.fetchall()]
-            
-            return {
-                "topics": topics,
-                "categories": categories
-            }
+        return {
+            "topics": topics,
+            "categories": categories
+        }
             
     except Exception as e:
         logger.error(f"Error getting filter options: {str(e)}", exc_info=True)

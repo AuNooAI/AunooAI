@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, Depends, HTTPException, Body, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from app.security.session import verify_session
 from app.database import Database, get_database_instance
+from app.database_query_facade import DatabaseQueryFacade
 import os
 import aiohttp
 import logging
@@ -899,14 +900,8 @@ async def save_topic(
 
         # Check if topic exists in database
         try:
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT 1 FROM articles WHERE topic = ? LIMIT 1",
-                    (topic_data["name"],)
-                )
-                topic_exists = cursor.fetchone() is not None
-                logger.info(f"Topic exists in database: {topic_exists}")
+            topic_exists = (DatabaseQueryFacade(db, logger)).topic_exists(topic)
+            logger.info(f"Topic exists in database: {topic_exists}")
         except Exception as e:
             logger.warning(f"Error checking if topic exists in database: {str(e)}")
             topic_exists = False
@@ -967,45 +962,28 @@ async def save_topic(
         # Handle keyword group
         try:
             logger.info("Setting up keyword group")
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT id FROM keyword_groups WHERE name = ? AND topic = ?",
-                    (topic_data["name"], topic_data["name"])
-                )
-                group = cursor.fetchone()
 
-                if group:
-                    group_id = group[0]
-                    logger.info(f"Found existing keyword group with ID {group_id}")
-                    # Clear existing keywords
-                    cursor.execute(
-                        "DELETE FROM monitored_keywords WHERE group_id = ?",
-                        (group_id,)
-                    )
-                    logger.info(f"Cleared existing keywords for group {group_id}")
-                else:
-                    # Create new group
-                    logger.info("Creating new keyword group")
-                    cursor.execute(
-                        "INSERT INTO keyword_groups (name, topic) VALUES (?, ?)",
-                        (topic_data["name"], topic_data["name"])
-                    )
-                    group_id = cursor.lastrowid
-                    logger.info(f"Created new keyword group with ID {group_id}")
+            group = (DatabaseQueryFacade(db, logger)).get_keyword_group_id_by_name_and_topic(topic_data["name"], topic_data["name"])
 
-                # Add keywords
-                logger.info(f"Adding {len(keywords)} keywords to group {group_id}")
-                for keyword in keywords:
-                    cursor.execute(
-                        "INSERT INTO monitored_keywords (group_id, keyword) "
-                        "VALUES (?, ?)",
-                        (group_id, keyword)
-                    )
-                    logger.info(f"Added keyword: {keyword}")
+            if group:
+                group_id = group[0]
+                logger.info(f"Found existing keyword group with ID {group_id}")
+                # Clear existing keywords
+                (DatabaseQueryFacade(db, logger)).delete_group_keywords(group_id)
+                logger.info(f"Cleared existing keywords for group {group_id}")
+            else:
+                # Create new group
+                logger.info("Creating new keyword group")
+                group_id = (DatabaseQueryFacade(db, logger)).create_group(topic_data["name"], topic_data["name"])
+                logger.info(f"Created new keyword group with ID {group_id}")
 
-                conn.commit()
-                logger.info("Database changes committed")
+            # Add keywords
+            logger.info(f"Adding {len(keywords)} keywords to group {group_id}")
+            for keyword in keywords:
+                (DatabaseQueryFacade(db, logger)).add_keywords_to_group(group_id, keyword)
+                logger.info(f"Added keyword: {keyword}")
+
+            logger.info("Database changes committed")
         except Exception as e:
             logger.error(f"Error handling keyword group: {str(e)}")
             # Continue despite keyword group error - config.json update is the priority

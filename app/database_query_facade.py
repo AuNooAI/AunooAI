@@ -443,7 +443,519 @@ class DatabaseQueryFacade:
             for row in cursor.fetchall():
                 yield dict(row)
 
+    #### TREND CONVERGENCE ROUTES ####
+    def create_analysis_versions_table(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            create_table_query = """
+            CREATE TABLE IF NOT EXISTS analysis_versions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic TEXT NOT NULL,
+                version_data TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                model_used TEXT,
+                analysis_depth TEXT
+            )
+            """
+            cursor.execute(create_table_query)
+
+            conn.commit()
+
+    def save_analysis_version(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            insert_query = """
+                           INSERT INTO analysis_versions (topic, version_data, model_used, analysis_depth)
+                           VALUES (?, ?, ?, ?) \
+                           """
+            cursor.execute(insert_query, params)
+
+            conn.commit()
+
+    def get_latest_analysis_version(self, topic):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = """
+                    SELECT version_data \
+                    FROM analysis_versions
+                    WHERE topic = ?
+                    ORDER BY created_at DESC LIMIT 1 \
+                    """
+            cursor.execute(query, (topic,))
+            return cursor.fetchone()
+
+    def get_articles_with_dynamic_limit(self, params):
+        query = """
+                SELECT title, \
+                       summary, \
+                       uri, \
+                       publication_date, \
+                       sentiment, \
+                       category,
+                       future_signal, \
+                       driver_type, \
+                       time_to_impact
+                FROM articles
+                WHERE topic = ?
+                  AND publication_date >= ?
+                  AND publication_date <= ?
+                  AND (summary IS NOT NULL AND summary != '')
+                ORDER BY publication_date DESC LIMIT ? \
+                """
+
+        return self.db.fetch_all(query, params)
+
+    def get_organisational_profile(self, profile_id):
+        profile_query = """
+                        SELECT id, \
+                               name, \
+                               description, \
+                               industry, \
+                               organization_type, \
+                               region,
+                               key_concerns, \
+                               strategic_priorities, \
+                               risk_tolerance,
+                               innovation_appetite, \
+                               decision_making_style, \
+                               stakeholder_focus,
+                               competitive_landscape, \
+                               regulatory_environment, \
+                               custom_context
+                        FROM organizational_profiles \
+                        WHERE id = ? \
+                        """
+        return self.db.fetch_one(profile_query, (profile_id,))
+
+    def get_organisational_profiles(self):
+        query = """
+                SELECT id, \
+                       name, \
+                       description, \
+                       industry, \
+                       organization_type, \
+                       region,
+                       key_concerns, \
+                       strategic_priorities, \
+                       risk_tolerance,
+                       innovation_appetite, \
+                       decision_making_style, \
+                       stakeholder_focus,
+                       competitive_landscape, \
+                       regulatory_environment, \
+                       custom_context,
+                       is_default, \
+                       created_at, \
+                       updated_at
+                FROM organizational_profiles
+                ORDER BY is_default DESC, name ASC \
+                """
+
+        return self.db.fetch_all(query)
+
+    def create_organisational_profile(self, params):
+        insert_query = """
+                       INSERT INTO organizational_profiles (name, description, industry, organization_type, region, \
+                                                            key_concerns, \
+                                                            strategic_priorities, risk_tolerance, innovation_appetite, \
+                                                            decision_making_style, stakeholder_focus, \
+                                                            competitive_landscape, \
+                                                            regulatory_environment, custom_context) \
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+                       """
+
+        return self.db.execute_query(insert_query, params)
+
+    def delete_organisational_profile(self, profile_id):
+        delete_query = "DELETE FROM organizational_profiles WHERE id = ?"
+        self.db.execute_query(delete_query, (profile_id,))
+
+    def get_organisational_profile_by_name(self, name):
+        existing_query = "SELECT id FROM organizational_profiles WHERE name = ?"
+        return self.db.fetch_one(existing_query, (name,))
+
+    def get_organisational_profile_by_id(self, profile_id):
+        existing_query = "SELECT id FROM organizational_profiles WHERE id = ?"
+        return self.db.fetch_one(existing_query, (profile_id,))
+
+    def get_organizational_profile_for_ui(self, profile_id):
+        query = """
+                SELECT id, \
+                       name, \
+                       description, \
+                       industry, \
+                       organization_type, \
+                       region,
+                       key_concerns, \
+                       strategic_priorities, \
+                       risk_tolerance,
+                       innovation_appetite, \
+                       decision_making_style, \
+                       stakeholder_focus,
+                       competitive_landscape, \
+                       regulatory_environment, \
+                       custom_context,
+                       is_default, \
+                       created_at, \
+                       updated_at
+                FROM organizational_profiles
+                WHERE id = ? \
+                """
+
+        return self.db.fetch_one(query, (profile_id,))
+
+    def check_organisational_profile_name_conflict(self, name, profile_id):
+        name_check_query = "SELECT id FROM organizational_profiles WHERE name = ? AND id != ?"
+        return self.db.fetch_one(name_check_query, (name, profile_id))
+
+    def update_organisational_profile(self, params):
+        update_query = """
+                       UPDATE organizational_profiles \
+                       SET name                   = ?, \
+                           description            = ?, \
+                           industry               = ?, \
+                           organization_type      = ?, \
+                           region                 = ?, \
+                           key_concerns           = ?, \
+                           strategic_priorities   = ?, \
+                           risk_tolerance         = ?, \
+                           innovation_appetite    = ?, \
+                           decision_making_style  = ?, \
+                           stakeholder_focus      = ?, \
+                           competitive_landscape  = ?, \
+                           regulatory_environment = ?, \
+                           custom_context         = ?, \
+                           updated_at             = CURRENT_TIMESTAMP
+                       WHERE id = ? \
+                       """
+
+        self.db.execute_query(update_query, params)
+
+    def check_if_profile_exists_and_is_not_default(self, profile_id):
+        profile_query = "SELECT is_default FROM organizational_profiles WHERE id = ?"
+        return self.db.fetch_one(profile_query, (profile_id,))
+
+    #### TOPIC MAP ROUTES ####
+    def get_unique_topics(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT DISTINCT topic 
+                FROM articles 
+                WHERE topic IS NOT NULL AND topic != '' AND analyzed = 1
+                ORDER BY topic
+            """)
+            return [row[0] for row in cursor.fetchall()]
+
+    def get_unique_categories(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT DISTINCT category 
+                FROM articles 
+                WHERE category IS NOT NULL AND category != '' AND analyzed = 1
+                ORDER BY category
+            """)
+            return [row[0] for row in cursor.fetchall()]
+
+    #### OAUTH USERS ####
+    def count_oauth_allowlist_active_users(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) FROM oauth_allowlist WHERE is_active = 1")
+
+            return  cursor.fetchone()[0]
+
+    def get_oauth_allowlist_user_by_email_and_provider(self, email, provider):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT * FROM oauth_users WHERE email = ? AND provider = ?",
+                (email, provider)
+            )
+
+            return cursor.fetchone()
+
+    def get_oauth_allowlist_user_by_id(self, user_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT * FROM oauth_users WHERE id = ?", (user_id,))
+
+            return cursor.fetchone()
+
+    def get_oauth_active_users_by_provider(self, provider):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT * FROM oauth_users WHERE provider = ? AND is_active = 1 ORDER BY created_at DESC",
+                (provider,)
+            )
+
+            return cursor.fetchall()
+
+    def is_oauth_user_allowed(self, email):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM oauth_allowlist WHERE email = ? AND is_active = 1",
+                (email.lower(),)
+            )
+            count = cursor.fetchone()[0]
+            return count > 0
+
+    def add_oauth_user_to_allowlist(self, email, added_by):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO oauth_allowlist (email, added_by) VALUES (?, ?)",
+                (email.lower(), added_by)
+            )
+            conn.commit()
+
+    def remove_oauth_user_from_allowlist(self, email):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE oauth_allowlist SET is_active = 0 WHERE email = ?",
+                (email.lower(),)
+            )
+            conn.commit()
+
+            return cursor.rowcount
+
+    def get_oauth_active_users(self, provider):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT * FROM oauth_users WHERE provider = ? AND is_active = 1 ORDER BY created_at DESC",
+                (provider,)
+            )
+
+            return cursor.fetchall()
+
+    def deactivate_user(self, email, provider):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE oauth_users SET is_active = 0 WHERE email = ? AND provider = ?",
+                (email, provider)
+            )
+            conn.commit()
+
+            return cursor.rowcount
+
+    def get_active_oauth_allowlist_user_by_id(self, user_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT * FROM oauth_users WHERE id = ? AND is_active = 1",
+                (user_id,)
+            )
+
+            return cursor.fetchone()
+
+    def get_active_oauth_allowlist_user_by_email_and_provider(self, email, provider):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT * FROM oauth_users WHERE email = ? AND provider = ? AND is_active = 1",
+                (email, provider)
+            )
+
+            return cursor.fetchone()
+
+    def update_oauth_allowlist_user(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           UPDATE oauth_users
+                           SET name        = ?,
+                               provider_id = ?,
+                               avatar_url  = ?,
+                               last_login  = CURRENT_TIMESTAMP
+                           WHERE email = ?
+                             AND provider = ?
+                           """, params)
+
+            conn.commit()
+
+    def create_oauth_allowlist_user(self, params):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           INSERT INTO oauth_users (email, name, provider, provider_id, avatar_url)
+                           VALUES (?, ?, ?, ?, ?)
+                           """, params)
+
+            conn.commit()
+
+            return cursor.lastrowid
+
+    def create_oauth_tables(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Create oauth_users table
+            cursor.execute("""
+                           CREATE TABLE IF NOT EXISTS oauth_users
+                           (
+                               id
+                               INTEGER
+                               PRIMARY
+                               KEY
+                               AUTOINCREMENT,
+                               email
+                               TEXT
+                               NOT
+                               NULL,
+                               name
+                               TEXT,
+                               provider
+                               TEXT
+                               NOT
+                               NULL,
+                               provider_id
+                               TEXT,
+                               avatar_url
+                               TEXT,
+                               created_at
+                               TIMESTAMP
+                               DEFAULT
+                               CURRENT_TIMESTAMP,
+                               last_login
+                               TIMESTAMP
+                               DEFAULT
+                               CURRENT_TIMESTAMP,
+                               is_active
+                               BOOLEAN
+                               DEFAULT
+                               TRUE,
+                               UNIQUE
+                           (
+                               email,
+                               provider
+                           )
+                               )
+                           """)
+
+            # Create oauth_sessions table for tracking active sessions
+            cursor.execute("""
+                           CREATE TABLE IF NOT EXISTS oauth_sessions
+                           (
+                               id
+                               INTEGER
+                               PRIMARY
+                               KEY
+                               AUTOINCREMENT,
+                               user_id
+                               INTEGER,
+                               session_token
+                               TEXT
+                               UNIQUE,
+                               provider
+                               TEXT,
+                               created_at
+                               TIMESTAMP
+                               DEFAULT
+                               CURRENT_TIMESTAMP,
+                               expires_at
+                               TIMESTAMP,
+                               last_accessed
+                               TIMESTAMP
+                               DEFAULT
+                               CURRENT_TIMESTAMP,
+                               FOREIGN
+                               KEY
+                           (
+                               user_id
+                           ) REFERENCES oauth_users
+                           (
+                               id
+                           )
+                               )
+                           """)
+
+            # Create oauth_allowlist table for access control
+            cursor.execute("""
+                           CREATE TABLE IF NOT EXISTS oauth_allowlist
+                           (
+                               id
+                               INTEGER
+                               PRIMARY
+                               KEY
+                               AUTOINCREMENT,
+                               email
+                               TEXT
+                               UNIQUE
+                               NOT
+                               NULL,
+                               added_by
+                               TEXT,
+                               added_at
+                               TIMESTAMP
+                               DEFAULT
+                               CURRENT_TIMESTAMP,
+                               is_active
+                               BOOLEAN
+                               DEFAULT
+                               TRUE
+                           )
+                           """)
+
+            conn.commit()
+
     #### ENDPOINT QUERIES ####
+    def get_oauth_allow_list(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT email, added_by, added_at, is_active 
+                FROM oauth_allowlist 
+                ORDER BY added_at DESC
+            """)
+
+            return cursor.fetchall()
+
+    def get_oauth_system_status_and_settings(self):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Count allowlist entries
+            cursor.execute("SELECT COUNT(*) FROM oauth_allowlist WHERE is_active = 1")
+            allowlist_count = cursor.fetchone()[0]
+
+            # Count OAuth users
+            cursor.execute("SELECT COUNT(*) FROM oauth_users WHERE is_active = 1")
+            oauth_users_count = cursor.fetchone()[0]
+
+            # Get recent logins
+            cursor.execute("""
+                           SELECT provider, COUNT(*) as count
+                           FROM oauth_users
+                           WHERE is_active = 1
+                           GROUP BY provider
+                           """)
+            provider_stats = {row[0]: row[1] for row in cursor.fetchall()}
+
+            return allowlist_count, oauth_users_count, provider_stats
+
     def get_feed_item_tags(self, item_id):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -1726,6 +2238,42 @@ class DatabaseQueryFacade:
             cursor.execute("DELETE FROM keyword_groups WHERE id = ?", (group_id,))
             conn.commit()
 
+    def delete_group_keywords(self, group_id):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "DELETE FROM monitored_keywords WHERE group_id = ?",
+                (group_id,)
+            )
+
+            conn.commit()
+
+    def create_group(self, group_name, group_topic):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "INSERT INTO keyword_groups (name, topic) VALUES (?, ?)",
+                (topic_data["name"], topic_data["name"])
+            )
+
+            conn.commit()
+
+            return cursor.lastrowid
+
+    def add_keywords_to_group(self, group_id, keyword):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "INSERT INTO monitored_keywords (group_id, keyword) "
+                "VALUES (?, ?)",
+                (group_id, keyword)
+            )
+
+            conn.commit()
+
     def get_all_group_ids_associated_to_topic(self, topic_name):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -2282,6 +2830,28 @@ class DatabaseQueryFacade:
             """)
 
             return cursor.fetchall()
+
+    def topic_exists(self, topic):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT 1 FROM articles WHERE topic = ? LIMIT 1",
+                (topic_data["name"],)
+            )
+
+            return cursor.fetchone() is not None
+
+    def get_keyword_group_id_by_name_and_topic(self, group_name, topic_name):
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute(
+                "SELECT id FROM keyword_groups WHERE name = ? AND topic = ?",
+                (group_name, topic_name)
+            )
+
+            return cursor.fetchone()
 
     def toggle_polling(self, toggle):
         with self.db.get_connection() as conn:
@@ -3208,7 +3778,10 @@ class DatabaseQueryFacade:
             cursor.execute("SELECT daily_request_limit FROM keyword_monitor_settings WHERE id = 1")
 
             return cursor.fetchone()
-        
+
+    #### AUTOMATED INGEST SERVICE ####
+
+
     #### MEDIA BIAS ####
     def create_media_bias_table(self):
         with self.db.get_connection() as conn:

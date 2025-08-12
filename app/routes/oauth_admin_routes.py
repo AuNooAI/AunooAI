@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from app.security.session import verify_session
 from app.security.oauth_users import OAuthUserManager
 from app.database import get_database_instance, Database
+from app.database_query_facade import DatabaseQueryFacade
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 import logging
@@ -27,24 +28,16 @@ async def get_allowlist(
 ):
     """Get OAuth allowlist entries"""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT email, added_by, added_at, is_active 
-                FROM oauth_allowlist 
-                ORDER BY added_at DESC
-            """)
-            
-            entries = []
-            for row in cursor.fetchall():
-                entries.append(AllowlistResponse(
-                    email=row[0],
-                    added_by=row[1],
-                    added_at=row[2],
-                    is_active=bool(row[3])
-                ))
-            
-            return entries
+        entries = []
+        for row in (DatabaseQueryFacade(db, logger)).get_oauth_allow_list():
+            entries.append(AllowlistResponse(
+                email=row[0],
+                added_by=row[1],
+                added_at=row[2],
+                is_active=bool(row[3])
+            ))
+
+        return entries
             
     except Exception as e:
         logger.error(f"Failed to get allowlist: {e}")
@@ -120,26 +113,8 @@ async def get_oauth_admin_status(
     """Get OAuth system status and configuration"""
     try:
         from app.security.oauth_users import ALLOWED_EMAIL_DOMAINS
-        
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Count allowlist entries
-            cursor.execute("SELECT COUNT(*) FROM oauth_allowlist WHERE is_active = 1")
-            allowlist_count = cursor.fetchone()[0]
-            
-            # Count OAuth users
-            cursor.execute("SELECT COUNT(*) FROM oauth_users WHERE is_active = 1")
-            oauth_users_count = cursor.fetchone()[0]
-            
-            # Get recent logins
-            cursor.execute("""
-                SELECT provider, COUNT(*) as count 
-                FROM oauth_users 
-                WHERE is_active = 1 
-                GROUP BY provider
-            """)
-            provider_stats = {row[0]: row[1] for row in cursor.fetchall()}
+
+        allowlist_count, oauth_users_count, provider_stats = (DatabaseQueryFacade(db, logger)).get_oauth_system_status_and_settings()
         
         return {
             "allowlist_enabled": allowlist_count > 0,

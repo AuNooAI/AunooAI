@@ -11,6 +11,7 @@ from bertopic.representation import KeyBERTInspired
 
 # Import vector store functions to leverage OpenAI embeddings
 from app.vector_store import _embed_texts, get_vectors_by_metadata
+from app.database_query_facade import DatabaseQueryFacade
 
 logger = logging.getLogger(__name__)
 
@@ -121,37 +122,12 @@ class TopicMapService:
                                    category_filter: Optional[str] = None) -> List[Dict[str, Any]]:
         """Extract articles with their content for hierarchical topic analysis."""
         
-        query = """
-            SELECT uri, title, summary, topic, category, tags, 
-                   sentiment, future_signal, driver_type, time_to_impact,
-                   submission_date
-            FROM articles 
-            WHERE analyzed = 1 
-            AND summary IS NOT NULL
-            AND summary != ''
-            AND LENGTH(summary) > 50
-        """
-        params = []
-        
-        if topic_filter:
-            query += " AND topic = ?"
-            params.append(topic_filter)
-            
-        if category_filter:
-            query += " AND category = ?"
-            params.append(category_filter)
-            
-        query += " ORDER BY submission_date DESC"
-        
-        if limit:
-            query += " LIMIT ?"
-            params.append(limit)
-            
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            results = cursor.fetchall()
-            
+        results = (DatabaseQueryFacade(self.db, logger)).extract_topics_from_article(
+            topic_filter,
+            category_filter,
+            limit
+        )
+
         articles = []
         for row in results:
             # Create rich document text for better topic modeling

@@ -10,6 +10,7 @@ from collections import Counter, defaultdict
 from pydantic import BaseModel
 
 from app.database import Database, get_database_instance
+from app.database_query_facade import DatabaseQueryFacade
 from app.services.auspex_service import get_auspex_service
 
 # Context limits for different AI models (copied from futures cone)
@@ -268,35 +269,16 @@ def _complete_json_manually(text: str) -> str:
 async def _save_analysis_version(topic: str, analysis_data: Dict, db: Database):
     """Save analysis version for potential reload"""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Create analysis_versions table if it doesn't exist
-            create_table_query = """
-            CREATE TABLE IF NOT EXISTS analysis_versions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                topic TEXT NOT NULL,
-                version_data TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                model_used TEXT,
-                analysis_depth TEXT
-            )
-            """
-            cursor.execute(create_table_query)
-            
-            # Save the version
-            insert_query = """
-            INSERT INTO analysis_versions (topic, version_data, model_used, analysis_depth)
-            VALUES (?, ?, ?, ?)
-            """
-            cursor.execute(insert_query, (
-                topic,
-                json.dumps(analysis_data),
-                analysis_data.get('model_used', 'unknown'),
-                analysis_data.get('analysis_depth', 'standard')
-            ))
-            
-            conn.commit()
+        # Create analysis_versions table if it doesn't exist
+        (DatabaseQueryFacade(db, logger)).create_analysis_versions_table()
+
+        # Save the version
+        (DatabaseQueryFacade(db, logger)).save_analysis_version((
+            topic,
+            json.dumps(analysis_data),
+            analysis_data.get('model_used', 'unknown'),
+            analysis_data.get('analysis_depth', 'standard')
+        ))
             
         logger.info(f"Saved analysis version for topic: {topic}")
     except Exception as e:
@@ -305,25 +287,15 @@ async def _save_analysis_version(topic: str, analysis_data: Dict, db: Database):
 async def _load_latest_analysis_version(topic: str, db: Database) -> Optional[Dict]:
     """Load the latest analysis version for a topic"""
     try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            query = """
-            SELECT version_data FROM analysis_versions 
-            WHERE topic = ? 
-            ORDER BY created_at DESC 
-            LIMIT 1
-            """
-            cursor.execute(query, (topic,))
-            result = cursor.fetchone()
-            
-            if result:
-                analysis_data = json.loads(result[0])
-                logger.info(f"Loaded previous analysis version for topic: {topic}")
-                return analysis_data
-            else:
-                logger.info(f"No previous analysis version found for topic: {topic}")
-                return None
+        result = (DatabaseQueryFacade(db, logger)).get_latest_analysis_version(topic)
+
+        if result:
+            analysis_data = json.loads(result[0])
+            logger.info(f"Loaded previous analysis version for topic: {topic}")
+            return analysis_data
+        else:
+            logger.info(f"No previous analysis version found for topic: {topic}")
+            return None
     except Exception as e:
         logger.error(f"Failed to load analysis version: {str(e)}")
         return None
@@ -398,21 +370,8 @@ async def generate_trend_convergence(
         # Calculate date range
         end_date = datetime.now()
         start_date = end_date - timedelta(days=timeframe_days)
-        
-        # Fetch articles from database with dynamic limit
-        query = """
-        SELECT title, summary, uri, publication_date, sentiment, category, 
-               future_signal, driver_type, time_to_impact
-        FROM articles 
-        WHERE topic = ? 
-        AND publication_date >= ? 
-        AND publication_date <= ?
-        AND (summary IS NOT NULL AND summary != '')
-        ORDER BY publication_date DESC
-        LIMIT ?
-        """
-        
-        articles = db.fetch_all(query, (topic, start_date.isoformat(), end_date.isoformat(), optimal_sample_size))
+
+        articles = (DatabaseQueryFacade(db, logger)).get_articles_with_dynamic_limit((topic, start_date.isoformat(), end_date.isoformat(), optimal_sample_size))
         
         if not articles:
             raise HTTPException(
@@ -433,14 +392,7 @@ async def generate_trend_convergence(
         organizational_profile = None
         if profile_id:
             try:
-                profile_query = """
-                SELECT id, name, description, industry, organization_type, region,
-                       key_concerns, strategic_priorities, risk_tolerance, 
-                       innovation_appetite, decision_making_style, stakeholder_focus,
-                       competitive_landscape, regulatory_environment, custom_context
-                FROM organizational_profiles WHERE id = ?
-                """
-                profile_row = db.fetch_one(profile_query, (profile_id,))
+                profile_row = (DatabaseQueryFacade(db, logger)).get_organisational_profile(profile_id)
                 if profile_row:
                     organizational_profile = {
                         'id': profile_row[0],
@@ -979,17 +931,7 @@ async def trend_convergence_page(request: Request, session: dict = Depends(verif
 async def get_organizational_profiles(db: Database = Depends(get_database_instance)):
     """Get all organizational profiles"""
     try:
-        query = """
-        SELECT id, name, description, industry, organization_type, region,
-               key_concerns, strategic_priorities, risk_tolerance, 
-               innovation_appetite, decision_making_style, stakeholder_focus,
-               competitive_landscape, regulatory_environment, custom_context,
-               is_default, created_at, updated_at
-        FROM organizational_profiles 
-        ORDER BY is_default DESC, name ASC
-        """
-        
-        profiles_data = db.fetch_all(query)
+        profiles_data = (DatabaseQueryFacade(db, logger)).get_organisational_profiles()
         profiles = []
         
         for profile_row in profiles_data:
@@ -1029,23 +971,13 @@ async def create_organizational_profile(
     """Create a new organizational profile"""
     try:
         # Check if profile name already exists
-        existing_query = "SELECT id FROM organizational_profiles WHERE name = ?"
-        existing = db.fetch_one(existing_query, (profile_data.name,))
+        existing = (DatabaseQueryFacade(db, logger)).get_organisational_profiles(profile_data.name)
         
         if existing:
             raise HTTPException(status_code=409, detail="Profile with this name already exists")
         
         # Insert new profile
-        insert_query = """
-        INSERT INTO organizational_profiles (
-            name, description, industry, organization_type, region, key_concerns,
-            strategic_priorities, risk_tolerance, innovation_appetite,
-            decision_making_style, stakeholder_focus, competitive_landscape,
-            regulatory_environment, custom_context
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """
-        
-        profile_id = db.execute_query(insert_query, (
+        profile_id = (DatabaseQueryFacade(db, logger)).create_organisational_profile((
             profile_data.name,
             profile_data.description,
             profile_data.industry,
@@ -1079,31 +1011,19 @@ async def update_organizational_profile(
     """Update an existing organizational profile"""
     try:
         # Check if profile exists
-        existing_query = "SELECT id FROM organizational_profiles WHERE id = ?"
-        existing = db.fetch_one(existing_query, (profile_id,))
+        existing = (DatabaseQueryFacade(db, logger)).get_organisational_profile_by_id(profile_id)
         
         if not existing:
             raise HTTPException(status_code=404, detail="Profile not found")
         
         # Check if new name conflicts with existing profiles (excluding current)
-        name_check_query = "SELECT id FROM organizational_profiles WHERE name = ? AND id != ?"
-        name_conflict = db.fetch_one(name_check_query, (profile_data.name, profile_id))
+        name_conflict = check_organisational_profile_name_conflictcheck_organisational_profile_name_conflict(profile_data.name, profile_id)
         
         if name_conflict:
             raise HTTPException(status_code=409, detail="Profile with this name already exists")
         
         # Update profile
-        update_query = """
-        UPDATE organizational_profiles SET
-            name = ?, description = ?, industry = ?, organization_type = ?, region = ?,
-            key_concerns = ?, strategic_priorities = ?, risk_tolerance = ?,
-            innovation_appetite = ?, decision_making_style = ?, stakeholder_focus = ?,
-            competitive_landscape = ?, regulatory_environment = ?, custom_context = ?,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-        """
-        
-        db.execute_query(update_query, (
+        (DatabaseQueryFacade(db, logger)).update_organisational_profile((
             profile_data.name,
             profile_data.description,
             profile_data.industry,
@@ -1137,8 +1057,7 @@ async def delete_organizational_profile(
     """Delete an organizational profile"""
     try:
         # Check if profile exists and is not default
-        profile_query = "SELECT is_default FROM organizational_profiles WHERE id = ?"
-        profile = db.fetch_one(profile_query, (profile_id,))
+        profile = (DatabaseQueryFacade(db, logger)).check_if_profile_exists_and_is_not_default(profile_id)
         
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
@@ -1147,8 +1066,7 @@ async def delete_organizational_profile(
             raise HTTPException(status_code=400, detail="Cannot delete default profiles")
         
         # Delete profile
-        delete_query = "DELETE FROM organizational_profiles WHERE id = ?"
-        db.execute_query(delete_query, (profile_id,))
+        (DatabaseQueryFacade(db, logger)).delete_organisational_profile(profile_id)
         
         return {"success": True, "message": "Profile deleted successfully"}
         
@@ -1165,17 +1083,7 @@ async def get_organizational_profile(
 ):
     """Get a specific organizational profile"""
     try:
-        query = """
-        SELECT id, name, description, industry, organization_type, region,
-               key_concerns, strategic_priorities, risk_tolerance, 
-               innovation_appetite, decision_making_style, stakeholder_focus,
-               competitive_landscape, regulatory_environment, custom_context,
-               is_default, created_at, updated_at
-        FROM organizational_profiles 
-        WHERE id = ?
-        """
-        
-        profile_row = db.fetch_one(query, (profile_id,))
+        profile_row = (DatabaseQueryFacade(db, logger)).get_organizational_profile_for_ui(profile_id)
         
         if not profile_row:
             raise HTTPException(status_code=404, detail="Profile not found")

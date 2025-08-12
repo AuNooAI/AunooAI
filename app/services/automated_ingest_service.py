@@ -19,6 +19,7 @@ import logging
 from typing import Dict, List, Optional, Any, AsyncGenerator
 from datetime import datetime
 from app.database import Database
+from app.database_query_facade import DatabaseQueryFacade
 from app.services.async_db import AsyncDatabase, get_async_database_instance
 from app.models.media_bias import MediaBias
 from app.relevance import RelevanceCalculator

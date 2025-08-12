@@ -1,4 +1,5 @@
 from app.database import Database
+from app.database_query_facade import DatabaseQueryFacade
 from typing import Optional, Dict, Any
 import logging
 from datetime import datetime
@@ -28,52 +29,8 @@ class OAuthUserManager:
     def _ensure_oauth_tables(self):
         """Ensure OAuth user tables exist"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Create oauth_users table
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS oauth_users (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        email TEXT NOT NULL,
-                        name TEXT,
-                        provider TEXT NOT NULL,
-                        provider_id TEXT,
-                        avatar_url TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_login TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        is_active BOOLEAN DEFAULT TRUE,
-                        UNIQUE(email, provider)
-                    )
-                """)
-                
-                # Create oauth_sessions table for tracking active sessions
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS oauth_sessions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_id INTEGER,
-                        session_token TEXT UNIQUE,
-                        provider TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        expires_at TIMESTAMP,
-                        last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (user_id) REFERENCES oauth_users (id)
-                    )
-                """)
-                
-                # Create oauth_allowlist table for access control
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS oauth_allowlist (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        email TEXT UNIQUE NOT NULL,
-                        added_by TEXT,
-                        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        is_active BOOLEAN DEFAULT TRUE
-                    )
-                """)
-                
-                conn.commit()
-                logger.info("OAuth tables ensured successfully")
+            (DatabaseQueryFacade(self.db, logger)).create_oauth_tables()
+            logger.info("OAuth tables ensured successfully")
                 
         except Exception as e:
             logger.error(f"Failed to create OAuth tables: {e}")
@@ -89,64 +46,45 @@ class OAuthUserManager:
             raise Exception(f"Access denied: {email.split('@')[-1]} domain is not authorized")
         
         # Check if user is in allowlist (if allowlist has entries)
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM oauth_allowlist WHERE is_active = 1")
-            allowlist_count = cursor.fetchone()[0]
-            
-            if allowlist_count > 0 and not self.is_user_allowed(email):
-                logger.warning(f"OAuth login denied for {email} - not in user allowlist")
-                raise Exception(f"Access denied: {email} is not authorized to access this application")
-        
+        allowlist_count = (DatabaseQueryFacade(self.db, logger)).count_oauth_allowlist_active_users()
+
+        if allowlist_count > 0 and not self.is_user_allowed(email):
+            logger.warning(f"OAuth login denied for {email} - not in user allowlist")
+            raise Exception(f"Access denied: {email} is not authorized to access this application")
+
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Check if user exists
-                cursor.execute(
-                    "SELECT * FROM oauth_users WHERE email = ? AND provider = ?",
-                    (email, provider)
-                )
-                user = cursor.fetchone()
-                
-                if user:
-                    # Update existing user
-                    cursor.execute("""
-                        UPDATE oauth_users 
-                        SET name = ?, provider_id = ?, avatar_url = ?, last_login = CURRENT_TIMESTAMP
-                        WHERE email = ? AND provider = ?
-                    """, (name, provider_id, avatar_url, email, provider))
-                    user_id = user[0]
-                    logger.info(f"Updated OAuth user: {email} ({provider})")
-                else:
-                    # Create new user
-                    cursor.execute("""
-                        INSERT INTO oauth_users (email, name, provider, provider_id, avatar_url)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (email, name, provider, provider_id, avatar_url))
-                    user_id = cursor.lastrowid
-                    logger.info(f"Created new OAuth user: {email} ({provider})")
-                
-                conn.commit()
-                
-                # Fetch the complete user record
-                cursor.execute("SELECT * FROM oauth_users WHERE id = ?", (user_id,))
-                user_record = cursor.fetchone()
-                
-                if user_record:
-                    return {
-                        'id': user_record[0],
-                        'email': user_record[1],
-                        'name': user_record[2],
-                        'provider': user_record[3],
-                        'provider_id': user_record[4],
-                        'avatar_url': user_record[5],
-                        'created_at': user_record[6],
-                        'last_login': user_record[7],
-                        'is_active': user_record[8]
-                    }
-                else:
-                    raise Exception("Failed to retrieve user record after creation/update")
+            # Check if user exists
+            user = (DatabaseQueryFacade(self.db, logger)).get_oauth_allowlist_user_by_email_and_provider(email, provider)
+
+            if user:
+                # Update existing user
+                (DatabaseQueryFacade(self.db, logger)).update_oauth_allowlist_user((name, provider_id, avatar_url, email, provider))
+                user_id = user[0]
+                logger.info(f"Updated OAuth user: {email} ({provider})")
+            else:
+                # Create new user
+                user_id = (DatabaseQueryFacade(self.db, logger)).create_oauth_allowlist_user((email, name, provider, provider_id, avatar_url))
+                logger.info(f"Created new OAuth user: {email} ({provider})")
+
+            conn.commit()
+
+            # Fetch the complete user record
+            user_record = (DatabaseQueryFacade(self.db, logger)).get_oauth_allowlist_user_by_id(user_id)
+
+            if user_record:
+                return {
+                    'id': user_record[0],
+                    'email': user_record[1],
+                    'name': user_record[2],
+                    'provider': user_record[3],
+                    'provider_id': user_record[4],
+                    'avatar_url': user_record[5],
+                    'created_at': user_record[6],
+                    'last_login': user_record[7],
+                    'is_active': user_record[8]
+                }
+            else:
+                raise Exception("Failed to retrieve user record after creation/update")
                 
         except Exception as e:
             logger.error(f"Failed to create/update OAuth user {email}: {e}")
@@ -155,27 +93,21 @@ class OAuthUserManager:
     def get_oauth_user(self, email: str, provider: str) -> Optional[Dict[str, Any]]:
         """Get OAuth user by email and provider"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT * FROM oauth_users WHERE email = ? AND provider = ? AND is_active = 1",
-                    (email, provider)
-                )
-                user = cursor.fetchone()
-                
-                if user:
-                    return {
-                        'id': user[0],
-                        'email': user[1],
-                        'name': user[2],
-                        'provider': user[3],
-                        'provider_id': user[4],
-                        'avatar_url': user[5],
-                        'created_at': user[6],
-                        'last_login': user[7],
-                        'is_active': user[8]
-                    }
-                return None
+            user = (DatabaseQueryFacade(self.db, logger)).get_active_oauth_allowlist_user_by_email_and_provider(email, provider)
+
+            if user:
+                return {
+                    'id': user[0],
+                    'email': user[1],
+                    'name': user[2],
+                    'provider': user[3],
+                    'provider_id': user[4],
+                    'avatar_url': user[5],
+                    'created_at': user[6],
+                    'last_login': user[7],
+                    'is_active': user[8]
+                }
+            return None
                 
         except Exception as e:
             logger.error(f"Failed to get OAuth user {email}: {e}")
@@ -184,27 +116,21 @@ class OAuthUserManager:
     def get_oauth_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
         """Get OAuth user by ID"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT * FROM oauth_users WHERE id = ? AND is_active = 1",
-                    (user_id,)
-                )
-                user = cursor.fetchone()
-                
-                if user:
-                    return {
-                        'id': user[0],
-                        'email': user[1],
-                        'name': user[2],
-                        'provider': user[3],
-                        'provider_id': user[4],
-                        'avatar_url': user[5],
-                        'created_at': user[6],
-                        'last_login': user[7],
-                        'is_active': user[8]
-                    }
-                return None
+            user = (DatabaseQueryFacade(self.db, logger)).get_active_oauth_allowlist_user_by_id(user_id)
+
+            if user:
+                return {
+                    'id': user[0],
+                    'email': user[1],
+                    'name': user[2],
+                    'provider': user[3],
+                    'provider_id': user[4],
+                    'avatar_url': user[5],
+                    'created_at': user[6],
+                    'last_login': user[7],
+                    'is_active': user[8]
+                }
+            return None
                 
         except Exception as e:
             logger.error(f"Failed to get OAuth user by ID {user_id}: {e}")
@@ -213,15 +139,8 @@ class OAuthUserManager:
     def deactivate_user(self, email: str, provider: str) -> bool:
         """Deactivate OAuth user"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE oauth_users SET is_active = 0 WHERE email = ? AND provider = ?",
-                    (email, provider)
-                )
-                conn.commit()
-                return cursor.rowcount > 0
-                
+            return (DatabaseQueryFacade(self.db, logger)).deactivate_user(email, provider) > 0
+
         except Exception as e:
             logger.error(f"Failed to deactivate OAuth user {email}: {e}")
             return False
@@ -229,34 +148,26 @@ class OAuthUserManager:
     def list_oauth_users(self, provider: str = None) -> list:
         """List all OAuth users, optionally filtered by provider"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                if provider:
-                    cursor.execute(
-                        "SELECT * FROM oauth_users WHERE provider = ? AND is_active = 1 ORDER BY created_at DESC",
-                        (provider,)
-                    )
-                else:
-                    cursor.execute(
-                        "SELECT * FROM oauth_users WHERE is_active = 1 ORDER BY created_at DESC"
-                    )
-                
-                users = []
-                for user in cursor.fetchall():
-                    users.append({
-                        'id': user[0],
-                        'email': user[1],
-                        'name': user[2],
-                        'provider': user[3],
-                        'provider_id': user[4],
-                        'avatar_url': user[5],
-                        'created_at': user[6],
-                        'last_login': user[7],
-                        'is_active': user[8]
-                    })
-                
-                return users
+            if provider:
+                rows = (DatabaseQueryFacade(self.db, logger)).get_oauth_active_users_by_provider(provider)
+            else:
+                rows = (DatabaseQueryFacade(self.db, logger)).get_oauth_active_users()
+
+            users = []
+            for user in rows:
+                users.append({
+                    'id': user[0],
+                    'email': user[1],
+                    'name': user[2],
+                    'provider': user[3],
+                    'provider_id': user[4],
+                    'avatar_url': user[5],
+                    'created_at': user[6],
+                    'last_login': user[7],
+                    'is_active': user[8]
+                })
+
+            return users
                 
         except Exception as e:
             logger.error(f"Failed to list OAuth users: {e}")
@@ -265,14 +176,7 @@ class OAuthUserManager:
     def is_user_allowed(self, email: str) -> bool:
         """Check if user email is in the allowlist"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT COUNT(*) FROM oauth_allowlist WHERE email = ? AND is_active = 1",
-                    (email.lower(),)
-                )
-                count = cursor.fetchone()[0]
-                return count > 0
+            return (DatabaseQueryFacade(self.db, logger)).is_oauth_user_allowed(email)
         except Exception as e:
             logger.error(f"Failed to check allowlist for {email}: {e}")
             return False
@@ -280,15 +184,8 @@ class OAuthUserManager:
     def add_to_allowlist(self, email: str, added_by: str = None) -> bool:
         """Add email to OAuth allowlist"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "INSERT OR REPLACE INTO oauth_allowlist (email, added_by) VALUES (?, ?)",
-                    (email.lower(), added_by)
-                )
-                conn.commit()
-                logger.info(f"Added {email} to OAuth allowlist")
-                return True
+            (DatabaseQueryFacade(self.db, logger)).add_oauth_user_to_allowlist(email.lower(), added_by)
+            return True
         except Exception as e:
             logger.error(f"Failed to add {email} to allowlist: {e}")
             return False
@@ -296,15 +193,9 @@ class OAuthUserManager:
     def remove_from_allowlist(self, email: str) -> bool:
         """Remove email from OAuth allowlist"""
         try:
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "UPDATE oauth_allowlist SET is_active = 0 WHERE email = ?",
-                    (email.lower(),)
-                )
-                conn.commit()
-                logger.info(f"Removed {email} from OAuth allowlist")
-                return cursor.rowcount > 0
+            remove_count = (DatabaseQueryFacade(self.db, logger)).remove_oauth_user_from_allowlist(email.lower())
+            logger.info(f"Removed {email} from OAuth allowlist")
+            return remove_count > 0
         except Exception as e:
             logger.error(f"Failed to remove {email} from allowlist: {e}")
             return False

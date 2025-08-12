@@ -67,7 +67,7 @@ class FeedGroupService:
         try:
             logger.info(f"Creating feed group: {name}")
             
-            if (DatabaseQueryFacade(db, logger)).get_feed_group_by_name(name):
+            if (DatabaseQueryFacade(self.db, logger)).get_feed_group_by_name(name):
                 logger.warning(f"Feed group '{name}' already exists")
                 return {
                     "success": False,
@@ -76,10 +76,10 @@ class FeedGroupService:
 
             # Create the group
             now = datetime.now().isoformat()
-            group_id = (DatabaseQueryFacade(db, logger)).create_feed_group((name, description, color, now, now))
+            group_id = (DatabaseQueryFacade(self.db, logger)).create_feed_group((name, description, color, now, now))
 
             # Create default subscription for the user
-            (DatabaseQueryFacade(db, logger)).create_default_feed_subscription(group_id)
+            (DatabaseQueryFacade(self.db, logger)).create_default_feed_subscription(group_id)
 
             logger.info(f"Created feed group '{name}' with ID {group_id}")
 
@@ -117,9 +117,9 @@ class FeedGroupService:
             
             # Build query based on active status
             if include_inactive:
-                groups = (DatabaseQueryFacade(db, logger)).get_feed_groups_including_inactive()
+                groups = (DatabaseQueryFacade(self.db, logger)).get_feed_groups_including_inactive()
             else:
-                groups = (DatabaseQueryFacade(db, logger)).get_feed_groups_excluding_inactive()
+                groups = (DatabaseQueryFacade(self.db, logger)).get_feed_groups_excluding_inactive()
 
             result = []
             for group in groups:
@@ -135,7 +135,7 @@ class FeedGroupService:
 
                 # Get sources for this group
                 sources = []
-                for source in (DatabaseQueryFacade(db, logger)).get_feed_group_sources(group[0]):
+                for source in (DatabaseQueryFacade(self.db, logger)).get_feed_group_sources(group[0]):
                     try:
                         keywords = json.loads(source[2]) if source[2] else []
                     except json.JSONDecodeError:
@@ -173,7 +173,7 @@ class FeedGroupService:
         try:
             logger.info(f"Fetching feed group with ID {group_id}")
             
-            group = (DatabaseQueryFacade(db, logger)).get_feed_group_by_id(group_id)
+            group = (DatabaseQueryFacade(self.db, logger)).get_feed_group_by_id(group_id)
             if not group:
                 logger.warning(f"Feed group with ID {group_id} not found")
                 return None
@@ -190,7 +190,7 @@ class FeedGroupService:
 
             # Get sources for this group
             sources = []
-            for source in  (DatabaseQueryFacade(db, logger)).get_feed_group_sources(group_id):
+            for source in  (DatabaseQueryFacade(self.db, logger)).get_feed_group_sources(group_id):
                 try:
                     keywords = json.loads(source[2]) if source[2] else []
                 except json.JSONDecodeError:
@@ -233,7 +233,7 @@ class FeedGroupService:
             logger.info(f"Updating feed group {group_id}")
             
             # Check if group exists
-            current_group = (DatabaseQueryFacade(db, logger)).get_feed_group_by_id(group_id)
+            current_group = (DatabaseQueryFacade(self.db, logger)).get_feed_group_by_id(group_id)
             if not current_group:
                 return {
                     "success": False,
@@ -250,7 +250,7 @@ class FeedGroupService:
                     "error": "No updates provided"
                 }
 
-            (DatabaseQueryFacade(db, logger)).update_feed_group(name, description, color, is_active, group_id)
+            (DatabaseQueryFacade(self.db, logger)).update_feed_group(name, description, color, is_active, group_id)
 
             # Get updated group
             updated_group = self.get_feed_group(group_id)
@@ -283,7 +283,7 @@ class FeedGroupService:
             logger.info(f"Deleting feed group {group_id}")
             
             # Check if group exists
-            group = (DatabaseQueryFacade(db, logger)).get_feed_group_by_id(group_id)
+            group = (DatabaseQueryFacade(self.db, logger)).get_feed_group_by_id(group_id)
             if not group:
                 return {
                     "success": False,
@@ -292,7 +292,7 @@ class FeedGroupService:
 
             group_name = group[0]
 
-            (DatabaseQueryFacade(db, logger)).delete_feed_group(group_id)
+            (DatabaseQueryFacade(self.db, logger)).delete_feed_group(group_id)
 
             logger.info(f"Deleted feed group '{group_name}' (ID: {group_id})")
 
@@ -337,14 +337,14 @@ class FeedGroupService:
                 }
             
             # Check if group exists
-            if not (DatabaseQueryFacade(db, logger)).get_feed_group_by_id(group_id):
+            if not (DatabaseQueryFacade(self.db, logger)).get_feed_group_by_id(group_id):
                 return {
                     "success": False,
                     "error": f"Feed group with ID {group_id} not found"
                 }
 
             # Check if source already exists for this group
-            if (DatabaseQueryFacade(db, logger)).get_group_source(group_id, source_type):
+            if (DatabaseQueryFacade(self.db, logger)).get_group_source(group_id, source_type):
                 return {
                     "success": False,
                     "error": f"Source type '{source_type}' already exists for this group"
@@ -354,7 +354,7 @@ class FeedGroupService:
             keywords_json = json.dumps(keywords)
             now = datetime.now().isoformat()
 
-            source_id = (DatabaseQueryFacade(db, logger)).add_source_to_group((group_id, source_type, keywords_json, enabled, date_range_days,
+            source_id = (DatabaseQueryFacade(self.db, logger)).add_source_to_group((group_id, source_type, keywords_json, enabled, date_range_days,
                   custom_start_date, custom_end_date, now))
 
             logger.info(f"Added {source_type} source (ID: {source_id}) to group {group_id}")
@@ -402,7 +402,7 @@ class FeedGroupService:
             logger.info(f"Updating source {source_id}")
 
             # Check if source exists
-            source = (DatabaseQueryFacade(db, logger)).get_source_by_id(source_id)
+            source = (DatabaseQueryFacade(self.db, logger)).get_source_by_id(source_id)
             if not source:
                 return {
                     "success": False,
@@ -419,7 +419,7 @@ class FeedGroupService:
                     "error": "No updates provided"
                 }
 
-            (DatabaseQueryFacade(db, logger)).update_group_source(keywords, enabled, date_range_days, custom_start_date, custom_end_date)
+            (DatabaseQueryFacade(self.db, logger)).update_group_source(keywords, enabled, date_range_days, custom_start_date, custom_end_date)
 
             logger.info(f"Updated source {source_id}")
 
@@ -447,29 +447,26 @@ class FeedGroupService:
         """
         try:
             logger.info(f"Deleting source {source_id}")
-            
-            with self.db.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Check if source exists
-                source = (DatabaseQueryFacade(db, logger)).get_source_by_id(source_id)
-                if not source:
-                    return {
-                        "success": False,
-                        "error": f"Source with ID {source_id} not found"
-                    }
-                
-                source_type = source[0]
-                
-                # Delete source
-                (DatabaseQueryFacade(db, logger)).delete_group_source(source_id)
 
-                logger.info(f"Deleted {source_type} source (ID: {source_id})")
-                
+            # Check if source exists
+            source = (DatabaseQueryFacade(self.db, logger)).get_source_by_id(source_id)
+            if not source:
                 return {
-                    "success": True,
-                    "message": f"Source deleted successfully"
+                    "success": False,
+                    "error": f"Source with ID {source_id} not found"
                 }
+
+            source_type = source[0]
+
+            # Delete source
+            (DatabaseQueryFacade(self.db, logger)).delete_group_source(source_id)
+
+            logger.info(f"Deleted {source_type} source (ID: {source_id})")
+
+            return {
+                "success": True,
+                "message": f"Source deleted successfully"
+            }
                 
         except Exception as e:
             logger.error(f"Error deleting source {source_id}: {str(e)}")
