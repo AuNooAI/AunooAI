@@ -971,7 +971,7 @@ async def create_organizational_profile(
     """Create a new organizational profile"""
     try:
         # Check if profile name already exists
-        existing = (DatabaseQueryFacade(db, logger)).get_organisational_profiles(profile_data.name)
+        existing = (DatabaseQueryFacade(db, logger)).get_organisational_profile(profile_data.name)
         
         if existing:
             raise HTTPException(status_code=409, detail="Profile with this name already exists")
@@ -1017,7 +1017,7 @@ async def update_organizational_profile(
             raise HTTPException(status_code=404, detail="Profile not found")
         
         # Check if new name conflicts with existing profiles (excluding current)
-        name_conflict = check_organisational_profile_name_conflictcheck_organisational_profile_name_conflict(profile_data.name, profile_id)
+        name_conflict = (DatabaseQueryFacade(db, logger)).check_organisational_profile_name_conflict(profile_data.name, profile_id)
         
         if name_conflict:
             raise HTTPException(status_code=409, detail="Profile with this name already exists")
