@@ -119,7 +119,7 @@ async def create_group(group: KeywordGroup, db=Depends(get_database_instance), s
 @router.post("/keywords")
 async def add_keyword(keyword: Keyword, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        return {"id": (DatabaseQueryFacade(db, logger)).create_keyword_monitor_group((keyword.group_id, keyword.keyword))}
+        return {"id": (DatabaseQueryFacade(db, logger)).create_keyword((keyword.group_id, keyword.keyword))}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -134,7 +134,7 @@ async def delete_keyword(keyword_id: int, db=Depends(get_database_instance), ses
 @router.delete("/groups/{group_id}")
 async def delete_group(group_id: int, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        (DatabaseQueryFacade(db, logger)).delete_keyword(group_id)
+        (DatabaseQueryFacade(db, logger)).delete_keyword_group(group_id)
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -1146,6 +1146,10 @@ async def get_group_alerts(
             has_prev = page > 1
             
         # Return the response data
+        # TODO: REVIEW THIS CHANGE AS THE PAGE IS BROKEN: http://localhost:10000/keyword-alerts
+        # TODO: REVIEW THIS CHANGE AS THE PAGE IS BROKEN: http://localhost:10000/keyword-alerts
+        # TODO: REVIEW THIS CHANGE AS THE PAGE IS BROKEN: http://localhost:10000/keyword-alerts
+        # TODO: REVIEW THIS CHANGE AS THE PAGE IS BROKEN: http://localhost:10000/keyword-alerts
         return {
             "topic": topic,
             "group_id": group_id,

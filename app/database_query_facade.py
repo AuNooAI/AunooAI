@@ -1278,7 +1278,7 @@ class DatabaseQueryFacade:
 
             query = "SELECT * FROM feed_keyword_groups ORDER BY name"
 
-            cursor.execute(query, params)
+            cursor.execute(query)
 
             return cursor.fetchall()
 
@@ -1288,7 +1288,7 @@ class DatabaseQueryFacade:
 
             query = "SELECT * FROM feed_keyword_groups WHERE is_active = 1 ORDER BY name"
 
-            cursor.execute(query, params)
+            cursor.execute(query)
 
             return cursor.fetchall()
 
