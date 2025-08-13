@@ -419,7 +419,7 @@ class FeedGroupService:
                     "error": "No updates provided"
                 }
 
-            (DatabaseQueryFacade(self.db, logger)).update_group_source(keywords, enabled, date_range_days, custom_start_date, custom_end_date)
+            (DatabaseQueryFacade(self.db, logger)).update_group_source(source_id, keywords, enabled, date_range_days, custom_start_date, custom_end_date)
 
             logger.info(f"Updated source {source_id}")
 

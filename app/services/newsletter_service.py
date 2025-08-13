@@ -1176,6 +1176,7 @@ The content would be based on the provided articles and would follow the specifi
             has_audio_url = 'audio_url' in column_names
 
             podcast_data = (DatabaseQueryFacade(self.db, logger)).generate_latest_podcasts(
+                topic,
                 column_names,
                 has_transcript,
                 has_topic,

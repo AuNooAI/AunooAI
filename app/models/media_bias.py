@@ -572,9 +572,8 @@ class MediaBias:
             (DatabaseQueryFacade(self.db, logger)).delete_media_bias_source(source_id)
 
             # Update last_updated in settings
-            (DatabaseQueryFacade(self.db, logger)).update_media_bias_last_updated()
             # Return success if a row was affected
-            return cursor.rowcount > 0
+            return (DatabaseQueryFacade(self.db, logger)).update_media_bias_last_updated() > 0
 
         except Exception as e:
             logger.error(f"Error deleting source: {str(e)}")

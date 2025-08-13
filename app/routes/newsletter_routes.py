@@ -952,7 +952,7 @@ async def search_articles(
                     detail="Invalid end_date format. Use YYYY-MM-DD."
                 )
 
-        return (DatabaseQueryFacade(db, logger)).search_for_articles_based_on_query_date_range_and_topic(query, topic, start_date, end_date)
+        return (DatabaseQueryFacade(db, logger)).search_for_articles_based_on_query_date_range_and_topic(query, topic, start_date, end_date, limit)
         
     except HTTPException:
         raise

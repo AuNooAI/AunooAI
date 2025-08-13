@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 import sqlite3
+import json
 
 class DatabaseQueryFacade:
     def __init__(self, db, logger):
@@ -772,6 +773,8 @@ class DatabaseQueryFacade:
 
     def get_topic_unprocessed_and_unread_articles_using_new_table_structure(self, topic_id):
         with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
             cursor.execute("""
                            SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
                            FROM articles a
@@ -787,6 +790,8 @@ class DatabaseQueryFacade:
 
     def get_topic_unprocessed_and_unread_articles_using_old_table_structure(self, topic_id):
         with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
             cursor.execute("""
                            SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
                            FROM articles a
@@ -1242,7 +1247,7 @@ class DatabaseQueryFacade:
                     time_to_impact_explanation, summary, tags, topic
                 FROM articles 
                 WHERE uri = ?
-            """, (url,))
+            """, (item_url,))
 
             return cursor.fetchone()
 
@@ -1421,7 +1426,7 @@ class DatabaseQueryFacade:
 
             conn.commit()
 
-    def update_group_source(self, keywords, enabled, date_range_days, custom_start_date, custom_end_date):
+    def update_group_source(self, source_id, keywords, enabled, date_range_days, custom_start_date, custom_end_date):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
@@ -1784,7 +1789,7 @@ class DatabaseQueryFacade:
 
             return [col[1] for col in table_info]
 
-    def generate_latest_podcasts(self, column_names, has_transcript, has_topic, has_audio_url):
+    def generate_latest_podcasts(self, topic, column_names, has_transcript, has_topic, has_audio_url):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
@@ -1890,7 +1895,7 @@ class DatabaseQueryFacade:
                             status)
                            VALUES (?, ?, ?, ?, ?, ?, ?, 'running')
                            """,
-                           (name, description, benchmark_model, json.dumps(selected_models), len(articles), rounds, 1))
+                           params)
 
             return cursor.lastrowid
 
@@ -1903,8 +1908,7 @@ class DatabaseQueryFacade:
                            (run_id, article_uri, model_name, response_text, bias_score,
                             confidence_score, response_time_ms, error_message)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                           """, (run_id, article_uri, model_name, response_text, bias_score,
-                                 confidence_score, response_time_ms, error_message))
+                           """, params)
             conn.commit()
 
     def store_ontological_results(self, params):
@@ -2096,7 +2100,7 @@ class DatabaseQueryFacade:
                            UPDATE model_bias_arena_runs
                            SET current_round = ?
                            WHERE id = ?
-                           """, (round_num, run_id))
+                           """, params)
             conn.commit()
 
     def get_topics_from_article(self, article_url):
@@ -2418,7 +2422,7 @@ class DatabaseQueryFacade:
                     query += " AND submission_date >= date('now', ?)"
                     params.append(f'-{days} days')
                 except ValueError:
-                    logger.warning("Invalid timeframe value provided: %s", timeframe)
+                    self.logger.warning("Invalid timeframe value provided: %s", timeframe)
 
             query += " ORDER BY submission_date DESC LIMIT ?"
             params.append(limit)
@@ -2475,7 +2479,7 @@ class DatabaseQueryFacade:
 
             cursor.execute(
                 "INSERT INTO keyword_groups (name, topic) VALUES (?, ?)",
-                (topic_data["name"], topic_data["name"])
+                (group_name, group_topic)
             )
 
             conn.commit()
@@ -3057,7 +3061,7 @@ class DatabaseQueryFacade:
 
             cursor.execute(
                 "SELECT 1 FROM articles WHERE topic = ? LIMIT 1",
-                (topic_data["name"],)
+                (topic,)
             )
 
             return cursor.fetchone() is not None
@@ -3383,12 +3387,12 @@ class DatabaseQueryFacade:
 
             return cursor.fetchone()[0]
 
-    def update_media_bias(self):
+    def update_media_bias(self, source):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "UPDATE mediabias SET enabled = 1 WHERE source = ?",
-                (bias_data.get('source'),)
+                source
             )
             conn.commit()
 
@@ -3649,7 +3653,7 @@ class DatabaseQueryFacade:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            cursor.execute("SELECT raw_markdown FROM raw_articles WHERE uri = ?", (uri,))
+            cursor.execute("SELECT raw_markdown FROM raw_articles WHERE uri = ?", (url,))
 
             return cursor.fetchone()
 
@@ -3865,7 +3869,7 @@ class DatabaseQueryFacade:
                            """, (podcast_id,))
             conn.commit()
 
-    def search_for_articles_based_on_query_date_range_and_topic(self, query, topic, start_date, end_date):
+    def search_for_articles_based_on_query_date_range_and_topic(self, query, topic, start_date, end_date, limit):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
@@ -3988,7 +3992,7 @@ class DatabaseQueryFacade:
                     requests_today = excluded.requests_today,
                     last_check_time = excluded.last_check_time,
                     last_reset_date = excluded.last_reset_date
-            """, (self.requests_today, today))
+            """, params)
             conn.commit()
 
     def get_keyword_monitor_status_daily_request_limit(self):
@@ -4211,6 +4215,8 @@ class DatabaseQueryFacade:
                            """)
 
             conn.commit()
+
+            return cursor.rowcount
 
     def reset_media_bias_sources(self):
         with self.db.get_connection() as conn:

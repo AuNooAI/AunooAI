@@ -1060,7 +1060,7 @@ async def get_group_alerts(
                 # If we found bias data, ensure the source is enabled
                 if bias_data and 'enabled' in bias_data and bias_data['enabled'] == 0:
                     try:
-                        (DatabaseQueryFacade(db, logger)).update_media_bias()
+                        (DatabaseQueryFacade(db, logger)).update_media_bias(bias_data.get('source'))
                         # Update the bias data to show it's now enabled
                         bias_data['enabled'] = 1
                     except Exception as e:
