@@ -813,6 +813,51 @@ class DatabaseQueryFacade:
 
             return [row[0] for row in cursor.fetchall()]
 
+    #### EXECUTIVE SUMMARY ROUTES ####
+    def get_articles_for_market_signal_analysis(self, timeframe_days, topic_name):
+        query = """
+        SELECT uri, title, summary, future_signal, sentiment, time_to_impact, 
+               driver_type, category, publication_date, news_source
+        FROM articles 
+        WHERE topic = ? 
+        AND publication_date >= date('now', '-{} days')
+        AND analyzed = 1
+        ORDER BY publication_date DESC
+        LIMIT 50
+        """.format(timeframe_days)
+
+        return self.db.fetch_all(query, (topic_name,))
+
+    def get_recent_articles_for_market_signal_analysis(self, timeframe_days, topic_name, optimal_sample_size):
+        query = """
+         SELECT uri, title, summary, future_signal, sentiment, time_to_impact, 
+                driver_type, category, publication_date, news_source
+         FROM articles 
+         WHERE topic = ? 
+         AND publication_date >= date('now', '-{} days')
+         AND analyzed = 1
+         AND (summary IS NOT NULL AND summary != '')
+         ORDER BY publication_date DESC
+         LIMIT ?
+         """.format(timeframe_days)
+
+        return self.db.fetch_all(query, (topic_name, optimal_sample_size))
+
+    def get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(self, topic_name):
+        # We need actual counts, not just the config list
+        query = """
+                SELECT future_signal, COUNT(*) as count
+                FROM articles
+                WHERE topic = ?
+                  AND future_signal IS NOT NULL
+                  AND future_signal != ''
+                  AND analyzed = 1
+                GROUP BY future_signal
+                ORDER BY count DESC \
+                """
+
+        return self.db.fetch_all(query, (topic_name,))
+
     #### TOPIC MAP ROUTES ####
     def get_unique_topics(self):
         with self.db.get_connection() as conn:
@@ -3886,14 +3931,14 @@ class DatabaseQueryFacade:
             conn.commit()
             return cursor.rowcount
 
-    def enable_or_disable_auto_ingest(self, toggle):
+    def enable_or_disable_auto_ingest(self, enabled):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                            UPDATE keyword_monitor_settings
                            SET auto_ingest_enabled = ?
                            WHERE id = 1
-                           """, (toggle.enabled,))
+                           """, (enabled,))
 
             conn.commit()
 

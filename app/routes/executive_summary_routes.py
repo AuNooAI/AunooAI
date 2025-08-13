@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.database import Database, get_database_instance
+from app.database_query_facade import DatabaseQueryFacade
 from app.security.session import verify_session
 from app.services.auspex_service import get_auspex_service
 from app.analytics import Analytics
@@ -82,18 +83,7 @@ async def get_market_signals_analysis(
         signals = await _extract_market_signals_from_analytics(analytics_data, topic_name, research)
         
         # Get recent articles for AI analysis
-        query = """
-        SELECT uri, title, summary, future_signal, sentiment, time_to_impact, 
-               driver_type, category, publication_date, news_source
-        FROM articles 
-        WHERE topic = ? 
-        AND publication_date >= date('now', '-{} days')
-        AND analyzed = 1
-        ORDER BY publication_date DESC
-        LIMIT 50
-        """.format(timeframe_days)
-        
-        articles = db.fetch_all(query, (topic_name,))
+        articles = (DatabaseQueryFacade(db, logger)).get_articles_for_market_signal_analysis(timeframe_days, topic_name)
         
         # Generate risk and opportunity cards using AI
         auspex = get_auspex_service()
@@ -121,22 +111,10 @@ async def _extract_market_signals_from_analytics(analytics_data: Dict, topic_nam
     
     try:
         # Get topic-filtered future signals with counts from the database directly
-        # We need actual counts, not just the config list
-        query = """
-        SELECT future_signal, COUNT(*) as count
-        FROM articles 
-        WHERE topic = ? 
-        AND future_signal IS NOT NULL 
-        AND future_signal != ''
-        AND analyzed = 1
-        GROUP BY future_signal
-        ORDER BY count DESC
-        """
-        
         # Use the database from analytics_data context or get a new connection
         from app.database import Database
         db = Database()
-        future_signals_data = db.fetch_all(query, (topic_name,))
+        future_signals_data = (DatabaseQueryFacade(db, logger)).get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(topic_name)
         
         # Get time to impact distribution from analytics for impact timing
         time_to_impact_data = analytics_data.get('timeToImpactDistribution', {})
@@ -558,19 +536,7 @@ async def get_ai_impact_timeline_analysis(
         logger.info(f"Using sample size: {optimal_sample_size} articles for model: {model}")
         
         # Get recent articles for the topic
-        query = """
-        SELECT uri, title, summary, future_signal, sentiment, time_to_impact, 
-               driver_type, category, publication_date, news_source
-        FROM articles 
-        WHERE topic = ? 
-        AND publication_date >= date('now', '-{} days')
-        AND analyzed = 1
-        AND (summary IS NOT NULL AND summary != '')
-        ORDER BY publication_date DESC
-        LIMIT ?
-        """.format(timeframe_days)
-        
-        articles = db.fetch_all(query, (topic_name, optimal_sample_size))
+        articles = (DatabaseQueryFacade(db, logger)).get_recent_articles_for_market_signal_analysis(timeframe_days, topic_name, optimal_sample_size)
         
         if not articles:
             raise HTTPException(

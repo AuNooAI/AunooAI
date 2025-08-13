@@ -900,7 +900,7 @@ async def save_topic(
 
         # Check if topic exists in database
         try:
-            topic_exists = (DatabaseQueryFacade(db, logger)).topic_exists(topic)
+            topic_exists = (DatabaseQueryFacade(db, logger)).topic_exists(topic_data["name"])
             logger.info(f"Topic exists in database: {topic_exists}")
         except Exception as e:
             logger.warning(f"Error checking if topic exists in database: {str(e)}")

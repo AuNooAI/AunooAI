@@ -9,7 +9,12 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # Create password context - matches the one used in the application
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__default_rounds=12,  # Adjust rounds as needed
+    bcrypt__ident="2b"         # Explicitly set bcrypt identifier
+)
 
 def update_admin_password(db_path: str, new_password: str):
     """

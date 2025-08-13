@@ -1911,14 +1911,13 @@ class BulkProcessRequest(BaseModel):
 
 @router.post("/auto-ingest/enable")
 async def enable_auto_ingest(
-    toggle: AutoIngestToggle,
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
 ):
     """Enable or disable auto-ingest functionality"""
     try:
         # Update auto_ingest_enabled setting
-        (DatabaseQueryFacade(db, logger)).enable_or_disable_auto_ingest(toggle)
+        (DatabaseQueryFacade(db, logger)).enable_or_disable_auto_ingest(True)
 
         return {
             "success": True,
@@ -1936,7 +1935,7 @@ async def disable_auto_ingest(
     session=Depends(verify_session_api)
 ):
     """Disable auto-ingest functionality"""
-    return await enable_auto_ingest(AutoIngestToggle(enabled=False), db, session)
+    return (DatabaseQueryFacade(db, logger)).enable_or_disable_auto_ingest(False)
 
 @router.get("/auto-ingest/status")
 async def get_auto_ingest_status(
