@@ -63,6 +63,7 @@ CREATE TABLE feed_items_new (
     is_hidden BOOLEAN DEFAULT FALSE,
     is_starred BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (group_id) REFERENCES feed_keyword_groups(id) ON DELETE CASCADE,
     UNIQUE(source_type, source_id, group_id)
 );
