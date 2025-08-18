@@ -496,6 +496,8 @@ class DatabaseQueryFacade:
             end_date,
             optimal_sample_size
     ):
+        # Hacky.
+        from enum import Enum
         class ConsistencyMode(str, Enum):
             DETERMINISTIC = "deterministic"  # Maximum consistency, temp=0.0
             LOW_VARIANCE = "low_variance"  # High consistency, temp=0.2
