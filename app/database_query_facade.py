@@ -488,26 +488,36 @@ class DatabaseQueryFacade:
             cursor.execute(query, (topic,))
             return cursor.fetchone()
 
-    def get_articles_with_dynamic_limit(self, params):
-        query = """
-                SELECT title, \
-                       summary, \
-                       uri, \
-                       publication_date, \
-                       sentiment, \
-                       category,
-                       future_signal, \
-                       driver_type, \
-                       time_to_impact
-                FROM articles
-                WHERE topic = ?
-                  AND publication_date >= ?
-                  AND publication_date <= ?
-                  AND (summary IS NOT NULL AND summary != '')
-                ORDER BY publication_date DESC LIMIT ? \
-                """
+    def get_articles_with_dynamic_limit(
+            self,
+            consistency_mode,
+            topic,
+            start_date,
+            end_date,
+            optimal_sample_size
+    ):
+        class ConsistencyMode(str, Enum):
+            DETERMINISTIC = "deterministic"  # Maximum consistency, temp=0.0
+            LOW_VARIANCE = "low_variance"  # High consistency, temp=0.2
+            BALANCED = "balanced"  # Good balance, temp=0.4
+            CREATIVE = "creative"  # Current behavior, temp=0.7
 
-        return self.db.fetch_all(query, params)
+        order_clause = "ORDER BY publication_date DESC, title ASC" if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE] else "ORDER BY publication_date DESC"
+
+        query = f"""
+        SELECT title, summary, uri, publication_date, sentiment, category, 
+               future_signal, driver_type, time_to_impact
+        FROM articles 
+        WHERE topic = ? 
+        AND publication_date >= ? 
+        AND publication_date <= ?
+        AND (summary IS NOT NULL AND summary != '')
+        {order_clause}
+        LIMIT ?
+        """
+        # Fetch more articles for deterministic selection to ensure good diversity
+        fetch_multiplier = 2 if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE] else 1
+        return self.db.fetch_all(query, (topic, start_date.isoformat(), end_date.isoformat(), optimal_sample_size * fetch_multiplier))
 
     def get_organisational_profile(self, profile_id):
         profile_query = """
