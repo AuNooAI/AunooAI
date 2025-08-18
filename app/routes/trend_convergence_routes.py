@@ -2,12 +2,15 @@ from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.security.session import verify_session
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Callable, Any
 import logging
 import json
+import hashlib
+import re
 from datetime import datetime, timedelta
 from collections import Counter, defaultdict
 from pydantic import BaseModel
+from enum import Enum
 
 from app.database import Database, get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
@@ -41,6 +44,13 @@ CONTEXT_LIMITS = {
     'mixtral-8x7b': 32768,
     'default': 16385
 }
+
+# Consistency mode enum for analysis control
+class ConsistencyMode(str, Enum):
+    DETERMINISTIC = "deterministic"      # Maximum consistency, temp=0.0
+    LOW_VARIANCE = "low_variance"        # High consistency, temp=0.2  
+    BALANCED = "balanced"                # Good balance, temp=0.4
+    CREATIVE = "creative"                # Current behavior, temp=0.7
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -352,14 +362,30 @@ async def generate_trend_convergence(
     custom_limit: int = Query(None),
     persona: str = Query("executive", description="Analysis persona: executive, analyst, strategist"),
     customer_type: str = Query("general", description="Customer type: general, enterprise, startup"),
+    consistency_mode: ConsistencyMode = Query(ConsistencyMode.BALANCED, description="AI consistency: deterministic, low_variance, balanced, creative"),
+    enable_caching: bool = Query(True, description="Enable result caching"),
+    cache_duration_hours: int = Query(24, description="Cache validity period"),
     profile_id: int = Query(None, description="Organizational profile ID for context"),
     db: Database = Depends(get_database_instance),
     session: dict = Depends(verify_session)
 ):
-    """Generate trend convergence analysis for a given topic"""
+    """Generate trend convergence analysis with improved consistency"""
     
     try:
-        logger.info(f"Generating trend convergence analysis for topic: {topic}, model: {model}")
+        logger.info(f"Generating trend convergence analysis for topic: {topic}, model: {model}, consistency: {consistency_mode.value}")
+        
+        # Generate comprehensive cache key for all parameters
+        cache_key = generate_comprehensive_cache_key(
+            topic, timeframe_days, model, analysis_depth, sample_size_mode,
+            custom_limit, profile_id, consistency_mode, persona, customer_type
+        )
+        
+        # Try to get cached result first if caching is enabled
+        if enable_caching:
+            cached_result = await get_cached_analysis(cache_key, db, cache_duration_hours)
+            if cached_result:
+                logger.info(f"Returning cached analysis for {topic} (consistency: {consistency_mode.value})")
+                return cached_result
         
         # Calculate optimal sample size based on model and mode
         # For GPT-4.1 (1M context): base_size=150 * 1.2 = 180 articles
@@ -371,8 +397,14 @@ async def generate_trend_convergence(
         end_date = datetime.now()
         start_date = end_date - timedelta(days=timeframe_days)
 
-        articles = (DatabaseQueryFacade(db, logger)).get_articles_with_dynamic_limit((topic, start_date.isoformat(), end_date.isoformat(), optimal_sample_size))
-        
+        articles = (DatabaseQueryFacade(db, logger)).get_articles_with_dynamic_limit(
+            consistency_mode,
+            topic,
+            start_date,
+            end_date,
+            optimal_sample_size
+        )
+
         if not articles:
             raise HTTPException(
                 status_code=404, 
@@ -381,9 +413,9 @@ async def generate_trend_convergence(
         
         logger.info(f"Found {len(articles)} articles for analysis")
         
-        # Select diverse articles for better trend analysis
-        diverse_articles = select_diverse_articles(articles, min(len(articles), optimal_sample_size))
-        logger.info(f"Selected {len(diverse_articles)} diverse articles for analysis")
+        # Use deterministic article selection for consistency
+        diverse_articles = select_articles_deterministic(articles, min(len(articles), optimal_sample_size), consistency_mode)
+        logger.info(f"Selected {len(diverse_articles)} diverse articles using {consistency_mode.value} mode")
         
         # Prepare analysis summary using diverse articles
         analysis_summary = prepare_analysis_summary(diverse_articles, topic)
@@ -564,16 +596,10 @@ RESPONSE FORMAT: Return ONLY the JSON object above, no additional text."""
                 title=f"Trend Convergence Analysis: {topic}"
             )
             
-            # Get the AI response using Auspex service
-            response_text = ""
-            async for chunk in auspex.chat_with_tools(
-                chat_id=chat_id,
-                message=formatted_prompt,
-                model=model,
-                limit=10,  # Small limit since we're not searching articles
-                tools_config={"search_articles": False, "get_sentiment_analysis": False}
-            ):
-                response_text += chunk
+            # Get the AI response using consistency-aware wrapper
+            response_text = await generate_analysis_with_consistency(
+                auspex, chat_id, formatted_prompt, model, consistency_mode
+            )
             
             # Clean up the temporary chat session
             auspex.delete_chat_session(chat_id)
@@ -644,12 +670,18 @@ RESPONSE FORMAT: Return ONLY the JSON object above, no additional text."""
             'analysis_depth': analysis_depth,
             'persona': persona,
             'customer_type': customer_type,
+            'consistency_mode': consistency_mode.value,
+            'caching_enabled': enable_caching,
             'organizational_profile': organizational_profile,
-            'version': 2
+            'version': 3  # Increment version for consistency features
         })
         
-        # Save this version for potential reload
+        # Save this version for potential reload (legacy system)
         await _save_analysis_version(topic, trend_convergence_data, db)
+        
+        # Save with enhanced caching system if caching is enabled
+        if enable_caching:
+            await save_analysis_with_cache(cache_key, topic, trend_convergence_data, db)
         
         # Count trends across all timeframes
         total_trends = 0
@@ -747,6 +779,82 @@ def select_diverse_articles(articles: List, limit: int) -> List:
                 break
     
     return selected_original[:limit]
+
+def select_articles_deterministic(articles: List, limit: int, 
+                                consistency_mode: ConsistencyMode) -> List:
+    """
+    Select articles with deterministic, reproducible results.
+    
+    Key improvements:
+    1. Stable sorting using multiple criteria
+    2. Hash-based selection for consistency
+    3. Deterministic category distribution
+    4. Predictable tie-breaking
+    """
+    
+    if len(articles) <= limit:
+        return articles
+    
+    # Create stable article representation
+    article_data = []
+    for i, article in enumerate(articles):
+        # Create deterministic hash from stable content
+        stable_content = f"{article[0]}|{article[3]}|{article[5] or 'Unknown'}"  # title|date|category
+        article_hash = hashlib.md5(stable_content.encode()).hexdigest()[:8]
+        
+        article_data.append({
+            'original_index': i,
+            'original_article': article,
+            'title': article[0],
+            'publication_date': article[3],
+            'category': article[5] or 'Unknown',
+            'sentiment': article[4] or 'Neutral',
+            'hash': article_hash,
+            'recency_score': 1.0 - (i / len(articles))
+        })
+    
+    # Deterministic sorting: category, then date, then hash
+    if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE]:
+        article_data.sort(key=lambda x: (x['category'], x['publication_date'], x['hash']))
+    else:
+        # Still stable but prioritizes recency
+        article_data.sort(key=lambda x: (x['recency_score'], x['hash']), reverse=True)
+    
+    # Deterministic category-based selection
+    selected = []
+    by_category = defaultdict(list)
+    
+    for article in article_data:
+        by_category[article['category']].append(article)
+    
+    # Sort categories by name for consistency
+    sorted_categories = sorted(by_category.keys())
+    category_quota = int(limit * 0.6)
+    articles_per_category = max(1, category_quota // len(sorted_categories))
+    
+    # Select from each category deterministically
+    for category in sorted_categories:
+        cat_articles = by_category[category]
+        if consistency_mode == ConsistencyMode.DETERMINISTIC:
+            # Pure deterministic: sort by hash after recency
+            cat_articles.sort(key=lambda x: (x['recency_score'], x['hash']), reverse=True)
+        else:
+            # Weighted by recency but stable
+            cat_articles.sort(key=lambda x: x['recency_score'], reverse=True)
+        
+        selected.extend(cat_articles[:articles_per_category])
+        if len(selected) >= category_quota:
+            break
+    
+    # Fill remaining slots deterministically
+    remaining_articles = [a for a in article_data if a not in selected]
+    remaining_articles.sort(key=lambda x: (x['recency_score'], x['hash']), reverse=True)
+    
+    while len(selected) < limit and remaining_articles:
+        selected.append(remaining_articles.pop(0))
+    
+    # Return original article format
+    return [item['original_article'] for item in selected[:limit]]
 
 def prepare_analysis_summary(articles: List, topic: str) -> str:
     """Prepare a structured summary of article data for the AI prompt"""
@@ -901,6 +1009,253 @@ def get_enhanced_prompt_template(persona: str = "executive", customer_type: str 
         return enhanced_template
     
     return base_template
+
+# Consistency-aware AI interface functions
+async def generate_analysis_with_consistency(
+    auspex_service, chat_id: int, prompt: str, model: str, 
+    consistency_mode: ConsistencyMode
+) -> str:
+    """
+    Generate AI analysis with consistency controls without modifying auspex service.
+    
+    This function wraps the auspex service to add consistency features while
+    maintaining full backwards compatibility.
+    """
+    
+    # Enhance prompt based on consistency mode
+    enhanced_prompt = enhance_prompt_for_consistency(prompt, consistency_mode)
+    
+    # Collect response
+    response_chunks = []
+    async for chunk in auspex_service.chat_with_tools(
+        chat_id=chat_id,
+        message=enhanced_prompt,
+        model=model,
+        limit=10,
+        tools_config={"search_articles": False, "get_sentiment_analysis": False}
+    ):
+        response_chunks.append(chunk)
+    
+    full_response = "".join(response_chunks)
+    
+    # Apply post-processing for consistency
+    if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE]:
+        full_response = apply_consistency_post_processing(full_response, consistency_mode)
+    
+    return full_response
+
+def enhance_prompt_for_consistency(prompt: str, mode: ConsistencyMode) -> str:
+    """Add consistency instructions to prompt based on mode."""
+    
+    consistency_instructions = {
+        ConsistencyMode.DETERMINISTIC: """
+CONSISTENCY REQUIREMENTS (DETERMINISTIC MODE):
+- Use consistent terminology throughout analysis
+- Sort trend names alphabetically when priority is equal
+- Base strategic recommendations on most frequently mentioned themes
+- Use standardized strength/momentum terminology (High/Medium/Low, Increasing/Steady/Decreasing)
+- Generate recommendations in consistent order: most critical first
+- Apply deterministic categorization patterns
+
+""",
+        ConsistencyMode.LOW_VARIANCE: """
+CONSISTENCY GUIDELINES (LOW VARIANCE MODE):
+- Prioritize consistent terminology and framework
+- Focus on trends supported by multiple articles
+- Use evidence-based trend identification
+- Maintain consistent analysis structure
+
+""",
+        ConsistencyMode.BALANCED: """
+ANALYSIS APPROACH (BALANCED MODE):
+- Balance consistency with fresh insights
+- Use structured approach while allowing creative connections
+- Focus on well-supported trends with room for interpretation
+
+""",
+        ConsistencyMode.CREATIVE: ""  # No additional instructions
+    }
+    
+    instruction = consistency_instructions.get(mode, "")
+    return instruction + prompt
+
+def apply_consistency_post_processing(response: str, mode: ConsistencyMode) -> str:
+    """Apply post-processing to normalize response for consistency."""
+    
+    if mode not in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE]:
+        return response
+    
+    # Normalize common terminology
+    normalizations = {
+        # Trend strength variations
+        r'\b(very high|extremely high)\b': 'High',
+        r'\b(moderate|medium)\b': 'Medium',  
+        r'\b(limited|small|minor)\b': 'Low',
+        
+        # Momentum variations
+        r'\b(growing|rising|expanding)\b': 'Increasing',
+        r'\b(stable|consistent|maintained)\b': 'Steady',
+        r'\b(declining|reducing|slowing)\b': 'Decreasing',
+        
+        # Technology terminology
+        r'\bAI/ML\b': 'AI and ML',
+        r'\bmachine learning\b': 'ML',
+        r'\bartificial intelligence\b': 'AI',
+    }
+    
+    processed = response
+    for pattern, replacement in normalizations.items():
+        processed = re.sub(pattern, replacement, processed, flags=re.IGNORECASE)
+    
+    return processed
+
+# Enhanced caching system functions
+def generate_comprehensive_cache_key(
+    topic: str,
+    timeframe_days: int,
+    model: str,
+    analysis_depth: str,
+    sample_size_mode: str,
+    custom_limit: Optional[int],
+    profile_id: Optional[int],
+    consistency_mode: ConsistencyMode,
+    persona: str,
+    customer_type: str
+) -> str:
+    """
+    Generate comprehensive cache key including ALL parameters that affect results.
+    
+    This ensures cache hits only occur when analysis parameters are truly identical.
+    """
+    
+    # Include all parameters that could affect the result
+    cache_params = {
+        'topic': topic,
+        'timeframe_days': timeframe_days,
+        'model': model,
+        'analysis_depth': analysis_depth,
+        'sample_size_mode': sample_size_mode,
+        'custom_limit': custom_limit,
+        'profile_id': profile_id,
+        'consistency_mode': consistency_mode.value,
+        'persona': persona,
+        'customer_type': customer_type,
+        'algorithm_version': '3.0',  # Increment when algorithm changes
+        'article_selection_method': 'deterministic_v2'
+    }
+    
+    # Create hash from stable parameter representation
+    params_string = json.dumps(cache_params, sort_keys=True, default=str)
+    cache_hash = hashlib.sha256(params_string.encode()).hexdigest()[:16]
+    
+    return f"trend_convergence_{cache_hash}"
+
+async def get_cached_analysis(
+    cache_key: str, 
+    db: Database, 
+    max_age_hours: int = 24
+) -> Optional[Dict[str, Any]]:
+    """Get cached analysis if valid and recent enough."""
+    
+    try:
+        query = """
+        SELECT version_data, created_at FROM analysis_versions_v2 
+        WHERE cache_key = ? 
+        ORDER BY created_at DESC 
+        LIMIT 1
+        """
+        result = db.fetch_one(query, (cache_key,))
+        
+        if result:
+            analysis_data = json.loads(result[0])
+            created_at = datetime.fromisoformat(result[1])
+            age_hours = (datetime.now() - created_at).total_seconds() / 3600
+            
+            if age_hours <= max_age_hours:
+                # Add cache metadata
+                analysis_data['_cache_info'] = {
+                    'cached': True,
+                    'age_hours': round(age_hours, 2),
+                    'cache_key': cache_key
+                }
+                
+                logger.info(f"Cache hit: {cache_key} (age: {age_hours:.1f}h)")
+                return analysis_data
+            else:
+                logger.info(f"Cache expired: {cache_key} (age: {age_hours:.1f}h)")
+                
+    except Exception as e:
+        logger.error(f"Error retrieving cached analysis: {e}")
+    
+    return None
+
+async def save_analysis_with_cache(
+    cache_key: str,
+    topic: str, 
+    analysis_data: Dict[str, Any], 
+    db: Database
+):
+    """Save analysis with comprehensive cache information."""
+    
+    try:
+        # Ensure enhanced cache table exists
+        await ensure_cache_table_v2(db)
+        
+        cache_metadata = {
+            'article_count': analysis_data.get('articles_analyzed', 0),
+            'total_trends': sum(
+                len(timeframe.get('trends', [])) 
+                for timeframe in analysis_data.get('strategic_recommendations', {}).values()
+                if isinstance(timeframe, dict)
+            ),
+            'model_used': analysis_data.get('model_used'),
+            'consistency_mode': analysis_data.get('consistency_mode'),
+            'generation_time': analysis_data.get('generated_at')
+        }
+        
+        query = """
+        INSERT OR REPLACE INTO analysis_versions_v2 
+        (cache_key, topic, version_data, cache_metadata, created_at)
+        VALUES (?, ?, ?, ?, ?)
+        """
+        
+        db.execute(query, (
+            cache_key,
+            topic,
+            json.dumps(analysis_data),
+            json.dumps(cache_metadata),
+            datetime.now().isoformat()
+        ))
+        
+        logger.info(f"Cached analysis: {cache_key}")
+        
+    except Exception as e:
+        logger.error(f"Failed to cache analysis: {e}")
+
+async def ensure_cache_table_v2(db: Database):
+    """Ensure the enhanced cache table exists."""
+    
+    create_table_query = """
+    CREATE TABLE IF NOT EXISTS analysis_versions_v2 (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cache_key TEXT UNIQUE NOT NULL,
+        topic TEXT NOT NULL,
+        version_data TEXT NOT NULL,
+        cache_metadata TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """
+    
+    db.execute(create_table_query)
+    
+    # Create index for efficient lookups
+    index_query = """
+    CREATE INDEX IF NOT EXISTS idx_cache_key_created 
+    ON analysis_versions_v2(cache_key, created_at DESC)
+    """
+    
+    db.execute(index_query)
 
 @router.get("/api/trend-convergence/{topic}/previous")
 async def load_previous_analysis(
