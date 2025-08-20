@@ -32,7 +32,7 @@ def run_migration(migration_file, db_path=None):
         return False
     
     # Read migration SQL
-    with open(mig_path, 'r') as f:
+    with open(mig_path, 'r', encoding='utf-8') as f:
         sql = f.read()
     
     # Connect to database

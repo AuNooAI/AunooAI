@@ -2177,7 +2177,7 @@
 
                 <!-- System Actions Group -->
                 <div class="button-group" style="display: flex; gap: 2px; margin-right: 12px; padding: 2px; background: rgba(33, 37, 41, 0.1); border-radius: 4px;">
-                    <button class="btn-square" onclick="toggleHiddenItems()" title="Show/Hide Hidden Articles">
+                    <button class="btn-square" id="showHideArticleBtn" onclick="toggleHiddenItems()" title="Show/Hide Hidden Articles">
                         <i class="fas fa-eye-slash"></i>
                     </button>
                     <button class="btn-square" onclick="toggleCustomizePanel()" title="Customize Dashboard">
@@ -2486,7 +2486,7 @@ let feedItems = [];
 let allFeedItems = []; // Store all items for client-side filtering
 let currentPage = 0;
 let hasMoreItems = true;
-let showHidden = false;
+
 let isInitializing = true;
 let currentViewMode = 'tabs'; // 'tabs' or 'columns'
 let autoRefreshInterval = null;
@@ -2500,7 +2500,6 @@ let columnLoading = { bluesky: false, arxiv: false, thenewsapi: false }; // Trac
 let columnSelectedItems = { bluesky: [], arxiv: [], thenewsapi: [] }; // Track selected items per column
 
 // Multi-combination filter state
-let activeCombinations = [];
 let combinationCounter = 0;
 let mediabiasCache = {}; // Cache for media bias data
 const COLUMN_BATCH_SIZE = 50; // Items to load per batch for infinite scroll
@@ -2511,19 +2510,19 @@ let currentFilters = {
     search: '',
     dateRange: '',
     author: '',
+    starred: '',
+    topic: '',
+    showHidden: false,
     minEngagement: '',
     layout: 'cards',
     combinations: [] // <-- Add combinations to filter state
 };
+const currentFiltersInitialState = {...currentFilters};
 
 // Cache keys for localStorage
 const CACHE_KEYS = {
-    FILTERS: 'aunoo_feed_filters',
-    LAYOUT: 'aunoo_feed_layout',
-    HIDDEN_ITEMS: 'aunoo_hidden_items',
-    STARRED_ITEMS: 'aunoo_starred_items',
     LAST_GROUP: 'aunoo_last_group',
-    VIEW_MODE: 'aunoo_view_mode',
+    VIEW_MODE: 'aunoo_view_mode', 
     AUTO_REFRESH: 'aunoo_auto_refresh',
     COLUMN_REFRESH: 'aunoo_column_refresh'
 };
@@ -2593,20 +2592,12 @@ function hideInfiniteScrollLoader() {
 
 async function initializeDashboard() {
     try {
-        // Load cached preferences first
-        loadCachedPreferences();
-        
+
         // Load view mode and auto-refresh settings
         const cachedViewMode = localStorage.getItem(CACHE_KEYS.VIEW_MODE) || 'tabs';
         const cachedAutoRefresh = parseInt(localStorage.getItem(CACHE_KEYS.AUTO_REFRESH) || '0');
         const cachedColumnRefresh = JSON.parse(localStorage.getItem(CACHE_KEYS.COLUMN_REFRESH) || '{}');
         
-        // Apply cached layout immediately after preferences load
-        const layoutSelector = document.getElementById('layoutMode');
-        if (layoutSelector && currentFilters.layout) {
-            layoutSelector.value = currentFilters.layout;
-            console.log('Initial layout set to:', currentFilters.layout);
-        }
         
         await loadFeedGroups();
         console.log('DEBUG: Loaded feed groups:', feedGroups);
@@ -2619,6 +2610,7 @@ async function initializeDashboard() {
             console.log('DEBUG: Last group from cache:', lastGroup);
             
             await renderFeedTabs();
+            await loadFilters();
             await loadFeedItems();
         } else {
             console.log('DEBUG: No feed groups found');
@@ -2660,52 +2652,123 @@ async function initializeDashboard() {
     }
 }
 
-function loadCachedPreferences() {
+async function loadFilters() {
     try {
-        // Load cached filters
-        const cachedFilters = localStorage.getItem(CACHE_KEYS.FILTERS);
-        if (cachedFilters) {
-            Object.assign(currentFilters, JSON.parse(cachedFilters));
-            
-            // Apply to UI elements
-            document.getElementById('sourceFilter').value = currentFilters.source || '';
-            document.getElementById('sortBy').value = currentFilters.sort || 'publication_date';
-            document.getElementById('itemsPerPage').value = currentFilters.limit || 50;
-            document.getElementById('searchInput').value = currentFilters.search || '';
-            document.getElementById('starredFilter').value = currentFilters.starred || '';
-
-            // Apply layout mode if saved
-            const layoutSelector = document.getElementById('layoutMode');
-            if (layoutSelector && currentFilters.layout) {
-                layoutSelector.value = currentFilters.layout;
-                // Also apply the layout class to the container
-                const feedItemsContainer = document.getElementById('feedItems');
-                if (feedItemsContainer) {
-                    feedItemsContainer.className = `feed-items layout-${currentFilters.layout}`;
-                }
-            }
-            // Restore combination filter UI
-            if (currentFilters.combinations && Array.isArray(currentFilters.combinations)) {
-                activeCombinations = [...currentFilters.combinations];
-                if (activeCombinations.length > 0) {
-                    disableSourceAndDateRangeFilters();
-                }
-                updateCombinationList();
-            }
+        const response = await fetch(`/api/filters/${currentFeedGroup}`);
+        console.log('DEBUG: loadFilters response status:', response.status);
+        
+        // Fetch filters for the current group and update currentFilters and UI
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+
+        const result = await response.json();
+        console.log('DEBUG: Loaded filters from database:', result);
+        
+        if (result.success && result.filters) {
+            // Map API fields to currentFilters structure
+            const filters = result.filters;
+            currentFilters.source = filters.source_type || '';
+            currentFilters.sort = filters.sort_by || '';
+            currentFilters.limit = filters.limit_count || 50;
+            currentFilters.search = filters.search_term || '';
+            currentFilters.dateRange = filters.date_range || '';
+            currentFilters.author = filters.author_filter || '';
+            currentFilters.minEngagement = filters.min_engagement || '';
+            currentFilters.starred = filters.starred_filter || '';
+            currentFilters.showHidden = filters.include_hidden || false;
+            currentFilters.layout = filters.layout_mode || 'cards';
+            currentFilters.topic = filters.topic_filter || '';
+            currentFilters.combinations = filters.source_date_combinations || [];
+
+        } else {
+            console.log('DEBUG: No filters found or API returned failure');
+        }
+        
+        // Update UI elements to reflect loaded filters
+        document.getElementById('sourceFilter').value = currentFilters.source;
+        document.getElementById('sortBy').value = currentFilters.sort;
+        document.getElementById('itemsPerPage').value = currentFilters.limit;
+        document.getElementById('searchInput').value = currentFilters.search;
+        document.getElementById('dateFilter').value = currentFilters.dateRange;
+        document.getElementById('authorFilter').value = currentFilters.author;
+        document.getElementById('engagementFilter').value = currentFilters.minEngagement;
+        document.getElementById('starredFilter').value = currentFilters.starred;
+        document.getElementById('topicFilter').value = currentFilters.topic;
+        document.getElementById('layoutMode').value = currentFilters.layout;
+
+        // Update show/hide button
+        updateShowHideBtn();
+
+        // update combination list
+        updateCombinationList();
+
+        if (currentFilters.combinations.length > 0) {
+            disableSourceAndDateRangeFilters();
+        }
+        
+        // update layout class
+        const feedItemsContainer = document.getElementById('feedItems');
+        feedItemsContainer.className = `feed-items layout-${currentFilters.layout}`;
+
     } catch (error) {
-        console.error('Error loading cached preferences:', error);
+        console.error('Error loading filters:', error);
     }
 }
 
-function savePreferencesToCache() {
+async function saveFilters() {
     try {
-        localStorage.setItem(CACHE_KEYS.FILTERS, JSON.stringify(currentFilters));
-        if (currentFeedGroup) {
-            localStorage.setItem(CACHE_KEYS.LAST_GROUP, currentFeedGroup.toString());
+        console.log('DEBUG: saveFilters called with currentFeedGroup:', currentFeedGroup);
+        
+        // Map currentFilters to the API payload structure
+        const payload = {
+            source_type: currentFilters.source,
+            sort_by: currentFilters.sort,
+            limit_count: currentFilters.limit,               
+            search_term: currentFilters.search,
+            date_range: currentFilters.dateRange,
+            author_filter: currentFilters.author,
+            min_engagement: currentFilters.minEngagement,
+            starred_filter: currentFilters.starred,
+            include_hidden: currentFilters.showHidden,
+            layout_mode: currentFilters.layout,
+            topic_filter: currentFilters.topic,
+            source_date_combinations: currentFilters.combinations
+        };
+        console.log('DEBUG: Saving filters payload:', payload);
+
+        const endpoint = `/api/filters/${currentFeedGroup}`
+        console.log('DEBUG: API endpoint:', endpoint);
+        
+        const options = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
         }
+
+        const response = await fetch(endpoint, options);
+        
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const result =  await response.json();
+        console.log('DEBUG: API response:', result);
+
+        if (result.success) {
+            console.log('Filters saved successfully to database');
+        } else {
+            console.error('Failed to save filters:', result);
+        }
+
+        //save current feed group to cache
+        localStorage.setItem(CACHE_KEYS.LAST_GROUP, currentFeedGroup.toString());
+
     } catch (error) {
-        console.error('Error saving preferences to cache:', error);
+        console.error('Error saving filters to database:', error);
     }
 }
 
@@ -2835,6 +2898,8 @@ function refreshTabCounters() {
 }
 
 async function switchFeedGroup(groupId) {
+    // update currentFilters to inital state
+    currentFilters = {...currentFiltersInitialState};
     console.log('DEBUG: Switching to feed group:', groupId);
     currentFeedGroup = groupId;
     currentPage = 0;
@@ -2847,7 +2912,7 @@ async function switchFeedGroup(groupId) {
                         (groupId !== null && parseInt(tabGroupId) === groupId);
         tab.classList.toggle('active', isActive);
     });
-    
+    await loadFilters();
     await loadFeedItems();
 }
 
@@ -2865,7 +2930,7 @@ async function loadFeedItems(append = false) {
         const params = new URLSearchParams({
             limit: currentFilters.limit,
             offset: currentPage * currentFilters.limit,
-            include_hidden: showHidden
+            include_hidden: currentFilters.showHidden
         });
         
         // If combination filter is active, use it for backend query
@@ -3588,7 +3653,7 @@ async function hideItem(itemId) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         
         // Remove from current view if not showing hidden items
-        if (!showHidden) {
+        if (!currentFilters.showHidden) {
             feedItems = feedItems.filter(item => item.id !== itemId);
             renderFeedItems();
         }
@@ -3749,13 +3814,9 @@ function applyFilters() {
     if (layoutSelector) {
         currentFilters.layout = layoutSelector.value;
     }
-    
-    // Always keep combinations in sync
-    currentFilters.combinations = [...activeCombinations];
-    
-    // Save to cache
-    savePreferencesToCache();
-    
+
+    // save filters to database 
+    saveFilters();
     // Always reset pagination when applying filters
     currentPage = 0;
     hasMoreItems = true;
@@ -3861,7 +3922,7 @@ function changeLayout() {
     console.log('DEBUG: Changing layout to:', layout);
     
     currentFilters.layout = layout;
-    savePreferencesToCache();
+    saveFilters();
     
     const feedItemsContainer = document.getElementById('feedItems');
     feedItemsContainer.className = `feed-items layout-${layout}`;
@@ -3895,22 +3956,8 @@ function saveCustomizations() {
 
 function resetCustomizations() {
     // Reset all filters
-    currentFilters = {
-        source: '',
-        sort: 'publication_date',
-        limit: 50,
-        search: '',
-        dateRange: '',
-        author: '',
-        minEngagement: '',
-        starred: '',
-        layout: 'cards',
-        topic: '',
-        combinations: [] // <-- Add combinations to filter state
-    };
-    
-    // Clear cache
-    localStorage.removeItem(CACHE_KEYS.FILTERS);
+    currentFilters = {...currentFiltersInitialState};
+    saveFilters();
     
     // Reset UI
     document.getElementById('sourceFilter').value = '';
@@ -3923,21 +3970,34 @@ function resetCustomizations() {
     if (document.getElementById('engagementFilter')) document.getElementById('engagementFilter').value = '';
     document.getElementById('layoutMode').value = 'cards';
     document.getElementById('topicFilter').value = '';
+    document.getElementById('showHideArticleBtn').checked = false;
     
     // Apply changes
     changeLayout();
-    applyFilters();
+    loadFilters();
     
     showSuccess('Preferences reset to defaults!');
 }
 
+function updateShowHideBtn() {
+    const toggleBtn = document.getElementById('showHideArticleBtn');
+    
+    if (currentFilters.showHidden) {
+        toggleBtn.innerHTML = '<i class="fas fa-eye"></i>';
+        toggleBtn.title = 'Hide Hidden Articles';
+    } else {
+        toggleBtn.innerHTML = '<i class="fas fa-eye-slash"></i>';
+        toggleBtn.title = 'Show Hidden Articles';
+    }
+}
+
 function toggleHiddenItems() {
-    showHidden = !showHidden;
+    currentFilters.showHidden = !currentFilters.showHidden;
     
     // Update square button icon and tooltip
     const toggleBtn = event.target.closest('button');
     if (toggleBtn) {
-        if (showHidden) {
+        if (currentFilters.showHidden) {
             toggleBtn.innerHTML = '<i class="fas fa-eye"></i>';
             toggleBtn.title = 'Hide Hidden Articles';
         } else {
@@ -3948,6 +4008,7 @@ function toggleHiddenItems() {
     
     currentPage = 0;
     hasMoreItems = true;
+    saveFilters();
     loadFeedItems();
 }
 
@@ -7194,7 +7255,7 @@ function toggleMultiFilter() {
 
 function addCombination() {
     // Disable source and date range filters if this is the first combination
-    const isFirstCombination = activeCombinations.length === 0;
+    const isFirstCombination = currentFilters.combinations.length === 0;
     if (isFirstCombination) {
         disableSourceAndDateRangeFilters();
     }
@@ -7213,7 +7274,7 @@ function addCombination() {
     const dateText = dateSelect.options[dateSelect.selectedIndex].text;
     
     // Check if source already exists (regardless of date)
-    const existingCombination = activeCombinations.find(combo => 
+    const existingCombination = currentFilters.combinations.find(combo => 
         combo.source === sourceValue
     );
     
@@ -7231,7 +7292,7 @@ function addCombination() {
             dateText: dateText
         };
         
-        activeCombinations.push(combination);
+        currentFilters.combinations.push(combination);
     }
     
     // Reset form
@@ -7243,8 +7304,8 @@ function addCombination() {
 }
 
 function removeCombination(id) {
-    activeCombinations = activeCombinations.filter(combo => combo.id !== id);
-    if (activeCombinations.length === 0) {
+    currentFilters.combinations = currentFilters.combinations.filter(combo => combo.id !== id);
+    if (currentFilters.combinations.length === 0) {
         enableSourceAndDateRangeFilters();
     }
     updateCombinationList();
@@ -7252,7 +7313,7 @@ function removeCombination(id) {
 }
 
 function clearAllCombinations() {
-    activeCombinations = [];
+    currentFilters.combinations = [];
     enableSourceAndDateRangeFilters();
     updateCombinationList();
     applyFilters();
@@ -7262,7 +7323,7 @@ function updateCombinationList() {
     const container = document.getElementById('combinationList');
     const clearAllBtn = document.getElementById('clearAllBtn');
     
-    if (activeCombinations.length === 0) {
+    if (currentFilters.combinations.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
                 <div class="empty-state-icon">🔍</div>
@@ -7276,7 +7337,7 @@ function updateCombinationList() {
     clearAllBtn.style.display = 'block';
     container.innerHTML = '';
     
-    activeCombinations.forEach(combo => {
+    currentFilters.combinations.forEach(combo => {
         const item = document.createElement('div');
         item.className = 'combination-item';
         item.innerHTML = `

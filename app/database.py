@@ -119,6 +119,9 @@ class Database:
             # Create ontology tables (building_blocks, scenarios, scenario_blocks)
             self.create_ontology_tables()
             
+            # Create vantage desk filters table
+            self.create_vantage_desk_filters_table()
+            
             # Run migrations to ensure schema is up to date
             self.migrate_db()
             
@@ -2534,6 +2537,106 @@ Remember to cite your sources and provide actionable insights where possible."""
                 'updated_at': row[7],
                 'user_created': row[8]
             }
+
+    # Vantage Desk Filter Methods
+    def create_vantage_desk_filters_table(self):
+        """Create the vantage_desk_filters table if it does not exist."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS vantage_desk_filters (
+                    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_key             TEXT    NOT NULL,
+                    group_id             INTEGER,
+                    source_type          TEXT,
+                    sort_by              TEXT       DEFAULT 'publication_date',
+                    limit_count          INTEGER    DEFAULT 50,
+                    search_term          TEXT,
+                    date_range           TEXT,
+                    author_filter        TEXT,
+                    min_engagement       INTEGER,
+                    starred_filter       TEXT,
+                    include_hidden       BOOLEAN    DEFAULT 0,
+                    layout_mode          TEXT       DEFAULT 'cards',
+                    topic_filter         TEXT,
+                    source_date_combinations TEXT
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_vdf_user ON vantage_desk_filters (user_key)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_vdf_user_group ON vantage_desk_filters (user_key, group_id)")
+            conn.commit()
+   
+    def upsert_vantage_desk_filters(self, user_key: str, group_id: int = None, **filters) -> int:
+        """
+        Insert or update a user's Vantage Desk filter preset.
+        The unique key is (user_key, group_id) where group_id may be NULL.
+        Returns the row id.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Encode JSON-able field source_date_combinations
+            if 'source_date_combinations' in filters and isinstance(filters['source_date_combinations'], (list, dict)):
+                filters['source_date_combinations'] = json.dumps(filters['source_date_combinations'])
+
+            # Prepare placeholders and update params for update query
+            placeholders = ", ".join([f"{k} = ?" for k in filters.keys()])
+            update_params = [v for k, v in filters.items()]
+
+            # Add user_key and group_id to filters for insert query
+            filters['user_key'] = user_key
+            filters['group_id'] = group_id
+            
+            # Prepare placeholders and insert params for insert query
+            insert_cols = ", ".join(filters.keys())
+            insert_values = ", ".join(["?" for _ in filters.keys()])
+            insert_params = list(filters.values())
+
+            # Try UPDATE first
+            cursor.execute(
+                f"UPDATE vantage_desk_filters SET {placeholders} WHERE user_key = ? AND group_id IS ?",
+                update_params + [user_key, group_id]
+            )
+            
+            if cursor.rowcount == 0:
+                # Insert if no rows were updated
+                cursor.execute(
+                    f"INSERT INTO vantage_desk_filters ({insert_cols}) VALUES ({insert_values})",
+                    insert_params
+                )
+                conn.commit()
+                return cursor.lastrowid
+            else:
+                # Get the id of the updated row
+                cursor.execute(
+                    "SELECT id FROM vantage_desk_filters WHERE user_key = ? AND group_id IS ?",
+                    (user_key, group_id)
+                )
+                result = cursor.fetchone()
+                conn.commit()
+                return result[0] if result else None
+
+    def get_vantage_desk_filters(self, user_key: str, group_id: int = None) -> Optional[Dict]:
+        """Retrieve the saved filter preset for a user (and optionally a specific group)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM vantage_desk_filters WHERE user_key = ? AND group_id IS ? LIMIT 1",
+                (user_key, group_id)
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            columns = [desc[0] for desc in cursor.description]
+            result = dict(zip(columns, row))
+
+            # Try to decode json column source_date_combinations
+            if result.get('source_date_combinations'):
+                try:
+                    result['source_date_combinations'] = json.loads(result['source_date_combinations'])
+                except json.JSONDecodeError:
+                    pass
+            return result
 
 # Use the static method for DATABASE_URL
 DATABASE_URL = f"sqlite:///./{Database.get_active_database()}"
