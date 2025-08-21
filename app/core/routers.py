@@ -45,6 +45,7 @@ def register_routers(app: FastAPI):
     from app.routes.trend_convergence_routes import router as trend_convergence_router
     from app.routes.feed_routes import router as feed_router
     from app.routes.feed_clustering_routes import router as feed_clustering_router
+    from app.routes.filter_routes import router as filter_router
     
     # Register database routes
     app.include_router(database.router)
@@ -135,5 +136,8 @@ def register_routers(app: FastAPI):
     
     # Feed clustering routes
     app.include_router(feed_clustering_router)
+
+    # Vantage desk filter routes
+    app.include_router(filter_router)
     
     logger.info("All routers registered successfully")

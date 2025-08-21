@@ -9,20 +9,34 @@ def load_config() -> Dict:
     with open(config_path, 'r') as config_file:
         config = json.load(config_file)
 
-    # Load AI models from litellm config instead of ai_config.json
+    # Load AI models from both litellm config files
     litellm_config_path = os.path.join(os.path.dirname(__file__), 'litellm_config.yaml')
+    litellm_local_config_path = os.path.join(os.path.dirname(__file__), 'litellm_config.yaml.local')
+    
     try:
-        with open(litellm_config_path, 'r') as f:
-            litellm_config = yaml.safe_load(f)
-            # Convert litellm config format to existing ai_models format
-            ai_models = []
-            for model in litellm_config.get('model_list', []):
-                provider = model['litellm_params']['model'].split('/')[0]
-                ai_models.append({
-                    "name": model['model_name'],
-                    "provider": provider
-                })
-            config['ai_models'] = ai_models
+        # Load default config first
+        merged_config = {"model_list": []}
+        
+        if os.path.exists(litellm_config_path):
+            with open(litellm_config_path, 'r') as f:
+                default_config = yaml.safe_load(f) or {}
+                merged_config["model_list"].extend(default_config.get("model_list", []))
+        
+        # Load and merge local config
+        if os.path.exists(litellm_local_config_path):
+            with open(litellm_local_config_path, 'r') as f:
+                local_config = yaml.safe_load(f) or {}
+                merged_config["model_list"].extend(local_config.get("model_list", []))
+        
+        # Convert litellm config format to existing ai_models format
+        ai_models = []
+        for model in merged_config.get('model_list', []):
+            provider = model['litellm_params']['model'].split('/')[0]
+            ai_models.append({
+                "name": model['model_name'],
+                "provider": provider
+            })
+        config['ai_models'] = ai_models
     except FileNotFoundError:
         config['ai_models'] = []
 

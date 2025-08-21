@@ -3247,11 +3247,18 @@ class DatabaseQueryFacade:
 
             conn.commit()
 
-    def get_alerts_by_group_id_from_new_table_structure(self, show_read, group_id, page_size, offset):
+    def get_alerts_by_group_id_from_new_table_structure(self, status, show_read, group_id, page_size, offset):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
             read_condition = "" if show_read else "AND ka.is_read = 0"
+
+            # Add status filter condition
+            status_condition = ""
+            if status == "new":
+                status_condition = "AND (a.category IS NULL OR a.category = '')"
+            elif status == "added":
+                status_condition = "AND (a.category IS NOT NULL AND a.category != '')"
 
             cursor.execute(f"""
                 SELECT 
@@ -3290,18 +3297,26 @@ class DatabaseQueryFacade:
                     a.quality_issues
                 FROM keyword_article_matches ka
                 JOIN articles a ON ka.article_uri = a.uri
-                WHERE ka.group_id = ? {read_condition}
+                WHERE ka.group_id = ? {read_condition} {status_condition}
                 ORDER BY ka.detected_at DESC
                 LIMIT ? OFFSET ?
             """, (group_id, page_size, offset))
 
             return cursor.fetchall()
 
-    def get_alerts_by_group_id_from_old_table_structure(self, show_read, group_id, page_size, offset):
+    def get_alerts_by_group_id_from_old_table_structure(self, status, show_read, group_id, page_size, offset):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
             read_condition = "" if show_read else "AND ka.is_read = 0"
+
+            # Add status filter condition
+            status_condition = ""
+            if status == "new":
+                status_condition = "AND (a.category IS NULL OR a.category = '')"
+            elif status == "added":
+                status_condition = "AND (a.category IS NOT NULL AND a.category != '')"
+
             cursor.execute(f"""
                 SELECT 
                     ka.id, 
@@ -3340,7 +3355,7 @@ class DatabaseQueryFacade:
                 FROM keyword_alerts ka
                 JOIN articles a ON ka.article_uri = a.uri
                 JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                WHERE mk.group_id = ? {read_condition}
+                WHERE mk.group_id = ? {read_condition} {status_condition}
                 ORDER BY ka.detected_at DESC
                 LIMIT ? OFFSET ?
             """, (group_id, page_size, offset))

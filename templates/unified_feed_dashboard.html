@@ -615,6 +615,14 @@
         box-shadow: 0 0 0 2px rgba(255, 105, 180, 0.2);
     }
 
+    .filter-select:disabled {
+        background-color: var(--light-gray);
+        color: var(--medium-gray);
+        border-color: var(--medium-gray);
+        cursor: not-allowed;
+        opacity: 0.7;
+    }
+
     .feed-controls-left,
     .feed-controls-right {
         display: flex;
@@ -1590,6 +1598,266 @@
         from { transform: rotate(0deg); }
         to { transform: rotate(360deg); }
     }
+
+    /* Multi-Combination Filter Styles */
+    .multi-filter-container {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        padding: 24px;
+        margin-bottom: 24px;
+    }
+
+    .filter-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 20px;
+    }
+
+    .filter-title {
+        font-size: 1.1rem;
+        font-weight: 600;
+        color: var(--text-color);
+        margin: 0;
+    }
+
+    .filter-icon {
+        width: 20px;
+        height: 20px;
+        background: var(--primary-color);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+
+    .filter-subtitle {
+        color: var(--dark-gray);
+        font-size: 0.9rem;
+        margin-bottom: 20px;
+        opacity: 0.8;
+    }
+
+    /* Add New Combination Section */
+    .add-combination-section {
+        background: var(--light-gray);
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border: 2px dashed var(--medium-gray);
+        transition: all 0.3s;
+    }
+
+    .add-combination-section:hover {
+        border-color: var(--primary-color);
+        background: rgba(255, 105, 180, 0.05);
+    }
+
+    .combination-form {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    .filter-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 180px;
+    }
+
+    .filter-label {
+        font-weight: 500;
+        color: var(--text-color);
+        white-space: nowrap;
+        font-size: 0.9rem;
+    }
+
+    .filter-connector {
+        color: var(--primary-color);
+        font-weight: 600;
+        font-size: 1rem;
+        margin: 0 4px;
+    }
+
+    .add-combination-btn {
+        background: var(--primary-color);
+        border: 1px solid var(--primary-color);
+        color: white;
+        padding: 10px 20px;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+    }
+
+    .add-combination-btn:hover {
+        background: var(--primary-dark);
+        border-color: var(--primary-dark);
+        transform: translateY(-1px);
+    }
+
+    .add-combination-btn:disabled {
+        background: var(--medium-gray);
+        border-color: var(--medium-gray);
+        cursor: not-allowed;
+        transform: none;
+    }
+
+    /* Active Combinations Section */
+    .active-combinations {
+        margin-top: 20px;
+    }
+
+    .combinations-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+
+    .combinations-title {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--text-color);
+        margin: 0;
+    }
+
+    .clear-all-btn {
+        background: transparent;
+        border: 1px solid var(--medium-gray);
+        color: var(--text-color);
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-size: 0.85rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .clear-all-btn:hover {
+        border-color: #dc3545;
+        color: #dc3545;
+    }
+
+    .combination-list {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    .combination-item {
+        background: white;
+        border: 1px solid var(--medium-gray);
+        border-radius: 8px;
+        padding: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        transition: all 0.2s;
+        position: relative;
+    }
+
+    .combination-item:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .combination-content {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+
+    .date-badge {
+        background: var(--light-gray);
+        border: 1px solid var(--medium-gray);
+        padding: 6px 12px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 500;
+        color: var(--text-color);
+    }
+
+    .remove-combination {
+        background: #dc3545;
+        border: none;
+        color: white;
+        border-radius: 50%;
+        width: 28px;
+        height: 28px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.9rem;
+        transition: all 0.2s;
+        flex-shrink: 0;
+    }
+
+    .remove-combination:hover {
+        background: #c82333;
+        transform: scale(1.1);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: var(--dark-gray);
+        opacity: 0.6;
+    }
+
+    .empty-state-icon {
+        font-size: 2rem;
+        margin-bottom: 8px;
+    }
+
+    /* Multi-Filter Responsive design */
+    @media (max-width: 768px) {
+        .combination-form {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .filter-group {
+            min-width: auto;
+            width: 100%;
+        }
+
+        .filter-select {
+            min-width: auto;
+            flex: 1;
+        }
+
+        .add-combination-btn {
+            justify-content: center;
+        }
+
+        .combination-content {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+        }
+
+        .combination-item {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 12px;
+        }
+
+        .remove-combination {
+            align-self: flex-end;
+        }
+    }
 </style>
 {% endblock %}
 
@@ -1909,11 +2177,14 @@
 
                 <!-- System Actions Group -->
                 <div class="button-group" style="display: flex; gap: 2px; margin-right: 12px; padding: 2px; background: rgba(33, 37, 41, 0.1); border-radius: 4px;">
-                    <button class="btn-square" onclick="toggleHiddenItems()" title="Show/Hide Hidden Articles">
+                    <button class="btn-square" id="showHideArticleBtn" onclick="toggleHiddenItems()" title="Show/Hide Hidden Articles">
                         <i class="fas fa-eye-slash"></i>
                     </button>
                     <button class="btn-square" onclick="toggleCustomizePanel()" title="Customize Dashboard">
                         <i class="fas fa-sliders-h"></i>
+                    </button>
+                    <button class="btn-square" onclick="toggleMultiFilter()" title="Multi-Combination Filter">
+                        <i class="fas fa-layer-group"></i>
                     </button>
                 </div>
 
@@ -1980,7 +2251,63 @@
             </div>
         </div>
 
-
+        <!-- Multi-Combination Filter -->
+        <div class="multi-filter-container" id="multiFilterContainer" style="display: none;">
+            <div class="filter-header">
+                <div class="filter-icon">⚡</div>
+                <h3 class="filter-title">Multi-Combination Filter</h3>
+            </div>
+            
+            <p class="filter-subtitle">Add multiple source + date combinations to create complex filters</p>
+            
+            <div class="add-combination-section">
+                <div class="combination-form">
+                    <div class="filter-group">
+                        <label class="filter-label" for="newSource">Source:</label>
+                        <select id="newSource" class="filter-select">
+                            <option value="">Select Source</option>
+                            <option value="bluesky">🐦 Bluesky Social</option>
+                            <option value="arxiv">📚 ArXiv Academic</option>
+                            <option value="thenewsapi">📰 News Articles</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-connector">+</div>
+                    
+                    <div class="filter-group">
+                        <label class="filter-label" for="newDate">Date Range:</label>
+                        <select id="newDate" class="filter-select">
+                            <option value="">Select Date Range</option>
+                            <option value="today">Today</option>
+                            <option value="week">This Week</option>
+                            <option value="month">This Month</option>
+                            <option value="quarter">This Quarter</option>
+                            <option value="alltime">All Time</option>
+                        </select>
+                    </div>
+                    
+                    <button class="add-combination-btn" onclick="addCombination()" id="addBtn">
+                        ➕ Add Combination
+                    </button>
+                </div>
+            </div>
+            
+            <div class="active-combinations">
+                <div class="combinations-header">
+                    <h4 class="combinations-title">Active Filter Combinations</h4>
+                    <button class="clear-all-btn" onclick="clearAllCombinations()" id="clearAllBtn" style="display: none;">
+                        🗑️ Clear All
+                    </button>
+                </div>
+                
+                <div class="combination-list" id="combinationList">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">🔍</div>
+                        <p>No filter combinations added yet.<br>Add your first combination above!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- Feed Items -->
         <div class="feed-items" id="feedItems">
@@ -2159,7 +2486,7 @@ let feedItems = [];
 let allFeedItems = []; // Store all items for client-side filtering
 let currentPage = 0;
 let hasMoreItems = true;
-let showHidden = false;
+
 let isInitializing = true;
 let currentViewMode = 'tabs'; // 'tabs' or 'columns'
 let autoRefreshInterval = null;
@@ -2171,6 +2498,9 @@ let columnOffsets = { bluesky: 0, arxiv: 0, thenewsapi: 0 }; // Track pagination
 let columnHasMore = { bluesky: true, arxiv: true, thenewsapi: true }; // Track if more items available
 let columnLoading = { bluesky: false, arxiv: false, thenewsapi: false }; // Track loading state
 let columnSelectedItems = { bluesky: [], arxiv: [], thenewsapi: [] }; // Track selected items per column
+
+// Multi-combination filter state
+let combinationCounter = 0;
 let mediabiasCache = {}; // Cache for media bias data
 const COLUMN_BATCH_SIZE = 50; // Items to load per batch for infinite scroll
 let currentFilters = {
@@ -2180,18 +2510,19 @@ let currentFilters = {
     search: '',
     dateRange: '',
     author: '',
+    starred: '',
+    topic: '',
+    showHidden: false,
     minEngagement: '',
-    layout: 'cards'
+    layout: 'cards',
+    combinations: [] // <-- Add combinations to filter state
 };
+const currentFiltersInitialState = {...currentFilters};
 
 // Cache keys for localStorage
 const CACHE_KEYS = {
-    FILTERS: 'aunoo_feed_filters',
-    LAYOUT: 'aunoo_feed_layout',
-    HIDDEN_ITEMS: 'aunoo_hidden_items',
-    STARRED_ITEMS: 'aunoo_starred_items',
     LAST_GROUP: 'aunoo_last_group',
-    VIEW_MODE: 'aunoo_view_mode',
+    VIEW_MODE: 'aunoo_view_mode', 
     AUTO_REFRESH: 'aunoo_auto_refresh',
     COLUMN_REFRESH: 'aunoo_column_refresh'
 };
@@ -2241,28 +2572,7 @@ function setupInfiniteScroll() {
     // Add scroll listener to the feed items container
     feedItemsContainer.addEventListener('scroll', handleScroll);
     
-    // Also listen to window scroll as fallback
-    window.addEventListener('scroll', () => {
-        const container = document.getElementById('feedItems');
-        const rect = container.getBoundingClientRect();
-        const viewportHeight = window.innerHeight;
-        
-        // Check if container is visible and user scrolled near bottom of page
-        if (rect.top < viewportHeight && rect.bottom > 0) {
-            const documentHeight = document.documentElement.scrollHeight;
-            const windowHeight = window.innerHeight;
-            const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-            
-            if (scrollTop + windowHeight >= documentHeight - 300 && hasMoreItems && !isLoading && !isInitializing) {
-                isLoading = true;
-                showInfiniteScrollLoader();
-                loadMoreItems().finally(() => {
-                    hideInfiniteScrollLoader();
-                    isLoading = false;
-                });
-            }
-        }
-    });
+    
 }
 
 // Infinite scroll loader helpers
@@ -2282,20 +2592,12 @@ function hideInfiniteScrollLoader() {
 
 async function initializeDashboard() {
     try {
-        // Load cached preferences first
-        loadCachedPreferences();
-        
+
         // Load view mode and auto-refresh settings
         const cachedViewMode = localStorage.getItem(CACHE_KEYS.VIEW_MODE) || 'tabs';
         const cachedAutoRefresh = parseInt(localStorage.getItem(CACHE_KEYS.AUTO_REFRESH) || '0');
         const cachedColumnRefresh = JSON.parse(localStorage.getItem(CACHE_KEYS.COLUMN_REFRESH) || '{}');
         
-        // Apply cached layout immediately after preferences load
-        const layoutSelector = document.getElementById('layoutMode');
-        if (layoutSelector && currentFilters.layout) {
-            layoutSelector.value = currentFilters.layout;
-            console.log('Initial layout set to:', currentFilters.layout);
-        }
         
         await loadFeedGroups();
         console.log('DEBUG: Loaded feed groups:', feedGroups);
@@ -2308,6 +2610,7 @@ async function initializeDashboard() {
             console.log('DEBUG: Last group from cache:', lastGroup);
             
             await renderFeedTabs();
+            await loadFilters();
             await loadFeedItems();
         } else {
             console.log('DEBUG: No feed groups found');
@@ -2349,44 +2652,123 @@ async function initializeDashboard() {
     }
 }
 
-function loadCachedPreferences() {
+async function loadFilters() {
     try {
-        // Load cached filters
-        const cachedFilters = localStorage.getItem(CACHE_KEYS.FILTERS);
-        if (cachedFilters) {
-            Object.assign(currentFilters, JSON.parse(cachedFilters));
-            
-            // Apply to UI elements
-            document.getElementById('sourceFilter').value = currentFilters.source || '';
-            document.getElementById('sortBy').value = currentFilters.sort || 'publication_date';
-            document.getElementById('itemsPerPage').value = currentFilters.limit || 50;
-            document.getElementById('searchInput').value = currentFilters.search || '';
-            document.getElementById('starredFilter').value = currentFilters.starred || '';
-            
-            // Apply layout mode if saved
-            const layoutSelector = document.getElementById('layoutMode');
-            if (layoutSelector && currentFilters.layout) {
-                layoutSelector.value = currentFilters.layout;
-                // Also apply the layout class to the container
-                const feedItemsContainer = document.getElementById('feedItems');
-                if (feedItemsContainer) {
-                    feedItemsContainer.className = `feed-items layout-${currentFilters.layout}`;
-                }
-            }
+        const response = await fetch(`/api/filters/${currentFeedGroup}`);
+        console.log('DEBUG: loadFilters response status:', response.status);
+        
+        // Fetch filters for the current group and update currentFilters and UI
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+
+        const result = await response.json();
+        console.log('DEBUG: Loaded filters from database:', result);
+        
+        if (result.success && result.filters) {
+            // Map API fields to currentFilters structure
+            const filters = result.filters;
+            currentFilters.source = filters.source_type || '';
+            currentFilters.sort = filters.sort_by || '';
+            currentFilters.limit = filters.limit_count || 50;
+            currentFilters.search = filters.search_term || '';
+            currentFilters.dateRange = filters.date_range || '';
+            currentFilters.author = filters.author_filter || '';
+            currentFilters.minEngagement = filters.min_engagement || '';
+            currentFilters.starred = filters.starred_filter || '';
+            currentFilters.showHidden = filters.include_hidden || false;
+            currentFilters.layout = filters.layout_mode || 'cards';
+            currentFilters.topic = filters.topic_filter || '';
+            currentFilters.combinations = filters.source_date_combinations || [];
+
+        } else {
+            console.log('DEBUG: No filters found or API returned failure');
+        }
+        
+        // Update UI elements to reflect loaded filters
+        document.getElementById('sourceFilter').value = currentFilters.source;
+        document.getElementById('sortBy').value = currentFilters.sort;
+        document.getElementById('itemsPerPage').value = currentFilters.limit;
+        document.getElementById('searchInput').value = currentFilters.search;
+        document.getElementById('dateFilter').value = currentFilters.dateRange;
+        document.getElementById('authorFilter').value = currentFilters.author;
+        document.getElementById('engagementFilter').value = currentFilters.minEngagement;
+        document.getElementById('starredFilter').value = currentFilters.starred;
+        document.getElementById('topicFilter').value = currentFilters.topic;
+        document.getElementById('layoutMode').value = currentFilters.layout;
+
+        // Update show/hide button
+        updateShowHideBtn();
+
+        // update combination list
+        updateCombinationList();
+
+        if (currentFilters.combinations.length > 0) {
+            disableSourceAndDateRangeFilters();
+        }
+        
+        // update layout class
+        const feedItemsContainer = document.getElementById('feedItems');
+        feedItemsContainer.className = `feed-items layout-${currentFilters.layout}`;
+
     } catch (error) {
-        console.error('Error loading cached preferences:', error);
+        console.error('Error loading filters:', error);
     }
 }
 
-function savePreferencesToCache() {
+async function saveFilters() {
     try {
-        localStorage.setItem(CACHE_KEYS.FILTERS, JSON.stringify(currentFilters));
-        if (currentFeedGroup) {
-            localStorage.setItem(CACHE_KEYS.LAST_GROUP, currentFeedGroup.toString());
+        console.log('DEBUG: saveFilters called with currentFeedGroup:', currentFeedGroup);
+        
+        // Map currentFilters to the API payload structure
+        const payload = {
+            source_type: currentFilters.source,
+            sort_by: currentFilters.sort,
+            limit_count: currentFilters.limit,               
+            search_term: currentFilters.search,
+            date_range: currentFilters.dateRange,
+            author_filter: currentFilters.author,
+            min_engagement: currentFilters.minEngagement,
+            starred_filter: currentFilters.starred,
+            include_hidden: currentFilters.showHidden,
+            layout_mode: currentFilters.layout,
+            topic_filter: currentFilters.topic,
+            source_date_combinations: currentFilters.combinations
+        };
+        console.log('DEBUG: Saving filters payload:', payload);
+
+        const endpoint = `/api/filters/${currentFeedGroup}`
+        console.log('DEBUG: API endpoint:', endpoint);
+        
+        const options = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
         }
+
+        const response = await fetch(endpoint, options);
+        
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const result =  await response.json();
+        console.log('DEBUG: API response:', result);
+
+        if (result.success) {
+            console.log('Filters saved successfully to database');
+        } else {
+            console.error('Failed to save filters:', result);
+        }
+
+        //save current feed group to cache
+        localStorage.setItem(CACHE_KEYS.LAST_GROUP, currentFeedGroup.toString());
+
     } catch (error) {
-        console.error('Error saving preferences to cache:', error);
+        console.error('Error saving filters to database:', error);
     }
 }
 
@@ -2516,6 +2898,8 @@ function refreshTabCounters() {
 }
 
 async function switchFeedGroup(groupId) {
+    // update currentFilters to inital state
+    currentFilters = {...currentFiltersInitialState};
     console.log('DEBUG: Switching to feed group:', groupId);
     currentFeedGroup = groupId;
     currentPage = 0;
@@ -2528,7 +2912,7 @@ async function switchFeedGroup(groupId) {
                         (groupId !== null && parseInt(tabGroupId) === groupId);
         tab.classList.toggle('active', isActive);
     });
-    
+    await loadFilters();
     await loadFeedItems();
 }
 
@@ -2546,11 +2930,44 @@ async function loadFeedItems(append = false) {
         const params = new URLSearchParams({
             limit: currentFilters.limit,
             offset: currentPage * currentFilters.limit,
-            include_hidden: showHidden
+            include_hidden: currentFilters.showHidden
         });
         
-        if (currentFilters.source) {
-            params.append('source_types', currentFilters.source);
+        // If combination filter is active, use it for backend query
+        if (currentFilters.combinations && currentFilters.combinations.length > 0) {
+            const combinationSources = currentFilters.combinations.map(combo => combo.source);
+            const combinationDates = currentFilters.combinations.map(combo => combo.date);
+            params.append('combination_sources', combinationSources.join(','));
+            params.append('combination_dates', combinationDates.join(','));
+        } else if (currentFilters.source || currentFilters.dateRange) {
+            // Add individual source filter
+            if (currentFilters.source) {
+                params.append('source_types', currentFilters.source);
+            }
+            // Add individual date range filter
+            if (currentFilters.dateRange) {
+                params.append('dateRange', currentFilters.dateRange);
+            }
+        }
+        
+        // Add all other filters
+        if (currentFilters.search) {
+            params.append('search', currentFilters.search);
+        }
+        if (currentFilters.author) {
+            params.append('author', currentFilters.author);
+        }
+        if (currentFilters.minEngagement) {
+            params.append('min_engagement', currentFilters.minEngagement);
+        }
+        if (currentFilters.starred) {
+            params.append('starred', currentFilters.starred);
+        }
+        if (currentFilters.topic) {
+            params.append('topic', currentFilters.topic);
+        }
+        if (currentFilters.sort) {
+            params.append('sort', currentFilters.sort);
         }
         
         let endpoint = '/api/unified-feed';
@@ -3236,7 +3653,7 @@ async function hideItem(itemId) {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         
         // Remove from current view if not showing hidden items
-        if (!showHidden) {
+        if (!currentFilters.showHidden) {
             feedItems = feedItems.filter(item => item.id !== itemId);
             renderFeedItems();
         }
@@ -3397,106 +3814,50 @@ function applyFilters() {
     if (layoutSelector) {
         currentFilters.layout = layoutSelector.value;
     }
-    
-    // Save to cache
-    savePreferencesToCache();
-    
+
+    // save filters to database 
+    saveFilters();
     // Always reset pagination when applying filters
     currentPage = 0;
     hasMoreItems = true;
     
-    // Apply client-side filtering if we have items, otherwise reload
-    if (allFeedItems.length > 0) {
-        applyClientSideFilters();
-    } else {
-        loadFeedItems();
-    }
+    // All filtering is now done on the backend
+    loadFeedItems();
 }
 
-function applyClientSideFilters() {
-    let filteredItems = [...allFeedItems];
-    
-    // Apply search filter
-    if (currentFilters.search) {
-        const searchTerm = currentFilters.search.toLowerCase();
-        filteredItems = filteredItems.filter(item => 
-            item.title.toLowerCase().includes(searchTerm) ||
-            (item.content && item.content.toLowerCase().includes(searchTerm)) ||
-            (item.author && item.author.toLowerCase().includes(searchTerm))
-        );
-    }
-    
-    // Apply source filter
-    if (currentFilters.source) {
-        filteredItems = filteredItems.filter(item => item.source_type === currentFilters.source);
-    }
-    
-    // Apply starred filter
-    if (currentFilters.starred) {
-        if (currentFilters.starred === 'starred') {
-            filteredItems = filteredItems.filter(item => item.is_starred);
-        } else if (currentFilters.starred === 'unstarred') {
-            filteredItems = filteredItems.filter(item => !item.is_starred);
-        }
-    }
-    
-    // Apply date range filter
-    if (currentFilters.dateRange) {
-        const now = new Date();
-        const filterDate = getDateFromRange(currentFilters.dateRange, now);
-        filteredItems = filteredItems.filter(item => {
-            const itemDate = new Date(item.publication_date || item.created_at);
-            return itemDate >= filterDate;
-        });
-    }
-    
-    // Apply author filter
-    if (currentFilters.author) {
-        const authorTerm = currentFilters.author.toLowerCase();
-        filteredItems = filteredItems.filter(item => 
-            item.author && item.author.toLowerCase().includes(authorTerm)
-        );
-    }
-    
-    // Apply engagement filter
-    if (currentFilters.minEngagement) {
-        const minEngagement = parseInt(currentFilters.minEngagement);
-        filteredItems = filteredItems.filter(item => {
-            const engagement = item.engagement_metrics || {};
-            const total = (engagement.likes || 0) + (engagement.reposts || 0) + (engagement.replies || 0);
-            return total >= minEngagement;
-        });
-    }
-    
-    // Apply topic filter
-    if (currentFilters.topic) {
-        filteredItems = filteredItems.filter(item => item.topic === currentFilters.topic);
-    }
-    
-    // Apply sorting
-    filteredItems.sort((a, b) => {
-        switch (currentFilters.sort) {
-            case 'publication_date':
-                return new Date(b.publication_date || b.created_at) - new Date(a.publication_date || a.created_at);
-            case 'created_at':
-                return new Date(b.created_at) - new Date(a.created_at);
-            case 'engagement':
-                const aEng = getEngagementScore(a);
-                const bEng = getEngagementScore(b);
-                return bEng - aEng;
-            default:
-                return 0;
-        }
-    });
-    
-    // Apply pagination
-    const startIndex = currentPage * currentFilters.limit;
-    const endIndex = startIndex + currentFilters.limit;
-    feedItems = filteredItems.slice(0, endIndex);
-    hasMoreItems = endIndex < filteredItems.length;
-    
-    renderFeedItems();
-    updateLoadMoreButton();
+
+function disableSourceAndDateRangeFilters() {
+    // Clear the values
+    currentFilters.source = '';
+    currentFilters.dateRange = '';
+
+    const sourceFilterEl = document.getElementById('sourceFilter');
+    const dateRangeFilterEl   = document.getElementById('dateFilter');
+
+    // Clear the values
+    sourceFilterEl.value = '';
+    dateRangeFilterEl.value   = '';
+
+    // Disable the controls
+    sourceFilterEl.disabled = true;
+    dateRangeFilterEl.disabled   = true;
+
+    // Add tooltip to explain why they are disabled
+    sourceFilterEl.title = 'Source filter is disabled when combination filter is active';
+    dateRangeFilterEl.title   = 'DateRange filter is disabled when combination filter is active';
+}
+
+function enableSourceAndDateRangeFilters() {
+    const sourceFilterEl = document.getElementById('sourceFilter');
+    const dateFilterEl   = document.getElementById('dateFilter');
+
+    // Enable the controls
+    sourceFilterEl.disabled = false;
+    dateFilterEl.disabled   = false;
+
+    // Remove tooltip when controls are active
+    sourceFilterEl.removeAttribute('title');
+    dateFilterEl.removeAttribute('title');
 }
 
 function getDateFromRange(range, now) {
@@ -3561,7 +3922,7 @@ function changeLayout() {
     console.log('DEBUG: Changing layout to:', layout);
     
     currentFilters.layout = layout;
-    savePreferencesToCache();
+    saveFilters();
     
     const feedItemsContainer = document.getElementById('feedItems');
     feedItemsContainer.className = `feed-items layout-${layout}`;
@@ -3595,21 +3956,8 @@ function saveCustomizations() {
 
 function resetCustomizations() {
     // Reset all filters
-    currentFilters = {
-        source: '',
-        sort: 'publication_date',
-        limit: 50,
-        search: '',
-        dateRange: '',
-        author: '',
-        minEngagement: '',
-        starred: '',
-        layout: 'cards',
-        topic: ''
-    };
-    
-    // Clear cache
-    localStorage.removeItem(CACHE_KEYS.FILTERS);
+    currentFilters = {...currentFiltersInitialState};
+    saveFilters();
     
     // Reset UI
     document.getElementById('sourceFilter').value = '';
@@ -3622,21 +3970,34 @@ function resetCustomizations() {
     if (document.getElementById('engagementFilter')) document.getElementById('engagementFilter').value = '';
     document.getElementById('layoutMode').value = 'cards';
     document.getElementById('topicFilter').value = '';
+    document.getElementById('showHideArticleBtn').checked = false;
     
     // Apply changes
     changeLayout();
-    applyFilters();
+    loadFilters();
     
     showSuccess('Preferences reset to defaults!');
 }
 
+function updateShowHideBtn() {
+    const toggleBtn = document.getElementById('showHideArticleBtn');
+    
+    if (currentFilters.showHidden) {
+        toggleBtn.innerHTML = '<i class="fas fa-eye"></i>';
+        toggleBtn.title = 'Hide Hidden Articles';
+    } else {
+        toggleBtn.innerHTML = '<i class="fas fa-eye-slash"></i>';
+        toggleBtn.title = 'Show Hidden Articles';
+    }
+}
+
 function toggleHiddenItems() {
-    showHidden = !showHidden;
+    currentFilters.showHidden = !currentFilters.showHidden;
     
     // Update square button icon and tooltip
     const toggleBtn = event.target.closest('button');
     if (toggleBtn) {
-        if (showHidden) {
+        if (currentFilters.showHidden) {
             toggleBtn.innerHTML = '<i class="fas fa-eye"></i>';
             toggleBtn.title = 'Hide Hidden Articles';
         } else {
@@ -3647,6 +4008,7 @@ function toggleHiddenItems() {
     
     currentPage = 0;
     hasMoreItems = true;
+    saveFilters();
     loadFeedItems();
 }
 
@@ -6883,6 +7245,121 @@ function selectSingleArticle(articleId) {
         }
     }
 }
+
+// Multi-Combination Filter Functions
+function toggleMultiFilter() {
+    const container = document.getElementById('multiFilterContainer');
+    const isVisible = container.style.display !== 'none';
+    container.style.display = isVisible ? 'none' : 'block';
+}
+
+function addCombination() {
+    // Disable source and date range filters if this is the first combination
+    const isFirstCombination = currentFilters.combinations.length === 0;
+    if (isFirstCombination) {
+        disableSourceAndDateRangeFilters();
+    }
+
+    const sourceSelect = document.getElementById('newSource');
+    const dateSelect = document.getElementById('newDate');
+    const sourceValue = sourceSelect.value;
+    const dateValue = dateSelect.value;
+    
+    if (!sourceValue || !dateValue) {
+        alert('Please select both a source and date range');
+        return;
+    }
+    
+    const sourceText = sourceSelect.options[sourceSelect.selectedIndex].text;
+    const dateText = dateSelect.options[dateSelect.selectedIndex].text;
+    
+    // Check if source already exists (regardless of date)
+    const existingCombination = currentFilters.combinations.find(combo => 
+        combo.source === sourceValue
+    );
+    
+    if (existingCombination) {
+        // Update existing combination with new date range
+        existingCombination.date = dateValue;
+        existingCombination.dateText = dateText;
+    } else {
+        // Create new combination
+        const combination = {
+            id: ++combinationCounter,
+            source: sourceValue,
+            date: dateValue,
+            sourceText: sourceText,
+            dateText: dateText
+        };
+        
+        currentFilters.combinations.push(combination);
+    }
+    
+    // Reset form
+    sourceSelect.value = '';
+    dateSelect.value = '';
+    
+    updateCombinationList();
+    applyFilters();
+}
+
+function removeCombination(id) {
+    currentFilters.combinations = currentFilters.combinations.filter(combo => combo.id !== id);
+    if (currentFilters.combinations.length === 0) {
+        enableSourceAndDateRangeFilters();
+    }
+    updateCombinationList();
+    applyFilters();
+}
+
+function clearAllCombinations() {
+    currentFilters.combinations = [];
+    enableSourceAndDateRangeFilters();
+    updateCombinationList();
+    applyFilters();
+}
+
+function updateCombinationList() {
+    const container = document.getElementById('combinationList');
+    const clearAllBtn = document.getElementById('clearAllBtn');
+    
+    if (currentFilters.combinations.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <div class="empty-state-icon">🔍</div>
+                <p>No filter combinations added yet.<br>Add your first combination above!</p>
+            </div>
+        `;
+        clearAllBtn.style.display = 'none';
+        return;
+    }
+    
+    clearAllBtn.style.display = 'block';
+    container.innerHTML = '';
+    
+    currentFilters.combinations.forEach(combo => {
+        const item = document.createElement('div');
+        item.className = 'combination-item';
+        item.innerHTML = `
+            <div class="combination-content">
+                <div class="source-badge ${combo.source}">
+                    ${combo.sourceText}
+                </div>
+                <div class="filter-connector">+</div>
+                <div class="date-badge">
+                    ${combo.dateText}
+                </div>
+            </div>
+            <button class="remove-combination" onclick="removeCombination(${combo.id})">
+                ×
+            </button>
+        `;
+        container.appendChild(item);
+    });
+}
+
+
+
 
 </script>
 

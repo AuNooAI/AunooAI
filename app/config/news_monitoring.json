@@ -1,6 +1,5 @@
 {
   "news_filters": {
-    "AI and Machine Learning": "\"Artificial Intelligence\"",
     "Cloud Computing": "Cloud Services",
     "Test": "Quantum Advantage",
     "Security Data Fabric": "\"Security Data Fabric\"",
@@ -9,7 +8,6 @@
     "Competitor Analysis": "Disinformation"
   },
   "paper_filters": {
-    "AI and Machine Learning": "LLM",
     "Cloud Computing": "Distributed Systems",
     "Test": "Quantum Advantage",
     "Security Data Fabric": "\"Security Data\"",

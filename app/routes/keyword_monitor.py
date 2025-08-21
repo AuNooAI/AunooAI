@@ -966,10 +966,19 @@ async def get_group_alerts(
     skip_media_bias: bool = False,
     page: int = 1,
     page_size: int = 50,
+    status: str = "all",
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
 ):
-    """Get alerts for a specific keyword group with pagination."""
+    
+    """Get alerts for a specific keyword group with pagination and status filtering.
+    
+    Args:
+        status: Filter by article status:
+            - "all": Return all articles (default)
+            - "new": Return only new/unprocessed articles (category IS NULL OR category = ''
+            - "added": Return only enriched/processed articles (category IS NOT NULL AND category != '')
+    """
     try:
         # Validate pagination parameters
         if page < 1:
@@ -989,10 +998,10 @@ async def get_group_alerts(
 
         if use_new_table:
             # Using new structure (keyword_article_matches table) with pagination
-            alert_results = (DatabaseQueryFacade(db, logger)).get_alerts_by_group_id_from_new_table_structure(show_read, group_id, page_size, offset)
+            alert_results = (DatabaseQueryFacade(db, logger)).get_alerts_by_group_id_from_new_table_structure(status, show_read, group_id, page_size, offset)
         else:
             # Fallback to old structure (keyword_alerts table) with pagination
-            alert_results = (DatabaseQueryFacade(db, logger)).get_alerts_by_group_id_from_old_table_structure(show_read, group_id, page_size, offset)
+            alert_results = (DatabaseQueryFacade(db, logger)).get_alerts_by_group_id_from_old_table_structure(status, show_read, group_id, page_size, offset)
 
         # Get unread count for this group
         if use_new_table:
@@ -1014,7 +1023,6 @@ async def get_group_alerts(
             else:
                 alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
 
-            # Get all matched keywords for this article and group
             if use_new_table:
                 # For new table, keyword_ids is a comma-separated string
                 if keyword_ids:
@@ -1157,6 +1165,7 @@ async def get_group_alerts(
             "alerts": alerts,
             "unread_count": unread_count,
             "total_count": total_count,
+            "status_filter": status,
             "pagination": {
                 "page": page,
                 "page_size": page_size,
