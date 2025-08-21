@@ -56,7 +56,18 @@ class Database:
         if thread_id not in self._connections:
             try:
                 self._connections[thread_id] = sqlite3.connect(self.db_path)
-                
+
+                from sqlalchemy import create_engine
+                print(f"sqlite:///{self.db_path}")
+                engine = create_engine(f"sqlite:///{self.db_path}", echo=True)
+                connection = engine.connect()
+                from sqlalchemy import select
+                import database_models
+                select_stmt = select(database_models.t_users)
+                result = connection.execute(select_stmt)
+                import pprint
+                pprint.pp([user for user in result])
+
                 # Enable foreign key support
                 self._connections[thread_id].execute("PRAGMA foreign_keys = ON")
                 
