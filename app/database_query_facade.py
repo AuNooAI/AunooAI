@@ -2,197 +2,116 @@ from datetime import datetime, timedelta
 import sqlite3
 import json
 
+# TODO SQLAlchemy: Replace all references to sqlite.
+# TODO SQLAlchemy:
+from sqlalchemy import (select,
+                        insert,
+                        update,
+                        delete,
+                        asc,
+                        desc,
+                        or_,
+                        and_,
+                        literal)
+from database_models import (t_keyword_monitor_settings as keyword_monitor_settings,
+                             t_keyword_monitor_status as keyword_monitor_status,
+                             t_keyword_article_matches as keyword_article_matches,
+                             t_articles as articles)
+
+
 class DatabaseQueryFacade:
     def __init__(self, db, logger):
         self.db = db
         self.logger = logger
 
+        # TODO: Reduce verbosity by "caching" the connection variable here.
+        self.connection = self.db._temp_get_connection()
+
     #### KEYWORD MONITOR QUERIES ####
+    def get_keyword_monitor_settings_by_id(self, id):
+        return self.connection.execute(
+            select(
+                keyword_monitor_settings
+            ).where(
+                keyword_monitor_settings.c.id == id
+            )
+        ).mappings().fetchone()
+
+    def get_keyword_monitor_status_by_id(self, id):
+        return self.connection.execute(
+            select(
+                keyword_monitor_status
+            ).where(
+                keyword_monitor_status.c.id == id
+            )
+        ).mappings().fetchone()
+
+    def update_keyword_monitor_status_by_id(self, id, params):
+        self.connection.execute(
+            update(
+                keyword_monitor_status
+            ).where(
+                keyword_monitor_status.c.id == id
+            ).values(
+                **params
+            ))
+
+        self.connection.commit()
+
+    # TODO: Deprecate in favour of the function it augments.
+    # TODO: Add back creation as part of a migration? Investigate best approach.
+    # TODO: Remove _create from name once creation is moved to migrations.
     def get_or_create_keyword_monitor_settings(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Check if table exists and get its columns
-            cursor.execute("PRAGMA table_info(keyword_monitor_settings)")
-            columns = {col[1] for col in cursor.fetchall()}
-
-            if not columns:
-                # Create table if it doesn't exist
-                cursor.execute("""
-                               CREATE TABLE keyword_monitor_settings
-                               (
-                                   id                  INTEGER PRIMARY KEY,
-                                   check_interval      INTEGER NOT NULL DEFAULT 15,
-                                   interval_unit       INTEGER NOT NULL DEFAULT 60,
-                                   search_fields       TEXT    NOT NULL DEFAULT 'title,description,content',
-                                   language            TEXT    NOT NULL DEFAULT 'en',
-                                   sort_by             TEXT    NOT NULL DEFAULT 'publishedAt',
-                                   page_size           INTEGER NOT NULL DEFAULT 10,
-                                   is_enabled          BOOLEAN NOT NULL DEFAULT 1,
-                                   daily_request_limit INTEGER NOT NULL DEFAULT 100,
-                                   search_date_range   INTEGER NOT NULL DEFAULT 7,
-                                   provider            TEXT    NOT NULL DEFAULT 'newsapi'
-                               )
-                               """)
-                # Insert default settings
-                cursor.execute("""
-                               INSERT INTO keyword_monitor_settings (id)
-                               VALUES (1)
-                               """)
-                conn.commit()
-            else:
-                # Add any missing columns
-                if 'is_enabled' not in columns:
-                    cursor.execute("""
-                                   ALTER TABLE keyword_monitor_settings
-                                       ADD COLUMN is_enabled BOOLEAN NOT NULL DEFAULT 1
-                                   """)
-                if 'daily_request_limit' not in columns:
-                    cursor.execute("""
-                                   ALTER TABLE keyword_monitor_settings
-                                       ADD COLUMN daily_request_limit INTEGER NOT NULL DEFAULT 100
-                                   """)
-                if 'search_date_range' not in columns:
-                    cursor.execute("""
-                                   ALTER TABLE keyword_monitor_settings
-                                       ADD COLUMN search_date_range INTEGER NOT NULL DEFAULT 7
-                                   """)
-                if 'provider' not in columns:
-                    cursor.execute("""
-                                   ALTER TABLE keyword_monitor_settings
-                                       ADD COLUMN provider TEXT NOT NULL DEFAULT 'newsapi'
-                                   """)
-                conn.commit()
-
-            # Load settings
-            cursor.execute("""
-                           SELECT check_interval,
-                                  interval_unit,
-                                  search_fields, language, sort_by, page_size, is_enabled, daily_request_limit, search_date_range, provider
-                           FROM keyword_monitor_settings
-                           WHERE id = 1
-                           """)
-            settings = cursor.fetchone()
-            return settings
-
-    def create_keyword_monitor_status_tables(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Check if table exists and get its columns
-            cursor.execute("PRAGMA table_info(keyword_monitor_status)")
-            columns = {col[1] for col in cursor.fetchall()}
-
-            if not columns:
-                # Table doesn't exist, create it with all columns
-                cursor.execute("""
-                               CREATE TABLE keyword_monitor_status
-                               (
-                                   id              INTEGER PRIMARY KEY,
-                                   last_check_time TEXT,
-                                   last_error      TEXT,
-                                   requests_today  INTEGER DEFAULT 0,
-                                   last_reset_date TEXT
-                               )
-                               """)
-            elif 'last_reset_date' not in columns:
-                # Add last_reset_date column if it doesn't exist
-                cursor.execute("""
-                               ALTER TABLE keyword_monitor_status
-                                   ADD COLUMN last_reset_date TEXT
-                               """)
-
-            # Create initial status record if it doesn't exist
-            cursor.execute("""
-                           INSERT
-                           OR IGNORE INTO keyword_monitor_status (
-                    id, last_check_time, last_error, requests_today, last_reset_date
-                ) VALUES (1, NULL, NULL, 0, NULL)
-                           """)
-
-            conn.commit()
-
-            # Check if we need to reset the counter
-            cursor.execute("""
-                           SELECT requests_today, last_reset_date
-                           FROM keyword_monitor_status
-                           WHERE id = 1
-                           """)
-            row = cursor.fetchone()
-            if row:
-                last_reset = row[1]
-                today = datetime.now().date().isoformat()
-
-                if not last_reset or last_reset < today:
-                    # Reset counter for new day
-                    cursor.execute("""
-                                   UPDATE keyword_monitor_status
-                                   SET requests_today  = 0,
-                                       last_reset_date = ?
-                                   WHERE id = 1
-                                   """, (today,))
-                    conn.commit()
+        return self.get_keyword_monitor_settings_by_id(1)
 
     def get_keyword_monitoring_provider(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           SELECT provider
-                           FROM keyword_monitor_settings
-                           WHERE id = 1
-                           """)
-            row = cursor.fetchone()
-            provider = row[0] if row else 'newsapi'
-
-            return provider
+        row = self.get_keyword_monitor_settings_by_id(1)
+        # TODO: Make this default configurable?
+        provider = row['provider'] if row else 'newsapi'
+        return provider
 
     def get_keyword_monitoring_counter(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           SELECT requests_today, last_reset_date
-                           FROM keyword_monitor_status
-                           WHERE id = 1
-                           """)
+        return self.get_keyword_monitor_status_by_id(1)
 
-            row = cursor.fetchone()
-            return row
-
+    # TODO: Should be a named parameter instead of a tuple.
     def reset_keyword_monitoring_counter(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        self.update_keyword_monitor_status_by_id(
+            1,
+            {
+                "last_reset_date": params[0],
+                "requests_today": 0
+            })
 
-            cursor.execute("""
-                           UPDATE keyword_monitor_status
-                           SET requests_today  = 0,
-                               last_reset_date = ?
-                           WHERE id = 1
-                           """, params)
-
-            conn.commit()
+    def create_keyword_monitor_status(self, params):
+        self.connection.execute(insert(keyword_monitor_status).values(**params))
+        self.connection.commit()
 
     def create_or_update_keyword_monitor_last_check(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        # Check if keyword monitor status record exists.
+        # TODO: This will be potentially inefficient, however, there is no ON CONFLICT SQL standard, and as such we emulate it.
+        keyword_monitor_status_record = self.get_keyword_monitor_status_by_id(1)
 
-            # Store check start time and reset error
-            cursor.execute("""
-                INSERT INTO keyword_monitor_status (
-                    id, last_check_time, last_error, requests_today
-                ) VALUES (1, ?, NULL, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    last_check_time = excluded.last_check_time,
-                    last_error = excluded.last_error,
-                    requests_today = excluded.requests_today
-            """, params)
-            conn.commit()
+        # If it exists, update it.
+        if keyword_monitor_status_record:
+            self.update_keyword_monitor_status_by_id(
+                1,
+                {
+                    "last_check_time": params[0],
+                    "requests_today": params[1]
+                }
+            )
+        # If not, then just create it.
+        else:
+            self.create_keyword_monitor_status({
+                    "id": 1,
+                    "last_check_time": params[0],
+                    "requests_today": params[1]
+                })
+
 
     def get_monitored_keywords(self):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-
-            # Ensure foreign keys are enabled
-            cursor.execute("PRAGMA foreign_keys = ON")
 
             cursor.execute("""
                            SELECT mk.id, mk.keyword, mk.last_checked, kg.topic
@@ -206,9 +125,6 @@ class DatabaseQueryFacade:
     def get_monitored_keywords_for_topic(self, params):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-
-            # Ensure foreign keys are enabled
-            cursor.execute("PRAGMA foreign_keys = ON")
 
             # Get keywords for this topic
             cursor.execute("""
@@ -343,14 +259,13 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                INSERT INTO keyword_monitor_status (
-                    id, last_check_time, last_error, requests_today
-                ) VALUES (1, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    last_check_time = excluded.last_check_time,
-                    last_error = excluded.last_error,
-                    requests_today = excluded.requests_today
-            """, params)
+                           INSERT INTO keyword_monitor_status (id, last_check_time, last_error, requests_today)
+                           VALUES (1, ?, ?, ?) ON CONFLICT(id) DO
+                           UPDATE SET
+                               last_check_time = excluded.last_check_time,
+                               last_error = excluded.last_error,
+                               requests_today = excluded.requests_today
+                           """, params)
             conn.commit()
 
     def get_keyword_monitor_polling_enabled(self):
@@ -444,25 +359,6 @@ class DatabaseQueryFacade:
             for row in cursor.fetchall():
                 yield dict(row)
 
-    #### TREND CONVERGENCE ROUTES ####
-    def create_analysis_versions_table(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            create_table_query = """
-            CREATE TABLE IF NOT EXISTS analysis_versions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                topic TEXT NOT NULL,
-                version_data TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                model_used TEXT,
-                analysis_depth TEXT
-            )
-            """
-            cursor.execute(create_table_query)
-
-            conn.commit()
-
     def save_analysis_version(self, params):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -504,7 +400,8 @@ class DatabaseQueryFacade:
             BALANCED = "balanced"  # Good balance, temp=0.4
             CREATIVE = "creative"  # Current behavior, temp=0.7
 
-        order_clause = "ORDER BY publication_date DESC, title ASC" if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE] else "ORDER BY publication_date DESC"
+        order_clause = "ORDER BY publication_date DESC, title ASC" if consistency_mode in [
+            ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE] else "ORDER BY publication_date DESC"
 
         query = f"""
         SELECT title, summary, uri, publication_date, sentiment, category, 
@@ -519,7 +416,8 @@ class DatabaseQueryFacade:
         """
         # Fetch more articles for deterministic selection to ensure good diversity
         fetch_multiplier = 2 if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE] else 1
-        return self.db.fetch_all(query, (topic, start_date.isoformat(), end_date.isoformat(), optimal_sample_size * fetch_multiplier))
+        return self.db.fetch_all(query, (topic, start_date.isoformat(), end_date.isoformat(),
+                                         optimal_sample_size * fetch_multiplier))
 
     def get_organisational_profile(self, profile_id):
         profile_query = """
@@ -881,11 +779,12 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT DISTINCT topic 
-                FROM articles 
-                WHERE topic IS NOT NULL AND topic != '' AND analyzed = 1
-                ORDER BY topic
-            """)
+                           SELECT DISTINCT topic
+                           FROM articles
+                           WHERE topic IS NOT NULL
+                             AND topic != '' AND analyzed = 1
+                           ORDER BY topic
+                           """)
             return [row[0] for row in cursor.fetchall()]
 
     def get_unique_categories(self):
@@ -893,11 +792,12 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT DISTINCT category 
-                FROM articles 
-                WHERE category IS NOT NULL AND category != '' AND analyzed = 1
-                ORDER BY category
-            """)
+                           SELECT DISTINCT category
+                           FROM articles
+                           WHERE category IS NOT NULL
+                             AND category != '' AND analyzed = 1
+                           ORDER BY category
+                           """)
             return [row[0] for row in cursor.fetchall()]
 
     #### OAUTH USERS ####
@@ -907,7 +807,7 @@ class DatabaseQueryFacade:
 
             cursor.execute("SELECT COUNT(*) FROM oauth_allowlist WHERE is_active = 1")
 
-            return  cursor.fetchone()[0]
+            return cursor.fetchone()[0]
 
     def get_oauth_allowlist_user_by_email_and_provider(self, email, provider):
         with self.db.get_connection() as conn:
@@ -1044,129 +944,16 @@ class DatabaseQueryFacade:
 
             return cursor.lastrowid
 
-    def create_oauth_tables(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Create oauth_users table
-            cursor.execute("""
-                           CREATE TABLE IF NOT EXISTS oauth_users
-                           (
-                               id
-                               INTEGER
-                               PRIMARY
-                               KEY
-                               AUTOINCREMENT,
-                               email
-                               TEXT
-                               NOT
-                               NULL,
-                               name
-                               TEXT,
-                               provider
-                               TEXT
-                               NOT
-                               NULL,
-                               provider_id
-                               TEXT,
-                               avatar_url
-                               TEXT,
-                               created_at
-                               TIMESTAMP
-                               DEFAULT
-                               CURRENT_TIMESTAMP,
-                               last_login
-                               TIMESTAMP
-                               DEFAULT
-                               CURRENT_TIMESTAMP,
-                               is_active
-                               BOOLEAN
-                               DEFAULT
-                               TRUE,
-                               UNIQUE
-                           (
-                               email,
-                               provider
-                           )
-                               )
-                           """)
-
-            # Create oauth_sessions table for tracking active sessions
-            cursor.execute("""
-                           CREATE TABLE IF NOT EXISTS oauth_sessions
-                           (
-                               id
-                               INTEGER
-                               PRIMARY
-                               KEY
-                               AUTOINCREMENT,
-                               user_id
-                               INTEGER,
-                               session_token
-                               TEXT
-                               UNIQUE,
-                               provider
-                               TEXT,
-                               created_at
-                               TIMESTAMP
-                               DEFAULT
-                               CURRENT_TIMESTAMP,
-                               expires_at
-                               TIMESTAMP,
-                               last_accessed
-                               TIMESTAMP
-                               DEFAULT
-                               CURRENT_TIMESTAMP,
-                               FOREIGN
-                               KEY
-                           (
-                               user_id
-                           ) REFERENCES oauth_users
-                           (
-                               id
-                           )
-                               )
-                           """)
-
-            # Create oauth_allowlist table for access control
-            cursor.execute("""
-                           CREATE TABLE IF NOT EXISTS oauth_allowlist
-                           (
-                               id
-                               INTEGER
-                               PRIMARY
-                               KEY
-                               AUTOINCREMENT,
-                               email
-                               TEXT
-                               UNIQUE
-                               NOT
-                               NULL,
-                               added_by
-                               TEXT,
-                               added_at
-                               TIMESTAMP
-                               DEFAULT
-                               CURRENT_TIMESTAMP,
-                               is_active
-                               BOOLEAN
-                               DEFAULT
-                               TRUE
-                           )
-                           """)
-
-            conn.commit()
-
     #### ENDPOINT QUERIES ####
     def get_oauth_allow_list(self):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT email, added_by, added_at, is_active 
-                FROM oauth_allowlist 
-                ORDER BY added_at DESC
-            """)
+                           SELECT email, added_by, added_at, is_active
+                           FROM oauth_allowlist
+                           ORDER BY added_at DESC
+                           """)
 
             return cursor.fetchall()
 
@@ -1206,8 +993,10 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT url FROM feed_items WHERE id = ?
-            """, (item_id,))
+                           SELECT url
+                           FROM feed_items
+                           WHERE id = ?
+                           """, (item_id,))
             return cursor.fetchone()
 
     def get_enrichment_data_for_article(self, item_url):
@@ -1249,17 +1038,31 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT 
-                    category, sentiment, driver_type, time_to_impact,
-                    topic_alignment_score, keyword_relevance_score, confidence_score,
-                    overall_match_explanation, extracted_article_topics, 
-                    extracted_article_keywords, auto_ingested, ingest_status,
-                    quality_score, quality_issues, sentiment_explanation,
-                    future_signal, future_signal_explanation, driver_type_explanation,
-                    time_to_impact_explanation, summary, tags, topic
-                FROM articles 
-                WHERE uri = ?
-            """, (item_url,))
+                           SELECT category,
+                                  sentiment,
+                                  driver_type,
+                                  time_to_impact,
+                                  topic_alignment_score,
+                                  keyword_relevance_score,
+                                  confidence_score,
+                                  overall_match_explanation,
+                                  extracted_article_topics,
+                                  extracted_article_keywords,
+                                  auto_ingested,
+                                  ingest_status,
+                                  quality_score,
+                                  quality_issues,
+                                  sentiment_explanation,
+                                  future_signal,
+                                  future_signal_explanation,
+                                  driver_type_explanation,
+                                  time_to_impact_explanation,
+                                  summary,
+                                  tags,
+                                  topic
+                           FROM articles
+                           WHERE uri = ?
+                           """, (item_url,))
 
             return cursor.fetchone()
 
@@ -1524,7 +1327,7 @@ class DatabaseQueryFacade:
                            """, params)
 
             conn.commit()
-            return  cursor.lastrowid
+            return cursor.lastrowid
 
     def get_feed_group_by_name(self, name):
         with self.db.get_connection() as conn:
@@ -1587,9 +1390,10 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT url, title, content, author, publication_date, source_type, group_id
-                FROM feed_items WHERE id = ?
-            """, (item_id,))
+                           SELECT url, title, content, author, publication_date, source_type, group_id
+                           FROM feed_items
+                           WHERE id = ?
+                           """, (item_id,))
 
             return cursor.fetchone()
 
@@ -1598,10 +1402,11 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                UPDATE feed_items 
-                SET tags = ?, updated_at = CURRENT_TIMESTAMP 
-                WHERE id = ?
-            """, params)
+                           UPDATE feed_items
+                           SET tags       = ?,
+                               updated_at = CURRENT_TIMESTAMP
+                           WHERE id = ?
+                           """, params)
 
             conn.commit()
 
@@ -1610,11 +1415,13 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT DISTINCT g.id, g.name
-                FROM feed_keyword_groups g
-                JOIN feed_group_sources s ON g.id = s.group_id
-                WHERE g.is_active = 1 AND s.source_type = ? AND s.enabled = 1
-            """, (source_type,))
+                           SELECT DISTINCT g.id, g.name
+                           FROM feed_keyword_groups g
+                                    JOIN feed_group_sources s ON g.id = s.group_id
+                           WHERE g.is_active = 1
+                             AND s.source_type = ?
+                             AND s.enabled = 1
+                           """, (source_type,))
 
             cursor.fetchall()
 
@@ -1651,13 +1458,8 @@ class DatabaseQueryFacade:
             return total_items, source_counts, recent_items
 
     def get_is_keyword_monitor_enabled(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("SELECT is_enabled FROM keyword_monitor_settings WHERE id = 1")
-
-            settings = cursor.fetchone()
-            return bool(settings[0]) if settings else False
+        settings = self.get_keyword_monitor_settings_by_id(1)
+        return bool(settings['is_enabled']) if settings and settings['is_enabled'] else False
 
     def get_keyword_monitor_last_check_time(self):
         with self.db.get_connection() as conn:
@@ -1726,10 +1528,14 @@ class DatabaseQueryFacade:
             cursor.execute("SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?)", (topic,))
             total_topic_articles = cursor.fetchone()[0]
 
-            cursor.execute("SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != ''", (topic,))
+            cursor.execute(
+                "SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != ''",
+                (topic,))
             articles_with_categories = cursor.fetchone()[0]
 
-            cursor.execute("SELECT DISTINCT category FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != '' LIMIT 10", (topic,))
+            cursor.execute(
+                "SELECT DISTINCT category FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != '' LIMIT 10",
+                (topic,))
             sample_categories = [row[0] for row in cursor.fetchall()]
 
             return total_topic_articles, articles_with_categories, sample_categories
@@ -2196,16 +2002,16 @@ class DatabaseQueryFacade:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT 
-                    topic, 
-                    COUNT(DISTINCT uri) as article_count,
-                    MAX(publication_date) as last_article_date
-                FROM articles 
-                WHERE topic IS NOT NULL AND topic != ''
-                GROUP BY topic
-            """)
+                           SELECT topic,
+                                  COUNT(DISTINCT uri)   as article_count,
+                                  MAX(publication_date) as last_article_date
+                           FROM articles
+                           WHERE topic IS NOT NULL
+                             AND topic != ''
+                           GROUP BY topic
+                           """)
             db_topics = {row[0]: {"article_count": row[1], "last_article_date": row[2]}
-                        for row in cursor.fetchall()}
+                         for row in cursor.fetchall()}
             return db_topics
 
     def debug_articles(self):
@@ -2234,13 +2040,15 @@ class DatabaseQueryFacade:
 
             # Get keyword groups and their keywords
             cursor.execute("""
-                SELECT kg.id, kg.name, kg.topic, 
-                       mk.id as keyword_id, 
-                       mk.keyword
-                FROM keyword_groups kg
-                LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
-                ORDER BY kg.name, mk.keyword
-            """)
+                           SELECT kg.id,
+                                  kg.name,
+                                  kg.topic,
+                                  mk.id as keyword_id,
+                                  mk.keyword
+                           FROM keyword_groups kg
+                                    LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
+                           ORDER BY kg.name, mk.keyword
+                           """)
             return cursor.fetchall()
 
     def get_monitored_keywords_for_keyword_alerts_page(self):
@@ -2288,9 +2096,11 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='keyword_article_matches'
-            """)
+                           SELECT name
+                           FROM sqlite_master
+                           WHERE type = 'table'
+                             AND name = 'keyword_article_matches'
+                           """)
 
             return cursor.fetchone() is not None
 
@@ -2344,35 +2154,6 @@ class DatabaseQueryFacade:
                            """, (group_id,))
 
             return cursor.fetchall()
-
-    def check_if_table_podcasts_exists(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT name
-                           FROM sqlite_master
-                           WHERE type = 'table'
-                             AND name = 'podcasts'
-                           """)
-
-            return cursor.fetchone()
-
-    def create_table_podcasts(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS podcasts (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    audio_url TEXT,
-                    transcript TEXT,
-                    status TEXT DEFAULT 'pending',
-                    config JSON
-                )
-            """)
-            conn.commit()
 
     def get_all_completed_podcasts(self):
         with self.db.get_connection() as conn:
@@ -2468,7 +2249,7 @@ class DatabaseQueryFacade:
             cursor.execute("DELETE FROM monitored_keywords WHERE id = ?", (keyword_id,))
             conn.commit()
 
-    def delete_keyword_group(self,group_id):
+    def delete_keyword_group(self, group_id):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM keyword_groups WHERE id = ?", (group_id,))
@@ -2905,16 +2686,7 @@ class DatabaseQueryFacade:
     def create_keyword_monitor_table_if_not_exists_and_insert_default_value(self):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS keyword_monitor_status (
-                    id INTEGER PRIMARY KEY,
-                    requests_today INTEGER DEFAULT 0,
-                    last_reset_date TEXT,
-                    last_check_time TEXT,
-                    last_error TEXT
-                )
-            """)
-
+            # TODO: Move to migrations.
             cursor.execute("""
                            INSERT
                            OR IGNORE INTO keyword_monitor_status (id, requests_today)
@@ -2938,14 +2710,12 @@ class DatabaseQueryFacade:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT COUNT(*) 
-                FROM monitored_keywords mk
-                WHERE EXISTS (
-                    SELECT 1 
-                    FROM keyword_groups kg 
-                    WHERE kg.id = mk.group_id
-                )
-            """)
+                           SELECT COUNT(*)
+                           FROM monitored_keywords mk
+                           WHERE EXISTS (SELECT 1
+                                         FROM keyword_groups kg
+                                         WHERE kg.id = mk.group_id)
+                           """)
 
             return cursor.fetchone()[0]
 
@@ -2954,62 +2724,34 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT 
-                    s.check_interval,
-                    s.interval_unit,
-                    s.search_fields,
-                    s.language,
-                    s.sort_by,
-                    s.page_size,
-                    s.daily_request_limit,
-                    s.is_enabled,
-                    s.provider,
-                    COALESCE(s.auto_ingest_enabled, FALSE) as auto_ingest_enabled,
-                    COALESCE(s.min_relevance_threshold, 0.0) as min_relevance_threshold,
-                    COALESCE(s.quality_control_enabled, TRUE) as quality_control_enabled,
-                    COALESCE(s.auto_save_approved_only, FALSE) as auto_save_approved_only,
-                    COALESCE(s.default_llm_model, 'gpt-4o-mini') as default_llm_model,
-                    COALESCE(s.llm_temperature, 0.1) as llm_temperature,
-                    COALESCE(s.llm_max_tokens, 1000) as llm_max_tokens,
-                    COALESCE(kms.requests_today, 0) as requests_today,
-                    kms.last_error
-                FROM keyword_monitor_settings s
-                LEFT JOIN (
-                    SELECT id, requests_today, last_error 
-                    FROM keyword_monitor_status 
-                    WHERE id = 1 AND last_reset_date = date('now')
-                ) kms ON kms.id = 1
-                WHERE s.id = 1
-            """)
+                           SELECT s.check_interval,
+                                  s.interval_unit,
+                                  s.search_fields,
+                                  s.language,
+                                  s.sort_by,
+                                  s.page_size,
+                                  s.daily_request_limit,
+                                  s.is_enabled,
+                                  s.provider,
+                                  COALESCE(s.auto_ingest_enabled, FALSE)       as auto_ingest_enabled,
+                                  COALESCE(s.min_relevance_threshold, 0.0)     as min_relevance_threshold,
+                                  COALESCE(s.quality_control_enabled, TRUE)    as quality_control_enabled,
+                                  COALESCE(s.auto_save_approved_only, FALSE)   as auto_save_approved_only,
+                                  COALESCE(s.default_llm_model, 'gpt-4o-mini') as default_llm_model,
+                                  COALESCE(s.llm_temperature, 0.1)             as llm_temperature,
+                                  COALESCE(s.llm_max_tokens, 1000)             as llm_max_tokens,
+                                  COALESCE(kms.requests_today, 0)              as requests_today,
+                                  kms.last_error
+                           FROM keyword_monitor_settings s
+                                    LEFT JOIN (SELECT id, requests_today, last_error
+                                               FROM keyword_monitor_status
+                                               WHERE id = 1
+                                                 AND last_reset_date = date ('now') ) kms
+                           ON kms.id = 1
+                           WHERE s.id = 1
+                           """)
 
             return cursor.fetchone()
-
-    def create_table_keyword_monitor_settings_if_not_exists(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS keyword_monitor_settings (
-                    id INTEGER PRIMARY KEY,
-                    check_interval INTEGER NOT NULL,
-                    interval_unit INTEGER NOT NULL,
-                    search_fields TEXT NOT NULL,
-                    language TEXT NOT NULL,
-                    sort_by TEXT NOT NULL,
-                    page_size INTEGER NOT NULL,
-                    daily_request_limit INTEGER NOT NULL,
-                    provider TEXT NOT NULL DEFAULT 'newsapi',
-                    auto_ingest_enabled BOOLEAN NOT NULL DEFAULT FALSE,
-                    min_relevance_threshold REAL NOT NULL DEFAULT 0.0,
-                    quality_control_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                    auto_save_approved_only BOOLEAN NOT NULL DEFAULT FALSE,
-                    default_llm_model TEXT NOT NULL DEFAULT 'gpt-4o-mini',
-                    llm_temperature REAL NOT NULL DEFAULT 0.1,
-                    llm_max_tokens INTEGER NOT NULL DEFAULT 1000
-                )
-            """)
-
-            conn.commit()
 
     def update_or_insert_keyword_monitor_settings(self, params):
         with self.db.get_connection() as conn:
@@ -3033,37 +2775,34 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                WITH RECURSIVE dates(date) AS (
-                    SELECT date('now', '-6 days')
-                    UNION ALL
-                    SELECT date(date, '+1 day')
-                    FROM dates
-                    WHERE date < date('now')
-                ),
-                daily_counts AS (
-                    SELECT 
-                        kg.id as group_id,
-                        kg.name as group_name,
-                        date(ka.detected_at) as detection_date,
-                        COUNT(*) as article_count
-                    FROM keyword_alerts ka
-                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                    WHERE ka.detected_at >= date('now', '-6 days')
-                    GROUP BY kg.id, kg.name, date(ka.detected_at)
-                )
-                SELECT 
-                    kg.id,
-                    kg.name,
-                    dates.date,
-                    COALESCE(dc.article_count, 0) as count
-                FROM keyword_groups kg
-                CROSS JOIN dates
-                LEFT JOIN daily_counts dc 
-                    ON dc.group_id = kg.id 
-                    AND dc.detection_date = dates.date
-                ORDER BY kg.id, dates.date
-            """)
+                           WITH RECURSIVE dates(date) AS (SELECT date ('now', '-6 days')
+                           UNION ALL
+                           SELECT date (date, '+1 day')
+                           FROM dates
+                           WHERE date
+                               < date ('now')
+                               )
+                               , daily_counts AS (
+                           SELECT
+                               kg.id as group_id, kg.name as group_name, date (ka.detected_at) as detection_date, COUNT (*) as article_count
+                           FROM keyword_alerts ka
+                               JOIN monitored_keywords mk
+                           ON ka.keyword_id = mk.id
+                               JOIN keyword_groups kg ON mk.group_id = kg.id
+                           WHERE ka.detected_at >= date ('now', '-6 days')
+                           GROUP BY kg.id, kg.name, date (ka.detected_at)
+                               )
+                           SELECT kg.id,
+                                  kg.name,
+                                  dates.date,
+                                  COALESCE(dc.article_count, 0) as count
+                           FROM keyword_groups kg
+                               CROSS JOIN dates
+                               LEFT JOIN daily_counts dc
+                           ON dc.group_id = kg.id
+                               AND dc.detection_date = dates.date
+                           ORDER BY kg.id, dates.date
+                           """)
 
             return cursor.fetchall()
 
@@ -3150,7 +2889,6 @@ class DatabaseQueryFacade:
                            """)
 
             return cursor.fetchall()
-
 
     def get_all_alerts_for_export_old_table_structure(self):
         with self.db.get_connection() as conn:
@@ -3248,61 +2986,80 @@ class DatabaseQueryFacade:
             conn.commit()
 
     def get_alerts_by_group_id_from_new_table_structure(self, status, show_read, group_id, page_size, offset):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        # Create base statement.
+        statement = select(
+            keyword_article_matches.c.id,
+            keyword_article_matches.c.article_uri,
+            keyword_article_matches.c.keyword_ids,
+            literal(None).label("matched_keyword"),
+            keyword_article_matches.c.is_read,
+            keyword_article_matches.c.detected_at,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.uri,
+            articles.c.news_source,
+            articles.c.publication_date,
+            articles.c.topic_alignment_score,
+            articles.c.keyword_relevance_score,
+            articles.c.confidence_score,
+            articles.c.overall_match_explanation,
+            articles.c.extracted_article_topics,
+            articles.c.extracted_article_keywords,
+            articles.c.category,
+            articles.c.sentiment,
+            articles.c.driver_type,
+            articles.c.time_to_impact,
+            articles.c.future_signal,
+            articles.c.bias,
+            articles.c.factual_reporting,
+            articles.c.mbfc_credibility_rating,
+            articles.c.bias_country,
+            articles.c.press_freedom,
+            articles.c.media_type,
+            articles.c.popularity,
+            articles.c.auto_ingested,
+            articles.c.ingest_status,
+            articles.c.quality_score,
+            articles.c.quality_issues
+        ).select_from(
+            keyword_article_matches.join(
+                articles,
+                # TODO: This where statement will be SLOW due to TEXT where clauses!!
+                keyword_article_matches.c.article_uri == articles.c.uri
+            )
+        ).where(
+            keyword_article_matches.c.group_id == group_id
+        )
 
-            read_condition = "" if show_read else "AND ka.is_read = 0"
+        # Add read filter condition
+        if not show_read:
+            statement = statement.where(
+                keyword_article_matches.c.is_read == 0
+            )
 
-            # Add status filter condition
-            status_condition = ""
-            if status == "new":
-                status_condition = "AND (a.category IS NULL OR a.category = '')"
-            elif status == "added":
-                status_condition = "AND (a.category IS NOT NULL AND a.category != '')"
+        # Add status filter condition
+        status_condition = ""
+        if status == "new":
+            statement = statement.where(
+                or_(
+                    articles.c.category.is_(None),
+                    articles.c.category == ''
+                )
+            )
+        elif status == "added":
+            statement = statement.where(
+                or_(
+                    articles.c.category.is_not(None),
+                    articles.c.category != ''
+                )
+            )
 
-            cursor.execute(f"""
-                SELECT 
-                    ka.id, 
-                    ka.article_uri,
-                    ka.keyword_ids,
-                    NULL as matched_keyword,
-                    ka.is_read,
-                    ka.detected_at,
-                    a.title,
-                    a.summary,
-                    a.uri,
-                    a.news_source,
-                    a.publication_date,
-                    a.topic_alignment_score,
-                    a.keyword_relevance_score,
-                    a.confidence_score,
-                    a.overall_match_explanation,
-                    a.extracted_article_topics,
-                    a.extracted_article_keywords,
-                    a.category,
-                    a.sentiment,
-                    a.driver_type,
-                    a.time_to_impact,
-                    a.future_signal,
-                    a.bias,
-                    a.factual_reporting,
-                    a.mbfc_credibility_rating,
-                    a.bias_country,
-                    a.press_freedom,
-                    a.media_type,
-                    a.popularity,
-                    a.auto_ingested,
-                    a.ingest_status,
-                    a.quality_score,
-                    a.quality_issues
-                FROM keyword_article_matches ka
-                JOIN articles a ON ka.article_uri = a.uri
-                WHERE ka.group_id = ? {read_condition} {status_condition}
-                ORDER BY ka.detected_at DESC
-                LIMIT ? OFFSET ?
-            """, (group_id, page_size, offset))
+        # Add pagination and sorting.
+        statement = statement.order_by(
+            desc(keyword_article_matches.c.detected_at)
+        ).limit(page_size).offset(offset)
 
-            return cursor.fetchall()
+        return self.connection.execute(statement).fetchall()
 
     def get_alerts_by_group_id_from_old_table_structure(self, status, show_read, group_id, page_size, offset):
         with self.db.get_connection() as conn:
@@ -3360,7 +3117,7 @@ class DatabaseQueryFacade:
                 LIMIT ? OFFSET ?
             """, (group_id, page_size, offset))
 
-            return  cursor.fetchall()
+            return cursor.fetchall()
 
     def count_unread_articles_by_group_id_from_new_table_structure(self, group_id):
         with self.db.get_connection() as conn:
@@ -3438,9 +3195,10 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT article_uri FROM news_search_results 
-                WHERE topic = ?
-            """, (topic_name,))
+                           SELECT article_uri
+                           FROM news_search_results
+                           WHERE topic = ?
+                           """, (topic_name,))
 
             return cursor.fetchall()
 
@@ -3449,9 +3207,10 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT article_uri FROM paper_search_results 
-                WHERE topic = ?
-            """, (topic_name,))
+                           SELECT article_uri
+                           FROM paper_search_results
+                           WHERE topic = ?
+                           """, (topic_name,))
 
             return cursor.fetchall()
 
@@ -3642,15 +3401,14 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT 
-                    check_interval,
-                    interval_unit,
-                    is_enabled,
-                    search_date_range,
-                    daily_request_limit
-                FROM keyword_monitor_settings 
-                WHERE id = 1
-            """)
+                           SELECT check_interval,
+                                  interval_unit,
+                                  is_enabled,
+                                  search_date_range,
+                                  daily_request_limit
+                           FROM keyword_monitor_settings
+                           WHERE id = 1
+                           """)
 
             return cursor.fetchone()
 
@@ -3724,14 +3482,12 @@ class DatabaseQueryFacade:
 
             cursor.execute(
                 """
-                INSERT INTO podcasts (
-                    id, title, status, created_at, transcript, metadata
-                ) VALUES (?, ?, 'processing', CURRENT_TIMESTAMP, ?, ?)
+                INSERT INTO podcasts (id, title, status, created_at, transcript, metadata)
+                VALUES (?, ?, 'processing', CURRENT_TIMESTAMP, ?, ?)
                 """,
                 params,
             )
             conn.commit()
-
 
     def mark_podcast_generation_as_complete(self, params):
         with self.db.get_connection() as conn:
@@ -3740,11 +3496,11 @@ class DatabaseQueryFacade:
             cursor.execute(
                 """
                 UPDATE podcasts
-                SET status = 'completed',
-                    audio_url = ?,
+                SET status       = 'completed',
+                    audio_url    = ?,
                     completed_at = CURRENT_TIMESTAMP,
-                    error = NULL,
-                    metadata = ?
+                    error        = NULL,
+                    metadata     = ?
                 WHERE id = ?
                 """,
                 params,
@@ -3778,9 +3534,10 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT is_enabled, daily_request_limit
-                FROM keyword_monitor_settings WHERE id = 1
-            """)
+                           SELECT is_enabled, daily_request_limit
+                           FROM keyword_monitor_settings
+                           WHERE id = 1
+                           """)
 
             return cursor.fetchone()
 
@@ -3789,22 +3546,22 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT 
-                    topic,
-                    COUNT(*) as article_count,
-                    strftime('%Y-%m-%dT%H:%M:%S.000Z', 
-                        MAX(COALESCE(submission_date, publication_date))
-                    ) as last_article_date
-                FROM articles 
-                WHERE topic IS NOT NULL 
-                AND topic != ''
-                GROUP BY topic 
-                ORDER BY CASE 
-                    WHEN MAX(COALESCE(submission_date, publication_date)) IS NULL THEN 1 
-                    ELSE 0 
-                END,
+                           SELECT topic,
+                                  COUNT(*) as article_count,
+                                  strftime('%Y-%m-%dT%H:%M:%S.000Z',
+                                           MAX(COALESCE(submission_date, publication_date))
+                                  )        as last_article_date
+                           FROM articles
+                           WHERE topic IS NOT NULL
+                             AND topic != ''
+                           GROUP BY topic
+                           ORDER BY CASE
+                               WHEN MAX (COALESCE (submission_date, publication_date)) IS NULL THEN 1
+                               ELSE 0
+                           END
+                           ,
                 last_article_date DESC
-            """)
+                           """)
 
             return cursor.fetchall()
 
@@ -3819,7 +3576,7 @@ class DatabaseQueryFacade:
                            """)
             result = cursor.fetchone()
 
-            return  result[0] if result else None
+            return result[0] if result else None
 
     def get_podcast_transcript(self, podcast_id):
         with self.db.get_connection() as conn:
@@ -3877,10 +3634,10 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT audio_url
-                FROM podcasts
-                WHERE id = ?
-            """, (podcast_id,))
+                           SELECT audio_url
+                           FROM podcasts
+                           WHERE id = ?
+                           """, (podcast_id,))
 
             return cursor.fetchone()
 
@@ -3978,17 +3735,16 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                SELECT 
-                    auto_ingest_enabled,
-                    min_relevance_threshold,
-                    quality_control_enabled,
-                    auto_save_approved_only,
-                    default_llm_model,
-                    llm_temperature,
-                    llm_max_tokens
-                FROM keyword_monitor_settings 
-                WHERE id = 1
-            """)
+                           SELECT auto_ingest_enabled,
+                                  min_relevance_threshold,
+                                  quality_control_enabled,
+                                  auto_save_approved_only,
+                                  default_llm_model,
+                                  llm_temperature,
+                                  llm_max_tokens
+                           FROM keyword_monitor_settings
+                           WHERE id = 1
+                           """)
 
             return cursor.fetchone()
 
@@ -4012,14 +3768,14 @@ class DatabaseQueryFacade:
             cursor = conn.cursor()
 
             cursor.execute("""
-                INSERT INTO keyword_monitor_status 
-                (id, requests_today, last_check_time, last_reset_date)
-                VALUES (1, ?, datetime('now'), ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    requests_today = excluded.requests_today,
-                    last_check_time = excluded.last_check_time,
-                    last_reset_date = excluded.last_reset_date
-            """, params)
+                           INSERT INTO keyword_monitor_status
+                               (id, requests_today, last_check_time, last_reset_date)
+                           VALUES (1, ?, datetime('now'), ?) ON CONFLICT(id) DO
+                           UPDATE SET
+                               requests_today = excluded.requests_today,
+                               last_check_time = excluded.last_check_time,
+                               last_reset_date = excluded.last_reset_date
+                           """, params)
             conn.commit()
 
     def get_keyword_monitor_status_daily_request_limit(self):
@@ -4032,30 +3788,7 @@ class DatabaseQueryFacade:
 
     #### AUTOMATED INGEST SERVICE ####
 
-
     #### MEDIA BIAS ####
-    def create_media_bias_table(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS mediabias (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    source TEXT NOT NULL UNIQUE,
-                    country TEXT,
-                    bias TEXT,
-                    factual_reporting TEXT,
-                    press_freedom TEXT,
-                    media_type TEXT,
-                    popularity TEXT,
-                    mbfc_credibility_rating TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    enabled INTEGER DEFAULT 1
-                )
-            """)
-
-            conn.commit()
 
     def check_if_media_bias_has_updated_at_column(self):
         with self.db.get_connection() as conn:
@@ -4064,38 +3797,6 @@ class DatabaseQueryFacade:
             cursor.execute("PRAGMA table_info(mediabias)")
 
             return [column[1] for column in cursor.fetchall()]
-
-    def add_updated_at_column_to_media_bias_table(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           ALTER TABLE mediabias
-                               ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                           """)
-
-            conn.commit()
-            
-    def create_media_bias_settings_table_and_insert_default_values(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS mediabias_settings (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    enabled BOOLEAN DEFAULT 0,
-                    last_updated TIMESTAMP,
-                    source_file TEXT
-                )
-            """)
-            
-            # Insert default settings if not exist
-            cursor.execute("""
-                INSERT OR IGNORE INTO mediabias_settings (id, enabled, last_updated, source_file)
-                VALUES (1, 0, NULL, NULL)
-            """)
-
-            conn.commit()
 
     def insert_media_bias(self, params):
         with self.db.get_connection() as conn:
@@ -4190,7 +3891,6 @@ class DatabaseQueryFacade:
                            FROM mediabias_settings
                            WHERE id = 1
                            """)
-
 
             return cursor.fetchone()
 
@@ -4376,4 +4076,3 @@ class DatabaseQueryFacade:
                 sources.append(source)
 
             return sources
-

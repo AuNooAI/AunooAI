@@ -194,17 +194,6 @@ def create_scenario(name: str, topic: str, block_ids: List[int]) -> Dict[str, An
                 detail="Could not create scenario",
             ) from exc
 
-    # Get names of blocks for table columns --------------------------------
-    with db.get_connection() as conn:
-        cursor = conn.cursor()
-        placeholder = ",".join(["?"] * len(block_ids))
-        query = "SELECT name FROM building_blocks WHERE id IN (" f"{placeholder})"
-        cursor.execute(query, block_ids)
-        block_names = [row[0] for row in cursor.fetchall()]
-
-    # Create the dedicated articles table ----------------------------------
-    db.create_custom_articles_table(table_name, block_names)
-
     # Return the freshly created scenario ----------------------------------
     with db.get_connection() as conn:
         conn.row_factory = sqlite3.Row  # type: ignore

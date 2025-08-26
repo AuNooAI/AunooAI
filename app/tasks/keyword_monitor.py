@@ -62,7 +62,6 @@ class KeywordMonitor:
             self.auto_ingest_service = AutomatedIngestService(db)
 
         self._load_settings()
-        self._init_tables()
         self.check_and_reset_counter()  # Check for reset during initialization
 
     def _load_settings(self):
@@ -71,15 +70,15 @@ class KeywordMonitor:
                 settings = (DatabaseQueryFacade(self.db, logger)).get_or_create_keyword_monitor_settings()
 
                 if settings:
-                    self.check_interval = settings[0] * settings[1]  # interval * unit
-                    self.search_fields = settings[2]
-                    self.language = settings[3]
-                    self.sort_by = settings[4]
-                    self.page_size = settings[5]
-                    self.is_enabled = settings[6]
-                    self.daily_request_limit = settings[7]
-                    self.search_date_range = settings[8] or 7  # Default to 7 days if not set
-                    self.provider = settings[9] or 'newsapi'  # Default to newsapi if not set
+                    self.check_interval = settings['check_interval'] * settings['interval_unit']  # interval * unit
+                    self.search_fields = settings['search_fields']
+                    self.language = settings['language']
+                    self.sort_by = settings['sort_by']
+                    self.page_size = settings['page_size']
+                    self.is_enabled = settings['is_enabled']
+                    self.daily_request_limit = settings['daily_request_limit']
+                    self.search_date_range = settings['search_date_range'] or 7  # Default to 7 days if not set
+                    self.provider = settings['provider'] or 'newsapi'  # Default to newsapi if not set
                 else:
                     # Use defaults
                     self.check_interval = 900  # 15 minutes
@@ -105,15 +104,6 @@ class KeywordMonitor:
             self.search_date_range = 7  # Default to 7 days
             self.provider = 'newsapi'  # Default provider
 
-    def _init_tables(self):
-        """Initialize required database tables"""
-        try:
-            (DatabaseQueryFacade(self.db, logger)).create_keyword_monitor_status_tables()
-
-        except Exception as e:
-            logger.error(f"Error initializing tables: {str(e)}")
-            raise
-
     def _init_collector(self):
         """Initialize the news collector based on settings"""
         try:
@@ -136,8 +126,9 @@ class KeywordMonitor:
         """Check if the API usage counter needs to be reset for a new day"""
         try:
             row = (DatabaseQueryFacade(self.db, logger)).get_keyword_monitoring_counter()
+
             if row:
-                current_count, last_reset = row[0], row[1]
+                current_count, last_reset = row['requests_today'], row['last_reset_date']
                 today = datetime.now().date().isoformat()
 
                 if not last_reset or last_reset < today:

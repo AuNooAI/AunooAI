@@ -24,17 +24,6 @@ class OAuthUserManager:
     
     def __init__(self, db: Database):
         self.db = db
-        self._ensure_oauth_tables()
-    
-    def _ensure_oauth_tables(self):
-        """Ensure OAuth user tables exist"""
-        try:
-            (DatabaseQueryFacade(self.db, logger)).create_oauth_tables()
-            logger.info("OAuth tables ensured successfully")
-                
-        except Exception as e:
-            logger.error(f"Failed to create OAuth tables: {e}")
-            raise
     
     def create_or_update_oauth_user(self, email: str, name: str, provider: str, 
                                    provider_id: str = None, avatar_url: str = None) -> Dict[str, Any]:

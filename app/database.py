@@ -35,6 +35,9 @@ def get_database_instance():
 
 class Database:
     _connections = {}
+
+    # TODO: Handle lost connections!!!
+    _sqlalchemy_connections = {}
     
     @staticmethod
     def get_active_database():
@@ -47,7 +50,39 @@ class Database:
         if db_name is None:
             db_name = self.get_active_database()
         self.db_path = os.path.join(DATABASE_DIR, db_name)
-        self.init_db()
+
+        # TODO: Lazy load?
+        logger.info(f"Creating database connection... TODO: ADD DETAILS!")
+        self._temp_get_connection()
+        logger.info(f"Database connection created. TODO: ADD ERROR HANDLING. SHUT DOWN ON FAILURE? RETRY?")
+
+    # TODO: Replace get_connection with this function once all queries moved to SQLAlchemy.
+    def _temp_get_connection(self):
+        thread_id = threading.get_ident()
+
+        # TODO: TEMPORARY PATCH FOR REPLACING DIRECT sqlite CONNECTIONS WITH SQLALCHEMY
+        # TODO: FOR PGSL OR OTHER TYPES OF ENGINES RE-USE EXISTING CONNECTIONS TO AVOID EXHAUSTING RESOURCES!!!
+        # TODO: MUST INCLUDE DEFAULT TABLE VALUES IN MIGRATIONS, SEE GIT COMMITS FOR WHAT HAS BEEN REMOVED!!!!!
+        if thread_id not in self._connections:
+            from sqlalchemy import create_engine
+            # Create SQLAlchemy engine and connection.
+            # TODO: MAKE ENGINE CONFIGURABLE!!
+            engine = create_engine(f"sqlite:///{self.db_path}", echo=True)
+            connection = engine.connect()
+
+            # TODO: Rename this to a less verbose name.
+            self._sqlalchemy_connections[thread_id] = connection
+
+            # from sqlalchemy import select
+            #
+            # import database_models
+            # select_stmt = select(database_models.t_users)
+            # result = connection.execute(select_stmt)
+            #
+            # import pprint
+            # pprint.pp([user for user in result])
+            # TODO: END TEMPORARY PATCH
+        return self._sqlalchemy_connections[thread_id]
 
     def get_connection(self):
         """Get a thread-local database connection with optimized settings"""
@@ -56,17 +91,6 @@ class Database:
         if thread_id not in self._connections:
             try:
                 self._connections[thread_id] = sqlite3.connect(self.db_path)
-
-                from sqlalchemy import create_engine
-                print(f"sqlite:///{self.db_path}")
-                engine = create_engine(f"sqlite:///{self.db_path}", echo=True)
-                connection = engine.connect()
-                from sqlalchemy import select
-                import database_models
-                select_stmt = select(database_models.t_users)
-                result = connection.execute(select_stmt)
-                import pprint
-                pprint.pp([user for user in result])
 
                 # Enable foreign key support
                 self._connections[thread_id].execute("PRAGMA foreign_keys = ON")
@@ -106,161 +130,12 @@ class Database:
         """Cleanup connections when the object is destroyed"""
         self.close_connections()
 
-    def init_db(self):
-        """Initialize the database and create necessary tables if they don't exist."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Enable foreign keys
-            cursor.execute("PRAGMA foreign_keys = ON")
-            
-            # Create users table with proper schema
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    username TEXT PRIMARY KEY,
-                    password_hash TEXT NOT NULL,
-                    force_password_change BOOLEAN DEFAULT 0,
-                    completed_onboarding BOOLEAN DEFAULT 0
-                )
-            """)
-            
-            # Create articles table with URI as primary key
-            self.create_articles_table()
-            
-            # Create ontology tables (building_blocks, scenarios, scenario_blocks)
-            self.create_ontology_tables()
-            
-            # Create vantage desk filters table
-            self.create_vantage_desk_filters_table()
-            
-            # Run migrations to ensure schema is up to date
-            self.migrate_db()
-            
-            conn.commit()
-
     def create_articles_table(self):
+        # TODO: Move data initialisation to migrations.
         """Create the articles and related tables."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            
-            # Create articles table
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS articles (
-                    uri TEXT PRIMARY KEY,
-                    title TEXT,
-                    news_source TEXT,
-                    publication_date TEXT,
-                    submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
-                    summary TEXT,
-                    category TEXT,
-                    future_signal TEXT,
-                    future_signal_explanation TEXT,
-                    sentiment TEXT,
-                    sentiment_explanation TEXT,
-                    time_to_impact TEXT,
-                    time_to_impact_explanation TEXT,
-                    tags TEXT,
-                    driver_type TEXT,
-                    driver_type_explanation TEXT,
-                    topic TEXT,
-                    analyzed BOOLEAN DEFAULT FALSE
-                )
-            """)
-            
-            # Create raw_articles table for storing original content
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS raw_articles (
-                    uri TEXT PRIMARY KEY,
-                    raw_markdown TEXT,
-                    submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
-                    last_updated TEXT,
-                    topic TEXT,
-                    FOREIGN KEY (uri) REFERENCES articles(uri) ON DELETE CASCADE
-                )
-            """)
-            
-            # Create unique index on URI
-            cursor.execute("""
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_uri 
-                ON articles(uri)
-            """)
-            
-            # Create keyword alerts table with proper foreign key constraints
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS keyword_alerts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    keyword_id INTEGER NOT NULL,
-                    article_uri TEXT NOT NULL,
-                    detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    is_read INTEGER DEFAULT 0,
-                    FOREIGN KEY (keyword_id) REFERENCES monitored_keywords(id) ON DELETE CASCADE,
-                    FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
-                    UNIQUE(keyword_id, article_uri)
-                )
-            """)
-            
-            # Ensure podcasts table exists (schema enforced by migrations)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS podcasts (
-                    id TEXT PRIMARY KEY,
-                    title TEXT,
-                    status TEXT DEFAULT 'processing',
-                    audio_url TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    completed_at TIMESTAMP,
-                    error TEXT,
-                    transcript TEXT,
-                    metadata TEXT
-                )
-            """)
-            
-            # Create auspex_chats table for chat persistence
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS auspex_chats (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    topic TEXT NOT NULL,
-                    title TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    user_id TEXT,
-                    metadata TEXT,
-                    FOREIGN KEY (user_id) REFERENCES users(username) ON DELETE SET NULL
-                )
-            """)
-            
-            # Create auspex_messages table for individual messages
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS auspex_messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id INTEGER NOT NULL,
-                    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
-                    content TEXT NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    model_used TEXT,
-                    tokens_used INTEGER,
-                    metadata TEXT,
-                    FOREIGN KEY (chat_id) REFERENCES auspex_chats(id) ON DELETE CASCADE
-                )
-            """)
-            
-            # Create auspex_prompts table for editable system prompts
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS auspex_prompts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL UNIQUE,
-                    title TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    description TEXT,
-                    is_default BOOLEAN DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    user_created TEXT,
-                    FOREIGN KEY (user_created) REFERENCES users(username) ON DELETE SET NULL
-                )
-            """)
-            
-            conn.commit()
-            
+
             # Initialize default Auspex prompt if it doesn't exist
             cursor.execute("SELECT COUNT(*) FROM auspex_prompts WHERE name = 'default'")
             if cursor.fetchone()[0] == 0:
@@ -311,259 +186,6 @@ Remember to cite your sources and provide actionable insights where possible."""
                     True
                 ))
                 conn.commit()
-            
-            # Add indexes for better performance
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_chats_topic ON auspex_chats(topic)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_chats_user_id ON auspex_chats(user_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_messages_chat_id ON auspex_messages(chat_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_messages_role ON auspex_messages(role)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_prompts_name ON auspex_prompts(name)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_auspex_prompts_is_default ON auspex_prompts(is_default)")
-            
-            conn.commit()
-
-    def migrate_db(self):
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # First ensure migrations table exists
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS migrations (
-                        id INTEGER PRIMARY KEY,
-                        name TEXT UNIQUE,
-                        applied_at TEXT DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                conn.commit()
-                
-                # Get applied migrations
-                cursor.execute("SELECT name FROM migrations")
-                applied = {row[0] for row in cursor.fetchall()}
-                
-                # Define migrations
-                migrations = [
-                    ("ensure_users_table_schema", self._ensure_users_table_schema),
-                    ("ensure_podcasts_table_schema", self._ensure_podcasts_table_schema),
-                    ("ensure_settings_podcasts_table", self._ensure_settings_podcasts_table),
-                    ("add_metadata_column_to_podcasts", self._add_metadata_column_to_podcasts),
-                    ("create_newsletter_prompts_table", self._create_newsletter_prompts_table),
-                    ("add_relevance_columns_to_articles", self._add_relevance_columns_to_articles),
-                    ("add_auto_ingest_columns", self._add_auto_ingest_columns)
-                ]
-                
-                # Apply migrations that haven't been applied yet
-                for name, callback in migrations:
-                    if name not in applied:
-                        try:
-                            callback(cursor)
-                            cursor.execute("INSERT INTO migrations (name) VALUES (?)", (name,))
-                            logger.info(f"Applied migration: {name}")
-                        except Exception as migration_error:
-                            logger.error(f"Error applying migration {name}: {str(migration_error)}")
-                            raise
-                
-                # Commit all migrations
-                conn.commit()
-                
-        except Exception as e:
-            logger.error(f"Database migration failed: {str(e)}")
-            raise
-
-    def _ensure_users_table_schema(self, cursor):
-        """Ensure users table has the correct schema with password_hash column."""
-        # Check if users table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-        if cursor.fetchone():
-            # Check if password_hash column exists
-            cursor.execute("PRAGMA table_info(users)")
-            columns = {row[1] for row in cursor.fetchall()}
-            
-            if 'password_hash' not in columns:
-                logger.info("Adding password_hash column to users table")
-                # Create a temporary table with the correct schema
-                cursor.execute("""
-                    CREATE TABLE users_temp (
-                        username TEXT PRIMARY KEY,
-                        password_hash TEXT NOT NULL,
-                        force_password_change BOOLEAN DEFAULT 0,
-                        completed_onboarding BOOLEAN DEFAULT 0
-                    )
-                """)
-                
-                # Copy data from old table to new table
-                cursor.execute("""
-                    INSERT INTO users_temp (username, force_password_change, completed_onboarding)
-                    SELECT username, force_password_change, completed_onboarding FROM users
-                """)
-                
-                # Drop the old table
-                cursor.execute("DROP TABLE users")
-                
-                # Rename the new table to the original name
-                cursor.execute("ALTER TABLE users_temp RENAME TO users")
-        else:
-            # Create the users table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE users (
-                    username TEXT PRIMARY KEY,
-                    password_hash TEXT NOT NULL,
-                    force_password_change BOOLEAN DEFAULT 0,
-                    completed_onboarding BOOLEAN DEFAULT 0
-                )
-            """)
-
-    def _ensure_podcasts_table_schema(self, cursor):
-        """Ensure podcasts table has the correct schema."""
-        # Check if podcasts table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='podcasts'")
-        if cursor.fetchone():
-            # Check if all required columns exist
-            cursor.execute("PRAGMA table_info(podcasts)")
-            columns = {row[1] for row in cursor.fetchall()}
-            
-            required_columns = {
-                'id', 'title', 'status', 'audio_url', 'created_at', 
-                'completed_at', 'error', 'transcript', 'metadata'
-            }
-            
-            missing = required_columns - columns
-            for col in missing:
-                logger.info(f"Adding missing column '{col}' to podcasts table")
-                col_def = "TEXT"
-                if col in {"created_at", "completed_at"}:
-                    col_def = "TIMESTAMP"
-                cursor.execute(f"ALTER TABLE podcasts ADD COLUMN {col} {col_def}")
-        else:
-            # Create podcasts table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE podcasts (
-                    id TEXT PRIMARY KEY,
-                    title TEXT,
-                    status TEXT DEFAULT 'processing',
-                    audio_url TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    completed_at TIMESTAMP,
-                    error TEXT,
-                    transcript TEXT,
-                    metadata TEXT
-                )
-            """)
-
-    def _ensure_settings_podcasts_table(self, cursor):
-        """Ensure settings_podcasts key‑value table exists."""
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS settings_podcasts (
-                key TEXT PRIMARY KEY,
-                value TEXT
-            )
-        """)
-
-    def _add_metadata_column_to_podcasts(self, cursor):
-        """Add metadata column to podcasts table."""
-        # Check if podcasts table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='podcasts'")
-        if cursor.fetchone():
-            # Check if metadata column exists
-            cursor.execute("PRAGMA table_info(podcasts)")
-            columns = {row[1] for row in cursor.fetchall()}
-            
-            if 'metadata' not in columns:
-                logger.info("Adding metadata column to podcasts table")
-                cursor.execute("ALTER TABLE podcasts ADD COLUMN metadata TEXT")
-        else:
-            # Create podcasts table if it doesn't exist
-            cursor.execute("""
-                CREATE TABLE podcasts (
-                    id TEXT PRIMARY KEY,
-                    title TEXT,
-                    status TEXT DEFAULT 'processing',
-                    audio_url TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    completed_at TIMESTAMP,
-                    error TEXT,
-                    transcript TEXT,
-                    metadata TEXT
-                )
-            """)
-
-    def _create_newsletter_prompts_table(self, cursor):
-        """Create the newsletter_prompts table to store prompt templates."""
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS newsletter_prompts (
-                content_type_id TEXT PRIMARY KEY,
-                prompt_template TEXT NOT NULL,
-                description TEXT NOT NULL,
-                last_updated TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Insert default prompts for each content type
-        default_prompts = [
-            (
-                "topic_summary",
-                self._get_default_summary_prompt_template(),
-                "Prompt template for generating topic summaries with recent developments and citations"
-            ),
-            (
-                "trend_analysis",
-                self._get_default_trend_analysis_prompt_template(),
-                "Prompt template for analyzing trends, patterns, and signals from article metadata"
-            ),
-            (
-                "article_insights",
-                self._get_default_article_insights_prompt_template(),
-                "Prompt template for grouping articles by themes and providing insights on each theme"
-            ),
-            (
-                "key_articles",
-                self._get_default_key_articles_prompt_template(),
-                "Prompt template for explaining why specific articles merit attention"
-            ),
-            (
-                "ethical_societal_impact",
-                self._get_default_ethical_impact_prompt_template(),
-                "Prompt template for analyzing ethical and societal impacts related to a topic"
-            ),
-            (
-                "business_impact",
-                self._get_default_business_impact_prompt_template(),
-                "Prompt template for analyzing business opportunities and impacts related to a topic"
-            ),
-            (
-                "market_impact",
-                self._get_default_market_impact_prompt_template(),
-                "Prompt template for analyzing market trends and competitive landscape"
-            ),
-            (
-                "key_charts",
-                self._get_default_key_charts_prompt_template(),
-                "Prompt template for generating chart descriptions and insights for data visualizations"
-            ),
-            (
-                "latest_podcast",
-                self._get_default_podcast_prompt_template(),
-                "Prompt template for summarizing podcast content related to the topic"
-            )
-        ]
-        
-        # Check which prompts already exist
-        cursor.execute("SELECT content_type_id FROM newsletter_prompts")
-        existing_types = {row[0] for row in cursor.fetchall()}
-        
-        # Insert only those prompts that don't exist
-        for prompt in default_prompts:
-            if prompt[0] not in existing_types:
-                cursor.execute(
-                    """
-                    INSERT INTO newsletter_prompts (content_type_id, prompt_template, description)
-                    VALUES (?, ?, ?)
-                    """,
-                    prompt
-                )
-        
-        # Commit changes
-        cursor.connection.commit()
 
     def _get_default_summary_prompt_template(self) -> str:
         """Get the default prompt template for the topic summary section."""
@@ -1391,23 +1013,7 @@ Remember to cite your sources and provide actionable insights where possible."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             current_time = datetime.now().isoformat()
-            
-            # Check if the raw_articles table exists, create it if not
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='raw_articles'")
-            if not cursor.fetchone():
-                logger.info("Creating raw_articles table as it does not exist")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS raw_articles (
-                        uri TEXT PRIMARY KEY,
-                        raw_markdown TEXT,
-                        submission_date TEXT DEFAULT CURRENT_TIMESTAMP,
-                        last_updated TEXT,
-                        topic TEXT,
-                        FOREIGN KEY (uri) REFERENCES articles(uri) ON DELETE CASCADE
-                    )
-                """)
-                conn.commit()
-            
+
             # Ensure parent article exists before saving raw article
             cursor.execute("SELECT uri FROM articles WHERE uri = ?", (uri,))
             if not cursor.fetchone():
@@ -1570,16 +1176,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 # Check if password_hash column exists
                 cursor.execute("PRAGMA table_info(users)")
                 columns = {row[1] for row in cursor.fetchall()}
-                
-                if 'password_hash' not in columns:
-                    logger.error("password_hash column does not exist in users table")
-                    # Try to fix the schema
-                    self._ensure_users_table_schema(cursor)
-                    conn.commit()
-                    # Return None to indicate the user needs to be recreated
-                    return None
-                
-                # Query the user with the correct schema
+
                 cursor.execute("""
                     SELECT username, password_hash, force_password_change, completed_onboarding
                     FROM users WHERE username = ?
@@ -1665,14 +1262,6 @@ Remember to cite your sources and provide actionable insights where possible."""
         """Create a new user."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    username TEXT PRIMARY KEY,
-                    password_hash TEXT NOT NULL,
-                    force_password_change BOOLEAN DEFAULT 0,
-                    completed_onboarding BOOLEAN DEFAULT 0
-                )
-            """)
             cursor.execute(
                 "INSERT INTO users (username, password_hash, force_password_change, completed_onboarding) VALUES (?, ?, ?, ?)",
                 (username, password_hash, force_password_change, False)
@@ -1963,58 +1552,11 @@ Remember to cite your sources and provide actionable insights where possible."""
     # Ontology / Scenario support (dynamic building-block framework)
     # ------------------------------------------------------------------
 
+    # TODO: Potentially not used.
     def create_ontology_tables(self):
         """Ensure tables for BuildingBlocks, Scenarios and their M2M link exist."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-
-            # Building blocks (driver_type, sentiment, custom etc.)
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS building_blocks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE NOT NULL,
-                    kind TEXT NOT NULL,
-                    prompt TEXT NOT NULL,
-                    options TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-
-            # If the table existed previously, ensure the `options` column exists
-            cursor.execute("PRAGMA table_info(building_blocks)")
-            cols = {row[1] for row in cursor.fetchall()}
-            if "options" not in cols:
-                cursor.execute("ALTER TABLE building_blocks ADD COLUMN options TEXT")
-
-            # Scenarios (group of building blocks per topic)
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS scenarios (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT UNIQUE NOT NULL,
-                    topic TEXT NOT NULL,
-                    article_table TEXT UNIQUE,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-
-            # Many-to-many link
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS scenario_blocks (
-                    scenario_id INTEGER NOT NULL,
-                    building_block_id INTEGER NOT NULL,
-                    PRIMARY KEY (scenario_id, building_block_id),
-                    FOREIGN KEY (scenario_id) REFERENCES scenarios(id) ON DELETE CASCADE,
-                    FOREIGN KEY (building_block_id) REFERENCES building_blocks(id) ON DELETE CASCADE
-                )
-                """
-            )
-
-            conn.commit()
 
             # Load defaults from config.json (first topic)
             import json, os
@@ -2101,6 +1643,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 ),
             ]
 
+            # TODO: Move to migrations.
             cursor.executemany(
                 "INSERT OR IGNORE INTO building_blocks (name, kind, prompt, options) VALUES (?,?,?,?)",
                 default_blocks,
@@ -2115,71 +1658,6 @@ Remember to cite your sources and provide actionable insights where possible."""
         """Return a lowercase, safe SQLite identifier (letters, digits, _)."""
         import re
         return re.sub(r"[^0-9a-zA-Z_]+", "_", name.strip().lower())
-
-    def create_custom_articles_table(self, table_name: str, building_block_names: list[str]):
-        """Create a custom articles table for a scenario if it doesn't exist.
-
-        The new table is **loosely based** on the base `articles` schema and
-        is extended with a column for each selected building block plus an
-        optional `<block>_explanation` column.
-        """
-
-        safe_table = self._sanitize_identifier(table_name)
-
-        # Do nothing if the table already exists
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-                (safe_table,)
-            )
-            if cursor.fetchone():
-                return  # Table already present
-
-            # Base schema copied from the default articles table
-            columns_sql = [
-                "uri TEXT PRIMARY KEY",
-                "title TEXT",
-                "news_source TEXT",
-                "publication_date TEXT",
-                "submission_date TEXT DEFAULT CURRENT_TIMESTAMP",
-                "summary TEXT",
-                "tags TEXT",
-                "topic TEXT",
-                "analyzed BOOLEAN DEFAULT FALSE",
-            ]
-
-            existing_cols = set(k.split()[0] for k in columns_sql)  # track base names
-
-            for raw_name in building_block_names:
-                base_col = self._sanitize_identifier(raw_name)
-
-                # Avoid clashes with core / previously added names
-                col = base_col
-                suffix = 1
-                while col in existing_cols or col in (
-                    "uri",
-                    "title",
-                    "news_source",
-                    "publication_date",
-                    "submission_date",
-                    "summary",
-                    "tags",
-                    "topic",
-                    "analyzed",
-                ):
-                    col = f"{base_col}_{suffix}"
-                    suffix += 1
-
-                existing_cols.add(col)
-
-                columns_sql.append(f"{col} TEXT")
-                columns_sql.append(f"{col}_explanation TEXT")
-
-            create_sql = f"CREATE TABLE IF NOT EXISTS {safe_table} (" + ", ".join(columns_sql) + ")"
-            cursor.execute(create_sql)
-            conn.commit()
-            self._debug_schema()  # Optional: logs new schema
 
     # ------------------------------------------------------------------
     # Podcast settings helpers – key/value access
@@ -2211,64 +1689,6 @@ Remember to cite your sources and provide actionable insights where possible."""
             )
             conn.commit()
             return True
-
-    def _add_relevance_columns_to_articles(self, cursor):
-        """Add relevance columns to articles table if they don't exist."""
-        try:
-            cursor.execute("ALTER TABLE articles ADD COLUMN relevance_score REAL")
-            logger.info("Added relevance_score column to articles table")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-        
-        try:
-            cursor.execute("ALTER TABLE articles ADD COLUMN relevance_reason TEXT")
-            logger.info("Added relevance_reason column to articles table")
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-    def _add_auto_ingest_columns(self, cursor):
-        """Add auto-ingest columns to articles and keyword_monitor_settings tables."""
-        # Add auto-ingest columns to articles table
-        auto_ingest_article_columns = [
-            ("auto_ingested", "BOOLEAN DEFAULT FALSE"),
-            ("ingest_status", "TEXT"),
-            ("quality_score", "REAL"),
-            ("quality_issues", "TEXT")
-        ]
-        
-        for column_name, column_def in auto_ingest_article_columns:
-            try:
-                cursor.execute(f"ALTER TABLE articles ADD COLUMN {column_name} {column_def}")
-                logger.info(f"Added {column_name} column to articles table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-        
-        # Add auto-ingest settings to keyword_monitor_settings table
-        auto_ingest_settings_columns = [
-            ("auto_ingest_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
-            ("min_relevance_threshold", "REAL NOT NULL DEFAULT 0.0"),
-            ("quality_control_enabled", "BOOLEAN NOT NULL DEFAULT TRUE"),
-            ("auto_save_approved_only", "BOOLEAN NOT NULL DEFAULT FALSE"),
-            ("default_llm_model", "TEXT NOT NULL DEFAULT 'gpt-4o-mini'"),
-            ("llm_temperature", "REAL NOT NULL DEFAULT 0.1"),
-            ("llm_max_tokens", "INTEGER NOT NULL DEFAULT 1000")
-        ]
-        
-        for column_name, column_def in auto_ingest_settings_columns:
-            try:
-                cursor.execute(f"ALTER TABLE keyword_monitor_settings ADD COLUMN {column_name} {column_def}")
-                logger.info(f"Added {column_name} column to keyword_monitor_settings table")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-        
-        # Create indexes for better performance
-        try:
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_auto_ingested ON articles(auto_ingested)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_ingest_status ON articles(ingest_status)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_articles_quality_score ON articles(quality_score)")
-            logger.info("Created auto-ingest indexes on articles table")
-        except sqlite3.OperationalError:
-            pass  # Indexes already exist
 
     def get_podcast_settings(self):
         with self.get_connection() as conn:
@@ -2570,34 +1990,6 @@ Remember to cite your sources and provide actionable insights where possible."""
                 'user_created': row[8]
             }
 
-    # Vantage Desk Filter Methods
-    def create_vantage_desk_filters_table(self):
-        """Create the vantage_desk_filters table if it does not exist."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS vantage_desk_filters (
-                    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_key             TEXT    NOT NULL,
-                    group_id             INTEGER,
-                    source_type          TEXT,
-                    sort_by              TEXT       DEFAULT 'publication_date',
-                    limit_count          INTEGER    DEFAULT 50,
-                    search_term          TEXT,
-                    date_range           TEXT,
-                    author_filter        TEXT,
-                    min_engagement       INTEGER,
-                    starred_filter       TEXT,
-                    include_hidden       BOOLEAN    DEFAULT 0,
-                    layout_mode          TEXT       DEFAULT 'cards',
-                    topic_filter         TEXT,
-                    source_date_combinations TEXT
-                )
-            """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_vdf_user ON vantage_desk_filters (user_key)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_vdf_user_group ON vantage_desk_filters (user_key, group_id)")
-            conn.commit()
-   
     def upsert_vantage_desk_filters(self, user_key: str, group_id: int = None, **filters) -> int:
         """
         Insert or update a user's Vantage Desk filter preset.

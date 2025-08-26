@@ -279,9 +279,6 @@ def _complete_json_manually(text: str) -> str:
 async def _save_analysis_version(topic: str, analysis_data: Dict, db: Database):
     """Save analysis version for potential reload"""
     try:
-        # Create analysis_versions table if it doesn't exist
-        (DatabaseQueryFacade(db, logger)).create_analysis_versions_table()
-
         # Save the version
         (DatabaseQueryFacade(db, logger)).save_analysis_version((
             topic,

@@ -744,9 +744,6 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
 async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_database_instance), session=Depends(verify_session)):
     """Save keyword monitor settings"""
     try:
-            # Create table if it doesn't exist (with auto-ingest columns)
-            (DatabaseQueryFacade(db, logger)).create_table_keyword_monitor_settings_if_not_exists()
-            
             # Update or insert settings (including auto-ingest settings)
             (DatabaseQueryFacade(db, logger)).update_or_insert_keyword_monitor_settings((
                 settings.check_interval,

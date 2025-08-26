@@ -2881,12 +2881,6 @@ async def search_articles_for_podcast(
 async def list_podcasts(db: Database = Depends(get_database_instance)):
     """Get list of generated podcasts."""
     try:
-        if not (DatabaseQueryFacade(db, logger)).check_if_table_podcasts_exists():
-            # Create podcasts table if it doesn't exist
-            (DatabaseQueryFacade(db, logger)).create_table_podcasts()
-
-            return JSONResponse(content=[])
-
         # Get all completed podcasts
         podcasts = []
         for row in (DatabaseQueryFacade(db, logger)).get_all_completed_podcasts():

@@ -149,6 +149,7 @@ t_keyword_monitor_status = Table(
     Column('id', Integer, primary_key=True),
     Column('last_check_time', Text),
     Column('last_error', Text),
+    # TODO: Should this default text of 0? or 0? REVIEW ALL DEFAULT VALUES!!!
     Column('requests_today', Integer, default=text('0')),
     Column('last_reset_date', Text)
 )
