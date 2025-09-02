@@ -101,28 +101,10 @@ class MediaBias:
         """Initialize with database connection."""
         self.db = db
         self.logger = logging.getLogger(__name__)
-        self._ensure_tables()
         self.sources = self._load_sources()
         logger.info(f"Loaded {len(self.sources)} media bias sources")
         # Enable media bias enrichment by default
         self.set_enabled(True)
-    
-    def _ensure_tables(self) -> None:
-        """Ensure the required tables exist in the database."""
-        (DatabaseQueryFacade(self.db, logger)).create_media_bias_table()
-        # Check if the updated_at column exists, add it if not
-        try:
-            columns = (DatabaseQueryFacade(self.db, logger)).check_if_media_bias_has_updated_at_column()
-
-            if 'updated_at' not in columns:
-                logger.info("Adding updated_at column to mediabias table")
-                (DatabaseQueryFacade(self.db, logger)).add_updated_at_column_to_media_bias_table()
-        except Exception as e:
-            # Table might not exist yet, which is fine since we're creating it above
-            logger.debug(f"Could not check for updated_at column: {str(e)}")
-
-        # Create mediabias_settings table if it doesn't exist
-        (DatabaseQueryFacade(self.db, logger)).create_media_bias_settings_table_and_insert_default_values()
     
     def import_from_csv(self, file_path: str) -> Tuple[int, int]:
         """Import media bias data from a CSV file.
@@ -136,7 +118,6 @@ class MediaBias:
         try:
             imported_count = 0
             failed_count = 0
-            
             if not os.path.exists(file_path):
                 raise ValueError(f"File not found: {file_path}")
                 
@@ -179,10 +160,6 @@ class MediaBias:
                         # If we get a table error (like missing column), try to recover
                         logger.warning(f"Table error during import: {str(table_error)}")
                         logger.info("Recreating mediabias table and retrying import")
-
-                        # Drop and recreate the table
-                        (DatabaseQueryFacade(self.db, logger)).drop_media_bias_table()
-                        (DatabaseQueryFacade(self.db, logger)).create_media_bias_table()
 
                         # Reset the file pointer and skip header
                         csv_file.seek(0)
