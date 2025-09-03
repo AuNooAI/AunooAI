@@ -16,7 +16,12 @@ from sqlalchemy import (select,
 from database_models import (t_keyword_monitor_settings as keyword_monitor_settings,
                              t_keyword_monitor_status as keyword_monitor_status,
                              t_keyword_article_matches as keyword_article_matches,
-                             t_articles as articles)
+                             t_articles as articles,
+                             t_monitored_keywords as monitored_keywords,
+                             t_keyword_groups as keyword_groups,
+                             t_analysis_versions as analysis_versions,
+                             t_organizational_profiles as organizational_profiles,
+                             t_keyword_alerts as keyword_alerts)
 
 
 class DatabaseQueryFacade:
@@ -110,44 +115,33 @@ class DatabaseQueryFacade:
 
 
     def get_monitored_keywords(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT mk.id, mk.keyword, mk.last_checked, kg.topic
-                           FROM monitored_keywords mk
-                                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                           """)
-            keywords = cursor.fetchall()
-            return keywords
-        return []
+        statement = select(
+                monitored_keywords.c.id,
+                monitored_keywords.c.keyword,
+                monitored_keywords.c.last_checked,
+                keyword_groups.c.topic
+            ).select_from(
+                monitored_keywords
+                .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+            )
+        return self.connection.execute(statement).fetchall()
 
     def get_monitored_keywords_for_topic(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Get keywords for this topic
-            cursor.execute("""
-                           SELECT mk.keyword
-                           FROM monitored_keywords mk
-                                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                           WHERE kg.topic = ?
-                           """, params)
-
-            topic_keywords = [row[0] for row in cursor.fetchall()]
-            return topic_keywords
-        return []
+        statement = select(
+            monitored_keywords.c.keyword
+            ).select_from(
+                monitored_keywords
+                .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+            ).where(
+                keyword_groups.c.topic == params[0]
+            )
+        return self.connection.execute(statement).fetchall()
 
     def article_exists(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT uri FROM articles WHERE uri = ?",
-                params
-            )
-            article_exists = cursor.fetchone()
-            return article_exists
+        article_exists =  self.connection.execute(
+            select(articles.c.uri).where(articles.c.uri == params[0])
+        ).fetchone()
+        return article_exists
 
     def create_article(self, article_exists, article_url, article, topic, keyword_id):
         with self.db.get_connection() as conn:
@@ -269,34 +263,29 @@ class DatabaseQueryFacade:
             conn.commit()
 
     def get_keyword_monitor_polling_enabled(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT is_enabled FROM keyword_monitor_settings WHERE id = 1")
-            row = cursor.fetchone()
-            is_enabled = row[0] if row and row[0] is not None else True
-
-            return is_enabled
-
+        statement = select(
+            keyword_monitor_settings.c.is_enabled
+        ).where(
+            keyword_monitor_settings.c.id == 1
+        )
+        return self.connection.execute(statement).fetchone()
+        
     def get_keyword_monitor_interval(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT check_interval, interval_unit FROM keyword_monitor_settings WHERE id = 1"
-            )
-            settings = cursor.fetchone()
-
-            return settings
-
+        statement = select(
+            keyword_monitor_settings.c.check_interval,
+            keyword_monitor_settings.c.interval_unit
+        ).where(
+            keyword_monitor_settings.c.id == 1
+        )
+        return self.connection.execute(statement).fetchone()
     #### RESEARCH QUERIES ####
     def get_article_by_url(self, url):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT 1 FROM articles WHERE uri = ?",
-                (url,)
-            )
-
-            return cursor.fetchone()
+        statement = select(
+            articles
+        ).where(
+            articles.c.uri == url
+        )
+        return self.connection.execute(statement).fetchone()
 
     def create_article_with_extracted_content(self, params):
         with self.db.get_connection() as conn:
@@ -372,17 +361,14 @@ class DatabaseQueryFacade:
             conn.commit()
 
     def get_latest_analysis_version(self, topic):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            query = """
-                    SELECT version_data \
-                    FROM analysis_versions
-                    WHERE topic = ?
-                    ORDER BY created_at DESC LIMIT 1 \
-                    """
-            cursor.execute(query, (topic,))
-            return cursor.fetchone()
+        statement = select(
+            analysis_versions.c.version_data
+        ).where(
+            analysis_versions.c.topic == topic
+        ).order_by(
+            analysis_versions.c.created_at.desc()
+        ).limit(1)
+        return self.connection.execute(statement).fetchone()
 
     def get_articles_with_dynamic_limit(
             self,
@@ -485,42 +471,56 @@ class DatabaseQueryFacade:
         self.db.execute_query(delete_query, (profile_id,))
 
     def get_organisational_profile_by_name(self, name):
-        existing_query = "SELECT id FROM organizational_profiles WHERE name = ?"
-        return self.db.fetch_one(existing_query, (name,))
+        statement = select(
+            organizational_profiles.c.id
+        ).where(
+            organizational_profiles.c.name == name
+        )
+        return self.connection.execute(statement).fetchone()
 
     def get_organisational_profile_by_id(self, profile_id):
-        existing_query = "SELECT id FROM organizational_profiles WHERE id = ?"
-        return self.db.fetch_one(existing_query, (profile_id,))
+        statement = select(
+            organizational_profiles.c.id
+        ).where(
+            organizational_profiles.c.id == profile_id
+        )
+        return self.connection.execute(statement).fetchone()
 
     def get_organizational_profile_for_ui(self, profile_id):
-        query = """
-                SELECT id, \
-                       name, \
-                       description, \
-                       industry, \
-                       organization_type, \
-                       region,
-                       key_concerns, \
-                       strategic_priorities, \
-                       risk_tolerance,
-                       innovation_appetite, \
-                       decision_making_style, \
-                       stakeholder_focus,
-                       competitive_landscape, \
-                       regulatory_environment, \
-                       custom_context,
-                       is_default, \
-                       created_at, \
-                       updated_at
-                FROM organizational_profiles
-                WHERE id = ? \
-                """
-
-        return self.db.fetch_one(query, (profile_id,))
+        statement = select(
+            organizational_profiles.c.id,
+            organizational_profiles.c.name,
+            organizational_profiles.c.description,
+            organizational_profiles.c.industry,
+            organizational_profiles.c.organization_type,
+            organizational_profiles.c.region,
+            organizational_profiles.c.key_concerns,
+            organizational_profiles.c.strategic_priorities,
+            organizational_profiles.c.risk_tolerance,
+            organizational_profiles.c.innovation_appetite,
+            organizational_profiles.c.decision_making_style,
+            organizational_profiles.c.stakeholder_focus,
+            organizational_profiles.c.competitive_landscape,
+            organizational_profiles.c.regulatory_environment,
+            organizational_profiles.c.custom_context,
+            organizational_profiles.c.is_default,
+            organizational_profiles.c.created_at,
+            organizational_profiles.c.updated_at
+        ).where(
+            organizational_profiles.c.id == profile_id
+        )
+        return self.connection.execute(statement).fetchone()
 
     def check_organisational_profile_name_conflict(self, name, profile_id):
-        name_check_query = "SELECT id FROM organizational_profiles WHERE name = ? AND id != ?"
-        return self.db.fetch_one(name_check_query, (name, profile_id))
+        statement = select(
+            organizational_profiles.c.id
+        ).where(
+            and_(
+                organizational_profiles.c.name == name,
+                organizational_profiles.c.id != profile_id
+            )
+        )
+        return self.connection.execute(statement).fetchone()
 
     def update_organisational_profile(self, params):
         update_query = """
@@ -546,31 +546,32 @@ class DatabaseQueryFacade:
         self.db.execute_query(update_query, params)
 
     def check_if_profile_exists_and_is_not_default(self, profile_id):
-        profile_query = "SELECT is_default FROM organizational_profiles WHERE id = ?"
-        return self.db.fetch_one(profile_query, (profile_id,))
+        statement = select(
+            organizational_profiles.c.is_default
+        ).where(
+            organizational_profiles.c.id == profile_id
+        )
+        return self.connection.execute(statement).fetchone()
 
     #### AUTOMATED INGEST SERVICE ####
     def get_configured_llm_model(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           SELECT default_llm_model, llm_temperature, llm_max_tokens
-                           FROM keyword_monitor_settings
-                           WHERE id = 1
-                           """)
-            settings = cursor.fetchone()
-            if settings:
-                return settings[0] or "gpt-4o-mini"
+        statement = select(
+            keyword_monitor_settings.c.default_llm_model,
+            keyword_monitor_settings.c.llm_temperature,
+            keyword_monitor_settings.c.llm_max_tokens
+        ).where(
+            keyword_monitor_settings.c.id == 1
+        )
+        return self.connection.execute(statement).fetchone()
 
     def get_llm_parameters(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           SELECT llm_temperature, llm_max_tokens
-                           FROM keyword_monitor_settings
-                           WHERE id = 1
-                           """)
-            return cursor.fetchone()
+        statement = select(
+            keyword_monitor_settings.c.llm_temperature,
+            keyword_monitor_settings.c.llm_max_tokens
+        ).where(
+            keyword_monitor_settings.c.id == 1
+        )
+        return self.connection.execute(statement).fetchone()
 
     def save_approved_article(self, params):
         with self.db.get_connection() as conn:
@@ -609,32 +610,27 @@ class DatabaseQueryFacade:
             conn.commit()
 
     def get_min_relevance_threshold(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           SELECT min_relevance_threshold
-                           FROM keyword_monitor_settings
-                           WHERE id = 1
-                           """)
-            settings = cursor.fetchone()
-            if settings and settings[0] is not None:
-                return float(settings[0])
+        statement = select(
+            keyword_monitor_settings.c.min_relevance_threshold
+        ).where(
+            keyword_monitor_settings.c.id == 1
+        )
+        settings = self.connection.execute(statement).fetchone()
+        return settings[0] if settings and settings[0] is not None else 0.0
 
     def get_auto_ingest_settings(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           SELECT auto_ingest_enabled,
-                                  min_relevance_threshold,
-                                  quality_control_enabled,
-                                  auto_save_approved_only,
-                                  default_llm_model,
-                                  llm_temperature,
-                                  llm_max_tokens
-                           FROM keyword_monitor_settings
-                           WHERE id = 1
-                           """)
-            return cursor.fetchone()
+        statement = select(
+            keyword_article_matches.c.auto_ingest_enabled,
+            keyword_article_matches.c.min_relevance_threshold,
+            keyword_article_matches.c.quality_control_enabled,
+            keyword_article_matches.c.auto_save_approved_only,
+            keyword_article_matches.c.default_llm_model,
+            keyword_article_matches.c.llm_temperature,
+            keyword_article_matches.c.llm_max_tokens
+        ).where(
+            keyword_article_matches.c.id == 1
+        )
+        return self.connection.execute(statement).fetchone()
 
     def update_ingested_article(self, params):
         with self.db.get_connection() as conn:
@@ -650,113 +646,158 @@ class DatabaseQueryFacade:
             conn.commit()
 
     def get_topic_articles_to_ingest_using_new_table_structure(self, topic_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.news_source,
+            keyword_groups.c.topic
+        ).select_from(
+            articles.join(keyword_article_matches, articles.c.uri == keyword_article_matches.c.article_uri).join(keyword_groups, keyword_article_matches.c.group_id == keyword_groups.c.id)
+        ).where(
+            keyword_groups.c.topic == topic_id
+        ).order_by(
+            keyword_article_matches.c.detected_at.desc()
+        )
+        return self.connection.execute(statement).fetchall()
 
-            cursor.execute("""
-                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                           FROM articles a
-                                    JOIN keyword_article_matches ka ON a.uri = ka.article_uri
-                                    JOIN keyword_groups kg ON ka.group_id = kg.id
-                           WHERE kg.topic = ?
-                           ORDER BY ka.detected_at DESC
-                           """, (topic_id,))
-
-            return cursor.fetchall()
 
     def get_topic_articles_to_ingest_using_old_table_structure(self, topic_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.news_source,
+            keyword_groups.c.topic
+        ).select_from(
+            articles
+            .join(keyword_alerts, articles.c.uri == keyword_alerts.c.article_uri)
+            .join(monitored_keywords, keyword_alerts.c.keyword_id == monitored_keywords.c.id)
+            .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+        ).where(
+            keyword_groups.c.topic == topic_id
+        ).order_by(
+            keyword_alerts.c.detected_at.desc()
+        )
+        return self.connection.execute(statement).fetchall()
 
-            # Use old table structure
-            cursor.execute("""
-                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                           FROM articles a
-                                    JOIN keyword_alerts ka ON a.uri = ka.article_uri
-                                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                           WHERE kg.topic = ?
-                           ORDER BY ka.detected_at DESC
-                           """, (topic_id,))
-
-            return cursor.fetchall()
 
     def get_topic_unprocessed_and_unread_articles_using_new_table_structure(self, topic_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                           FROM articles a
-                                    JOIN keyword_article_matches ka ON a.uri = ka.article_uri
-                                    JOIN keyword_groups kg ON ka.group_id = kg.id
-                           WHERE kg.topic = ?
-                             AND (a.auto_ingested IS NULL OR a.auto_ingested = 0)
-                             AND ka.is_read = 0
-                           ORDER BY ka.detected_at DESC
-                           """, (topic_id,))
-
-            return cursor.fetchall()
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.news_source,
+            keyword_groups.c.topic
+        ).select_from(
+            articles
+            .join(keyword_article_matches, articles.c.uri == keyword_article_matches.c.article_uri)
+            .join(keyword_groups, keyword_article_matches.c.group_id == keyword_groups.c.id)
+        ).where(
+            and_(
+                keyword_groups.c.topic == topic_id,
+                keyword_article_matches.c.is_read == 0,
+                or_(
+                    keyword_article_matches.c.auto_ingested == 0,
+                    keyword_article_matches.c.auto_ingested == None
+                )
+            )
+        ).distinct().order_by(
+            desc(keyword_article_matches.c.detected_at)
+        )
+        return self.connection.execute(statement).fetchall()
 
     def get_topic_unprocessed_and_unread_articles_using_old_table_structure(self, topic_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                           FROM articles a
-                                    JOIN keyword_alerts ka ON a.uri = ka.article_uri
-                                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                           WHERE kg.topic = ?
-                             AND (a.auto_ingested IS NULL OR a.auto_ingested = 0)
-                             AND ka.is_read = 0
-                           ORDER BY ka.detected_at DESC
-                           """, (topic_id,))
-            return cursor.fetchall()
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.news_source,
+            keyword_groups.c.topic
+        ).select_from(
+            articles
+            .join(keyword_alerts, articles.c.uri == keyword_alerts.c.article_uri)
+            .join(monitored_keywords, keyword_alerts.c.keyword_id == monitored_keywords.c.id)
+            .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+        ).where(
+            and_(
+                keyword_groups.c.topic == topic_id,
+                keyword_alerts.c.is_read == 0,
+                or_(
+                    keyword_alerts.c.auto_ingested == 0,
+                    keyword_alerts.c.auto_ingested == None
+                )
+            )
+        ).distinct().order_by(
+            desc(keyword_alerts.c.detected_at)
+        )
+        return self.connection.execute(statement).fetchall()
 
     def get_topic_keywords(self, topic_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT mk.keyword
-                           FROM monitored_keywords mk
-                                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                           WHERE kg.topic = ?
-                           """, (topic_id,))
-
-            return [row[0] for row in cursor.fetchall()]
+        statement = select(
+            monitored_keywords.c.keyword
+        ).select_from(
+            monitored_keywords
+            .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+        ).where(
+            keyword_groups.c.topic == topic_id
+        )
+        return self.connection.execute(statement).fetchall()
 
     #### EXECUTIVE SUMMARY ROUTES ####
     def get_articles_for_market_signal_analysis(self, timeframe_days, topic_name):
-        query = """
-        SELECT uri, title, summary, future_signal, sentiment, time_to_impact, 
-               driver_type, category, publication_date, news_source
-        FROM articles 
-        WHERE topic = ? 
-        AND publication_date >= date('now', '-{} days')
-        AND analyzed = 1
-        ORDER BY publication_date DESC
-        LIMIT 50
-        """.format(timeframe_days)
+        #caluclate the date 'now' - timeframe_days days
+        start_date = datetime.utcnow() - timedelta(days=timeframe_days)
 
-        return self.db.fetch_all(query, (topic_name,))
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.future_signal,
+            articles.c.sentiment,
+            articles.c.time_to_impact,
+            articles.c.driver_type,
+            articles.c.category,
+            articles.c.publication_date,
+            articles.c.news_source
+        ).where(
+            and_(
+                articles.c.topic == topic_name,
+                articles.c.publication_date >= start_date,
+                articles.c.analyzed == 1
+            )
+        ).order_by(
+            desc(articles.c.publication_date)
+        ).limit(50)
+        return self.connection.execute(statement).fetchall()
+        
 
     def get_recent_articles_for_market_signal_analysis(self, timeframe_days, topic_name, optimal_sample_size):
-        query = """
-         SELECT uri, title, summary, future_signal, sentiment, time_to_impact, 
-                driver_type, category, publication_date, news_source
-         FROM articles 
-         WHERE topic = ? 
-         AND publication_date >= date('now', '-{} days')
-         AND analyzed = 1
-         AND (summary IS NOT NULL AND summary != '')
-         ORDER BY publication_date DESC
-         LIMIT ?
-         """.format(timeframe_days)
+        start_date = datetime.utcnow() - timedelta(days=timeframe_days)
 
-        return self.db.fetch_all(query, (topic_name, optimal_sample_size))
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.future_signal,
+            articles.c.sentiment,
+            articles.c.time_to_impact,
+            articles.c.driver_type,
+            articles.c.category,
+            articles.c.publication_date,
+            articles.c.news_source
+        ).where(
+            and_(
+                articles.c.topic == topic_name,
+                articles.c.publication_date >= start_date,
+                articles.c.analyzed == 1,
+                articles.c.summary != None,
+                articles.c.summary != ''
+            )
+        ).order_by(
+            desc(articles.c.publication_date)
+        ).limit(optimal_sample_size)
+        return self.connection.execute(statement).fetchall()
 
     def get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(self, topic_name):
         # We need actual counts, not just the config list
