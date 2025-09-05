@@ -12,11 +12,20 @@ from sqlalchemy import (select,
                         desc,
                         or_,
                         and_,
-                        literal)
+                        literal,
+                        func)
+
 from database_models import (t_keyword_monitor_settings as keyword_monitor_settings,
                              t_keyword_monitor_status as keyword_monitor_status,
                              t_keyword_article_matches as keyword_article_matches,
-                             t_articles as articles)
+                             t_articles as articles,
+                             t_monitored_keywords as monitored_keywords,
+                             t_keyword_groups as keyword_groups,
+                             t_analysis_versions as analysis_versions,
+                             t_organizational_profiles as organizational_profiles,
+                             t_keyword_alerts as keyword_alerts,
+                             t_oauth_allowlist as oauth_allowlist,
+                             t_oauth_users as oauth_users)
 
 
 class DatabaseQueryFacade:
@@ -110,44 +119,35 @@ class DatabaseQueryFacade:
 
 
     def get_monitored_keywords(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT mk.id, mk.keyword, mk.last_checked, kg.topic
-                           FROM monitored_keywords mk
-                                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                           """)
-            keywords = cursor.fetchall()
-            return keywords
-        return []
+        statement = select(
+                monitored_keywords.c.id,
+                monitored_keywords.c.keyword,
+                monitored_keywords.c.last_checked,
+                keyword_groups.c.topic
+            ).select_from(
+                monitored_keywords
+                .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+            )
+        return self.connection.execute(statement).fetchall()
 
     def get_monitored_keywords_for_topic(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Get keywords for this topic
-            cursor.execute("""
-                           SELECT mk.keyword
-                           FROM monitored_keywords mk
-                                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                           WHERE kg.topic = ?
-                           """, params)
-
-            topic_keywords = [row[0] for row in cursor.fetchall()]
-            return topic_keywords
-        return []
+        statement = select(
+            monitored_keywords.c.keyword
+            ).select_from(
+                monitored_keywords
+                .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+            ).where(
+                keyword_groups.c.topic == params[0]
+            )
+        rows = self.connection.execute(statement).fetchall()
+        topic_keywords = [row[0] for row in rows]
+        return topic_keywords
 
     def article_exists(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT uri FROM articles WHERE uri = ?",
-                params
-            )
-            article_exists = cursor.fetchone()
-            return article_exists
+        article_exists =  self.connection.execute(
+            select(articles.c.uri).where(articles.c.uri == params[0])
+        ).fetchone()
+        return article_exists
 
     def create_article(self, article_exists, article_url, article, topic, keyword_id):
         with self.db.get_connection() as conn:
@@ -233,26 +233,15 @@ class DatabaseQueryFacade:
                 raise e
 
     def update_monitored_keyword_last_checked(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Update last checked timestamp
-            cursor.execute(
-                "UPDATE monitored_keywords SET last_checked = ? WHERE id = ?",
-                params
-            )
-            conn.commit()
+        statement = update(monitored_keywords).where(monitored_keywords.c.id == params[1]).values(last_checked = params[0])
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def update_keyword_monitor_counter(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = update(keyword_monitor_status).where(keyword_monitor_status.c.id == 1).values(requests_today = params[0])
+        self.connection.execute(statement)
+        self.connection.commit() 
 
-            cursor.execute("""
-                           UPDATE keyword_monitor_status
-                           SET requests_today = ?
-                           WHERE id = 1
-                           """, params)
-            conn.commit()
 
     def create_keyword_monitor_log_entry(self, params):
         with self.db.get_connection() as conn:
@@ -269,34 +258,32 @@ class DatabaseQueryFacade:
             conn.commit()
 
     def get_keyword_monitor_polling_enabled(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT is_enabled FROM keyword_monitor_settings WHERE id = 1")
-            row = cursor.fetchone()
-            is_enabled = row[0] if row and row[0] is not None else True
-
-            return is_enabled
+        statement = select(
+            keyword_monitor_settings.c.is_enabled
+        ).where(
+            keyword_monitor_settings.c.id == 1
+        )
+        row = self.connection.execute(statement).fetchone()
+        is_enabled = row[0] if row and row[0] is not None else True
+        return is_enabled
 
     def get_keyword_monitor_interval(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT check_interval, interval_unit FROM keyword_monitor_settings WHERE id = 1"
-            )
-            settings = cursor.fetchone()
-
-            return settings
+        statement = select(
+            keyword_monitor_settings.c.check_interval,
+            keyword_monitor_settings.c.interval_unit
+        ).where(
+            keyword_monitor_settings.c.id == 1
+        )
+        return self.connection.execute(statement).fetchone()
 
     #### RESEARCH QUERIES ####
     def get_article_by_url(self, url):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT 1 FROM articles WHERE uri = ?",
-                (url,)
-            )
-
-            return cursor.fetchone()
+        statement = select(
+            [1]
+        ).where(
+            articles.c.uri == url
+        )
+        return self.connection.execute(statement).fetchone()
 
     def create_article_with_extracted_content(self, params):
         with self.db.get_connection() as conn:
@@ -372,17 +359,14 @@ class DatabaseQueryFacade:
             conn.commit()
 
     def get_latest_analysis_version(self, topic):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            query = """
-                    SELECT version_data \
-                    FROM analysis_versions
-                    WHERE topic = ?
-                    ORDER BY created_at DESC LIMIT 1 \
-                    """
-            cursor.execute(query, (topic,))
-            return cursor.fetchone()
+        statement = select(
+            analysis_versions.c.version_data
+        ).where(
+            analysis_versions.c.topic == topic
+        ).order_by(
+            analysis_versions.c.created_at.desc()
+        ).limit(1)
+        return self.connection.execute(statement).fetchone()
 
     def get_articles_with_dynamic_limit(
             self,
@@ -400,72 +384,84 @@ class DatabaseQueryFacade:
             BALANCED = "balanced"  # Good balance, temp=0.4
             CREATIVE = "creative"  # Current behavior, temp=0.7
 
-        order_clause = "ORDER BY publication_date DESC, title ASC" if consistency_mode in [
-            ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE] else "ORDER BY publication_date DESC"
-
-        query = f"""
-        SELECT title, summary, uri, publication_date, sentiment, category, 
-               future_signal, driver_type, time_to_impact
-        FROM articles 
-        WHERE topic = ? 
-        AND publication_date >= ? 
-        AND publication_date <= ?
-        AND (summary IS NOT NULL AND summary != '')
-        {order_clause}
-        LIMIT ?
-        """
         # Fetch more articles for deterministic selection to ensure good diversity
         fetch_multiplier = 2 if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE] else 1
-        return self.db.fetch_all(query, (topic, start_date.isoformat(), end_date.isoformat(),
-                                         optimal_sample_size * fetch_multiplier))
+
+        statement = select(
+            articles.c.title,
+            articles.c.summary,
+            articles.c.uri,
+            articles.c.publication_date,
+            articles.c.sentiment,
+            articles.c.category,
+            articles.c.future_signal,
+            articles.c.driver_type,
+            articles.c.time_to_impact
+        ).where(
+            and_(
+                articles.c.topic == topic,
+                articles.c.publication_date >= start_date.isoformat(),
+                articles.c.publication_date <= end_date.isoformat(),
+                articles.c.summary != '',
+                articles.c.summary != None,
+            )
+        )
+        if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE]:
+            statement = statement.order_by(articles.c.publication_date.desc(), articles.c.title.asc())
+        else:
+            statement = statement.order_by(articles.c.publication_date.desc())
+
+        statement = statement.limit(optimal_sample_size * fetch_multiplier)
+
+        return self.connection.execute(statement).fetchall() 
 
     def get_organisational_profile(self, profile_id):
-        profile_query = """
-                        SELECT id, \
-                               name, \
-                               description, \
-                               industry, \
-                               organization_type, \
-                               region,
-                               key_concerns, \
-                               strategic_priorities, \
-                               risk_tolerance,
-                               innovation_appetite, \
-                               decision_making_style, \
-                               stakeholder_focus,
-                               competitive_landscape, \
-                               regulatory_environment, \
-                               custom_context
-                        FROM organizational_profiles \
-                        WHERE id = ? \
-                        """
-        return self.db.fetch_one(profile_query, (profile_id,))
+        statement = select(
+            organizational_profiles.c.id,
+            organizational_profiles.c.name,
+            organizational_profiles.c.description,
+            organizational_profiles.c.industry,
+            organizational_profiles.c.organization_type,
+            organizational_profiles.c.region,
+            organizational_profiles.c.key_concerns,
+            organizational_profiles.c.strategic_priorities,
+            organizational_profiles.c.risk_tolerance,
+            organizational_profiles.c.innovation_appetite,
+            organizational_profiles.c.decision_making_style,
+            organizational_profiles.c.stakeholder_focus,
+            organizational_profiles.c.competitive_landscape,
+            organizational_profiles.c.regulatory_environment,
+            organizational_profiles.c.custom_context
+        ).where(
+            organizational_profiles.c.id == profile_id
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def get_organisational_profiles(self):
-        query = """
-                SELECT id, \
-                       name, \
-                       description, \
-                       industry, \
-                       organization_type, \
-                       region,
-                       key_concerns, \
-                       strategic_priorities, \
-                       risk_tolerance,
-                       innovation_appetite, \
-                       decision_making_style, \
-                       stakeholder_focus,
-                       competitive_landscape, \
-                       regulatory_environment, \
-                       custom_context,
-                       is_default, \
-                       created_at, \
-                       updated_at
-                FROM organizational_profiles
-                ORDER BY is_default DESC, name ASC \
-                """
-
-        return self.db.fetch_all(query)
+        statement = select(
+            organizational_profiles.c.id,
+            organizational_profiles.c.name,
+            organizational_profiles.c.description,
+            organizational_profiles.c.industry,
+            organizational_profiles.c.organization_type,
+            organizational_profiles.c.region,
+            organizational_profiles.c.key_concerns,
+            organizational_profiles.c.strategic_priorities,
+            organizational_profiles.c.risk_tolerance,
+            organizational_profiles.c.innovation_appetite,
+            organizational_profiles.c.decision_making_style,
+            organizational_profiles.c.stakeholder_focus,
+            organizational_profiles.c.competitive_landscape,
+            organizational_profiles.c.regulatory_environment,
+            organizational_profiles.c.custom_context,
+            organizational_profiles.c.is_default,
+            organizational_profiles.c.created_at,
+            organizational_profiles.c.updated_at
+        ).order_by(
+            organizational_profiles.c.is_default.desc(),
+            organizational_profiles.c.name.asc()
+        )
+        return self.connection.execute(statement).fetchall() 
 
     def create_organisational_profile(self, params):
         insert_query = """
@@ -481,282 +477,347 @@ class DatabaseQueryFacade:
         return self.db.execute_query(insert_query, params)
 
     def delete_organisational_profile(self, profile_id):
-        delete_query = "DELETE FROM organizational_profiles WHERE id = ?"
-        self.db.execute_query(delete_query, (profile_id,))
+        statement = delete(organizational_profiles).where(organizational_profiles.c.id == profile_id)
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def get_organisational_profile_by_name(self, name):
-        existing_query = "SELECT id FROM organizational_profiles WHERE name = ?"
-        return self.db.fetch_one(existing_query, (name,))
+        statement = select(
+            organizational_profiles.c.id
+        ).where(
+            organizational_profiles.c.name == name
+        )
+        return self.connection.execute(statement).fetchone()
 
     def get_organisational_profile_by_id(self, profile_id):
-        existing_query = "SELECT id FROM organizational_profiles WHERE id = ?"
-        return self.db.fetch_one(existing_query, (profile_id,))
+        statement = select(
+            organizational_profiles.c.id
+        ).where(
+            organizational_profiles.c.id == profile_id
+        )
+        return self.connection.execute(statement).fetchone()
 
     def get_organizational_profile_for_ui(self, profile_id):
-        query = """
-                SELECT id, \
-                       name, \
-                       description, \
-                       industry, \
-                       organization_type, \
-                       region,
-                       key_concerns, \
-                       strategic_priorities, \
-                       risk_tolerance,
-                       innovation_appetite, \
-                       decision_making_style, \
-                       stakeholder_focus,
-                       competitive_landscape, \
-                       regulatory_environment, \
-                       custom_context,
-                       is_default, \
-                       created_at, \
-                       updated_at
-                FROM organizational_profiles
-                WHERE id = ? \
-                """
-
-        return self.db.fetch_one(query, (profile_id,))
+        statement = select(
+            organizational_profiles.c.id,
+            organizational_profiles.c.name,
+            organizational_profiles.c.description,
+            organizational_profiles.c.industry,
+            organizational_profiles.c.organization_type,
+            organizational_profiles.c.region,
+            organizational_profiles.c.key_concerns,
+            organizational_profiles.c.strategic_priorities,
+            organizational_profiles.c.risk_tolerance,
+            organizational_profiles.c.innovation_appetite,
+            organizational_profiles.c.decision_making_style,
+            organizational_profiles.c.stakeholder_focus,
+            organizational_profiles.c.competitive_landscape,
+            organizational_profiles.c.regulatory_environment,
+            organizational_profiles.c.custom_context,
+            organizational_profiles.c.is_default,
+            organizational_profiles.c.created_at,
+            organizational_profiles.c.updated_at
+        ).where(
+            organizational_profiles.c.id == profile_id
+        )
+        return self.connection.execute(statement).fetchone()
 
     def check_organisational_profile_name_conflict(self, name, profile_id):
-        name_check_query = "SELECT id FROM organizational_profiles WHERE name = ? AND id != ?"
-        return self.db.fetch_one(name_check_query, (name, profile_id))
+        statement = select(
+            organizational_profiles.c.id
+        ).where(
+            and_(
+                organizational_profiles.c.name == name,
+                organizational_profiles.c.id != profile_id
+            )
+        )
+        return self.connection.execute(statement).fetchone()
 
     def update_organisational_profile(self, params):
-        update_query = """
-                       UPDATE organizational_profiles \
-                       SET name                   = ?, \
-                           description            = ?, \
-                           industry               = ?, \
-                           organization_type      = ?, \
-                           region                 = ?, \
-                           key_concerns           = ?, \
-                           strategic_priorities   = ?, \
-                           risk_tolerance         = ?, \
-                           innovation_appetite    = ?, \
-                           decision_making_style  = ?, \
-                           stakeholder_focus      = ?, \
-                           competitive_landscape  = ?, \
-                           regulatory_environment = ?, \
-                           custom_context         = ?, \
-                           updated_at             = CURRENT_TIMESTAMP
-                       WHERE id = ? \
-                       """
+        statement = update(
+            organizational_profiles
+        ).where(
+            organizational_profiles.c.id == params[14]
+        ).values(
+            name = params[0],
+            description = params[1],
+            industry = params[2],
+            organization_type = params[3],
+            region = params[4],
+            key_concerns = params[5],
+            strategic_priorities = params[6],
+            risk_tolerance = params[7],
+            innovation_appetite = params[8],
+            decision_making_style = params[9],
+            stakeholder_focus = params[10],
+            competitive_landscape = params[11],
+            regulatory_environment = params[12],
+            custom_context = params[13],
+            updated_at = func.current_timestamp()
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
-        self.db.execute_query(update_query, params)
 
     def check_if_profile_exists_and_is_not_default(self, profile_id):
-        profile_query = "SELECT is_default FROM organizational_profiles WHERE id = ?"
-        return self.db.fetch_one(profile_query, (profile_id,))
+        statement = select(
+            organizational_profiles.c.is_default
+        ).where(
+            organizational_profiles.c.id == profile_id
+        )
+        return self.connection.execute(statement).fetchone()
 
     #### AUTOMATED INGEST SERVICE ####
     def get_configured_llm_model(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           SELECT default_llm_model, llm_temperature, llm_max_tokens
-                           FROM keyword_monitor_settings
-                           WHERE id = 1
-                           """)
-            settings = cursor.fetchone()
-            if settings:
-                return settings[0] or "gpt-4o-mini"
+        statement = select(
+            keyword_monitor_settings.c.default_llm_model,
+            keyword_monitor_settings.c.llm_temperature,
+            keyword_monitor_settings.c.llm_max_tokens
+        ).where(
+            keyword_monitor_settings.c.id == 1
+        )
+        settings = self.connection.execute(statement).fetchone()
+        if settings: 
+            return settings[0] or "gpt-4o-mini"
 
     def get_llm_parameters(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           SELECT llm_temperature, llm_max_tokens
-                           FROM keyword_monitor_settings
-                           WHERE id = 1
-                           """)
-            return cursor.fetchone()
+        statement = select(
+            keyword_monitor_settings.c.llm_temperature,
+            keyword_monitor_settings.c.llm_max_tokens
+        ).where(
+            keyword_monitor_settings.c.id == 1
+        )
+        return self.connection.execute(statement).fetchone()
 
     def save_approved_article(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           UPDATE articles
-                           SET title                     = COALESCE(?, title),
-                               summary                   = COALESCE(?, summary),
-                               auto_ingested             = 1,
-                               ingest_status             = ?,
-                               quality_score             = ?,
-                               quality_issues            = ?,
-                               category                  = ?,
-                               sentiment                 = ?,
-                               bias                      = ?,
-                               factual_reporting         = ?,
-                               mbfc_credibility_rating   = ?,
-                               bias_source               = ?,
-                               bias_country              = ?,
-                               press_freedom             = ?,
-                               media_type                = ?,
-                               popularity                = ?,
-                               topic_alignment_score     = ?,
-                               keyword_relevance_score   = ?,
-                               future_signal             = ?,
-                               future_signal_explanation = ?,
-                               sentiment_explanation     = ?,
-                               time_to_impact            = ?,
-                               driver_type               = ?,
-                               tags                      = ?,
-                               analyzed                  = ?,
-                               confidence_score          = ?,
-                               overall_match_explanation = ?
-                           WHERE uri = ?
-                           """, params)
-            conn.commit()
+        statement = update(
+            articles
+        ).where(
+            articles.c.uri == params[16]
+        ).values(
+            title = func.coalesce(params[0], articles.c.title),
+            summary = func.coalesce(params[1], articles.c.summary),
+            auto_ingested = 1,
+            ingest_status = params[2],
+            quality_score = params[3],
+            quality_issues = params[4],
+            category = params[5],
+            sentiment = params[6],
+            bias = params[7],
+            factual_reporting = params[8],
+            mbfc_credibility_rating = params[9],
+            bias_source = params[10],
+            bias_country = params[11],
+            press_freedom = params[12],
+            media_type = params[13],
+            popularity = params[14],
+            topic_alignment_score = params[15],
+            keyword_relevance_score = params[16],
+            future_signal = params[17],
+            future_signal_explanation = params[18],
+            sentiment_explanation = params[19],
+            time_to_impact = params[20],
+            driver_type = params[21],
+            tags = params[22],
+            analyzed = 1,
+            confidence_score = params[23],
+            overall_match_explanation = params[24]
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def get_min_relevance_threshold(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           SELECT min_relevance_threshold
-                           FROM keyword_monitor_settings
-                           WHERE id = 1
-                           """)
-            settings = cursor.fetchone()
-            if settings and settings[0] is not None:
-                return float(settings[0])
+        statement = select(
+            keyword_monitor_settings.c.min_relevance_threshold
+        ).where(
+            keyword_monitor_settings.c.id == 1
+        )
+        settings = self.connection.execute(statement).fetchone()
+        if settings and settings[0] is not None:
+            return float(settings[0])
 
     def get_auto_ingest_settings(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           SELECT auto_ingest_enabled,
-                                  min_relevance_threshold,
-                                  quality_control_enabled,
-                                  auto_save_approved_only,
-                                  default_llm_model,
-                                  llm_temperature,
-                                  llm_max_tokens
-                           FROM keyword_monitor_settings
-                           WHERE id = 1
-                           """)
-            return cursor.fetchone()
+        statement = select(
+            keyword_article_matches.c.auto_ingest_enabled,
+            keyword_article_matches.c.min_relevance_threshold,
+            keyword_article_matches.c.quality_control_enabled,
+            keyword_article_matches.c.auto_save_approved_only,
+            keyword_article_matches.c.default_llm_model,
+            keyword_article_matches.c.llm_temperature,
+            keyword_article_matches.c.llm_max_tokens
+        ).where(
+            keyword_article_matches.c.id == 1
+        )
+        return self.connection.execute(statement).fetchone()
 
     def update_ingested_article(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                           UPDATE articles
-                           SET auto_ingested  = 1,
-                               ingest_status  = ?,
-                               quality_score  = ?,
-                               quality_issues = ?
-                           WHERE uri = ?
-                           """, params)
-            conn.commit()
+        statement = update(
+            articles
+        ).where(
+            articles.c.uri == params[3]
+        ).values(
+            auto_ingested = 1,
+            ingest_status = params[0],
+            quality_score = params[1],
+            quality_issues = params[2]
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def get_topic_articles_to_ingest_using_new_table_structure(self, topic_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                           FROM articles a
-                                    JOIN keyword_article_matches ka ON a.uri = ka.article_uri
-                                    JOIN keyword_groups kg ON ka.group_id = kg.id
-                           WHERE kg.topic = ?
-                           ORDER BY ka.detected_at DESC
-                           """, (topic_id,))
-
-            return cursor.fetchall()
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.news_source,
+            keyword_groups.c.topic
+        ).select_from(
+            articles
+            .join(keyword_article_matches, articles.c.uri == keyword_article_matches.c.article_uri)
+            .join(keyword_groups, keyword_article_matches.c.group_id == keyword_groups.c.id)
+        ).where(
+            keyword_groups.c.topic == topic_id
+        ).order_by(
+            keyword_article_matches.c.detected_at.desc()
+        )
+        return self.connection.execute(statement).fetchall()
 
     def get_topic_articles_to_ingest_using_old_table_structure(self, topic_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Use old table structure
-            cursor.execute("""
-                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                           FROM articles a
-                                    JOIN keyword_alerts ka ON a.uri = ka.article_uri
-                                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                           WHERE kg.topic = ?
-                           ORDER BY ka.detected_at DESC
-                           """, (topic_id,))
-
-            return cursor.fetchall()
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.news_source,
+            keyword_groups.c.topic
+        ).select_from(
+            articles
+            .join(keyword_alerts, articles.c.uri == keyword_alerts.c.article_uri)
+            .join(monitored_keywords, keyword_alerts.c.keyword_id == monitored_keywords.c.id)
+            .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+        ).where(
+            keyword_groups.c.topic == topic_id
+        ).order_by(
+            keyword_alerts.c.detected_at.desc()
+        )
+        return self.connection.execute(statement).fetchall()
 
     def get_topic_unprocessed_and_unread_articles_using_new_table_structure(self, topic_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                           FROM articles a
-                                    JOIN keyword_article_matches ka ON a.uri = ka.article_uri
-                                    JOIN keyword_groups kg ON ka.group_id = kg.id
-                           WHERE kg.topic = ?
-                             AND (a.auto_ingested IS NULL OR a.auto_ingested = 0)
-                             AND ka.is_read = 0
-                           ORDER BY ka.detected_at DESC
-                           """, (topic_id,))
-
-            return cursor.fetchall()
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.news_source,
+            keyword_groups.c.topic
+        ).select_from(
+            articles
+            .join(keyword_article_matches, articles.c.uri == keyword_article_matches.c.article_uri)
+            .join(keyword_groups, keyword_article_matches.c.group_id == keyword_groups.c.id)
+        ).where(
+            and_(
+                keyword_groups.c.topic == topic_id,
+                keyword_article_matches.c.is_read == 0,
+                or_(
+                    keyword_article_matches.c.auto_ingested == 0,
+                    keyword_article_matches.c.auto_ingested == None
+                )
+            )
+        ).distinct().order_by(
+            desc(keyword_article_matches.c.detected_at)
+        )
+        return self.connection.execute(statement).fetchall()
 
     def get_topic_unprocessed_and_unread_articles_using_old_table_structure(self, topic_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT DISTINCT a.uri, a.title, a.summary, a.news_source, kg.topic
-                           FROM articles a
-                                    JOIN keyword_alerts ka ON a.uri = ka.article_uri
-                                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
-                                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                           WHERE kg.topic = ?
-                             AND (a.auto_ingested IS NULL OR a.auto_ingested = 0)
-                             AND ka.is_read = 0
-                           ORDER BY ka.detected_at DESC
-                           """, (topic_id,))
-            return cursor.fetchall()
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.news_source,
+            keyword_groups.c.topic
+        ).select_from(
+            articles
+            .join(keyword_alerts, articles.c.uri == keyword_alerts.c.article_uri)
+            .join(monitored_keywords, keyword_alerts.c.keyword_id == monitored_keywords.c.id)
+            .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+        ).where(
+            and_(
+                keyword_groups.c.topic == topic_id,
+                keyword_alerts.c.is_read == 0,
+                or_(
+                    keyword_alerts.c.auto_ingested == 0,
+                    keyword_alerts.c.auto_ingested == None
+                )
+            )
+        ).distinct().order_by(
+            desc(keyword_alerts.c.detected_at)
+        )
+        return self.connection.execute(statement).fetchall()
 
     def get_topic_keywords(self, topic_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT mk.keyword
-                           FROM monitored_keywords mk
-                                    JOIN keyword_groups kg ON mk.group_id = kg.id
-                           WHERE kg.topic = ?
-                           """, (topic_id,))
-
-            return [row[0] for row in cursor.fetchall()]
+        statement = select(
+            monitored_keywords.c.keyword
+        ).select_from(
+            monitored_keywords
+            .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+        ).where(
+            keyword_groups.c.topic == topic_id
+        )
+        rows = self.connection.execute(statement).fetchall()
+        topic_keywords = [row[0] for row in rows]
+        return topic_keywords
 
     #### EXECUTIVE SUMMARY ROUTES ####
     def get_articles_for_market_signal_analysis(self, timeframe_days, topic_name):
-        query = """
-        SELECT uri, title, summary, future_signal, sentiment, time_to_impact, 
-               driver_type, category, publication_date, news_source
-        FROM articles 
-        WHERE topic = ? 
-        AND publication_date >= date('now', '-{} days')
-        AND analyzed = 1
-        ORDER BY publication_date DESC
-        LIMIT 50
-        """.format(timeframe_days)
+        #caluclate the date 'now' - timeframe_days days
+        start_date = datetime.utcnow() - timedelta(days=timeframe_days)
 
-        return self.db.fetch_all(query, (topic_name,))
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.future_signal,
+            articles.c.sentiment,
+            articles.c.time_to_impact,
+            articles.c.driver_type,
+            articles.c.category,
+            articles.c.publication_date,
+            articles.c.news_source
+        ).where(
+            and_(
+                articles.c.topic == topic_name,
+                articles.c.publication_date >= start_date,
+                articles.c.analyzed == 1
+            )
+        ).order_by(
+            desc(articles.c.publication_date)
+        ).limit(50)
+        return self.connection.execute(statement).fetchall()
 
     def get_recent_articles_for_market_signal_analysis(self, timeframe_days, topic_name, optimal_sample_size):
-        query = """
-         SELECT uri, title, summary, future_signal, sentiment, time_to_impact, 
-                driver_type, category, publication_date, news_source
-         FROM articles 
-         WHERE topic = ? 
-         AND publication_date >= date('now', '-{} days')
-         AND analyzed = 1
-         AND (summary IS NOT NULL AND summary != '')
-         ORDER BY publication_date DESC
-         LIMIT ?
-         """.format(timeframe_days)
-
-        return self.db.fetch_all(query, (topic_name, optimal_sample_size))
+        start_date = datetime.utcnow() - timedelta(days=timeframe_days)
+        
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.future_signal,
+            articles.c.sentiment,
+            articles.c.time_to_impact,
+            articles.c.driver_type,
+            articles.c.category,
+            articles.c.publication_date,
+            articles.c.news_source
+        ).where(
+            and_(
+                articles.c.topic == topic_name,
+                articles.c.publication_date >= start_date,
+                articles.c.analyzed == 1,
+                articles.c.summary != None,
+                articles.c.summary != ''
+            )
+        ).order_by(
+            desc(articles.c.publication_date)
+        ).limit(optimal_sample_size)
+        return self.connection.execute(statement).fetchall()
 
     def get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(self, topic_name):
         # We need actual counts, not just the config list
@@ -775,79 +836,78 @@ class DatabaseQueryFacade:
 
     #### TOPIC MAP ROUTES ####
     def get_unique_topics(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            articles.c.topic
+        ).where(
+            and_(
+                articles.c.topic != None,
+                articles.c.topic != '',
+                articles.c.analyzed == 1)
+        ).distinct().order_by(
+            articles.c.topic.asc()
+        )
+        rows = self.connection.execute(statement).fetchall()
 
-            cursor.execute("""
-                           SELECT DISTINCT topic
-                           FROM articles
-                           WHERE topic IS NOT NULL
-                             AND topic != '' AND analyzed = 1
-                           ORDER BY topic
-                           """)
-            return [row[0] for row in cursor.fetchall()]
+        return [row[0] for row in rows] 
+
 
     def get_unique_categories(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            articles.c.category
+        ).where(
+            and_(
+                articles.c.category != None,
+                articles.c.category != '',
+                articles.c.analyzed == 1)
+        ).distinct().order_by(
+            articles.c.category.asc()
+        )
+        rows = self.connection.execute(statement).fetchall()
+        return [row[0] for row in rows] 
 
-            cursor.execute("""
-                           SELECT DISTINCT category
-                           FROM articles
-                           WHERE category IS NOT NULL
-                             AND category != '' AND analyzed = 1
-                           ORDER BY category
-                           """)
-            return [row[0] for row in cursor.fetchall()]
 
     #### OAUTH USERS ####
     def count_oauth_allowlist_active_users(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("SELECT COUNT(*) FROM oauth_allowlist WHERE is_active = 1")
-
-            return cursor.fetchone()[0]
+        statement = select(func.count()).where(oauth_allowlist.c.is_active == 1)
+        return self.connection.execute(statement).fetchone()[0] 
 
     def get_oauth_allowlist_user_by_email_and_provider(self, email, provider):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT * FROM oauth_users WHERE email = ? AND provider = ?",
-                (email, provider)
+        statement = select(
+            oauth_users
+        ).where(
+            and_(
+                oauth_users.c.email == email,
+                oauth_users.c.provider == provider
             )
-
-            return cursor.fetchone()
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def get_oauth_allowlist_user_by_id(self, user_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            oauth_users
+        ).where(
+            oauth_users.c.id == user_id
+        )
+        return self.connection.execute(statement).fetchone() 
 
-            cursor.execute("SELECT * FROM oauth_users WHERE id = ?", (user_id,))
-
-            return cursor.fetchone()
 
     def get_oauth_active_users_by_provider(self, provider):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT * FROM oauth_users WHERE provider = ? AND is_active = 1 ORDER BY created_at DESC",
-                (provider,)
+        statement = select(
+            oauth_users
+        ).where(
+            and_(
+                oauth_users.c.provider == provider,
+                oauth_users.c.is_active == 1
             )
-
-            return cursor.fetchall()
+        ).order_by(
+            oauth_users.c.created_at.desc()
+        )
+        return self.connection.execute(statement).fetchall() 
 
     def is_oauth_user_allowed(self, email):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT COUNT(*) FROM oauth_allowlist WHERE email = ? AND is_active = 1",
-                (email.lower(),)
-            )
-            count = cursor.fetchone()[0]
-            return count > 0
+        statement = select(func.count()).where(oauth_allowlist.c.email == email, oauth_allowlist.c.is_active == 1)
+        count = self.connection.execute(statement).fetchone()[0]
+        return count > 0 
 
     def add_oauth_user_to_allowlist(self, email, added_by):
         with self.db.get_connection() as conn:
@@ -859,77 +919,84 @@ class DatabaseQueryFacade:
             conn.commit()
 
     def remove_oauth_user_from_allowlist(self, email):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE oauth_allowlist SET is_active = 0 WHERE email = ?",
-                (email.lower(),)
-            )
-            conn.commit()
-
-            return cursor.rowcount
-
+        statement = update(
+            oauth_allowlist
+        ).where(
+            oauth_allowlist.c.email == email
+        ).values(
+            is_active = 0
+        )
+        result = self.connection.execute(statement)
+        self.connection.commit()
+        return result.rowcount 
+    
     def get_oauth_active_users(self, provider):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT * FROM oauth_users WHERE provider = ? AND is_active = 1 ORDER BY created_at DESC",
-                (provider,)
+        statement = select(
+            oauth_users
+        ).where(
+            and_(
+                oauth_users.c.provider == provider,
+                oauth_users.c.is_active == 1
             )
-
-            return cursor.fetchall()
+        ).order_by(
+            oauth_users.c.created_at.desc()
+        )
+        return self.connection.execute(statement).fetchall() 
 
     def deactivate_user(self, email, provider):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE oauth_users SET is_active = 0 WHERE email = ? AND provider = ?",
-                (email, provider)
+        statement = update(
+            oauth_users
+        ).where(
+            and_(
+                oauth_users.c.email == email,
+                oauth_users.c.provider == provider
             )
-            conn.commit()
+        ).values(
+            is_active = 0
+        )
+        result = self.connection.execute(statement)
+        self.connection.commit()
 
-            return cursor.rowcount
+        return result.rowcount 
 
     def get_active_oauth_allowlist_user_by_id(self, user_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT * FROM oauth_users WHERE id = ? AND is_active = 1",
-                (user_id,)
+        statement = select(
+            oauth_users
+        ).where(
+            and_(
+                oauth_users.c.id == user_id,
+                oauth_users.c.is_active == 1
             )
-
-            return cursor.fetchone()
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def get_active_oauth_allowlist_user_by_email_and_provider(self, email, provider):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT * FROM oauth_users WHERE email = ? AND provider = ? AND is_active = 1",
-                (email, provider)
+        statement = select(
+            oauth_users
+        ).where(
+            and_(
+                oauth_users.c.email == email,
+                oauth_users.c.provider == provider,
+                oauth_users.c.is_active == 1
             )
-
-            return cursor.fetchone()
-
+        )
+        return self.connection.execute(statement).fetchone() 
     def update_oauth_allowlist_user(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           UPDATE oauth_users
-                           SET name        = ?,
-                               provider_id = ?,
-                               avatar_url  = ?,
-                               last_login  = CURRENT_TIMESTAMP
-                           WHERE email = ?
-                             AND provider = ?
-                           """, params)
-
-            conn.commit()
+        statement = update(
+            oauth_users
+        ).where(
+            and_(
+                oauth_users.c.email == params[3],
+                oauth_users.c.provider == params[4]
+            )
+        ).values(
+            name = params[0],
+            provider_id = params[1],
+            avatar_url = params[2],
+            last_login = func.current_timestamp()
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def create_oauth_allowlist_user(self, params):
         with self.db.get_connection() as conn:
@@ -947,15 +1014,15 @@ class DatabaseQueryFacade:
     #### ENDPOINT QUERIES ####
     def get_oauth_allow_list(self):
         with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT email, added_by, added_at, is_active
-                           FROM oauth_allowlist
-                           ORDER BY added_at DESC
-                           """)
-
-            return cursor.fetchall()
+            statement = select(
+                oauth_allowlist.c.email,
+                oauth_allowlist.c.added_by,
+                oauth_allowlist.c.added_at,
+                oauth_allowlist.c.is_active
+            ).order_by(
+                oauth_allowlist.c.added_at.desc()
+            )
+            return self.connection.execute(statement).fetchall() 
 
     def get_oauth_system_status_and_settings(self):
         with self.db.get_connection() as conn:
@@ -981,449 +1048,409 @@ class DatabaseQueryFacade:
             return allowlist_count, oauth_users_count, provider_stats
 
     def get_feed_item_tags(self, item_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("SELECT tags FROM feed_items WHERE id = ?", (item_id,))
-
-            return cursor.fetchone()
+        statement = select(
+            feed_items.c.tags
+        ).where(
+            feed_items.c.id == item_id
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def get_feed_item_url(self, item_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT url
-                           FROM feed_items
-                           WHERE id = ?
-                           """, (item_id,))
-            return cursor.fetchone()
+        statement = select(
+            feed_items.c.url
+        ).where(
+            feed_items.c.id == item_id
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def get_enrichment_data_for_article(self, item_url):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT category,
-                                  sentiment,
-                                  driver_type,
-                                  time_to_impact,
-                                  topic_alignment_score,
-                                  keyword_relevance_score,
-                                  confidence_score,
-                                  overall_match_explanation,
-                                  extracted_article_topics,
-                                  extracted_article_keywords,
-                                  auto_ingested,
-                                  ingest_status,
-                                  quality_score,
-                                  quality_issues,
-                                  sentiment_explanation,
-                                  future_signal,
-                                  future_signal_explanation,
-                                  driver_type_explanation,
-                                  time_to_impact_explanation,
-                                  summary,
-                                  tags,
-                                  submission_date,
-                                  analyzed
-                           FROM articles
-                           WHERE uri = ?
-                           """, (item_url,))
-
-            return cursor.fetchone()
+        statement = select(
+            articles.c.category,
+            articles.c.sentiment,
+            articles.c.driver_type,
+            articles.c.time_to_impact,
+            articles.c.topic_alignment_score,
+            articles.c.keyword_relevance_score,
+            articles.c.confidence_score,
+            articles.c.overall_match_explanation,
+            articles.c.extracted_article_topics,
+            articles.c.extracted_article_keywords,
+            articles.c.auto_ingested,
+            articles.c.ingest_status,
+            articles.c.quality_score,
+            articles.c.quality_issues,
+            articles.c.sentiment_explanation,
+            articles.c.future_signal,
+            articles.c.future_signal_explanation,
+            articles.c.driver_type_explanation,
+            articles.c.time_to_impact_explanation,
+            articles.c.summary,
+            articles.c.tags,
+            articles.c.submission_date,
+            articles.c.analyzed
+        ).where(
+            articles.c.uri == item_url
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def get_enrichment_data_for_article_with_extra_fields(self, item_url):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT category,
-                                  sentiment,
-                                  driver_type,
-                                  time_to_impact,
-                                  topic_alignment_score,
-                                  keyword_relevance_score,
-                                  confidence_score,
-                                  overall_match_explanation,
-                                  extracted_article_topics,
-                                  extracted_article_keywords,
-                                  auto_ingested,
-                                  ingest_status,
-                                  quality_score,
-                                  quality_issues,
-                                  sentiment_explanation,
-                                  future_signal,
-                                  future_signal_explanation,
-                                  driver_type_explanation,
-                                  time_to_impact_explanation,
-                                  summary,
-                                  tags,
-                                  topic
-                           FROM articles
-                           WHERE uri = ?
-                           """, (item_url,))
-
-            return cursor.fetchone()
+        statement = select(
+            articles.c.category,
+            articles.c.sentiment,
+            articles.c.driver_type,
+            articles.c.time_to_impact,
+            articles.c.topic_alignment_score,
+            articles.c.keyword_relevance_score,
+            articles.c.confidence_score,
+            articles.c.overall_match_explanation,
+            articles.c.extracted_article_topics,
+            articles.c.extracted_article_keywords,
+            articles.c.auto_ingested,
+            articles.c.ingest_status,
+            articles.c.quality_score,
+            articles.c.quality_issues,
+            articles.c.sentiment_explanation,
+            articles.c.future_signal,
+            articles.c.future_signal_explanation,
+            articles.c.driver_type_explanation,
+            articles.c.time_to_impact_explanation,
+            articles.c.summary,
+            articles.c.tags,
+            articles.c.topic
+        ).where(
+            articles.c.uri == item_url
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def update_feed_article_data(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           UPDATE articles
-                           SET analyzed         = 1,
-                               title            = COALESCE(title, ?),
-                               summary          = COALESCE(summary, ?),
-                               news_source      = COALESCE(news_source, ?),
-                               publication_date = COALESCE(publication_date, ?),
-                               topic            = COALESCE(topic, 'General')
-                           WHERE uri = ?
-                           """, params)
-
-            conn.commit()
+        statement = update(
+            articles
+        ).where(
+            articles.c.uri == params[4]
+        ).values(
+            analyzed = 1,
+            title = func.coalesce(articles.c.title, params[0]),
+            summary = func.coalesce(articles.c.summary, params[1]),
+            news_source = func.coalesce(articles.c.news_source, params[2]),
+            publication_date = func.coalesce(articles.c.publication_date, params[3]),
+            topic = func.coalesce(articles.c.topic, 'General')
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def extract_topics_from_article(self, topic_filter, category_filter, limit):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            query = """
-                    SELECT uri, \
-                           title, \
-                           summary, \
-                           topic, \
-                           category, \
-                           tags,
-                           sentiment, \
-                           future_signal, \
-                           driver_type, \
-                           time_to_impact,
-                           submission_date
-                    FROM articles
-                    WHERE analyzed = 1
-                      AND summary IS NOT NULL
-                      AND summary != ''
-                AND LENGTH(summary) > 50 \
-                    """
-            params = []
-
-            if topic_filter:
-                query += " AND topic = ?"
-                params.append(topic_filter)
-
-            if category_filter:
-                query += " AND category = ?"
-                params.append(category_filter)
-
-            query += " ORDER BY submission_date DESC"
-
-            if limit:
-                query += " LIMIT ?"
-                params.append(limit)
-
-            return cursor.fetchall()
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.topic,
+            articles.c.category,
+            articles.c.tags,
+            articles.c.sentiment,
+            articles.c.future_signal,
+            articles.c.driver_type,
+            articles.c.time_to_impact,
+            articles.c.submission_date
+        ).where(
+            articles.c.analyzed == 1,
+            articles.c.summary != None,
+            articles.c.summary != '',
+            articles.c.summary.length() > 50
+        )
+        if topic_filter:
+            statement = statement.where(
+                articles.c.topic == topic_filter
+            )
+        if category_filter:
+            statement = statement.where(
+                articles.c.category == category_filter
+            )
+        statement = statement.order_by(
+            articles.c.submission_date.desc()
+        )
+        if limit:
+            statement = statement.limit(limit)
+        return self.connection.execute(statement).fetchall() 
 
     def create_feed_group(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           INSERT INTO feed_keyword_groups
-                               (name, description, color, created_at, updated_at)
-                           VALUES (?, ?, ?, ?, ?)
-                           """, params)
-
-            conn.commit()
-
-            return cursor.lastrowid
+        statement = insert(
+            feed_keyword_groups
+        ).values(
+            name = params[0],
+            description = params[1],
+            color = params[2],
+            created_at = params[3],
+            updated_at = params[4]
+        )
+        result = self.connection.execute(statement)
+        self.connection.commit()
+        return result.lastrowid 
 
     def get_feed_groups_including_inactive(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            feed_keyword_groups
+        ).order_by(
+            feed_keyword_groups.c.name
+        )
+        return self.connection.execute(statement).fetchall() 
 
-            query = "SELECT * FROM feed_keyword_groups ORDER BY name"
 
-            cursor.execute(query)
-
-            return cursor.fetchall()
 
     def get_feed_groups_excluding_inactive(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            query = "SELECT * FROM feed_keyword_groups WHERE is_active = 1 ORDER BY name"
-
-            cursor.execute(query)
-
-            return cursor.fetchall()
+        statement = select(
+            feed_keyword_groups
+        ).where(
+            feed_keyword_groups.c.is_active == 1
+        ).order_by(
+            feed_keyword_groups.c.name
+        )
+        return self.connection.execute(statement).fetchall() 
 
     def get_feed_group_sources(self, group_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT id, source_type, keywords, enabled, last_checked, created_at
-                           FROM feed_group_sources
-                           WHERE group_id = ?
-                           ORDER BY source_type
-                           """, (group_id,))
-
-            return cursor.fetchall()
+        statement = select(
+            feed_group_sources.c.id,
+            feed_group_sources.c.source_type,
+            feed_group_sources.c.keywords,
+            feed_group_sources.c.enabled,
+            feed_group_sources.c.last_checked,
+            feed_group_sources.c.created_at
+        ).where(
+            feed_group_sources.c.group_id == group_id
+        ).order_by(
+            feed_group_sources.c.source_type.asc()
+        )
+        return self.connection.execute(statement).fetchall() 
 
     def get_feed_group_by_id(self, group_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT * FROM feed_keyword_groups WHERE id = ?",
-                (group_id,)
-            )
-
-            return cursor.fetchone()
+        statement = select(
+            feed_keyword_groups
+        ).where(
+            feed_keyword_groups.c.id == group_id
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def update_feed_group(self, name, description, color, is_active, group_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Prepare update data
-            updates = []
-            params = []
-
-            if name is not None:
-                updates.append("name = ?")
-                params.append(name)
-
-            if description is not None:
-                updates.append("description = ?")
-                params.append(description)
-
-            if color is not None:
-                updates.append("color = ?")
-                params.append(color)
-
-            if is_active is not None:
-                updates.append("is_active = ?")
-                params.append(is_active)
-
-            # Add updated_at timestamp
-            updates.append("updated_at = ?")
-            params.append(datetime.now().isoformat())
-            params.append(group_id)
-
-            # Execute update
-            cursor.execute(f"""
-                UPDATE feed_keyword_groups 
-                SET {', '.join(updates)}
-                WHERE id = ?
-            """, params)
-
-            conn.commit()
+        statement = update(
+            feed_keyword_groups
+        ).where(
+            feed_keyword_groups.c.id == group_id
+        )
+        if name is not None:
+            statement = statement.values(
+                name = name
+            )
+        if description is not None:
+            statement = statement.values(
+                description = description
+            )
+        if color is not None:
+            statement = statement.values(
+                color = color
+            )
+        if is_active is not None:
+            statement = statement.values(
+                is_active = is_active
+            )
+        statement = statement.values(
+            updated_at = datetime.now().isoformat()
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def delete_feed_group(self, group_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "DELETE FROM feed_keyword_groups WHERE id = ?",
-                (group_id,)
-            )
-
-            conn.commit()
+        statement = delete(
+            feed_keyword_groups
+        ).where(
+            feed_keyword_groups.c.id == group_id
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def create_default_feed_subscription(self, group_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           INSERT INTO user_feed_subscriptions (group_id)
-                           VALUES (?)
-                           """, (group_id,))
-
-            conn.commit()
+        statement = insert(
+            user_feed_subscriptions
+        ).values(
+            group_id = group_id
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def update_group_source(self, source_id, keywords, enabled, date_range_days, custom_start_date, custom_end_date):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = update(
+            feed_group_sources
+        ).where(
+            feed_group_sources.c.id == source_id
+        )
+        if keywords is not None:
+            statement = statement.values(
+                keywords = json.dumps(keywords)
+            )
+        if enabled is not None:
+            statement = statement.values(
+                enabled = enabled
+            )
+        if date_range_days is not None:
+            statement = statement.values(
+                date_range_days = date_range_days
+            )
+        if custom_start_date is not None:
+            statement = statement.values(
+                custom_start_date = custom_start_date
+            )
+        if custom_end_date is not None:
+            statement = statement.values(
+                custom_end_date = custom_end_date
+            )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
-            # Prepare update data
-            updates = []
-            params = []
-
-            if keywords is not None:
-                updates.append("keywords = ?")
-                params.append(json.dumps(keywords))
-
-            if enabled is not None:
-                updates.append("enabled = ?")
-                params.append(enabled)
-
-            if date_range_days is not None:
-                updates.append("date_range_days = ?")
-                params.append(date_range_days)
-
-            if custom_start_date is not None:
-                updates.append("custom_start_date = ?")
-                params.append(custom_start_date)
-
-            if custom_end_date is not None:
-                updates.append("custom_end_date = ?")
-                params.append(custom_end_date)
-
-            params.append(source_id)
-
-            # Execute update
-            cursor.execute(f"""
-                                UPDATE feed_group_sources 
-                                SET {', '.join(updates)}
-                                WHERE id = ?
-                            """, params)
-
-            conn.commit()
 
     def get_source_by_id(self, source_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "SELECT * FROM feed_group_sources WHERE id = ?",
-                (source_id,)
-            )
-
-            return cursor.fetchone()
+        statement = select(
+            feed_group_sources
+        ).where(
+            feed_group_sources.c.id == source_id
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def get_group_source(self, group_id, source_type):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT id
-                           FROM feed_group_sources
-                           WHERE group_id = ?
-                             AND source_type = ?
-                           """, (group_id, source_type))
-
-            return cursor.fetchone()
+        statement = select(
+            feed_group_sources.c.id
+        ).where(
+            feed_group_sources.c.group_id == group_id,
+            feed_group_sources.c.source_type == source_type
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def delete_group_source(self, source_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute(
-                "DELETE FROM feed_group_sources WHERE id = ?",
-                (source_id,)
-            )
-
-            conn.commit()
+        statement = delete(
+            feed_group_sources
+        ).where(
+            feed_group_sources.c.id == source_id
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def add_source_to_group(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           INSERT INTO feed_group_sources
-                           (group_id, source_type, keywords, enabled, date_range_days,
-                            custom_start_date, custom_end_date, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                           """, params)
-
-            conn.commit()
-            return cursor.lastrowid
+        statement = insert(
+            feed_group_sources
+        ).values(
+            group_id = params[0],
+            source_type = params[1],
+            keywords = params[2],
+            enabled = params[3],
+            date_range_days = params[4],
+            custom_start_date = params[5],
+            custom_end_date = params[6],
+            created_at = params[7]
+        )
+        result = self.connection.execute(statement)
+        self.connection.commit() 
+        return result.lastrowid 
 
     def get_feed_group_by_name(self, name):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id FROM feed_keyword_groups WHERE name = ?",
-                (name,)
-            )
-            return cursor.fetchone()
+        statement = select(
+            feed_keyword_groups.c.id
+        ).where(
+            feed_keyword_groups.c.name == name
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def get_keyword_groups_count(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("SELECT COUNT(*) FROM feed_keyword_groups")
-
-            return cursor.fetchone()[0]
+        statement = select(
+            func.count()
+        ).select_from(
+            feed_keyword_groups
+        )
+        return self.connection.execute(statement).fetchone()[0] 
 
     def get_feed_item_count(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("SELECT COUNT(*) FROM feed_items")
-
-            return cursor.fetchone()[0]
+        statement = select(
+            func.count()
+        ).select_from(
+            feed_items
+        )
+        return self.connection.execute(statement).fetchone()[0] 
 
     def get_article_id_by_url(self, url):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            articles.c.id
+        ).where(
+            articles.c.uri == url
+        )
+        article_result = self.connection.execute(statement).fetchone()
 
-            cursor.execute("SELECT id FROM articles WHERE uri = ?", (url,))
-
-            article_result = cursor.fetchone()
-            return article_result[0] if article_result else None
+        return article_result[0] if article_result else None 
 
     def check_if_article_exists_with_enrichment(self, url):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("SELECT id FROM articles WHERE uri = ? AND analyzed = 1", (url,))
-
-            return cursor.fetchone()
+        statement = select(
+            articles.c.id
+        ).where(
+            articles.c.uri == url,
+            articles.c.analyzed == 1
+        )
+        return self.connection.execute(statement).fetchone()
 
     def create_article_without_enrichment(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = insert(
+            articles
+        ).values(
+            uri = params[0],
+            title = params[1],
+            summary = params[2],
+            news_source = params[3],
+            publication_date = params[4],
+            submission_date = func.now(),
+            analyzed = 0,
+            topic = 'General'
+        )
+        result = self.connection.execute(statement)
+        self.connection.commit()
+        return result.lastrowid 
 
-            cursor.execute("""
-                           INSERT INTO articles (uri, title, summary, news_source, publication_date,
-                                                 submission_date, analyzed, topic)
-                           VALUES (?, ?, ?, ?, ?, datetime('now'), 0, 'General')
-                           """, params)
-
-            conn.commit()
-
-            return cursor.lastrowid
 
     def get_feed_item_details(self, item_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT url, title, content, author, publication_date, source_type, group_id
-                           FROM feed_items
-                           WHERE id = ?
-                           """, (item_id,))
-
-            return cursor.fetchone()
+        statement = select(
+            feed_items.c.url,
+            feed_items.c.title,
+            feed_items.c.content,
+            feed_items.c.author,
+            feed_items.c.publication_date,
+            feed_items.c.source_type,
+            feed_items.c.group_id
+        ).where(
+            feed_items.c.id == item_id
+        )
+        return self.connection.execute(statement).fetchone() 
 
     def update_feed_tags(self, params):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           UPDATE feed_items
-                           SET tags       = ?,
-                               updated_at = CURRENT_TIMESTAMP
-                           WHERE id = ?
-                           """, params)
-
-            conn.commit()
+        statement = update(
+            feed_items
+        ).where(
+            feed_items.c.id == params[1]
+        ).values(
+            tags = params[0],
+            updated_at = func.now()
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def get_feed_keywords_by_source_type(self, source_type):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            feed_keyword_groups.c.id,
+            feed_keyword_groups.c.name
+        ).select_from(
+            feed_keyword_groups.join(
+                feed_group_sources,
+                feed_keyword_groups.c.id == feed_group_sources.c.group_id
+            ).where(
+                feed_keyword_groups.c.is_active == 1,
+                feed_group_sources.c.source_type == source_type,
+                feed_group_sources.c.enabled == 1
+            )
+        ).distinct()
 
-            cursor.execute("""
-                           SELECT DISTINCT g.id, g.name
-                           FROM feed_keyword_groups g
-                                    JOIN feed_group_sources s ON g.id = s.group_id
-                           WHERE g.is_active = 1
-                             AND s.source_type = ?
-                             AND s.enabled = 1
-                           """, (source_type,))
-
-            cursor.fetchall()
+        return self.connection.execute(statement).fetchall() 
 
     def get_statistics_for_specific_feed_group(self, group_id):
         with self.db.get_connection() as conn:
@@ -1462,91 +1489,105 @@ class DatabaseQueryFacade:
         return bool(settings['is_enabled']) if settings and settings['is_enabled'] else False
 
     def get_keyword_monitor_last_check_time(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            func.max(keyword_monitor_checks.c.check_time)
+        )
 
-            cursor.execute("SELECT MAX(check_time) FROM keyword_monitor_checks")
-
-            last_check = cursor.fetchone()[0]
-            return last_check if last_check else None
+        return self.connection.execute(statement).fetchone().scalar() 
 
     def get_unread_alerts(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT ka.id,
-                                  ka.group_id,
-                                  ka.detected_at,
-                                  ka.matched_keyword,
-                                  a.uri,
-                                  a.title,
-                                  a.url,
-                                  a.source,
-                                  a.publication_date,
-                                  a.summary,
-                                  a.category,
-                                  a.sentiment,
-                                  a.driver_type,
-                                  a.time_to_impact,
-                                  a.future_signal,
-                                  a.bias,
-                                  a.factual_reporting,
-                                  a.mbfc_credibility_rating,
-                                  a.bias_country,
-                                  a.press_freedom,
-                                  a.media_type,
-                                  a.popularity
-                           FROM keyword_alerts ka
-                                    JOIN articles a ON ka.article_uri = a.uri
-                           WHERE ka.read = 0
-                           ORDER BY ka.detected_at DESC
-                           """)
-
-            return cursor.fetchall()
+        statement = select(
+            keyword_alerts.c.id,
+            keyword_alerts.c.group_id,
+            keyword_alerts.c.detected_at,
+            keyword_alerts.c.matched_keyword,
+            articles.c.uri,
+            articles.c.title,
+            articles.c.url,
+            articles.c.source,
+            articles.c.publication_date,
+            articles.c.summary,
+            articles.c.category,
+            articles.c.sentiment,
+            articles.c.driver_type,
+            articles.c.time_to_impact,
+            articles.c.future_signal,
+            articles.c.bias,
+            articles.c.factual_reporting,
+            articles.c.mbfc_credibility_rating,
+            articles.c.bias_country,
+            articles.c.press_freedom,
+            articles.c.media_type,
+            articles.c.popularity
+        ).select_from(
+            keyword_alerts.join(
+                articles,
+                keyword_alerts.c.article_uri == articles.c.uri
+            ).where(
+                keyword_alerts.c.is_read == 0
+            )
+        ).order_by(
+            keyword_alerts.c.detected_at.desc()
+        )
+        return self.connection.execute(statement).fetchall() 
 
     def delete_keyword_alerts_by_article_url(self, url):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("DELETE FROM keyword_alerts WHERE article_uri = ?", (url,))
-
-            conn.commit()
+        statement = delete(
+            keyword_alerts
+        ).where(
+            keyword_alerts.c.article_uri == url
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def delete_keyword_alerts_by_article_url_from_new_table(self, url):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("DELETE FROM keyword_article_matches WHERE article_uri = ?", (url,))
-
-            conn.commit()
+        statement = delete(
+            keyword_article_matches
+        ).where(
+            keyword_article_matches.c.article_uri == url
+        )
+        self.connection.execute(statement)
+        self.connection.commit() 
 
     def get_total_articles_and_sample_categories_for_topic(self, topic: str):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            func.count()
+        ).select_from(
+            articles
+        ).where(
+            func.lower(articles.c.topic) == func.lower(topic)
+        )
+        total_topic_articles = self.connection.execute(statement).fetchone().scalar()
 
-            cursor.execute("SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?)", (topic,))
-            total_topic_articles = cursor.fetchone()[0]
+        statement = select(
+            func.count()
+        ).select_from(
+            articles
+        ).where(
+            func.lower(articles.c.topic) == func.lower(topic),
+            articles.c.category != None,
+            articles.c.category != ''
+        )
+        articles_with_categories = self.connection.execute(statement).fetchone().scalar()
 
-            cursor.execute(
-                "SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != ''",
-                (topic,))
-            articles_with_categories = cursor.fetchone()[0]
+        statement = select(
+            articles.c.category
+        ).where(
+            func.lower(articles.c.topic) == func.lower(topic),
+            articles.c.category != None,
+            articles.c.category != ''
+        ).distinct()
+        sample_categories = [row[0] for row in self.connection.execute(statement).fetchall()]
 
-            cursor.execute(
-                "SELECT DISTINCT category FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != '' LIMIT 10",
-                (topic,))
-            sample_categories = [row[0] for row in cursor.fetchall()]
-
-            return total_topic_articles, articles_with_categories, sample_categories
+        return total_topic_articles, articles_with_categories, sample_categories 
 
     def get_topic(self, topic):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("SELECT DISTINCT topic FROM articles WHERE LOWER(topic) = LOWER(?)", (topic,))
-
-            return cursor.fetchone()
+        statement = select(
+            articles.c.topic
+        ).where(
+            func.lower(articles.c.topic) == func.lower(topic)
+        ).distinct()
+        return self.connection.execute(statement).fetchone() 
 
     def get_articles_count_from_topic_and_categories(self, placeholders, params):
         with self.db.get_connection() as conn:
@@ -1558,12 +1599,14 @@ class DatabaseQueryFacade:
             return cursor.fetchone()[0]
 
     def get_article_count_for_topic(self, topic):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("SELECT COUNT(*) FROM articles WHERE LOWER(topic) = LOWER(?)", (topic,))
-
-            return cursor.fetchone()[0]
+        statement = select(
+            func.count()
+        ).select_from(
+            articles
+        ).where(
+            func.lower(articles.c.topic) == func.lower(topic)
+        )
+        return self.connection.execute(statement).fetchone().scalar() 
 
     def get_recent_articles_for_topic_and_category(self, params):
         with self.db.get_connection() as conn:
@@ -1589,13 +1632,15 @@ class DatabaseQueryFacade:
             return cursor.fetchall()
 
     def get_categories_for_topic(self, topic):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            articles.c.category
+        ).where(
+            func.lower(articles.c.topic) == func.lower(topic),
+            articles.c.category != None,
+            articles.c.category != ''
+        ).distinct()
 
-            cursor.execute(
-                "SELECT DISTINCT category FROM articles WHERE LOWER(topic) = LOWER(?) AND category IS NOT NULL AND category != ''",
-                (topic,))
-            return [row[0] for row in cursor.fetchall()]
+        return [row[0] for row in self.connection.execute(statement).fetchall()] 
 
     def get_podcasts_columns(self):
         with self.db.get_connection() as conn:
@@ -1648,28 +1693,21 @@ class DatabaseQueryFacade:
             return cursor.fetchone()
 
     def get_articles_for_date_range(self, limit, topic, start_date, end_date):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        statement = select(
+            articles
+        ).where(
+            articles.c.topic == topic,
+            articles.c.publication_date.between(start_date, end_date)
+        ).order_by(
+            articles.c.publication_date.desc()
+        )
+        if limit:
+            statement = statement.limit(limit)
 
-            # SQL limit clause
-            limit_clause = f"LIMIT {limit}" if limit else ""
+        articles_list = self.connection.execute(statement).fetchall()
+        column_names = [col.name for col in articles.columns]
 
-            cursor.execute(
-                f"""
-                SELECT * FROM articles 
-                WHERE topic = ? 
-                AND publication_date BETWEEN ? AND ?
-                ORDER BY publication_date DESC
-                {limit_clause}
-                """,
-                (topic, start_date, end_date)
-            )
-            articles = cursor.fetchall()
-
-            # Convert to list of dictionaries with column names
-            column_names = [description[0] for description in cursor.description]
-
-            return column_names, articles
+        return column_names, articles_list 
 
     def enriched_articles(self, limit):
         with self.db.get_connection() as conn:
