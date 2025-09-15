@@ -1434,16 +1434,13 @@ class AutomatedIngestService:
                 formats=['markdown']
             )
             
-            if not batch_response or not getattr(batch_response, 'success', False):
+            # Check if we got a valid response with an ID
+            batch_id = getattr(batch_response, 'id', None) if batch_response else None
+            if not batch_response or not batch_id:
                 self.logger.error(f"Batch scrape failed: {batch_response}")
                 return {}
             
-            batch_id = getattr(batch_response, 'id', None)
-            if not batch_id:
-                self.logger.error("No batch ID returned from Firecrawl")
-                return {}
-            
-            self.logger.info(f"Batch scrape submitted with ID: {batch_id}")
+            self.logger.info(f"✅ Batch scrape submitted successfully with ID: {batch_id}")
             
             # Poll for completion
             results = await self._poll_batch_completion(firecrawl_app, batch_id)
@@ -1486,22 +1483,17 @@ class AutomatedIngestService:
         
         while time.time() - start_time < max_wait_time:
             try:
-                status_response = firecrawl_app.check_batch_scrape_status(batch_id)
+                status_response = firecrawl_app.get_batch_scrape_status(batch_id)
                 
                 if not status_response:
                     self.logger.warning(f"No status response for batch {batch_id}")
                     await asyncio.sleep(poll_interval)
                     continue
                 
-                # Handle both dict and object responses
-                if hasattr(status_response, 'status'):
-                    status = status_response.status
-                    data = getattr(status_response, 'data', [])
-                    error = getattr(status_response, 'error', None)
-                else:
-                    status = status_response.get('status')
-                    data = status_response.get('data', [])
-                    error = status_response.get('error', None)
+                # Firecrawl v2 returns objects, not dictionaries
+                status = getattr(status_response, 'status', None)
+                data = getattr(status_response, 'data', [])
+                error = getattr(status_response, 'error', None)
                 
                 self.logger.debug(f"Batch {batch_id} status: {status}")
                 
@@ -1510,16 +1502,13 @@ class AutomatedIngestService:
                     results = {}
                     
                     for item in data:
-                        if hasattr(item, 'url'):
-                            url = item.url
-                            success = getattr(item, 'success', False)
-                            markdown = getattr(item, 'markdown', None)
-                            item_error = getattr(item, 'error', None)
-                        else:
-                            url = item.get('url')
-                            success = item.get('success', False)
-                            markdown = item.get('markdown', None)
-                            item_error = item.get('error', None)
+                        # Firecrawl v2 returns objects for items too
+                        # URL is in metadata.sourceURL according to v2 API docs
+                        metadata = getattr(item, 'metadata', {})
+                        url = getattr(metadata, 'sourceURL', None) if metadata else None
+                        success = getattr(item, 'success', True)  # Default to True if not present
+                        markdown = getattr(item, 'markdown', None)
+                        item_error = getattr(item, 'error', None)
                         
                         if success and markdown:
                             results[url] = markdown

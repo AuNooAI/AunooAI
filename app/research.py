@@ -258,12 +258,12 @@ class Research:
                     "https://example.com",
                     formats=["markdown"]
                 )
-                # Normalise Firecrawl response (v1 returns content under 'data')
-                test_data = test_result.get('data', test_result) if isinstance(test_result, dict) else {}
-                if 'markdown' in test_data:
-                    logger.info("Firecrawl test successful!")
+                # Firecrawl v2 returns objects with attributes
+                if hasattr(test_result, 'markdown') and test_result.markdown:
+                    logger.info("Firecrawl v2 test successful!")
                 else:
                     logger.warning("Firecrawl test returned unexpected response format")
+                    logger.debug(f"Test result type: {type(test_result)}, attributes: {dir(test_result) if hasattr(test_result, '__dict__') else 'N/A'}")
             except Exception as test_error:
                 logger.warning(f"Firecrawl test request failed: {str(test_error)}")
                 # Continue anyway since the instance was created

@@ -76,6 +76,15 @@ class BulkResearch:
             self.research.set_topic(topic)
             self.research.set_ai_model(model_name)
             
+            # Initialize Firecrawl for batch scraping
+            if not self.research.firecrawl_app:
+                logger.info("Initializing Firecrawl for batch scraping...")
+                self.research.firecrawl_app = self.research.initialize_firecrawl()
+                if self.research.firecrawl_app:
+                    logger.info("✅ Firecrawl initialized successfully for batch operations")
+                else:
+                    logger.warning("⚠️ Firecrawl initialization failed - will fallback to individual scraping")
+            
             # Create cache directory if it doesn't exist
             os.makedirs("cache", exist_ok=True)
             
@@ -582,16 +591,13 @@ class BulkResearch:
                 timeout=30000
             )
             
-            if not batch_response or not batch_response.get('success'):
+            # Check if we got a valid response with an ID
+            batch_id = getattr(batch_response, 'id', None) if batch_response else None
+            if not batch_response or not batch_id:
                 logger.error(f"Batch scrape failed: {batch_response}")
                 return {}
             
-            batch_id = batch_response.get('id')
-            if not batch_id:
-                logger.error("No batch ID returned from Firecrawl")
-                return {}
-            
-            logger.info(f"Batch scrape submitted with ID: {batch_id}")
+            logger.info(f"✅ Batch scrape submitted with ID: {batch_id}")
             
             # Poll for completion
             return await self._poll_batch_completion(batch_id)
@@ -739,6 +745,16 @@ class BulkResearch:
         try:
             self.research.set_topic(topic)
             self.research.set_ai_model(model_name)
+            
+            # Initialize Firecrawl for batch scraping
+            if not self.research.firecrawl_app:
+                logger.info("[stream] Initializing Firecrawl for batch scraping...")
+                self.research.firecrawl_app = self.research.initialize_firecrawl()
+                if self.research.firecrawl_app:
+                    logger.info("[stream] ✅ Firecrawl initialized successfully for batch operations")
+                else:
+                    logger.warning("[stream] ⚠️ Firecrawl initialization failed - will fallback to individual scraping")
+            
             os.makedirs("cache", exist_ok=True)
             self.article_analyzer = ArticleAnalyzer(
                 self.research.ai_model,
