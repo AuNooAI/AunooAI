@@ -243,7 +243,13 @@ async def check_now(request: CheckNowRequest = None, db=Depends(get_database_ins
         
         # Note: KeywordMonitor.check_keywords() doesn't support group_id parameter
         # For now, we'll run the full check and filter results if needed
+        logger.info("Calling monitor.check_keywords()...")
         result = await monitor.check_keywords()
+        logger.info(f"Result from check_keywords(): {result}")
+        
+        if result is None:
+            logger.error("check_keywords() returned None!")
+            raise HTTPException(status_code=500, detail="Keyword check returned None - check collector initialization")
         
         if result.get("success", False):
             logger.info(f"Keyword check completed successfully: {result.get('new_articles', 0)} new articles found")

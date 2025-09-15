@@ -13,6 +13,18 @@
       "api_key_help": "Get your API key from https://newsapi.org/account"
     },
     {
+      "name": "newsdata",
+      "display_name": "NewsData.io",
+      "config_type": "api_key",
+      "description": "Access news articles with full content from NewsData.io",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_NEWSDATA_API_KEY",
+      "api_key_description": "Your NewsData.io API key",
+      "api_key_placeholder": "Enter your NewsData.io API key",
+      "api_key_help": "Get your API key from https://newsdata.io/account"
+    },
+    {
       "name": "thenewsapi",
       "display_name": "TheNewsAPI",
       "config_type": "api_key",

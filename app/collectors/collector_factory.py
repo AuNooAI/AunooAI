@@ -4,6 +4,7 @@ from .arxiv_collector import ArxivCollector
 from .newsapi_collector import NewsAPICollector
 from .thenewsapi_collector import TheNewsAPICollector
 from .bluesky_collector import BlueskyCollector
+from .newsdata_collector import NewsdataCollector
 from app.database import Database
 
 class CollectorFactory:
@@ -13,7 +14,8 @@ class CollectorFactory:
         'arxiv': ArxivCollector,
         'newsapi': NewsAPICollector,
         'thenewsapi': TheNewsAPICollector,
-        'bluesky': BlueskyCollector
+        'bluesky': BlueskyCollector,
+        'newsdata': NewsdataCollector
     }
 
     @classmethod
@@ -66,6 +68,15 @@ class CollectorFactory:
                     for env in (
                         "PROVIDER_THENEWSAPI_API_KEY",
                         "PROVIDER_THENEWSAPI_KEY",
+                    )
+                )
+
+            if source == "newsdata":
+                return any(
+                    os.getenv(env)
+                    for env in (
+                        "PROVIDER_NEWSDATA_API_KEY",
+                        "NEWSDATA_API_KEY",
                     )
                 )
 

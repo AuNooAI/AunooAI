@@ -59,6 +59,20 @@ class BulkResearch:
         # Check for bsky.app domain or any subdomain ending with .bsky.social
         return domain == 'bsky.app' or domain.endswith('.bsky.social')
 
+    def is_newsdata_article(self, uri: str) -> bool:
+        """Check if an article came from NewsData.io by checking the feed_items table."""
+        try:
+            # Check if this URI exists in feed_items with source_type = 'newsdata'
+            query = "SELECT id FROM feed_items WHERE url = ? AND source_type = 'newsdata' LIMIT 1"
+            with self.db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(query, (uri,))
+                result = cursor.fetchone()
+                return result is not None
+        except Exception as e:
+            logger.debug(f"Error checking if article is from NewsData.io: {str(e)}")
+            return False
+
     async def analyze_bulk_urls(
         self,
         urls: List[str],
@@ -107,11 +121,21 @@ class BulkResearch:
             except Exception as e:
                 logger.warning(f"Failed to initialize BlueskyCollector: {str(e)}")
             
+            # Initialize NewsdataCollector for handling NewsData.io articles
+            self.newsdata_collector = None
+            try:
+                self.newsdata_collector = CollectorFactory.get_collector('newsdata')
+                logger.info("NewsdataCollector initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize NewsdataCollector: {str(e)}")
+            
         except Exception as e:
             logger.error(f"Error setting up analysis: {str(e)}")
             raise ValueError(f"Error in setup: {str(e)}")
 
         # Pre-scrape all articles in batch for better performance
+        # Note: NewsData.io articles should already have their content stored in the database
+        # via the UnifiedFeedService since NewsData.io provides full content in their API responses
         logger.info(f"🚀 Pre-scraping {len(urls)} articles in batch mode...")
         scraped_content = await self._batch_scrape_articles(urls, topic)
         logger.info(f"✅ Batch scraping completed: {len(scraped_content)} articles")

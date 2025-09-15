@@ -38,7 +38,7 @@ class UpdateFeedGroupRequest(BaseModel):
     is_active: Optional[bool] = Field(None, description="Active status")
 
 class AddSourceRequest(BaseModel):
-    source_type: str = Field(..., pattern=r"^(bluesky|arxiv|thenewsapi)$", 
+    source_type: str = Field(..., pattern=r"^(bluesky|arxiv|thenewsapi|newsdata)$", 
                             description="Type of source")
     keywords: List[str] = Field(..., min_items=0, max_items=20, 
                                description="List of keywords for this source")
@@ -716,7 +716,7 @@ async def collect_all_groups(
 
 @router.post("/feed-collection/collect")
 async def collect_by_source(
-    source_type: str = Query(..., pattern=r"^(bluesky|arxiv|thenewsapi)$", description="Source type to collect"),
+    source_type: str = Query(..., pattern=r"^(bluesky|arxiv|thenewsapi|newsdata)$", description="Source type to collect"),
     max_items: int = Query(20, ge=1, le=100, description="Maximum items to collect"),
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)

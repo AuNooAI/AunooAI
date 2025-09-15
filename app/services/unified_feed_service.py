@@ -16,6 +16,7 @@ from app.database import Database
 from app.collectors.arxiv_collector import ArxivCollector
 from app.collectors.bluesky_collector import BlueskyCollector
 from app.collectors.thenewsapi_collector import TheNewsAPICollector
+from app.collectors.newsdata_collector import NewsdataCollector
 from app.services.feed_group_service import FeedGroupService
 
 # Configure logging
@@ -81,7 +82,13 @@ class UnifiedFeedService:
         except Exception as e:
             logger.warning(f"Failed to initialize TheNewsAPI collector: {str(e)}")
             self.thenewsapi_collector = None
-        
+            
+        try:
+            self.newsdata_collector = NewsdataCollector()
+            logger.info("NewsData.io collector initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize NewsData.io collector: {str(e)}")
+            self.newsdata_collector = None
         logger.info("UnifiedFeedService initialized")
 
     async def collect_feed_items_for_group(self, group_id: int, max_items_per_source: int = 20) -> Dict[str, Any]:
@@ -150,6 +157,14 @@ class UnifiedFeedService:
                 elif source_type == "thenewsapi" and self.thenewsapi_collector:
                     # Collect from TheNewsAPI
                     items_collected = await self._collect_thenewsapi_items(
+                        group_id, keywords, max_items_per_source
+                    )
+                    collection_results["news_sources"] = collection_results.get("news_sources", 0) + items_collected
+                    total_collected += items_collected
+                    
+                elif source_type == "newsdata" and self.newsdata_collector:
+                    # Collect from NewsData.io
+                    items_collected = await self._collect_newsdata_items(
                         group_id, keywords, max_items_per_source
                     )
                     collection_results["news_sources"] = collection_results.get("news_sources", 0) + items_collected
@@ -348,6 +363,56 @@ class UnifiedFeedService:
             logger.error(f"Error in TheNewsAPI collection: {str(e)}")
             return 0
 
+    async def _collect_newsdata_items(self, group_id: int, keywords: List[str], max_items: int) -> int:
+        """Collect items from NewsData.io for given keywords."""
+        try:
+            items_collected = 0
+            
+            # Get NewsData.io source settings for this group to determine date range
+            newsdata_source_settings = self._get_newsdata_source_settings(group_id)
+            
+            for keyword in keywords:
+                try:
+                    # Calculate date range based on source settings
+                    start_date, end_date = self._calculate_date_range(newsdata_source_settings)
+                    
+                    # Search NewsData.io for this keyword
+                    articles = await self.newsdata_collector.search_articles(
+                        query=keyword,
+                        topic=None,  # No specific topic categorization
+                        max_results=max_items // len(keywords),  # Distribute across keywords
+                        start_date=start_date,
+                        end_date=end_date,
+                        language="en"
+                    )
+                    
+                    for article in articles:
+                        # Extract source ID from NewsData.io data
+                        source_id = self._extract_newsdata_source_id(article)
+                        if not source_id:
+                            continue
+                        
+                        # Convert to feed item
+                        feed_item = self._convert_newsdata_to_feed_item(
+                            article, group_id, source_id
+                        )
+                        
+                        # Save to database
+                        if await self._save_feed_item(feed_item):
+                            items_collected += 1
+                    
+                    logger.info(f"Collected {len(articles)} NewsData.io items for keyword '{keyword}'")
+                    
+                except Exception as e:
+                    logger.error(f"Error collecting NewsData.io items for keyword '{keyword}': {str(e)}")
+                    continue
+            
+            return items_collected
+            
+        except Exception as e:
+            logger.error(f"Error in NewsData.io collection: {str(e)}")
+            return 0
+
     def _extract_thenewsapi_source_id(self, article: Dict) -> Optional[str]:
         """Extract unique source ID from TheNewsAPI article data."""
         try:
@@ -450,6 +515,89 @@ class UnifiedFeedService:
             publication_date=pub_date,
             tags=tags
         )
+
+    def _extract_newsdata_source_id(self, article: Dict) -> Optional[str]:
+        """Extract unique source ID from NewsData.io article data."""
+        try:
+            # Use URL as the unique identifier for news articles
+            return article.get("url", "")
+            
+        except Exception as e:
+            logger.error(f"Error extracting NewsData.io source ID: {str(e)}")
+            return None
+
+    def _convert_newsdata_to_feed_item(self, article: Dict, group_id: int, source_id: str) -> FeedItem:
+        """Convert NewsData.io article to FeedItem."""
+        # Extract keywords as tags
+        raw_data = article.get("raw_data", {})
+        tags = raw_data.get("keywords", []) or []
+        
+        # Parse publication date
+        pub_date = None
+        if article.get("published_date"):
+            if isinstance(article["published_date"], datetime):
+                pub_date = article["published_date"]
+            elif isinstance(article["published_date"], str):
+                try:
+                    pub_date = datetime.fromisoformat(article["published_date"].replace('Z', '+00:00'))
+                except ValueError:
+                    pub_date = datetime.now(timezone.utc)
+            else:
+                pub_date = datetime.now(timezone.utc)
+        else:
+            pub_date = datetime.now(timezone.utc)
+
+        # Extract images
+        images = []
+        if raw_data.get("image_url"):
+            images = [raw_data["image_url"]]
+
+        # Extract author info
+        authors = article.get("authors", []) or []
+        author = ", ".join(authors) if authors else None
+
+        return FeedItem(
+            source_type="newsdata",
+            source_id=source_id,
+            group_id=group_id,
+            title=article.get("title", ""),
+            content=article.get("content", "") or article.get("summary", ""),  # NewsData.io provides full content
+            author=author,
+            author_handle=None,  # NewsData.io doesn't provide handles
+            url=article.get("url", ""),
+            publication_date=pub_date,
+            engagement_metrics={},  # NewsData.io doesn't provide engagement metrics
+            tags=tags,
+            mentions=[],  # Not applicable for news articles
+            images=images,
+            is_hidden=False,
+            is_starred=False
+        )
+
+    def _get_newsdata_source_settings(self, group_id: int) -> Dict[str, Any]:
+        """Get NewsData.io source settings for a group."""
+        try:
+            query = """
+            SELECT settings FROM feed_group_sources 
+            WHERE group_id = ? AND source_type = 'newsdata' AND enabled = 1
+            LIMIT 1
+            """
+            
+            result = self.db.fetch_one(query, (group_id,))
+            if result and result[0]:
+                return json.loads(result[0])
+            
+            # Default settings
+            return {
+                "days_back": 7,  # Look back 7 days by default
+                "language": "en",
+                "country": None,
+                "category": None
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting NewsData.io source settings: {str(e)}")
+            return {"days_back": 7, "language": "en"}
 
     async def _save_feed_item(self, feed_item: FeedItem) -> bool:
         """Save a feed item to the database."""

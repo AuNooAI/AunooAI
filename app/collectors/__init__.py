@@ -3,6 +3,8 @@ from .base_collector import ArticleCollector
 from .arxiv_collector import ArxivCollector
 from .newsapi_collector import NewsAPICollector
 from .thenewsapi_collector import TheNewsAPICollector
+from .bluesky_collector import BlueskyCollector
+from .newsdata_collector import NewsdataCollector
 from .collector_factory import CollectorFactory
 
 __all__ = [
@@ -10,5 +12,7 @@ __all__ = [
     'ArxivCollector',
     'NewsAPICollector',
     'TheNewsAPICollector',
+    'BlueskyCollector',
+    'NewsdataCollector',
     'CollectorFactory'
 ] 

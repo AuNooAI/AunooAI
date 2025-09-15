@@ -2606,6 +2606,27 @@ async def get_thenewsapi_config():
         logger.error(f"Error in get_thenewsapi_config: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/config/newsdata")
+async def get_newsdata_config():
+    """Get NewsData.io configuration status."""
+    try:
+        # Force reload of environment variables
+        load_dotenv(override=True)
+        
+        newsdata_key = os.getenv('PROVIDER_NEWSDATA_API_KEY') or os.getenv('NEWSDATA_API_KEY')
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": bool(newsdata_key),
+                "message": "NewsData.io is configured" if newsdata_key else "NewsData.io is not configured"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error in get_newsdata_config: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/config/thenewsapi")
 async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
     """Save TheNewsAPI configuration."""
@@ -2661,6 +2682,61 @@ async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same mod
         logger.error(f"Error saving TheNewsAPI configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/config/newsdata")
+async def save_newsdata_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
+    """Save NewsData.io configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        primary_env_var = 'PROVIDER_NEWSDATA_API_KEY'
+        secondary_env_var = 'NEWSDATA_API_KEY'  # For backward compatibility
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Update or add the primary key
+        primary_line = f'{primary_env_var}="{config.api_key}"\n'
+        secondary_line = f'{secondary_env_var}="{config.api_key}"\n'
+        
+        primary_found = False
+        secondary_found = False
+
+        for i, line in enumerate(lines):
+            if line.startswith(f'{primary_env_var}='):
+                lines[i] = primary_line
+                primary_found = True
+            elif line.startswith(f'{secondary_env_var}='):
+                lines[i] = secondary_line
+                secondary_found = True
+
+        if not primary_found:
+            lines.append(primary_line)
+        if not secondary_found:
+            lines.append(secondary_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment variables
+        os.environ[primary_env_var] = config.api_key
+        os.environ[secondary_env_var] = config.api_key
+        
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
+        
+        return JSONResponse(
+            status_code=200,
+            content={"message": "NewsData.io configuration saved successfully"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error saving NewsData.io configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.delete("/config/thenewsapi")
 async def remove_thenewsapi_config():
     """Remove TheNewsAPI configuration."""
@@ -2694,6 +2770,41 @@ async def remove_thenewsapi_config():
 
     except Exception as e:
         logger.error(f"Error removing TheNewsAPI configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/newsdata")
+async def remove_newsdata_config():
+    """Remove NewsData.io configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        
+        # Read existing content
+        with open(env_path, "r") as env_file:
+            lines = env_file.readlines()
+
+        # Remove the primary and secondary API key lines
+        lines = [line for line in lines if not (
+            line.startswith('PROVIDER_NEWSDATA_API_KEY=') or 
+            line.startswith('NEWSDATA_API_KEY=')
+        )]
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Remove from current environment
+        if 'PROVIDER_NEWSDATA_API_KEY' in os.environ:
+            del os.environ['PROVIDER_NEWSDATA_API_KEY']
+        if 'NEWSDATA_API_KEY' in os.environ:
+            del os.environ['NEWSDATA_API_KEY']
+
+        # Reload environment variables
+        load_dotenv(dotenv_path=env_path, override=True)
+
+        return {"message": "NewsData.io configuration removed successfully"}
+
+    except Exception as e:
+        logger.error(f"Error removing NewsData.io configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Add this with the other endpoints

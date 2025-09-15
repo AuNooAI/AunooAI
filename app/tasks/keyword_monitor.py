@@ -112,6 +112,12 @@ class KeywordMonitor:
             if provider == 'thenewsapi':
                 from app.collectors.thenewsapi_collector import TheNewsAPICollector
                 self.collector = TheNewsAPICollector()
+            elif provider == 'newsdata':
+                from app.collectors.newsdata_collector import NewsdataCollector
+                # Check if NewsData.io is configured before trying to initialize
+                if not NewsdataCollector.is_configured():
+                    raise ValueError("NewsData.io API key not configured in environment variables")
+                self.collector = NewsdataCollector()
             else:
                 from app.collectors.newsapi_collector import NewsAPICollector
                 self.collector = NewsAPICollector(self.db)
@@ -151,12 +157,16 @@ class KeywordMonitor:
         new_articles_count = 0
         processed_keywords = 0
 
-        # Check if counter needs reset before starting
-        self.check_and_reset_counter()
+        try:
+            # Check if counter needs reset before starting
+            self.check_and_reset_counter()
 
-        if not self._init_collector():
-            logger.error("Failed to initialize collector, skipping check")
-            return {"success": False, "error": "Failed to initialize collector", "new_articles": 0}
+            if not self._init_collector():
+                logger.error("Failed to initialize collector, skipping check")
+                return {"success": False, "error": "Failed to initialize collector", "new_articles": 0}
+        except Exception as e:
+            logger.error(f"Error in pre-check setup: {str(e)}", exc_info=True)
+            return {"success": False, "error": f"Setup error: {str(e)}", "new_articles": 0}
 
         try:
             check_start_time = datetime.now().isoformat()
@@ -246,22 +256,30 @@ class KeywordMonitor:
                     (DatabaseQueryFacade(self.db, logger)).update_keyword_monitor_counter((self.collector.requests_today,))
                 except ValueError as e:
                     if "Rate limit exceeded" in str(e):
-                        error_msg = "NewsAPI daily request limit reached (100/100 requests used)"
+                        error_msg = "API daily request limit reached"
                         logger.error(error_msg)
-                        (DatabaseQueryFacade(self.db, logger)).create_keyword_monitor_log_entry((check_start_time, error_msg, self.collector.requests_today))
-                        raise ValueError(error_msg)
-                    raise
+                        (DatabaseQueryFacade(self.db, logger)).create_keyword_monitor_log_entry((check_start_time, error_msg, self.collector.requests_today if self.collector else 0))
+                        return {"success": False, "error": error_msg, "new_articles": new_articles_count}
+                    # Don't re-raise, return error response instead
+                    logger.error(f"ValueError in keyword check: {str(e)}")
+                    return {"success": False, "error": str(e), "new_articles": new_articles_count}
 
-                # Return summary results
-                return {
-                    "success": True,
-                    "new_articles": new_articles_count,
-                    "keywords_processed": processed_keywords
-                }
+                # Continue to next keyword (don't return here)
+
+            # Return summary results after processing all keywords
+            return {
+                "success": True,
+                "new_articles": new_articles_count,
+                "keywords_processed": processed_keywords
+            }
 
         except Exception as e:
-            logger.error(f"Error checking keywords: {str(e)}")
+            logger.error(f"Error checking keywords: {str(e)}", exc_info=True)
             return {"success": False, "error": str(e), "new_articles": new_articles_count}
+        
+        # Final safety net - this should never be reached, but just in case
+        logger.error("check_keywords reached end without returning - this should not happen!")
+        return {"success": False, "error": "Unexpected end of method", "new_articles": new_articles_count}
 
     def get_auto_ingest_settings(self) -> Dict[str, any]:
         """Get auto-ingest settings from database"""
