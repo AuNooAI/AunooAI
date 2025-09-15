@@ -1429,7 +1429,7 @@ class AutomatedIngestService:
             
             # Submit batch request using async method - following Firecrawl documentation
             # Documentation: https://docs.firecrawl.dev/features/batch-scrape
-            batch_response = firecrawl_app.async_batch_scrape_urls(
+            batch_response = firecrawl_app.start_batch_scrape(
                 uris,
                 formats=['markdown']
             )

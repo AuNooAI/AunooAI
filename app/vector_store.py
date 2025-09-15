@@ -533,6 +533,13 @@ def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
             # ChromaDB requires numeric values for comparison operations
             publication_date_timestamp = None
     
+    # Handle tags - convert list to string if necessary for ChromaDB compatibility
+    tags = article.get("tags")
+    if isinstance(tags, list):
+        tags = ', '.join(tags) if tags else ""
+    elif tags is None:
+        tags = ""
+    
     meta = {
         "title": article.get("title"),
         "news_source": article.get("news_source"),
@@ -543,7 +550,7 @@ def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
         "topic": article.get("topic"),
         "publication_date": publication_date,  # Keep original for compatibility
         "publication_date_ts": publication_date_timestamp,  # Add timestamp for filtering (only if numeric)
-        "tags": article.get("tags"),
+        "tags": tags,  # Now guaranteed to be a string
         "summary": article.get("summary"),
         "uri": article.get("uri"),
         "driver_type": article.get("driver_type"),

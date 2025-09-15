@@ -575,10 +575,10 @@ class BulkResearch:
         """
         try:
             # Prepare batch request
-            batch_response = self.research.firecrawl_app.async_batch_scrape_urls(
+            batch_response = self.research.firecrawl_app.start_batch_scrape(
                 urls,
                 formats=["markdown"],
-                onlyMainContent=True,
+                only_main_content=True,
                 timeout=30000
             )
             
@@ -618,7 +618,7 @@ class BulkResearch:
         
         while time.time() - start_time < max_wait_time:
             try:
-                status_response = self.research.firecrawl_app.check_batch_scrape_status(batch_id)
+                status_response = self.research.firecrawl_app.get_batch_scrape_status(batch_id)
                 
                 if not status_response:
                     logger.warning(f"No status response for batch {batch_id}")
@@ -685,7 +685,7 @@ class BulkResearch:
                 }
             
             # Try to scrape with Firecrawl directly
-            scrape_result = self.research.firecrawl_app.scrape_url(
+            scrape_result = self.research.firecrawl_app.scrape(
                 url,
                 formats=["markdown"]
             )

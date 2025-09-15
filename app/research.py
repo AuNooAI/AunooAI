@@ -222,8 +222,8 @@ class Research:
             
             # Import firecrawl directly rather than via dynamic imports
             try:
-                from firecrawl import FirecrawlApp
-                logger.info("Successfully imported FirecrawlApp module")
+                from firecrawl import Firecrawl
+                logger.info("Successfully imported Firecrawl v2 module")
             except ImportError as ie:
                 logger.error(f"Firecrawl module not installed: {str(ie)}")
                 logger.error("Try installing it with: pip install firecrawl")
@@ -248,13 +248,13 @@ class Research:
             masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "[SET]"
             logger.info(f"Initializing Firecrawl with API key: {masked_key}")
             
-            firecrawl_instance = FirecrawlApp(api_key=api_key)
-            logger.info("Successfully created FirecrawlApp instance")
+            firecrawl_instance = Firecrawl(api_key=api_key)
+            logger.info("Successfully created Firecrawl v2 instance")
             
             # Test the instance with a basic request
             try:
                 logger.info("Testing Firecrawl instance with a basic request...")
-                test_result = firecrawl_instance.scrape_url(
+                test_result = firecrawl_instance.scrape(
                     "https://example.com",
                     formats=["markdown"]
                 )
@@ -418,7 +418,7 @@ class Research:
             # Try to scrape with Firecrawl
             try:
                 logger.info(f"Using Firecrawl to scrape content for URI: {uri}")
-                scrape_result = self.firecrawl_app.scrape_url(
+                scrape_result = self.firecrawl_app.scrape(
                     uri,
                     formats=["markdown"]
                 )
@@ -511,7 +511,7 @@ class Research:
             
             # Try to scrape with Firecrawl
             logger.info(f"Using Firecrawl to scrape content for URI: {uri}")
-            scrape_result = self.firecrawl_app.scrape_url(
+            scrape_result = self.firecrawl_app.scrape(
                 uri,
                 formats=["markdown"]
             )
@@ -1029,7 +1029,7 @@ class Research:
             # Use Firecrawl to scrape the article
             try:
                 logger.info(f"Using Firecrawl to scrape {uri}")
-                scrape_result = self.firecrawl_app.scrape_url(
+                scrape_result = self.firecrawl_app.scrape(
                     uri,
                     formats=["markdown"]
                 )

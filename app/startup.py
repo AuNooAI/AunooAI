@@ -82,10 +82,10 @@ def initialize_firecrawl():
     try:
         # Check if the Firecrawl module is available
         try:
-            from firecrawl import FirecrawlApp
-            logger.info("FirecrawlApp module is available")
+            from firecrawl import Firecrawl
+            logger.info("Firecrawl v2 module is available")
         except ImportError:
-            logger.error("FirecrawlApp module not found. Please install firecrawl package.")
+            logger.error("Firecrawl module not found. Please install firecrawl package.")
             return False
 
         # Check for Firecrawl API keys
@@ -108,7 +108,7 @@ def initialize_firecrawl():
         # Test if the API key works by creating a temporary instance
         key_to_use = firecrawl_key or provider_key
         try:
-            test_instance = FirecrawlApp(api_key=key_to_use)
+            test_instance = Firecrawl(api_key=key_to_use)
             logger.info("Firecrawl API key verified successfully")
             return True
         except Exception as e:
