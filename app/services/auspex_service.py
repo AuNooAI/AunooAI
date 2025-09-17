@@ -161,12 +161,21 @@ When analyzing articles, always consider:
    - Seasonal patterns and cyclical behaviors
 
 CRITICAL PRIORITIES:
+- **NEVER HALLUCINATE**: If no articles are found, clearly state this and do not create fictional analysis
+- **VERIFY ENTITY MENTIONS**: When asked about specific companies/vendors, only analyze articles that actually mention those entities
 - When users ask for "latest", "recent", "current", or "breaking" news, prioritize real-time news search results
 - For comprehensive analysis, use semantic_search_and_analyze for structured insights with diversity filtering
 - When users want deeper investigation, use follow_up_query to explore specific aspects
 - Apply strategic foresight methodology to all analysis
 - Clearly distinguish between real-time news data and database/historical data
 - Always provide statistical breakdowns and strategic takeaways
+
+ENTITY-SPECIFIC QUERY HANDLING:
+When users ask about specific companies, vendors, or entities:
+- Only analyze articles that actually mention the specified entity by name
+- If no articles mention the entity, clearly state this fact
+- Do not create fictional connections between general topic articles and the specific entity
+- Provide the exact count of articles that mention the entity vs total articles in the topic
 
 RESPONSE FORMAT: When you receive database articles with analysis instructions, you MUST follow the EXACT format specified in the context. This includes:
 
@@ -640,6 +649,207 @@ class AuspexService:
         except Exception as e:
             logger.error(f"Error ensuring default prompt: {e}")
 
+    def _extract_entity_names(self, query: str) -> List[str]:
+        """Extract potential entity names (companies, people, products, etc.) from query."""
+        import re
+        
+        # Patterns that indicate specific entity queries
+        entity_patterns = [
+            # Company/organization patterns (original)
+            r'references to ([A-Z][A-Za-z\s]+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
+            r'articles.*about ([A-Z][A-Za-z\s]+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
+            r'summarize.*([A-Z][A-Za-z\s]+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
+            r'\b([A-Z][A-Za-z]+\s+(?:AI|Inc|Corp|LLC|Ltd|Company|Technologies|Tech|Security|Systems|Solutions|Software|Platform|Labs))\b',
+            r'\b([A-Z][A-Za-z]+(?:AI|Security|Tech|Systems|Solutions|Software|Platform|Labs))\b',
+            
+            # Person name patterns - more precise
+            r'mentioning\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)\b',  # "mentioning Neil Armstrong"
+            r'references to\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)\b',  # "references to J.R.R. Tolkien"
+            r'about\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)\b',  # "about John Smith"
+        ]
+        
+        entities = []
+        for pattern in entity_patterns:
+            matches = re.findall(pattern, query, re.IGNORECASE)
+            for match in matches:
+                entity = match.strip()
+                # More sophisticated filtering
+                entity_lower = entity.lower()
+                # Skip common false positives and partial words
+                skip_patterns = ['the', 'and', 'for', 'with', 'from', 'about', 'articles', 'news', 'data', 'information',
+                               'n ai', 'in ai', 'te articles', 'le references', 'an ai', 'on ai', 'ai', 'to ai']
+                
+                if (len(entity) > 2 and 
+                    entity_lower not in skip_patterns and
+                    (not entity_lower.endswith(' ai') or entity_lower in ['openai', 'simbian ai', 'anthropic ai']) and
+                    len(entity.split()) <= 5 and
+                    not entity.startswith(('n ', 'te ', 'le ', 'an ', 'on '))):  # Avoid partial word matches
+                    entities.append(entity)
+        
+        # Additional check: if query contains "mentioning" or "about" followed by a capitalized name, extract it
+        simple_patterns = [
+            r'mentioning\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)',
+            r'about\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)',
+            r'regarding\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)',
+            # Special patterns for names with periods/initials (flexible)
+            r'about\s+([A-Z]\.(?:[A-Z]\.)*[A-Z]\.?\s+[A-Z][A-Za-z]+)',  # "about J.R.R. Tolkien"
+            r'mentioning\s+([A-Z]\.(?:[A-Z]\.)*[A-Z]\.?\s+[A-Z][A-Za-z]+)',  # "mentioning J.R.R. Tolkien"
+            r'references to\s+([A-Z]\.(?:[A-Z]\.)*[A-Z]\.?\s+[A-Z][A-Za-z]+)',  # "references to J.R.R. Tolkien"
+            # Patterns for initials without periods (e.g., "J.R.R tolkien") - flexible case
+            r'about\s+([A-Z]\.?[A-Z]\.?[A-Z]\.?\s+[A-Za-z]+)',  # "about J.R.R tolkien" or "about JRR Tolkien"
+            r'mentioning\s+([A-Z]\.?[A-Z]\.?[A-Z]\.?\s+[A-Za-z]+)',  # "mentioning J.R.R tolkien"
+            r'references to\s+([A-Z]\.?[A-Z]\.?[A-Z]\.?\s+[A-Za-z]+)',  # "references to J.R.R tolkien"
+        ]
+        
+        for pattern in simple_patterns:
+            matches = re.findall(pattern, query)
+            for match in matches:
+                entity = match.strip()
+                if (len(entity) > 2 and 
+                    not entity.lower() in ['the', 'and', 'for', 'with', 'from', 'articles', 'news'] and
+                    len(entity.split()) <= 4):
+                    entities.append(entity)
+        
+        return list(set(entities))  # Remove duplicates
+
+    def _validate_entity_in_sql_database(self, entities: List[str], topic: str) -> int:
+        """Validate if entities exist in SQL database by performing comprehensive search."""
+        if not entities:
+            return 0
+        
+        total_articles_found = 0
+        
+        for entity in entities:
+            logger.info(f"SQL validation: Searching for entity '{entity}' in topic '{topic}'")
+            
+            try:
+                # Search using the database's search_articles method with keyword search
+                articles, count = self.db.search_articles(
+                    topic=topic,
+                    keyword=entity,  # This searches title, summary, category, future_signal, sentiment, tags
+                    page=1,
+                    per_page=100  # Get a reasonable sample to validate existence
+                )
+                
+                if articles:
+                    # Double-check that the articles actually contain the entity (case-insensitive)
+                    entity_lower = entity.lower()
+                    verified_articles = 0
+                    
+                    for article in articles:
+                        title = article.get('title', '').lower()
+                        summary = article.get('summary', '').lower()
+                        content_to_search = f"{title} {summary}"
+                        
+                        if entity_lower in content_to_search:
+                            verified_articles += 1
+                    
+                    logger.info(f"SQL validation: Found {count} articles for '{entity}', {verified_articles} verified to contain entity")
+                    total_articles_found += verified_articles
+                else:
+                    logger.info(f"SQL validation: No articles found for entity '{entity}' in topic '{topic}'")
+                    
+            except Exception as e:
+                logger.error(f"SQL validation error for entity '{entity}': {e}")
+        
+        logger.info(f"SQL validation complete: {total_articles_found} total articles found containing entities {entities}")
+        return total_articles_found
+
+    def _get_entity_articles_from_sql(self, entities: List[str], topic: str, limit: int) -> List[Dict]:
+        """Retrieve articles from SQL database that actually contain the specified entities."""
+        if not entities:
+            return []
+        
+        all_articles = []
+        seen_uris = set()
+        
+        for entity in entities:
+            try:
+                # Search using the database's search_articles method
+                articles, count = self.db.search_articles(
+                    topic=topic,
+                    keyword=entity,
+                    page=1,
+                    per_page=limit * 2  # Get more to allow for filtering
+                )
+                
+                # Filter to only include articles that actually contain the entity
+                entity_lower = entity.lower()
+                for article in articles:
+                    # Skip duplicates
+                    uri = article.get('uri')
+                    if uri in seen_uris:
+                        continue
+                    
+                    title = article.get('title', '').lower()
+                    summary = article.get('summary', '').lower()
+                    content_to_search = f"{title} {summary}"
+                    
+                    if entity_lower in content_to_search:
+                        # Convert to the same format as vector articles
+                        formatted_article = {
+                            "uri": uri,
+                            "title": article.get("title", "Unknown Title"),
+                            "summary": article.get("summary", "No summary available"),
+                            "category": article.get("category", "Uncategorized"),
+                            "sentiment": article.get("sentiment", "Neutral"),
+                            "future_signal": article.get("future_signal", "None"),
+                            "time_to_impact": article.get("time_to_impact", "Unknown"),
+                            "publication_date": article.get("publication_date", "Unknown"),
+                            "news_source": article.get("news_source", "Unknown"),
+                            "tags": article.get("tags", "").split(",") if article.get("tags") else [],
+                            "similarity_score": 1.0  # High score since it's an exact match
+                        }
+                        all_articles.append(formatted_article)
+                        seen_uris.add(uri)
+                        
+                        if len(all_articles) >= limit:
+                            break
+                            
+            except Exception as e:
+                logger.error(f"Error retrieving SQL articles for entity '{entity}': {e}")
+        
+        logger.info(f"Retrieved {len(all_articles)} articles from SQL database for entities: {entities}")
+        return all_articles[:limit]
+
+    def _filter_articles_by_entity_content(self, articles: List[Dict], entities: List[str]) -> List[Dict]:
+        """Filter articles to only include those that actually mention the specified entities."""
+        if not entities:
+            return articles
+        
+        filtered_articles = []
+        entity_patterns = []
+        
+        # Create case-insensitive patterns for each entity
+        for entity in entities:
+            # Create flexible patterns that handle variations
+            entity_clean = entity.replace(' AI', '').replace(' Inc', '').replace(' Corp', '').strip()
+            patterns = [
+                entity.lower(),  # Exact match
+                entity_clean.lower(),  # Without suffix
+                entity.replace(' ', '').lower(),  # No spaces
+            ]
+            entity_patterns.extend(patterns)
+        
+        logger.info(f"Filtering articles for entities: {entities}")
+        logger.info(f"Using search patterns: {entity_patterns}")
+        
+        for article in articles:
+            # Check title and summary for entity mentions
+            title = article.get('title', '').lower()
+            summary = article.get('summary', '').lower()
+            content_to_search = f"{title} {summary}"
+            
+            # Check if any entity pattern is found in the content
+            entity_found = any(pattern in content_to_search for pattern in entity_patterns)
+            
+            if entity_found:
+                filtered_articles.append(article)
+                logger.debug(f"Entity found in article: {article.get('title', 'Unknown')}")
+        
+        logger.info(f"Filtered {len(articles)} articles down to {len(filtered_articles)} articles containing specified entities")
+        return filtered_articles
+
     async def create_chat_session(self, topic: str, user_id: str = None, title: str = None) -> int:
         """Create a new chat session."""
         try:
@@ -1023,6 +1233,56 @@ CURRENT SESSION CONTEXT:
                         })
                 
                 logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
+                
+                # NEW: Add entity-specific filtering for queries asking about specific companies/vendors
+                detected_entities = self._extract_entity_names(message)
+                if detected_entities:
+                    logger.info(f"Detected entity-specific query. Entities: {detected_entities}")
+                    vector_articles_before_filter = len(vector_articles)
+                    vector_articles = self._filter_articles_by_entity_content(vector_articles, detected_entities)
+                    logger.info(f"Entity filtering: {vector_articles_before_filter} -> {len(vector_articles)} articles")
+                    
+                    # If no articles contain the specific entity, validate with SQL database before giving up
+                    if len(vector_articles) == 0:
+                        logger.info(f"No articles found in vector search for entities: {detected_entities}")
+                        logger.info("Performing comprehensive SQL database validation...")
+                        
+                        # Perform comprehensive SQL search to validate entity existence
+                        sql_articles_found = self._validate_entity_in_sql_database(detected_entities, topic)
+                        
+                        if sql_articles_found == 0:
+                            return f"""## No Articles Found for Specific Entity
+
+I searched both the vector database and SQL database for articles mentioning **{', '.join(detected_entities)}** in the topic "{topic}" but found **0 articles** that actually reference this entity.
+
+**Comprehensive Search Results:**
+- **Vector database**: Found {vector_articles_before_filter} articles in "{topic}", 0 mentioning the entity
+- **SQL database**: Searched all articles in topic, 0 mentioning the entity
+- **Entity search patterns used**: {', '.join(detected_entities)}
+
+**This means:**
+- The entity "{', '.join(detected_entities)}" is not mentioned in any articles in our database for this topic
+- I performed a comprehensive search across both vector and SQL databases
+- The database contains articles about the topic "{topic}" but none specifically reference this entity
+
+**Suggestions:**
+- Check the spelling of the entity name (e.g., "J.R.R. Tolkien" vs "Tolkien")
+- Try searching for the entity in a different topic
+- Ask "What companies/people are mentioned in {topic}?" to see available entities
+- Search for broader terms related to this entity's industry or function
+
+I cannot provide analysis about "{', '.join(detected_entities)}" because no articles in the database actually mention this entity."""
+                        else:
+                            logger.warning(f"SQL database found {sql_articles_found} articles but vector search found none. This suggests a vector/SQL sync issue.")
+                            logger.info("Attempting to retrieve articles from SQL database as fallback...")
+                            
+                            # Try to get the actual articles from SQL database
+                            sql_articles = self._get_entity_articles_from_sql(detected_entities, topic, limit)
+                            if sql_articles:
+                                logger.info(f"Retrieved {len(sql_articles)} articles from SQL database as fallback")
+                                vector_articles = sql_articles  # Use SQL articles instead of empty vector results
+                            else:
+                                logger.warning("SQL database validation found articles but couldn't retrieve them")
                 
                 # Fallback date filtering for articles that might lack timestamp metadata
                 if explicit_days_back and len(vector_articles) > 0:
