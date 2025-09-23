@@ -2332,6 +2332,53 @@ function handleDateRangeChange() {
             }
         }
     }
+    
+    // Update article count for the new date range
+    updateArticleCountForDateRange();
+}
+
+// Update article count for date range changes
+async function updateArticleCountForDateRange() {
+    const countEl = document.getElementById('selected-date-count');
+    if (!countEl) return;
+    
+    try {
+        countEl.textContent = 'loading...';
+        
+        const dateRangeValue = document.getElementById('date-range-select').value;
+        const params = new URLSearchParams({
+            date_range: dateRangeValue,
+            count_only: 'true'
+        });
+        
+        // Add custom date if needed
+        if (dateRangeValue === 'custom') {
+            const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
+            if (customDate) {
+                params.append('date', customDate);
+            }
+        }
+        
+        // Add topic filter if set
+        const topic = document.getElementById('topic-input').value.trim();
+        if (topic) {
+            params.append('topic', topic);
+        }
+        
+        // Make a lightweight request to get just the count
+        const response = await fetch(`/api/news-feed/articles?${params}&per_page=1&page=1`);
+        
+        if (response.ok) {
+            const data = await response.json();
+            const total = data.articles?.total_items || 0;
+            countEl.textContent = total.toString();
+        } else {
+            countEl.textContent = '0';
+        }
+    } catch (error) {
+        console.error('Error updating article count:', error);
+        countEl.textContent = '?';
+    }
 }
 
 // Star functionality for articles
@@ -2454,6 +2501,9 @@ function renderArticles(articlesData) {
             countEl.textContent = totalCount.toString();
         }
     }
+    
+    // Update pagination based on filtered results
+    updatePaginationForFilters(articlesData, filteredArticles);
 }
 
 function buildFilterBadges(articles) {
@@ -2600,6 +2650,33 @@ function improveQuality() {
     renderArticles(articlesData);
 }
 
+function updatePaginationForFilters(originalData, filteredArticles) {
+    const paginationContainer = document.getElementById('articles-pagination');
+    if (!paginationContainer) return;
+    
+    // If filtering is active and reduces results significantly, hide pagination
+    const hasActiveFilters = activeFilters.bias.size > 0 || activeFilters.factuality.size > 0 || activeFilters.category.size > 0;
+    
+    if (hasActiveFilters) {
+        // Hide pagination when filtering since we're showing filtered subset
+        paginationContainer.innerHTML = '';
+        
+        // Show filter info instead
+        if (filteredArticles.length !== originalData.items.length) {
+            paginationContainer.innerHTML = `
+                <div class="text-center text-muted small mt-2">
+                    <i class="fas fa-filter me-1"></i>
+                    Showing ${filteredArticles.length} filtered articles of ${originalData.items.length} total
+                    ${originalData.total_pages > 1 ? ` (from ${originalData.total_pages} pages)` : ''}
+                </div>
+            `;
+        }
+    } else {
+        // Show normal pagination when no filters active
+        renderArticlesPagination(originalData);
+    }
+}
+
 function clearAllFilters() {
     activeFilters.bias.clear();
     activeFilters.factuality.clear();
@@ -2726,6 +2803,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load organizational profiles
     loadOrganizationalProfiles();
+    
+    // Initialize article count for default date range
+    updateArticleCountForDateRange();
 });
 </script>
 
