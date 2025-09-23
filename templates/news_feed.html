@@ -564,14 +564,28 @@
     <div class="controls">
         <div class="controls-row">
             <div class="control-group-inline">
-                <label class="form-label">Selected Date:</label>
-                <div id="selected-date-display" class="selected-date-compact">
-                    <i class="fas fa-calendar-day"></i> <strong id="selected-date-text">September 15, 2025</strong> 
+                <label class="form-label">Date Range:</label>
+                <select id="date-range-select" class="form-select form-select-sm" style="width: 140px;" onchange="handleDateRangeChange()">
+                    <option value="24h">Last 24 Hours</option>
+                    <option value="7d">Last 7 Days</option>
+                    <option value="30d">Last 30 Days</option>
+                    <option value="3m">Last 3 Months</option>
+                    <option value="1y">Last Year</option>
+                    <option value="all">All Time</option>
+                    <option value="custom">Custom Date</option>
+                </select>
+            </div>
+            <div class="control-group-inline">
+                <div id="date-range-display" class="selected-date-compact">
+                    <i class="fas fa-clock"></i> <strong id="date-range-text">Last 24 Hours</strong> 
                     (<span id="selected-date-count">loading...</span> articles)
                 </div>
-                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="collapse" data-bs-target="#calendar-collapse">
-                    <i class="fas fa-calendar-alt"></i> Change Date
-                </button>
+                <div id="custom-date-section" style="display: none;" class="mt-1">
+                    <input type="date" id="custom-date-input" class="form-control form-control-sm" value="2025-09-15" style="width: 160px;">
+                    <button type="button" class="btn btn-outline-secondary btn-sm ms-1" data-bs-toggle="collapse" data-bs-target="#calendar-collapse">
+                        <i class="fas fa-calendar-alt"></i>
+                    </button>
+                </div>
             </div>
             <div class="control-group-inline">
                 <label for="topic-input" class="form-label">Topic:</label>
@@ -659,6 +673,23 @@
                 <div>Loading articles...</div>
             </div>
             <div id="articles-error" class="error-message" style="display: none;"></div>
+            
+            <!-- Filter Section -->
+            <div id="articles-filters" class="mb-3" style="display: none;">
+                <div class="d-flex flex-wrap gap-2 align-items-center p-2 bg-light rounded">
+                    <span class="text-muted small fw-bold">Filter by:</span>
+                    <div id="bias-filters" class="d-flex flex-wrap gap-1"></div>
+                    <div id="factuality-filters" class="d-flex flex-wrap gap-1"></div>
+                    <div id="category-filters" class="d-flex flex-wrap gap-1"></div>
+                    <button class="btn btn-sm btn-outline-primary" onclick="improveQuality()" title="Filter to high-quality sources only">
+                        <i class="fas fa-shield-alt"></i> Improve Quality
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()" title="Clear all filters">
+                        <i class="fas fa-times"></i> Clear
+                    </button>
+                </div>
+            </div>
+            
             <div id="articles-list"></div>
             <nav aria-label="Article navigation">
                 <ul class="pagination pagination-sm justify-content-center mt-3" id="articles-pagination">
@@ -884,15 +915,28 @@ function saveFeed() {
     // Open the save modal
     const saveModal = new bootstrap.Modal(document.getElementById('saveFeedModal'));
     
-    // Pre-fill the name with date and topic
-    const selectedDate = document.getElementById('selected-date').value;
+    // Pre-fill the name with date range and topic
+    const dateRange = document.getElementById('date-range-select').value;
     const topic = document.getElementById('topic-input').value.trim();
-    const dateObj = new Date(selectedDate);
-    const formattedDate = dateObj.toLocaleDateString('en-US', { 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric' 
-    });
+    
+    let formattedDate;
+    if (dateRange === 'custom') {
+        const customDate = document.getElementById('custom-date-input').value;
+        if (customDate) {
+            const dateObj = new Date(customDate);
+            formattedDate = dateObj.toLocaleDateString('en-US', { 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+            });
+        } else {
+            formattedDate = 'Custom Date';
+        }
+    } else {
+        // Use the display text for date ranges
+        const displayText = document.getElementById('date-range-text').textContent;
+        formattedDate = displayText;
+    }
     
     const defaultName = topic ? `${topic} - ${formattedDate}` : `News Feed - ${formattedDate}`;
     document.getElementById('feedNameInput').value = defaultName;
@@ -917,7 +961,10 @@ function saveFeedFromModal() {
     }
     
     // Collect current feed data
-    const selectedDate = document.getElementById('selected-date').value;
+    const dateRange = document.getElementById('date-range-select').value;
+    const selectedDate = dateRange === 'custom' ? 
+        document.getElementById('custom-date-input').value || document.getElementById('selected-date').value :
+        dateRange;
     const topic = document.getElementById('topic-input').value.trim();
     const model = document.getElementById('model-select').value;
     
@@ -960,6 +1007,7 @@ function saveFeedFromModal() {
         name: feedName,
         description: feedDescription,
         date: selectedDate,
+        date_range: dateRange,
         topic: topic,
         model: model,
         includeArticles: includeArticles,
@@ -990,18 +1038,20 @@ function loadSavedFeed(feedId) {
         return;
     }
     
-    // Set the date and other parameters
-    document.getElementById('selected-date').value = feed.date;
+    // Set the date range and other parameters
+    if (feed.date_range) {
+        document.getElementById('date-range-select').value = feed.date_range;
+        handleDateRangeChange(); // Update display
+    } else {
+        // Legacy feed - treat as custom date
+        document.getElementById('date-range-select').value = 'custom';
+        document.getElementById('custom-date-input').value = feed.date;
+        document.getElementById('selected-date').value = feed.date;
+        handleDateRangeChange();
+    }
+    
     if (feed.topic) document.getElementById('topic-input').value = feed.topic;
     document.getElementById('model-select').value = feed.model;
-    
-    // Update the displayed date
-    const [y, m, d] = feed.date.split('-').map(Number);
-    const display = document.getElementById('selected-date-text');
-    if (display) {
-        const dateObj = new Date(y, m - 1, d);
-        display.textContent = dateObj.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-    }
     
     // Load the saved data
     if (feed.includeArticles && feed.articlesData) {
@@ -1481,12 +1531,19 @@ async function loadArticles(page = 1) {
 
     try {
         // Use the news feed articles API
+        const dateRangeValue = document.getElementById('date-range-select').value;
         const params = new URLSearchParams({
-            date: document.getElementById('selected-date').value,
+            date_range: dateRangeValue,
             model: document.getElementById('model-select').value,
             page: page.toString(),
             per_page: '20'
         });
+        
+        // Only add date parameter for custom date selection
+        if (dateRangeValue === 'custom') {
+            const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
+            params.append('date', customDate);
+        }
         
         const topic = document.getElementById('topic-input').value.trim();
         if (topic) {
@@ -1496,6 +1553,11 @@ async function loadArticles(page = 1) {
         const profileId = document.getElementById('profile-select').value;
         if (profileId) {
             params.append('profile_id', profileId);
+        }
+        
+        // Add starred articles if any
+        if (starredArticles.size > 0) {
+            params.append('starred_articles', Array.from(starredArticles).join(','));
         }
 
         console.log('Loading articles with params:', params.toString());
@@ -1528,6 +1590,7 @@ async function loadArticles(page = 1) {
         
         if (data.articles && data.articles.items && data.articles.items.length > 0) {
             console.log('First article sample:', data.articles.items[0]);
+            window.lastArticlesData = data.articles; // Store for filtering
             renderArticles(data.articles);  // News feed API returns data.articles
             renderArticlesPagination(data.articles);
         } else {
@@ -1568,11 +1631,18 @@ async function loadSixArticles() {
     contentEl.innerHTML = '';
 
     try {
+        const dateRangeValue = document.getElementById('date-range-select').value;
         const params = new URLSearchParams({
-            date: document.getElementById('selected-date').value,
+            date_range: dateRangeValue,
             model: document.getElementById('model-select').value,
             per_page: '20'
         });
+        
+        // Only add date parameter for custom date selection
+        if (dateRangeValue === 'custom') {
+            const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
+            params.append('date', customDate);
+        }
 
         const topic = document.getElementById('topic-input').value.trim();
         if (topic) {
@@ -1582,6 +1652,11 @@ async function loadSixArticles() {
         const profileId = document.getElementById('profile-select').value;
         if (profileId) {
             params.append('profile_id', profileId);
+        }
+        
+        // Add starred articles if any
+        if (starredArticles.size > 0) {
+            params.append('starred_articles', Array.from(starredArticles).join(','));
         }
 
         const response = await fetch(`/api/news-feed/six-articles?${params}`);
@@ -1654,152 +1729,7 @@ function getFactualClass(factual) {
     return 'tag-factual-unknown';
 }
 
-function renderArticles(data) {
-    console.log('renderArticles called with data:', data);
-    console.log('Data type:', typeof data);
-    console.log('Data.items exists:', !!(data && data.items));
-    console.log('Data.items length:', data && data.items ? data.items.length : 'N/A');
-    
-    const listContainer = document.getElementById('articles-list');
-    const paginationContainer = document.getElementById('articles-pagination');
-    
-    console.log('listContainer found:', !!listContainer);
-    console.log('paginationContainer found:', !!paginationContainer);
-    
-    if (listContainer) listContainer.innerHTML = ''; 
-    if (paginationContainer) paginationContainer.innerHTML = '';
-
-    if (!data || !data.items || data.items.length === 0) {
-        console.log('No articles to render, showing empty message');
-        if (listContainer) {
-            listContainer.innerHTML = '<div class="alert alert-info">No articles found for this date.</div>';
-        }
-        return;
-    }
-    
-    console.log('Rendering', data.items.length, 'articles');
-
-    // Create article list similar to topic dashboard
-    const articlesList = document.createElement('div');
-    articlesList.className = 'list-group list-group-flush mt-2';
-    
-    data.items.forEach(article => {
-        const articleItem = document.createElement('div');
-        articleItem.className = 'list-group-item';
-        
-        const pubDate = article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'N/A';
-        
-        // Build metadata tags like topic_dashboard.html
-        console.log(`Article metadata - category: "${article.category}", driver_type: "${article.driver_type}", time_to_impact: "${article.time_to_impact}", sentiment: "${article.sentiment}"`);
-        
-        let metadataHtml = '<div class="mb-1">';
-        if (article.category && article.category !== 'null' && article.category !== null && article.category.trim() !== '') {
-            console.log('Adding category tag for:', article.category);
-            metadataHtml += `<span class="metadata-tag tag-category"><i class="fas fa-folder-open me-1"></i>${escapeHTML(article.category)}</span>`;
-        }
-        if (article.driver_type && article.driver_type !== 'null' && article.driver_type !== null && article.driver_type.trim() !== '') {
-            console.log('Adding driver_type tag for:', article.driver_type);
-            metadataHtml += `<span class="metadata-tag tag-driver"><i class="fas fa-cogs me-1"></i>${escapeHTML(article.driver_type)}</span>`;
-        }
-        if (article.time_to_impact && article.time_to_impact !== 'null' && article.time_to_impact !== null && article.time_to_impact.trim() !== '') {
-            console.log('Adding time_to_impact tag for:', article.time_to_impact);
-            metadataHtml += `<span class="metadata-tag tag-tti"><i class="fas fa-clock me-1"></i>${escapeHTML(article.time_to_impact)}</span>`;
-        }
-        
-        // Enhanced sentiment handling like topic_dashboard.html
-        if (article.sentiment && article.sentiment !== 'null' && article.sentiment !== null && article.sentiment.trim() !== '') {
-            console.log('Adding sentiment tag for:', article.sentiment);
-            const sentimentLower = article.sentiment.toLowerCase();
-            let sentimentClass = '';
-            
-            if (sentimentLower === 'positive' || sentimentLower === 'negative' || sentimentLower === 'neutral') {
-                sentimentClass = `sentiment-badge sentiment-${sentimentLower}`;
-            } 
-            else if (sentimentLower === 'critical') {
-                sentimentClass = 'metadata-tag sentiment-critical';
-            }
-            else if (sentimentLower === 'hyperbolic') {
-                sentimentClass = 'metadata-tag sentiment-hyperbolic';
-            }
-            else if (sentimentLower === 'mixed') {
-                sentimentClass = 'metadata-tag sentiment-mixed';
-            }
-            else {
-                sentimentClass = 'metadata-tag tag-sentiment';
-            }
-            
-            const sentimentDisplay = escapeHTML(article.sentiment.charAt(0).toUpperCase() + article.sentiment.slice(1));
-            const tooltipText = article.sentiment_explanation ? ` title="${escapeHTML(article.sentiment_explanation)}"` : '';
-            
-            metadataHtml += `<span class="${sentimentClass}" data-bs-toggle="tooltip" data-bs-placement="top"${tooltipText}><i class="fas fa-heart me-1"></i>${sentimentDisplay}</span>`;
-        }
-        
-        // Add MBFC data - bias information
-        if (article.bias && article.bias !== 'null' && article.bias !== null && article.bias.trim() !== '') {
-            console.log('Adding bias tag for:', article.bias);
-            const biasClass = getBiasClass(article.bias);
-            const biasTooltip = article.bias_source && article.bias_source !== 'null' ? ` title="Source: ${escapeHTML(article.bias_source)}"` : '';
-            metadataHtml += `<span class="metadata-tag ${biasClass}" data-bs-toggle="tooltip" data-bs-placement="top"${biasTooltip}><i class="fas fa-balance-scale me-1"></i>${escapeHTML(article.bias)}</span>`;
-        }
-        
-        // Add MBFC data - factual reporting
-        if (article.factual_reporting && article.factual_reporting !== 'null' && article.factual_reporting !== null && article.factual_reporting.trim() !== '') {
-            console.log('Adding factual reporting tag for:', article.factual_reporting);
-            const factualClass = getFactualClass(article.factual_reporting);
-            const credibilityInfo = article.mbfc_credibility_rating && article.mbfc_credibility_rating !== 'null' ? ` (${article.mbfc_credibility_rating})` : '';
-            const factualTooltip = ` title="Factual Reporting: ${escapeHTML(article.factual_reporting)}${credibilityInfo}"`;
-            metadataHtml += `<span class="metadata-tag ${factualClass}" data-bs-toggle="tooltip" data-bs-placement="top"${factualTooltip}><i class="fas fa-check-circle me-1"></i>${escapeHTML(article.factual_reporting)}</span>`;
-        }
-        
-        metadataHtml += '</div>';
-        
-        // Build tags
-        console.log('Article tags:', article.tags, 'Type:', typeof article.tags, 'Length:', article.tags ? article.tags.length : 'N/A');
-        const tagsHtml = article.tags && Array.isArray(article.tags) && article.tags.length > 0 
-            ? article.tags.map(tag => `<span class="badge bg-light text-dark me-1">${escapeHTML(tag)}</span>`).join('') 
-            : '';
-
-        // Add exclude/remove button - small X in top right
-        const actionsHtml = `
-            <button class="btn-close-custom" onclick="excludeArticle('${article.uri}', this)" title="Remove this article from the list" 
-                    onmouseover="this.style.backgroundColor='#f8d7da'; this.style.color='#721c24';" 
-                    onmouseout="this.style.backgroundColor='transparent'; this.style.color='#999';"
-                    style="position: absolute; top: 8px; right: 8px; background: transparent; border: none; font-size: 16px; color: #999; cursor: pointer; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; border-radius: 50%; transition: all 0.2s ease;">
-                ×
-            </button>
-        `;
-        
-        articleItem.style.position = 'relative'; // For absolute positioning of close button
-        articleItem.innerHTML = `
-            ${actionsHtml}
-            <div class="d-flex w-100 justify-content-between" style="padding-right: 25px;">
-                <h6 class="mb-1"><a href="${article.uri}" target="_blank" rel="noopener">${article.title}</a></h6>
-                <small>${pubDate}</small>
-            </div>
-            <p class="mb-1"><small class="text-muted">${article.news_source}</small></p>
-            <p class="mb-1 small" title="${escapeHTML(article.summary || 'No summary available.')}" data-bs-toggle="tooltip" data-bs-placement="top">
-                ${(article.summary || 'No summary available.').substring(0, 250)}${(article.summary && article.summary.length > 250) ? '...' : ''}
-            </p>
-            ${metadataHtml}
-            <div>${tagsHtml}</div>
-        `;
-        
-        articlesList.appendChild(articleItem);
-    });
-
-    listContainer.appendChild(articlesList);
-
-    // Initialize Bootstrap tooltips after rendering articles
-    const tooltipTriggerList = [].slice.call(listContainer.querySelectorAll('[data-bs-toggle="tooltip"]'));
-    tooltipTriggerList.map(function (tooltipTriggerEl) {
-        return new bootstrap.Tooltip(tooltipTriggerEl);
-    });
-
-    // Render pagination if needed
-    if (data.total_pages > 1) {
-        renderPagination(data.total_pages, data.page);
-    }
-}
+// Removed old renderArticles function - using new one with star and filter functionality
 
 function renderPagination(totalPages, currentPage) {
     const paginationContainer = document.getElementById('articles-pagination');
@@ -2334,6 +2264,399 @@ async function loadOrganizationalProfiles() {
     }
 }
 
+// Date range handling
+function handleDateRangeChange() {
+    const dateRangeSelect = document.getElementById('date-range-select');
+    const customDateSection = document.getElementById('custom-date-section');
+    const dateRangeText = document.getElementById('date-range-text');
+    const selectedDateInput = document.getElementById('selected-date');
+    
+    const selectedRange = dateRangeSelect.value;
+    
+    if (selectedRange === 'custom') {
+        customDateSection.style.display = 'block';
+        dateRangeText.textContent = 'Custom Date';
+        // Use the custom date input value
+        selectedDateInput.value = document.getElementById('custom-date-input').value;
+    } else {
+        customDateSection.style.display = 'none';
+        
+        // Calculate date range and update display
+        const now = new Date();
+        let startDate, endDate = now;
+        let displayText = '';
+        
+        switch (selectedRange) {
+            case '24h':
+                startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+                displayText = 'Last 24 Hours';
+                selectedDateInput.value = now.toISOString().split('T')[0];
+                break;
+            case '7d':
+                startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                displayText = 'Last 7 Days';
+                selectedDateInput.value = ''; // Clear single date, use date_range instead
+                break;
+            case '30d':
+                startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                displayText = 'Last 30 Days';
+                selectedDateInput.value = ''; // Clear single date, use date_range instead
+                break;
+            case '3m':
+                startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+                displayText = 'Last 3 Months';
+                selectedDateInput.value = ''; // Clear single date, use date_range instead
+                break;
+            case '1y':
+                startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+                displayText = 'Last Year';
+                selectedDateInput.value = ''; // Clear single date, use date_range instead
+                break;
+            case 'all':
+                displayText = 'All Time';
+                selectedDateInput.value = 'all';
+                break;
+        }
+        
+        dateRangeText.textContent = displayText;
+        
+        // Update the info text
+        const dateRangeInfo = document.getElementById('date-range-info');
+        if (dateRangeInfo) {
+            if (selectedRange === 'all') {
+                dateRangeInfo.textContent = 'All available articles';
+            } else {
+                const startDateStr = startDate ? startDate.toLocaleDateString() : '';
+                const endDateStr = endDate.toLocaleDateString();
+                dateRangeInfo.textContent = `${startDateStr} to ${endDateStr}`;
+            }
+        }
+    }
+}
+
+// Star functionality for articles
+let starredArticles = new Set();
+
+// Filter functionality for articles
+let activeFilters = {
+    bias: new Set(),
+    factuality: new Set(),
+    category: new Set()
+};
+
+function renderArticles(articlesData) {
+    const listContainer = document.getElementById('articles-list');
+    if (!listContainer) return;
+    
+    listContainer.innerHTML = '';
+    
+    if (!articlesData.items || articlesData.items.length === 0) {
+        listContainer.innerHTML = '<div class="alert alert-info">No articles available.</div>';
+        document.getElementById('articles-filters').style.display = 'none';
+        return;
+    }
+    
+    // Build filter badges from available data
+    buildFilterBadges(articlesData.items);
+    
+    // Apply current filters
+    const filteredArticles = applyArticleFilters(articlesData.items);
+    
+    const articlesList = document.createElement('div');
+    articlesList.className = 'list-group list-group-flush mt-2';
+    
+    filteredArticles.forEach(article => {
+        const articleItem = document.createElement('div');
+        articleItem.className = 'list-group-item position-relative';
+        
+        const isStarred = starredArticles.has(article.uri);
+        
+        articleItem.innerHTML = `
+            <!-- Remove button (top-right) -->
+            <button class="btn btn-sm position-absolute" 
+                    style="top: 8px; right: 8px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; border: none; background: rgba(220, 53, 69, 0.1); color: #dc3545; border-radius: 50%;"
+                    onclick="excludeArticle('${article.uri}', this)"
+                    onmouseover="this.style.background='#dc3545'; this.style.color='white';"
+                    onmouseout="this.style.background='rgba(220, 53, 69, 0.1)'; this.style.color='#dc3545';"
+                    title="Remove article">×</button>
+            
+            <!-- Star button (top-left) -->
+            <button class="btn btn-sm position-absolute star-btn ${isStarred ? 'starred' : ''}" 
+                    style="top: 8px; left: 8px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; border: none; background: ${isStarred ? '#ffc107' : 'rgba(255, 193, 7, 0.1)'}; color: ${isStarred ? 'white' : '#ffc107'}; border-radius: 50%;"
+                    onclick="toggleStarArticle('${article.uri}', this)"
+                    title="${isStarred ? 'Remove from Six Articles' : 'Add to Six Articles'}">★</button>
+            
+            <!-- Two Column Layout -->
+            <div class="row" style="margin-left: 30px; margin-right: 30px;">
+                <!-- Column 1: Content -->
+                <div class="col-md-8">
+                    <h6 class="mb-2">
+                        <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
+                            ${escapeHTML(article.title)}
+                        </a>
+                    </h6>
+                    <p class="mb-1 small text-muted">
+                        <i class="fas fa-building me-1"></i>${escapeHTML(article.news_source)}
+                        <span class="ms-2">
+                            <i class="fas fa-calendar me-1"></i>${new Date(article.publication_date).toLocaleDateString()}
+                        </span>
+                    </p>
+                    <p class="mb-0 small text-secondary" style="line-height: 1.4;">
+                        ${escapeHTML(article.summary)}
+                    </p>
+                </div>
+                
+                <!-- Column 2: Metadata -->
+                <div class="col-md-4">
+                    <div class="d-flex flex-column gap-1 h-100 justify-content-center">
+                        ${article.bias ? `
+                        <div class="d-flex align-items-center">
+                            <span class="text-muted small me-2" style="min-width: 80px;">Political Bias:</span>
+                            <span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>
+                        </div>` : ''}
+                        
+                        ${article.factual_reporting ? `
+                        <div class="d-flex align-items-center">
+                            <span class="text-muted small me-2" style="min-width: 80px;">Factual:</span>
+                            <span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>
+                        </div>` : ''}
+                        
+                        ${article.mbfc_credibility_rating ? `
+                        <div class="d-flex align-items-center">
+                            <span class="text-muted small me-2" style="min-width: 80px;">Credibility:</span>
+                            <span class="badge bg-info text-white">${article.mbfc_credibility_rating}</span>
+                        </div>` : ''}
+                        
+                        ${article.category ? `
+                        <div class="d-flex align-items-center">
+                            <span class="text-muted small me-2" style="min-width: 80px;">Category:</span>
+                            <span class="badge bg-light text-dark">${article.category}</span>
+                        </div>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        articlesList.appendChild(articleItem);
+    });
+    
+    listContainer.appendChild(articlesList);
+    updateStarredCount();
+    
+    // Update count display to show filtered vs total
+    const countEl = document.getElementById('selected-date-count');
+    if (countEl) {
+        const totalCount = articlesData.items.length;
+        const filteredCount = filteredArticles.length;
+        if (filteredCount !== totalCount) {
+            countEl.textContent = `${filteredCount} of ${totalCount}`;
+        } else {
+            countEl.textContent = totalCount.toString();
+        }
+    }
+}
+
+function buildFilterBadges(articles) {
+    // Collect unique values
+    const biasValues = new Set();
+    const factualityValues = new Set();
+    const categoryValues = new Set();
+    
+    articles.forEach(article => {
+        if (article.bias) biasValues.add(article.bias);
+        if (article.factual_reporting) factualityValues.add(article.factual_reporting);
+        if (article.category) categoryValues.add(article.category);
+    });
+    
+    // Build bias filter badges
+    const biasContainer = document.getElementById('bias-filters');
+    biasContainer.innerHTML = '';
+    biasValues.forEach(bias => {
+        const badge = document.createElement('button');
+        badge.className = `btn btn-sm ${getBiasClass(bias)} filter-badge ${activeFilters.bias.has(bias) ? 'active' : ''}`;
+        badge.textContent = bias;
+        badge.onclick = () => toggleFilter('bias', bias);
+        biasContainer.appendChild(badge);
+    });
+    
+    // Build factuality filter badges
+    const factualityContainer = document.getElementById('factuality-filters');
+    factualityContainer.innerHTML = '';
+    factualityValues.forEach(factuality => {
+        const badge = document.createElement('button');
+        badge.className = `btn btn-sm ${getFactualityClass(factuality)} filter-badge ${activeFilters.factuality.has(factuality) ? 'active' : ''}`;
+        badge.textContent = factuality;
+        badge.onclick = () => toggleFilter('factuality', factuality);
+        factualityContainer.appendChild(badge);
+    });
+    
+    // Build category filter badges
+    const categoryContainer = document.getElementById('category-filters');
+    categoryContainer.innerHTML = '';
+    categoryValues.forEach(category => {
+        const badge = document.createElement('button');
+        badge.className = `btn btn-sm bg-light text-dark filter-badge ${activeFilters.category.has(category) ? 'active' : ''}`;
+        badge.textContent = category;
+        badge.onclick = () => toggleFilter('category', category);
+        categoryContainer.appendChild(badge);
+    });
+    
+    // Show filter section if we have any filters
+    if (biasValues.size > 0 || factualityValues.size > 0 || categoryValues.size > 0) {
+        document.getElementById('articles-filters').style.display = 'block';
+    }
+}
+
+function toggleFilter(filterType, value) {
+    if (activeFilters[filterType].has(value)) {
+        activeFilters[filterType].delete(value);
+    } else {
+        activeFilters[filterType].add(value);
+    }
+    
+    // Re-render articles with new filters
+    const articlesData = window.lastArticlesData; // Store this when loading articles
+    if (articlesData) {
+        renderArticles(articlesData);
+    }
+}
+
+function applyArticleFilters(articles) {
+    return articles.filter(article => {
+        // Check bias filter
+        if (activeFilters.bias.size > 0 && !activeFilters.bias.has(article.bias)) {
+            return false;
+        }
+        
+        // Check factuality filter
+        if (activeFilters.factuality.size > 0 && !activeFilters.factuality.has(article.factual_reporting)) {
+            return false;
+        }
+        
+        // Check category filter
+        if (activeFilters.category.size > 0 && !activeFilters.category.has(article.category)) {
+            return false;
+        }
+        
+        return true;
+    });
+}
+
+function improveQuality() {
+    // Clear existing filters first
+    activeFilters.bias.clear();
+    activeFilters.factuality.clear();
+    activeFilters.category.clear();
+    
+    // Check what factuality values are actually available
+    const articlesData = window.lastArticlesData;
+    if (!articlesData || !articlesData.items) {
+        showNotification('No articles data available for filtering', 'warning');
+        return;
+    }
+    
+    // Collect all factuality values to see what's available
+    const availableFactuality = new Set();
+    articlesData.items.forEach(article => {
+        if (article.factual_reporting) {
+            availableFactuality.add(article.factual_reporting);
+        }
+    });
+    
+    console.log('Available factuality values:', Array.from(availableFactuality));
+    
+    // Add high-quality factuality filters (more inclusive)
+    const highQualityFactuality = Array.from(availableFactuality).filter(factuality => {
+        const lower = factuality.toLowerCase();
+        return lower.includes('high') || 
+               lower.includes('mostly') || 
+               lower.includes('factual') ||
+               lower === 'very high' ||
+               lower === 'high' ||
+               lower === 'mostly factual';
+    });
+    
+    if (highQualityFactuality.length === 0) {
+        // If no high-quality matches found, be more lenient
+        const acceptableFactuality = Array.from(availableFactuality).filter(factuality => {
+            const lower = factuality.toLowerCase();
+            return !lower.includes('low') && !lower.includes('very low');
+        });
+        
+        acceptableFactuality.forEach(factuality => {
+            activeFilters.factuality.add(factuality);
+        });
+        
+        showNotification(`Showing ${acceptableFactuality.length > 0 ? 'acceptable' : 'all available'} quality sources`, 'info');
+    } else {
+        highQualityFactuality.forEach(factuality => {
+            activeFilters.factuality.add(factuality);
+        });
+        
+        showNotification(`Showing ${highQualityFactuality.length} high-quality source types`, 'success');
+    }
+    
+    // Re-render articles with quality filters
+    renderArticles(articlesData);
+}
+
+function clearAllFilters() {
+    activeFilters.bias.clear();
+    activeFilters.factuality.clear();
+    activeFilters.category.clear();
+    
+    // Re-render articles without filters
+    const articlesData = window.lastArticlesData;
+    if (articlesData) {
+        renderArticles(articlesData);
+        showNotification('All filters cleared', 'info');
+    }
+}
+
+function toggleStarArticle(articleUri, buttonElement) {
+    if (starredArticles.has(articleUri)) {
+        // Remove star
+        starredArticles.delete(articleUri);
+        buttonElement.classList.remove('starred');
+        buttonElement.style.background = 'rgba(255, 193, 7, 0.1)';
+        buttonElement.style.color = '#ffc107';
+        buttonElement.title = 'Add to Six Articles';
+        showNotification('Article removed from Six Articles selection', 'info');
+    } else {
+        // Add star
+        if (starredArticles.size >= 6) {
+            showNotification('Maximum 6 articles can be starred for Six Articles analysis', 'warning');
+            return;
+        }
+        
+        starredArticles.add(articleUri);
+        buttonElement.classList.add('starred');
+        buttonElement.style.background = '#ffc107';
+        buttonElement.style.color = 'white';
+        buttonElement.title = 'Remove from Six Articles';
+        showNotification('Article added to Six Articles selection', 'success');
+    }
+    
+    updateStarredCount();
+}
+
+function updateStarredCount() {
+    // Update any UI elements that show starred count
+    const starredCount = starredArticles.size;
+    
+    // Update six articles tab to show starred count
+    const sixArticlesTab = document.getElementById('six-articles-tab');
+    if (sixArticlesTab) {
+        const originalText = sixArticlesTab.textContent.replace(/ \(\d+\)$/, '');
+        sixArticlesTab.textContent = starredCount > 0 ? `${originalText} (${starredCount})` : originalText;
+    }
+    
+    // Show warning if more than 6 are starred (shouldn't happen due to limit, but safety check)
+    if (starredCount > 6) {
+        showNotification('Too many articles starred! Please unstar some to keep 6 or fewer.', 'danger');
+    }
+}
+
 // Helper functions for bias and factuality display
 function getBiasClass(bias) {
     if (!bias) return 'bg-light text-dark';
@@ -2364,6 +2687,37 @@ function getFactualityClass(factuality) {
 
     return factualityClasses[factuality.toLowerCase()] || 'bg-light text-dark';
 }
+
+// Add CSS for filter badges
+const style = document.createElement('style');
+style.textContent = `
+    .filter-badge {
+        transition: all 0.2s ease;
+        opacity: 0.7;
+        border: 1px solid transparent;
+    }
+    
+    .filter-badge:hover {
+        opacity: 1;
+        transform: translateY(-1px);
+    }
+    
+    .filter-badge.active {
+        opacity: 1;
+        border: 2px solid #fff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        transform: scale(1.05);
+    }
+    
+    .selected-date-compact {
+        font-size: 0.9rem;
+        padding: 0.25rem 0.5rem;
+        background: rgba(0,123,255,0.1);
+        border-radius: 4px;
+        border: 1px solid rgba(0,123,255,0.2);
+    }
+`;
+document.head.appendChild(style);
 
 // Initialize calendar when page loads
 document.addEventListener('DOMContentLoaded', function() {

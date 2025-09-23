@@ -35,8 +35,13 @@ class NewsFeedService:
         # Use today if no date specified
         target_date = request.date or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         
-        # Get articles for the day
-        articles_data = await self._get_articles_for_date(target_date, request.max_articles, request.topic)
+        # Get articles for the date range
+        articles_data = await self._get_articles_for_date_range(
+            request.date_range or "24h", 
+            request.max_articles, 
+            request.topic, 
+            target_date
+        )
         
         if not articles_data:
             raise ValueError("No articles found for the specified date and criteria")
@@ -55,22 +60,60 @@ class NewsFeedService:
             processing_time_seconds=processing_time
         )
     
-    async def _get_articles_for_date(self, date: datetime, max_articles: int, topic: Optional[str] = None) -> List[Dict]:
-        """Get articles for a specific date with bias and factuality data"""
+    async def _get_articles_for_date_range(self, date_range: str, max_articles: int, topic: Optional[str] = None, custom_date: Optional[datetime] = None) -> List[Dict]:
+        """Get articles for a date range with bias and factuality data"""
         
-        # Ensure we're working with the start of the day (midnight) for the target date
-        target_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Calculate date range based on selection
+        now = datetime.now()
         
-        # Calculate date range (24 hours from the target date)
-        start_date = target_date
-        end_date = target_date + timedelta(days=1)
+        if date_range == 'custom' and custom_date:
+            # Single custom date
+            target_date = custom_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            start_date = target_date
+            end_date = target_date + timedelta(days=1)
+            date_condition = "DATE(publication_date) = ?"
+            params = [target_date.strftime('%Y-%m-%d')]
+        elif date_range == '24h':
+            start_date = now - timedelta(days=1)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
+        elif date_range == '7d':
+            start_date = now - timedelta(days=7)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
+        elif date_range == '30d':
+            start_date = now - timedelta(days=30)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
+        elif date_range == '3m':
+            start_date = now - timedelta(days=90)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
+        elif date_range == '1y':
+            start_date = now - timedelta(days=365)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
+        elif date_range == 'all':
+            date_condition = "publication_date IS NOT NULL"
+            params = []
+            start_date = None
+            end_date = now
+        else:
+            # Default to last 24 hours
+            start_date = now - timedelta(days=1)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
         
-        logger.info(f"Getting articles for date range: {start_date.isoformat()} to {end_date.isoformat()}")
+        logger.info(f"Getting articles for date range: {start_date.isoformat() if start_date else 'all time'} to {end_date.isoformat()}")
         
         # Build query with bias and factuality fields
-        # Use DATE() function to ensure we're matching the exact date regardless of time
-        target_date_str = target_date.strftime('%Y-%m-%d')
-        query = """
+        query = f"""
         SELECT 
             uri, title, summary, news_source, publication_date, submission_date,
             category, sentiment, sentiment_explanation, time_to_impact, tags,
@@ -78,13 +121,12 @@ class NewsFeedService:
             bias_country, press_freedom, media_type, popularity,
             future_signal, driver_type
         FROM articles 
-        WHERE DATE(publication_date) = ?
+        WHERE {date_condition}
         AND category IS NOT NULL
         AND sentiment IS NOT NULL 
         AND bias IS NOT NULL
         AND factual_reporting IS NOT NULL
         """
-        params = [target_date_str]
         
         if topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
@@ -114,7 +156,7 @@ class NewsFeedService:
         
         try:
             results = self.db.fetch_all(query, params)
-            logger.info(f"Found {len(results)} articles for date {date.date()}")
+            logger.info(f"Found {len(results)} articles for date range: {date_range}")
             
             # Convert sqlite3.Row objects to dictionaries
             articles_list = []
@@ -129,6 +171,10 @@ class NewsFeedService:
         except Exception as e:
             logger.error(f"Error fetching articles: {e}")
             return []
+    
+    async def _get_articles_for_date(self, date: datetime, max_articles: int, topic: Optional[str] = None) -> List[Dict]:
+        """Backward compatibility wrapper for _get_articles_for_date_range"""
+        return await self._get_articles_for_date_range("custom", max_articles, topic, date)
     
     async def _get_organizational_profile(self, profile_id: Optional[int]) -> Optional[Dict]:
         """Fetch organizational profile by ID"""
@@ -170,23 +216,56 @@ class NewsFeedService:
             logger.warning("Continuing with default analysis due to profile loading error")
             return None
     
-    async def _get_total_articles_count_for_date(self, date: datetime, topic: Optional[str] = None) -> int:
-        """Get the total count of articles for a specific date (without limit)"""
+    async def _get_total_articles_count_for_date_range(self, date_range: str, topic: Optional[str] = None, custom_date: Optional[datetime] = None) -> int:
+        """Get the total count of articles for a date range (without limit)"""
         
-        # Ensure we're working with the start of the day (midnight) for the target date
-        target_date = date.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Calculate date range based on selection (same logic as _get_articles_for_date_range)
+        now = datetime.now()
         
-        # Calculate date range (24 hours from the target date)
-        start_date = target_date
-        end_date = target_date + timedelta(days=1)
+        if date_range == 'custom' and custom_date:
+            target_date = custom_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            date_condition = "DATE(publication_date) = ?"
+            params = [target_date.strftime('%Y-%m-%d')]
+        elif date_range == '24h':
+            start_date = now - timedelta(days=1)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
+        elif date_range == '7d':
+            start_date = now - timedelta(days=7)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
+        elif date_range == '30d':
+            start_date = now - timedelta(days=30)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
+        elif date_range == '3m':
+            start_date = now - timedelta(days=90)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
+        elif date_range == '1y':
+            start_date = now - timedelta(days=365)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
+        elif date_range == 'all':
+            date_condition = "publication_date IS NOT NULL"
+            params = []
+        else:
+            # Default to last 24 hours
+            start_date = now - timedelta(days=1)
+            end_date = now
+            date_condition = "publication_date >= ? AND publication_date <= ?"
+            params = [start_date.isoformat(), end_date.isoformat()]
         
-        # Build count query with same filtering as _get_articles_for_date
-        # Use DATE() function to ensure we're matching the exact date regardless of time
-        target_date_str = target_date.strftime('%Y-%m-%d')
-        query = """
+        # Build count query with same filtering as _get_articles_for_date_range
+        query = f"""
         SELECT COUNT(*) 
         FROM articles 
-        WHERE DATE(publication_date) = ?
+        WHERE {date_condition}
         AND category IS NOT NULL
         AND sentiment IS NOT NULL 
         AND bias IS NOT NULL
@@ -199,7 +278,6 @@ class NewsFeedService:
         AND summary NOT LIKE '%phone%number%'
         AND news_source NOT LIKE '%medium.com/@%'
         """
-        params = [target_date_str]
         
         if topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
@@ -210,8 +288,12 @@ class NewsFeedService:
             result = self.db.fetch_one(query, params)
             return result[0] if result else 0
         except Exception as e:
-            logger.error(f"Error getting total articles count: {e}")
+            logger.error(f"Error getting total articles count for date range: {e}")
             return 0
+    
+    async def _get_total_articles_count_for_date(self, date: datetime, topic: Optional[str] = None) -> int:
+        """Backward compatibility wrapper for single date count"""
+        return await self._get_total_articles_count_for_date_range("custom", topic, date)
     
     async def _find_related_articles(self, article_uri: str, top_k: int = 5) -> List[Dict]:
         """Find thematically related articles using enhanced similarity search"""
@@ -380,7 +462,11 @@ class NewsFeedService:
         """Generate paginated article list similar to topic dashboard"""
         
         # Get the actual total count from database (not limited by max_articles)
-        total_articles = await self._get_total_articles_count_for_date(date, request.topic)
+        total_articles = await self._get_total_articles_count_for_date_range(
+            request.date_range or "24h", 
+            request.topic, 
+            request.date
+        )
         
         # Calculate pagination
         start_idx = (page - 1) * per_page

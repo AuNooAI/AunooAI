@@ -119,12 +119,14 @@ async def generate_daily_news_feed(
 @router.get("/articles")
 async def get_news_articles_only(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
+    date_range: Optional[str] = Query("24h", description="Date range: 24h, 7d, 30d, 3m, 1y, all, or custom"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     max_articles: int = Query(30, ge=10, le=100),
     model: str = Query("gpt-4.1-mini"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
+    starred_articles: Optional[str] = Query(None, description="Comma-separated URIs of starred articles"),
     db: Database = Depends(get_database_instance)
 ):
     """Get paginated article list similar to topic dashboard"""
@@ -141,6 +143,7 @@ async def get_news_articles_only(
         # Create request
         request = NewsFeedRequest(
             date=target_date,
+            date_range=date_range,
             topic=topic,
             max_articles=max_articles,
             model=model,
@@ -149,17 +152,19 @@ async def get_news_articles_only(
         
         # Generate article list
         news_feed_service = get_news_feed_service(db)
-        articles_data = await news_feed_service._get_articles_for_date(
-            target_date or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0),
-            request.max_articles,
-            request.topic
+        articles_data = await news_feed_service._get_articles_for_date_range(
+            date_range or "24h",
+            max_articles,
+            topic,
+            target_date
         )
         
         if not articles_data:
             # Get the actual total count even when no articles returned (due to max_articles limit)
-            actual_total = await news_feed_service._get_total_articles_count_for_date(
-                target_date or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0),
-                request.topic
+            actual_total = await news_feed_service._get_total_articles_count_for_date_range(
+                date_range or "24h",
+                request.topic,
+                target_date
             )
             # Return empty result instead of 404
             return {
@@ -188,11 +193,13 @@ async def get_news_articles_only(
 @router.get("/six-articles")
 async def get_six_articles_report(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
+    date_range: Optional[str] = Query("24h", description="Date range: 24h, 7d, 30d, 3m, 1y, all, or custom"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
     max_articles: int = Query(50, ge=20, le=200),
     model: str = Query("gpt-4.1-mini"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
     profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
+    starred_articles: Optional[str] = Query(None, description="Comma-separated URIs of starred articles"),
     db: Database = Depends(get_database_instance)
 ):
     """Generate only the six articles detailed report"""
@@ -209,6 +216,7 @@ async def get_six_articles_report(
         # Create request
         request = NewsFeedRequest(
             date=target_date,
+            date_range=date_range,
             topic=topic,
             max_articles=max_articles,
             model=model,
@@ -217,10 +225,11 @@ async def get_six_articles_report(
         
         # Generate only six articles report
         news_feed_service = get_news_feed_service(db)
-        articles_data = await news_feed_service._get_articles_for_date(
-            target_date or datetime.now().replace(hour=0, minute=0, second=0, microsecond=0),
-            request.max_articles,
-            request.topic
+        articles_data = await news_feed_service._get_articles_for_date_range(
+            date_range or "24h",
+            max_articles,
+            topic,
+            target_date
         )
         
         if not articles_data:
