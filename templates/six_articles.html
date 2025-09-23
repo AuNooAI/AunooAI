@@ -1,0 +1,610 @@
+{% extends 'base.html' %}
+{% block title %}Six Most Interesting Articles{% endblock %}
+
+{% block content %}
+<style>
+/* Detailed analysis page styling */
+.six-articles-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+}
+
+.page-header {
+    text-align: center;
+    border-bottom: 3px solid #000;
+    padding-bottom: 25px;
+    margin-bottom: 40px;
+}
+
+.page-title {
+    font-size: 2.2rem;
+    font-weight: 700;
+    margin: 0;
+    color: #000;
+    letter-spacing: -0.5px;
+}
+
+.page-subtitle {
+    font-size: 1rem;
+    color: #666;
+    margin-top: 8px;
+}
+
+.executive-summary {
+    background: #f8f9fa;
+    padding: 25px;
+    border-radius: 8px;
+    margin-bottom: 35px;
+    border-left: 5px solid #000;
+}
+
+.executive-summary h3 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin: 0 0 15px 0;
+    color: #000;
+}
+
+.executive-summary p {
+    margin: 0;
+    font-size: 1rem;
+    color: #333;
+}
+
+.key-themes {
+    margin-bottom: 35px;
+}
+
+.key-themes h3 {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-bottom: 15px;
+    color: #000;
+}
+
+.themes-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.theme-tag {
+    background: #e9ecef;
+    color: #495057;
+    padding: 8px 15px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.article-card {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 25px;
+    margin-bottom: 30px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
+.article-number {
+    background: #000;
+    color: white;
+    width: 35px;
+    height: 35px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1.1rem;
+    margin-bottom: 15px;
+}
+
+.article-headline {
+    font-size: 1.4rem;
+    font-weight: 600;
+    line-height: 1.3;
+    margin-bottom: 12px;
+    color: #000;
+}
+
+.article-headline a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.article-headline a:hover {
+    color: #0066cc;
+}
+
+.article-summary {
+    font-size: 1rem;
+    color: #333;
+    margin-bottom: 15px;
+}
+
+.article-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 15px;
+    align-items: center;
+    margin-bottom: 15px;
+    font-size: 0.85rem;
+    color: #666;
+}
+
+.source-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bias-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.bias-left { background: #e3f2fd; color: #1976d2; }
+.bias-left-center { background: #e8f5e8; color: #388e3c; }
+.bias-center { background: #f3e5f5; color: #7b1fa2; }
+.bias-right-center { background: #fff3e0; color: #f57c00; }
+.bias-right { background: #ffebee; color: #d32f2f; }
+.bias-mixed { background: #f5f5f5; color: #616161; }
+
+.factuality-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.factuality-very-high { background: #e8f5e8; color: #2e7d32; }
+.factuality-high { background: #e8f5e8; color: #388e3c; }
+.factuality-mostly-factual { background: #f3e5f5; color: #7b1fa2; }
+.factuality-mixed { background: #fff3e0; color: #f57c00; }
+.factuality-low { background: #ffebee; color: #d32f2f; }
+
+.analysis-section {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 6px;
+    margin: 20px 0;
+}
+
+.analysis-section h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 12px 0;
+    color: #000;
+}
+
+.perspective-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+    margin-top: 15px;
+}
+
+.perspective-item {
+    background: white;
+    padding: 15px;
+    border-radius: 5px;
+    border-left: 4px solid #ddd;
+}
+
+.perspective-left { border-left-color: #1976d2; }
+.perspective-center { border-left-color: #7b1fa2; }
+.perspective-right { border-left-color: #d32f2f; }
+
+.perspective-label {
+    font-weight: 600;
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+}
+
+.perspective-content {
+    font-size: 0.9rem;
+    color: #555;
+}
+
+.related-coverage {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.related-coverage h5 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+    color: #333;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.related-item {
+    margin-bottom: 8px;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.related-item a {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+.related-item a:hover {
+    text-decoration: underline;
+}
+
+.controls {
+    background: #f8f9fa;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 30px;
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.control-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.control-group label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #333;
+    margin: 0;
+}
+
+.form-control, .form-select {
+    font-size: 0.9rem;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.btn {
+    font-size: 0.9rem;
+    padding: 8px 16px;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.btn-primary {
+    background: #000;
+    border-color: #000;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #333;
+    border-color: #333;
+}
+
+.loading-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #666;
+}
+
+.error-state {
+    background: #ffebee;
+    color: #c62828;
+    padding: 25px;
+    border-radius: 8px;
+    text-align: center;
+    margin: 40px 0;
+}
+
+.footer-stats {
+    text-align: center;
+    font-size: 0.85rem;
+    color: #999;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+@media (max-width: 768px) {
+    .six-articles-container {
+        padding: 15px;
+    }
+    
+    .page-title {
+        font-size: 1.8rem;
+    }
+    
+    .controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .control-group {
+        justify-content: space-between;
+    }
+    
+    .perspective-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .article-meta {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+}
+</style>
+
+<div class="six-articles-container">
+    <!-- Header -->
+    <div class="page-header">
+        <h1 class="page-title">Six Most Interesting Articles</h1>
+        <div class="page-subtitle" id="current-date"></div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+        <div class="control-group">
+            <label for="date-input">Date:</label>
+            <input type="date" id="date-input" class="form-control" />
+        </div>
+        <div class="control-group">
+            <label for="topic-input">Topic:</label>
+            <input type="text" id="topic-input" class="form-control" placeholder="Optional topic filter" />
+        </div>
+        <div class="control-group">
+            <label for="model-select">Model:</label>
+            <select id="model-select" class="form-select">
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                <option value="claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+            </select>
+        </div>
+        <button id="generate-btn" class="btn btn-primary">Generate Report</button>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loading" class="loading-state" style="display: none;">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <div style="margin-top: 15px;">Analyzing articles and generating report...</div>
+    </div>
+
+    <!-- Error State -->
+    <div id="error" class="error-state" style="display: none;"></div>
+
+    <!-- Content -->
+    <div id="report-content"></div>
+
+    <!-- Footer -->
+    <div id="footer-stats" class="footer-stats" style="display: none;"></div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Set today's date and current date display
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('date-input').value = today;
+    updateDateDisplay();
+
+    // Event handlers
+    document.getElementById('generate-btn').addEventListener('click', loadSixArticles);
+    document.getElementById('date-input').addEventListener('change', updateDateDisplay);
+
+    // Load initial report
+    loadSixArticles();
+});
+
+function updateDateDisplay() {
+    const dateInput = document.getElementById('date-input').value;
+    if (dateInput) {
+        const date = new Date(dateInput + 'T00:00:00');
+        document.getElementById('current-date').textContent = date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    }
+}
+
+async function loadSixArticles() {
+    const loadingEl = document.getElementById('loading');
+    const errorEl = document.getElementById('error');
+    const contentEl = document.getElementById('report-content');
+    const footerEl = document.getElementById('footer-stats');
+
+    // Show loading state
+    loadingEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    contentEl.innerHTML = '';
+    footerEl.style.display = 'none';
+
+    try {
+        const params = new URLSearchParams({
+            date: document.getElementById('date-input').value,
+            model: document.getElementById('model-select').value
+        });
+
+        const topic = document.getElementById('topic-input').value.trim();
+        if (topic) {
+            params.append('topic', topic);
+        }
+
+        const response = await fetch(`/api/news-feed/six-articles?${params}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        renderSixArticles(data.six_articles);
+
+    } catch (error) {
+        console.error('Error loading six articles:', error);
+        errorEl.textContent = `Error loading report: ${error.message}`;
+        errorEl.style.display = 'block';
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+}
+
+function renderSixArticles(report) {
+    const contentEl = document.getElementById('report-content');
+    const footerEl = document.getElementById('footer-stats');
+    
+    let html = '';
+    
+    // Executive summary
+    if (report.executive_summary) {
+        html += `
+            <div class="executive-summary">
+                <h3>Executive Summary</h3>
+                <p>${report.executive_summary}</p>
+            </div>
+        `;
+    }
+    
+    // Key themes
+    if (report.key_themes && report.key_themes.length > 0) {
+        html += `
+            <div class="key-themes">
+                <h3>Key Themes</h3>
+                <div class="themes-grid">
+                    ${report.key_themes.map(theme => `<span class="theme-tag">${theme}</span>`).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Articles
+    report.articles.forEach((article, index) => {
+        html += `
+            <div class="article-card">
+                <div class="article-number">${index + 1}</div>
+                
+                <h2 class="article-headline">
+                    <a href="${article.primary_article.uri}" target="_blank">${article.headline}</a>
+                </h2>
+                
+                <div class="article-summary">${article.summary}</div>
+                
+                <div class="article-meta">
+                    <div class="source-info">
+                        <strong>${article.primary_article.source.name}</strong>
+                        ${getBiasBadge(article.primary_article.source.bias)}
+                        ${getFactualityBadge(article.primary_article.source.factuality)}
+                    </div>
+                    ${article.primary_article.publication_date ? 
+                        `<span class="publish-date">${new Date(article.primary_article.publication_date).toLocaleDateString()}</span>` : 
+                        ''
+                    }
+                </div>
+                
+                ${article.topic_description ? `
+                    <div class="analysis-section">
+                        <h4>Analysis</h4>
+                        <p>${article.topic_description}</p>
+                    </div>
+                ` : ''}
+                
+                ${Object.keys(article.perspective_breakdown).length > 0 ? `
+                    <div class="analysis-section">
+                        <h4>Different Perspectives</h4>
+                        <div class="perspective-grid">
+                            ${Object.entries(article.perspective_breakdown).map(([perspective, points]) => 
+                                points && points.length > 0 ? `
+                                    <div class="perspective-item perspective-${perspective}">
+                                        <div class="perspective-label">${perspective}</div>
+                                        <div class="perspective-content">${points.join(', ')}</div>
+                                    </div>
+                                ` : ''
+                            ).join('')}
+                        </div>
+                    </div>
+                ` : ''}
+                
+                ${article.related_articles.length > 0 ? `
+                    <div class="related-coverage">
+                        <h5>Related Coverage</h5>
+                        ${article.related_articles.map(related => `
+                            <div class="related-item">
+                                <strong>${related.source}</strong>${getBiasBadge(related.bias)}: 
+                                ${related.url ? 
+                                    `<a href="${related.url}" target="_blank">${related.title}</a>` : 
+                                    related.title
+                                }
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        `;
+    });
+    
+    contentEl.innerHTML = html;
+    
+    // Show footer with statistics
+    const biasStats = Object.entries(report.bias_distribution)
+        .filter(([bias, count]) => count > 0)
+        .map(([bias, count]) => `${bias}: ${count}`)
+        .join(' • ');
+    
+    footerEl.innerHTML = `
+        Generated at ${new Date(report.generated_at).toLocaleTimeString()} • 
+        Source distribution: ${biasStats || 'No bias data available'}
+    `;
+    footerEl.style.display = 'block';
+}
+
+function getBiasBadge(bias) {
+    if (!bias) return '';
+    
+    const biasClasses = {
+        'left': 'bias-left',
+        'left-center': 'bias-left-center',
+        'center': 'bias-center',
+        'right-center': 'bias-right-center',
+        'right': 'bias-right',
+        'mixed': 'bias-mixed'
+    };
+    
+    const className = biasClasses[bias] || 'bias-mixed';
+    return `<span class="bias-badge ${className}">${bias.toUpperCase()}</span>`;
+}
+
+function getFactualityBadge(factuality) {
+    if (!factuality) return '';
+    
+    const factualityClasses = {
+        'very-high': 'factuality-very-high',
+        'high': 'factuality-high',
+        'mostly-factual': 'factuality-mostly-factual',
+        'mixed': 'factuality-mixed',
+        'low': 'factuality-low',
+        'very-low': 'factuality-low'
+    };
+    
+    const className = factualityClasses[factuality] || 'factuality-mixed';
+    const displayText = factuality.replace('-', ' ').replace(/\b\w/g, l => l.toUpperCase());
+    return `<span class="factuality-badge ${className}">${displayText}</span>`;
+}
+</script>
+
+{% endblock %}

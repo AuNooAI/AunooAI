@@ -1,0 +1,419 @@
+{% extends 'base.html' %}
+{% block title %}Daily News Overview{% endblock %}
+
+{% block content %}
+<style>
+/* Techmeme-inspired minimal overview design */
+.overview-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+}
+
+.overview-header {
+    text-align: center;
+    border-bottom: 2px solid #000;
+    padding-bottom: 20px;
+    margin-bottom: 40px;
+}
+
+.overview-title {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin: 0;
+    color: #000;
+    letter-spacing: -0.5px;
+}
+
+.overview-subtitle {
+    font-size: 1rem;
+    color: #666;
+    margin-top: 8px;
+    font-weight: 400;
+}
+
+.story-block {
+    margin-bottom: 35px;
+    padding-bottom: 25px;
+    border-bottom: 1px solid #eee;
+}
+
+.story-block:last-child {
+    border-bottom: none;
+}
+
+.story-number {
+    display: inline-block;
+    width: 30px;
+    height: 30px;
+    background: #000;
+    color: white;
+    text-align: center;
+    line-height: 30px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    margin-right: 15px;
+    vertical-align: top;
+}
+
+.story-content {
+    display: inline-block;
+    width: calc(100% - 45px);
+    vertical-align: top;
+}
+
+.story-headline {
+    font-size: 1.3rem;
+    font-weight: 600;
+    line-height: 1.3;
+    margin-bottom: 8px;
+    color: #000;
+}
+
+.story-headline a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.story-headline a:hover {
+    color: #0066cc;
+}
+
+.story-summary {
+    font-size: 1rem;
+    color: #333;
+    margin-bottom: 12px;
+}
+
+.story-source {
+    font-size: 0.85rem;
+    color: #666;
+    margin-bottom: 8px;
+}
+
+.story-context {
+    font-size: 0.9rem;
+    color: #555;
+    font-style: italic;
+    padding-left: 15px;
+    border-left: 3px solid #ddd;
+    margin-top: 10px;
+}
+
+.more-coverage {
+    margin-top: 12px;
+    font-size: 0.85rem;
+}
+
+.more-coverage-title {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+    letter-spacing: 0.5px;
+}
+
+.coverage-item {
+    margin-bottom: 3px;
+    color: #666;
+}
+
+.coverage-item a {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+.coverage-item a:hover {
+    text-decoration: underline;
+}
+
+.bias-indicator {
+    display: inline-block;
+    padding: 1px 4px;
+    border-radius: 2px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+.bias-left { background: #e3f2fd; color: #1976d2; }
+.bias-left-center { background: #e8f5e8; color: #388e3c; }
+.bias-center { background: #f3e5f5; color: #7b1fa2; }
+.bias-right-center { background: #fff3e0; color: #f57c00; }
+.bias-right { background: #ffebee; color: #d32f2f; }
+.bias-mixed { background: #f5f5f5; color: #616161; }
+
+.loading-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: #666;
+}
+
+.error-state {
+    background: #ffebee;
+    color: #c62828;
+    padding: 20px;
+    border-radius: 5px;
+    text-align: center;
+    margin: 40px 0;
+}
+
+.controls {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 5px;
+    margin-bottom: 30px;
+    text-align: center;
+}
+
+.controls input, .controls select, .controls button {
+    margin: 5px;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+    font-size: 0.9rem;
+}
+
+.controls button {
+    background: #000;
+    color: white;
+    border-color: #000;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.controls button:hover {
+    background: #333;
+}
+
+.footer-meta {
+    text-align: center;
+    font-size: 0.8rem;
+    color: #999;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+@media (max-width: 600px) {
+    .overview-container {
+        padding: 15px;
+    }
+    
+    .overview-title {
+        font-size: 2rem;
+    }
+    
+    .story-number {
+        width: 25px;
+        height: 25px;
+        line-height: 25px;
+        font-size: 0.8rem;
+        margin-right: 12px;
+    }
+    
+    .story-content {
+        width: calc(100% - 37px);
+    }
+    
+    .story-headline {
+        font-size: 1.1rem;
+    }
+    
+    .controls {
+        text-align: left;
+    }
+    
+    .controls input, .controls select, .controls button {
+        display: block;
+        width: 100%;
+        margin: 5px 0;
+    }
+}
+</style>
+
+<div class="overview-container">
+    <!-- Header -->
+    <div class="overview-header">
+        <h1 class="overview-title">Daily News Overview</h1>
+        <div class="overview-subtitle" id="current-date"></div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+        <input type="date" id="date-input" />
+        <input type="text" id="topic-input" placeholder="Optional topic filter" />
+        <select id="model-select">
+            <option value="gpt-4o">GPT-4o</option>
+            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+            <option value="claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+        </select>
+        <button id="generate-btn">Generate Overview</button>
+    </div>
+
+    <!-- Content -->
+    <div id="loading" class="loading-state" style="display: none;">
+        <div class="spinner-border" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <div style="margin-top: 15px;">Generating news overview...</div>
+    </div>
+
+    <div id="error" class="error-state" style="display: none;"></div>
+
+    <div id="overview-content"></div>
+
+    <div id="footer-meta" class="footer-meta" style="display: none;"></div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Set today's date and current date display
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('date-input').value = today;
+    updateDateDisplay();
+
+    // Event handlers
+    document.getElementById('generate-btn').addEventListener('click', loadOverview);
+    document.getElementById('date-input').addEventListener('change', updateDateDisplay);
+
+    // Load initial overview
+    loadOverview();
+});
+
+function updateDateDisplay() {
+    const dateInput = document.getElementById('date-input').value;
+    if (dateInput) {
+        const date = new Date(dateInput + 'T00:00:00');
+        document.getElementById('current-date').textContent = date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    }
+}
+
+async function loadOverview() {
+    const loadingEl = document.getElementById('loading');
+    const errorEl = document.getElementById('error');
+    const contentEl = document.getElementById('overview-content');
+    const footerEl = document.getElementById('footer-meta');
+
+    // Show loading state
+    loadingEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    contentEl.innerHTML = '';
+    footerEl.style.display = 'none';
+
+    try {
+        const params = new URLSearchParams({
+            date: document.getElementById('date-input').value,
+            model: document.getElementById('model-select').value
+        });
+
+        const topic = document.getElementById('topic-input').value.trim();
+        if (topic) {
+            params.append('topic', topic);
+        }
+
+        const response = await fetch(`/api/news-feed/overview?${params}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        renderOverview(data.overview);
+
+    } catch (error) {
+        console.error('Error loading overview:', error);
+        errorEl.textContent = `Error loading overview: ${error.message}`;
+        errorEl.style.display = 'block';
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+}
+
+function renderOverview(overview) {
+    const contentEl = document.getElementById('overview-content');
+    const footerEl = document.getElementById('footer-meta');
+    
+    let html = '';
+    
+    overview.top_stories.forEach((story, index) => {
+        html += `
+            <div class="story-block">
+                <span class="story-number">${index + 1}</span>
+                <div class="story-content">
+                    <h2 class="story-headline">
+                        <a href="${story.primary_article.uri}" target="_blank">${story.headline}</a>
+                    </h2>
+                    
+                    <div class="story-summary">${story.summary}</div>
+                    
+                    <div class="story-source">
+                        ${story.primary_article.source.name}
+                        ${getBiasIndicator(story.primary_article.source.bias)}
+                        ${story.primary_article.publication_date ? 
+                            ` • ${new Date(story.primary_article.publication_date).toLocaleDateString()}` : 
+                            ''
+                        }
+                    </div>
+                    
+                    ${story.topic_description ? 
+                        `<div class="story-context">${story.topic_description}</div>` : 
+                        ''
+                    }
+                    
+                    ${story.related_articles.length > 0 ? `
+                        <div class="more-coverage">
+                            <div class="more-coverage-title">More Coverage</div>
+                            ${story.related_articles.map(related => `
+                                <div class="coverage-item">
+                                    <strong>${related.source}</strong>${getBiasIndicator(related.bias)}: 
+                                    ${related.url ? 
+                                        `<a href="${related.url}" target="_blank">${related.title}</a>` : 
+                                        related.title
+                                    }
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    });
+    
+    contentEl.innerHTML = html;
+    
+    // Show footer with metadata
+    footerEl.innerHTML = `
+        Generated at ${new Date(overview.generated_at).toLocaleTimeString()} • 
+        ${overview.total_articles_analyzed} articles analyzed
+    `;
+    footerEl.style.display = 'block';
+}
+
+function getBiasIndicator(bias) {
+    if (!bias) return '';
+    
+    const biasClasses = {
+        'left': 'bias-left',
+        'left-center': 'bias-left-center',
+        'center': 'bias-center',
+        'right-center': 'bias-right-center',
+        'right': 'bias-right',
+        'mixed': 'bias-mixed'
+    };
+    
+    const className = biasClasses[bias] || 'bias-mixed';
+    return `<span class="bias-indicator ${className}">${bias.toUpperCase()}</span>`;
+}
+</script>
+
+{% endblock %}

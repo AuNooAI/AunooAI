@@ -48,6 +48,7 @@ from app.tasks.keyword_monitor import run_keyword_monitor
 import sqlite3
 from app.routes import database  # Make sure this import exists
 from app.routes.stats_routes import router as stats_router
+# from app.routes.news_feed_routes import router as news_feed_router  # Now registered via app factory
 from app.routes.chat_routes import router as chat_router
 from app.routes.database import router as database_router
 from app.routes.dashboard_routes import router as dashboard_router
@@ -203,6 +204,7 @@ app.include_router(saved_searches_router)  # Saved searches
 app.include_router(websocket_router, prefix="/keyword-monitor")  # WebSocket routes for real-time updates
 app.include_router(forecast_chart_router)  # API routes
 app.include_router(forecast_chart_web_router)  # Web routes
+# app.include_router(news_feed_router)  # News feed routes - Now registered via app factory
 
 def get_template_context(request: Request, additional_context: dict = None) -> dict:
     """Create a base template context with common variables."""

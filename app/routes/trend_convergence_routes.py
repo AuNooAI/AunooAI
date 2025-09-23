@@ -1216,7 +1216,7 @@ async def save_analysis_with_cache(
         VALUES (?, ?, ?, ?, ?)
         """
         
-        db.execute(query, (
+        db.execute_query(query, (
             cache_key,
             topic,
             json.dumps(analysis_data),
@@ -1244,7 +1244,7 @@ async def ensure_cache_table_v2(db: Database):
     )
     """
     
-    db.execute(create_table_query)
+    db.execute_query(create_table_query)
     
     # Create index for efficient lookups
     index_query = """
@@ -1252,7 +1252,7 @@ async def ensure_cache_table_v2(db: Database):
     ON analysis_versions_v2(cache_key, created_at DESC)
     """
     
-    db.execute(index_query)
+    db.execute_query(index_query)
 
 @router.get("/api/trend-convergence/{topic}/previous")
 async def load_previous_analysis(

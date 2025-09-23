@@ -13,7 +13,7 @@ from sqlalchemy import (select,
                         or_,
                         and_,
                         literal)
-from database_models import (t_keyword_monitor_settings as keyword_monitor_settings,
+from app.database_models import (t_keyword_monitor_settings as keyword_monitor_settings,
                              t_keyword_monitor_status as keyword_monitor_status,
                              t_keyword_article_matches as keyword_article_matches,
                              t_articles as articles)
