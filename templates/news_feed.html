@@ -590,6 +590,20 @@
                     <option value="gemini-pro">Gemini Pro</option>
                 </select>
             </div>
+            <div class="mb-3">
+                <label for="profile-select" class="form-label">Organizational Profile:</label>
+                <div class="d-flex gap-2">
+                    <select id="profile-select" class="form-select form-select-sm" style="width: 200px;">
+                        <option value="">General Analysis (No Profile)</option>
+                    </select>
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadOrganizationalProfiles()" title="Refresh Profiles">
+                        <i class="fas fa-sync"></i>
+                    </button>
+                </div>
+                <div class="form-text">
+                    <small class="text-muted">Select for contextualized analysis based on your organization's needs.</small>
+                </div>
+            </div>
             <div class="control-group-inline">
                 <button id="generate-btn" class="btn btn-primary">Generate Feed</button>
                 <button id="save-btn" class="btn btn-outline-primary" onclick="saveFeed()" style="display: none;" title="Save current feed">
@@ -1214,9 +1228,10 @@ function clearExcludedArticles() {
 // Markdown export functionality
 async function exportToMarkdown() {
     try {
-        const selectedDate = document.getElementById('selected-date').value;
-        const selectedModel = document.getElementById('model-select').value;
-        const topic = document.getElementById('topic-input').value.trim();
+    const selectedDate = document.getElementById('selected-date').value;
+    const selectedModel = document.getElementById('model-select').value;
+    const topic = document.getElementById('topic-input').value.trim();
+    const profileId = document.getElementById('profile-select').value;
         
         // Get current tab to determine what to export
         const activeTab = document.querySelector('#news-tabs .nav-link.active');
@@ -1472,10 +1487,15 @@ async function loadArticles(page = 1) {
             page: page.toString(),
             per_page: '20'
         });
-
+        
         const topic = document.getElementById('topic-input').value.trim();
         if (topic) {
             params.append('topic', topic);
+        }
+        
+        const profileId = document.getElementById('profile-select').value;
+        if (profileId) {
+            params.append('profile_id', profileId);
         }
 
         console.log('Loading articles with params:', params.toString());
@@ -1558,6 +1578,11 @@ async function loadSixArticles() {
         if (topic) {
             params.append('topic', topic);
         }
+        
+        const profileId = document.getElementById('profile-select').value;
+        if (profileId) {
+            params.append('profile_id', profileId);
+        }
 
         const response = await fetch(`/api/news-feed/six-articles?${params}`);
         
@@ -1570,6 +1595,11 @@ async function loadSixArticles() {
         }
 
         const data = await response.json();
+        console.log('Six articles response data:', data);
+        console.log('Six articles array:', data.six_articles);
+        if (data.six_articles && data.six_articles.length > 0) {
+            console.log('First article related_articles:', data.six_articles[0].related_articles);
+        }
         renderSixArticles(data.six_articles);
         showSaveButton();
 
@@ -1864,6 +1894,16 @@ function renderOverview(overview) {
 function renderSixArticles(articles) {
     const contentEl = document.getElementById('six-articles-report');
     
+    console.log('renderSixArticles called with:', articles);
+    console.log('Articles length:', articles ? articles.length : 'null/undefined');
+    if (articles && articles.length > 0) {
+        console.log('First article structure:', articles[0]);
+        console.log('First article has related_articles:', !!articles[0].related_articles);
+        if (articles[0].related_articles) {
+            console.log('Related articles count:', articles[0].related_articles.length);
+        }
+    }
+    
     if (!articles || articles.length === 0) {
         contentEl.innerHTML = '<div class="alert alert-info">No articles available for analysis.</div>';
         return;
@@ -1882,8 +1922,16 @@ function renderSixArticles(articles) {
             <div class="article-analysis mb-5 p-4 border rounded">
                 <div class="article-header mb-3">
                     <h4 class="text-primary">${index + 1}. ${article.title}</h4>
-                    <p class="text-muted mb-1"><strong>Source:</strong> ${article.source}</p>
-                    ${article.date ? `<p class="text-muted mb-0"><strong>Date:</strong> ${article.date}</p>` : ''}
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                            <p class="text-muted mb-1"><strong>Source:</strong> ${article.source}</p>
+                            ${article.date ? `<p class="text-muted mb-0"><strong>Date:</strong> ${article.date}</p>` : ''}
+                        </div>
+                        <div class="text-end">
+                            ${article.bias ? `<span class="badge ${getBiasClass(article.bias)} mb-1">${article.bias}</span><br>` : ''}
+                            ${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>` : ''}
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="article-content">
@@ -1919,6 +1967,33 @@ function renderSixArticles(articles) {
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Related Articles Section -->
+                    ${article.related_articles && article.related_articles.length > 0 ? `
+                    <div class="section mt-4">
+                        <h6 class="text-primary">Related Articles</h6>
+                        <div class="row">
+                            ${article.related_articles.map(related => `
+                                <div class="col-md-6 mb-2">
+                                    <div class="card card-body p-2 bg-light">
+                                        <h6 class="card-title mb-1" style="font-size: 0.9rem;">
+                                            <a href="${related.url}" target="_blank" rel="noopener" class="text-decoration-none">
+                                                ${related.title}
+                                            </a>
+                                        </h6>
+                                        <p class="card-text mb-1" style="font-size: 0.8rem;">
+                                            <strong>Source:</strong> ${related.source}
+                                            ${related.similarity_score ? `<span class="badge bg-secondary ms-1">${(related.similarity_score * 100).toFixed(0)}% similar</span>` : ''}
+                                        </p>
+                                        <p class="card-text small text-muted" style="font-size: 0.75rem;">
+                                            ${related.summary.length > 100 ? related.summary.substring(0, 100) + '...' : related.summary}
+                                        </p>
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
                 </div>
             </div>
         `;
@@ -2230,10 +2305,73 @@ function setSelectedDate(dateStr) {
     loadSixArticles();
 }
 
+// Organizational profile management
+async function loadOrganizationalProfiles() {
+    try {
+        const response = await fetch('/api/organizational-profiles');
+        const data = await response.json();
+        
+        if (data.success && data.profiles) {
+            const profileSelect = document.getElementById('profile-select');
+            
+            // Clear existing options except the first
+            profileSelect.innerHTML = '<option value="">General Analysis (No Profile)</option>';
+            
+            // Add profiles
+            data.profiles.forEach(profile => {
+                const option = document.createElement('option');
+                option.value = profile.id;
+                option.textContent = `${profile.name}${profile.is_default ? ' (Default)' : ''}`;
+                option.title = `${profile.industry || 'General'} • ${profile.organization_type || 'Organization'}`;
+                profileSelect.appendChild(option);
+            });
+            
+            console.log(`Loaded ${data.profiles.length} organizational profiles`);
+        }
+    } catch (error) {
+        console.error('Error loading organizational profiles:', error);
+        showNotification('Failed to load organizational profiles', 'warning');
+    }
+}
+
+// Helper functions for bias and factuality display
+function getBiasClass(bias) {
+    if (!bias) return 'bg-light text-dark';
+
+    const biasClasses = {
+        'left': 'bg-primary',
+        'left-center': 'bg-info',
+        'center': 'bg-secondary',
+        'right-center': 'bg-warning text-dark',
+        'right': 'bg-danger',
+        'mixed': 'bg-dark'
+    };
+
+    return biasClasses[bias.toLowerCase()] || 'bg-light text-dark';
+}
+
+function getFactualityClass(factuality) {
+    if (!factuality) return 'bg-light text-dark';
+
+    const factualityClasses = {
+        'very high': 'bg-success',
+        'high': 'bg-success',
+        'mostly factual': 'bg-info',
+        'mixed': 'bg-warning text-dark',
+        'low': 'bg-danger',
+        'very low': 'bg-danger'
+    };
+
+    return factualityClasses[factuality.toLowerCase()] || 'bg-light text-dark';
+}
+
 // Initialize calendar when page loads
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, initializing calendar...');
     loadAvailableDates();
+    
+    // Load organizational profiles
+    loadOrganizationalProfiles();
 });
 </script>
 

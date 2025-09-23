@@ -14,6 +14,7 @@ import hashlib
 from app.database import Database, get_database_instance
 from app.services.news_feed_service import get_news_feed_service
 from app.schemas.news_feed import NewsFeedRequest, NewsFeedResponse
+from app.database_query_facade import DatabaseQueryFacade
 
 router = APIRouter(prefix="/api/news-feed", tags=["news-feed"])
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ async def get_available_dates(
     logger.info("Starting available-dates request")
     try:
         logger.info("Executing query for available dates")
-        # Use the same filtering criteria as the news feed service
+        # Use the same filtering criteria as the news feed service including spam filtering
         query = """
         SELECT DATE(publication_date) as date, COUNT(*) as count 
         FROM articles 
@@ -38,6 +39,13 @@ async def get_available_dates(
         AND sentiment IS NOT NULL 
         AND bias IS NOT NULL
         AND factual_reporting IS NOT NULL
+        AND title NOT LIKE '%Call@%'
+        AND title NOT LIKE '%+91%'
+        AND title NOT LIKE '%best%agency%'
+        AND title NOT LIKE '%#1%'
+        AND summary NOT LIKE '%Call@%'
+        AND summary NOT LIKE '%phone%number%'
+        AND news_source NOT LIKE '%medium.com/@%'
         GROUP BY DATE(publication_date) 
         ORDER BY date DESC 
         LIMIT 60
@@ -116,6 +124,7 @@ async def get_news_articles_only(
     model: str = Query("gpt-4.1-mini"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
+    profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
     db: Database = Depends(get_database_instance)
 ):
     """Get paginated article list similar to topic dashboard"""
@@ -134,7 +143,8 @@ async def get_news_articles_only(
             date=target_date,
             topic=topic,
             max_articles=max_articles,
-            model=model
+            model=model,
+            profile_id=profile_id
         )
         
         # Generate article list
@@ -182,6 +192,7 @@ async def get_six_articles_report(
     max_articles: int = Query(50, ge=20, le=200),
     model: str = Query("gpt-4.1-mini"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
+    profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
     db: Database = Depends(get_database_instance)
 ):
     """Generate only the six articles detailed report"""
@@ -200,7 +211,8 @@ async def get_six_articles_report(
             date=target_date,
             topic=topic,
             max_articles=max_articles,
-            model=model
+            model=model,
+            profile_id=profile_id
         )
         
         # Generate only six articles report
@@ -216,6 +228,12 @@ async def get_six_articles_report(
             return {"six_articles": []}
         
         six_articles = await news_feed_service._generate_six_articles_report(articles_data, target_date or datetime.now(), request)
+        
+        logger.info(f"Generated {len(six_articles)} six articles")
+        if six_articles and len(six_articles) > 0:
+            logger.info(f"First article has related_articles: {bool(six_articles[0].get('related_articles'))}")
+            if six_articles[0].get('related_articles'):
+                logger.info(f"First article related_articles count: {len(six_articles[0]['related_articles'])}")
         
         return {"six_articles": six_articles}
         

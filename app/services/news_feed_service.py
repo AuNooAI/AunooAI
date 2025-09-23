@@ -91,11 +91,21 @@ class NewsFeedService:
             topic_pattern = f"%{topic}%"
             params.extend([topic, topic_pattern, topic_pattern])
         
-        # Order by quality and recency (all articles have complete metadata)
+        # Filter out promotional/spam content and order by quality
         query += """ 
+        AND title NOT LIKE '%Call@%'
+        AND title NOT LIKE '%+91%'
+        AND title NOT LIKE '%best%agency%'
+        AND title NOT LIKE '%#1%'
+        AND summary NOT LIKE '%Call@%'
+        AND summary NOT LIKE '%phone%number%'
+        AND news_source NOT LIKE '%medium.com/@%'
         ORDER BY 
             CASE WHEN factual_reporting = 'High' THEN 3
                  WHEN factual_reporting = 'Mostly Factual' THEN 2
+                 ELSE 1 END DESC,
+            CASE WHEN news_source LIKE '%.com' AND news_source NOT LIKE '%medium.com%' THEN 2
+                 WHEN news_source LIKE '%reuters%' OR news_source LIKE '%bloomberg%' OR news_source LIKE '%techcrunch%' THEN 3
                  ELSE 1 END DESC,
             publication_date DESC 
         LIMIT ?
@@ -120,6 +130,46 @@ class NewsFeedService:
             logger.error(f"Error fetching articles: {e}")
             return []
     
+    async def _get_organizational_profile(self, profile_id: Optional[int]) -> Optional[Dict]:
+        """Fetch organizational profile by ID"""
+        if not profile_id:
+            logger.info("No profile_id provided, using default analysis")
+            return None
+            
+        try:
+            logger.info(f"Fetching organizational profile for ID: {profile_id}")
+            profile_row = self.facade.get_organizational_profile_for_ui(profile_id)
+            if not profile_row:
+                logger.warning(f"No organizational profile found for ID: {profile_id}")
+                return None
+                
+            import json
+            profile = {
+                'id': profile_row[0],
+                'name': profile_row[1],
+                'description': profile_row[2],
+                'industry': profile_row[3],
+                'organization_type': profile_row[4],
+                'region': profile_row[5],
+                'key_concerns': json.loads(profile_row[6]) if profile_row[6] else [],
+                'strategic_priorities': json.loads(profile_row[7]) if profile_row[7] else [],
+                'risk_tolerance': profile_row[8],
+                'innovation_appetite': profile_row[9],
+                'decision_making_style': profile_row[10],
+                'stakeholder_focus': json.loads(profile_row[11]) if profile_row[11] else [],
+                'competitive_landscape': json.loads(profile_row[12]) if profile_row[12] else [],
+                'regulatory_environment': json.loads(profile_row[13]) if profile_row[13] else [],
+                'custom_context': profile_row[14],
+                'is_default': bool(profile_row[15])
+            }
+            logger.info(f"Successfully loaded profile: {profile['name']} ({profile['industry']})")
+            return profile
+        except Exception as e:
+            logger.error(f"Error fetching organizational profile {profile_id}: {e}")
+            # Don't fail the entire request if profile loading fails
+            logger.warning("Continuing with default analysis due to profile loading error")
+            return None
+    
     async def _get_total_articles_count_for_date(self, date: datetime, topic: Optional[str] = None) -> int:
         """Get the total count of articles for a specific date (without limit)"""
         
@@ -141,6 +191,13 @@ class NewsFeedService:
         AND sentiment IS NOT NULL 
         AND bias IS NOT NULL
         AND factual_reporting IS NOT NULL
+        AND title NOT LIKE '%Call@%'
+        AND title NOT LIKE '%+91%'
+        AND title NOT LIKE '%best%agency%'
+        AND title NOT LIKE '%#1%'
+        AND summary NOT LIKE '%Call@%'
+        AND summary NOT LIKE '%phone%number%'
+        AND news_source NOT LIKE '%medium.com/@%'
         """
         params = [target_date_str]
         
@@ -155,6 +212,169 @@ class NewsFeedService:
         except Exception as e:
             logger.error(f"Error getting total articles count: {e}")
             return 0
+    
+    async def _find_related_articles(self, article_uri: str, top_k: int = 5) -> List[Dict]:
+        """Find thematically related articles using enhanced similarity search"""
+        if not article_uri:
+            logger.warning("No article URI provided for related articles search")
+            return []
+            
+        try:
+            logger.info(f"Searching for {top_k} related articles for URI: {article_uri}")
+            
+            # First, get the original article to understand its themes
+            original_article = None
+            current_articles = getattr(self, '_current_articles_data', [])
+            
+            logger.debug(f"Looking for URI {article_uri} in {len(current_articles)} articles")
+            
+            for article in current_articles:
+                if article.get('uri') == article_uri:
+                    original_article = article
+                    logger.debug(f"Found exact URI match: {article_uri}")
+                    break
+            
+            # If exact match fails, try partial matching
+            if not original_article and current_articles:
+                for article in current_articles:
+                    article_uri_clean = article.get('uri', '').strip()
+                    if article_uri_clean and article_uri in article_uri_clean:
+                        original_article = article
+                        logger.debug(f"Found partial URI match: {article_uri_clean}")
+                        break
+            
+            if not original_article:
+                logger.warning(f"Could not find original article for URI: {article_uri}")
+                logger.debug(f"Available URIs: {[a.get('uri', 'NO_URI')[:50] for a in current_articles[:3]]}")
+                # Use vector search anyway with a fallback approach
+                try:
+                    from app.vector_store import similar_articles
+                    similar_results = similar_articles(article_uri, top_k=top_k)
+                    
+                    related_articles = []
+                    for result in similar_results:
+                        if result.get('metadata') and result.get('score', 0) > 0.2:
+                            metadata = result['metadata']
+                            related_articles.append({
+                                'title': metadata.get('title', 'Untitled'),
+                                'source': metadata.get('news_source', 'Unknown Source'),
+                                'url': metadata.get('uri', ''),
+                                'bias': metadata.get('bias'),
+                                'summary': metadata.get('summary', 'No summary available'),
+                                'similarity_score': result.get('score', 0.0),
+                                'factual_reporting': metadata.get('factual_reporting', ''),
+                                'category': metadata.get('category', '')
+                            })
+                    
+                    logger.info(f"Fallback vector search found {len(related_articles)} related articles")
+                    return related_articles
+                    
+                except Exception as e:
+                    logger.error(f"Fallback vector search failed: {e}")
+                    return []
+            
+            # Extract key entities and themes from the original article
+            original_title = original_article.get('title', '').lower()
+            original_summary = original_article.get('summary', '').lower()
+            original_category = original_article.get('category', '')
+            
+            # Get vector similarity results
+            from app.vector_store import similar_articles
+            similar_results = similar_articles(article_uri, top_k=top_k * 3)  # Get more candidates
+            logger.info(f"Vector search returned {len(similar_results)} similar articles")
+            
+            # Enhanced filtering for thematic relevance
+            related_articles = []
+            similarity_threshold = 0.2  # Increased threshold for better quality
+            
+            for i, result in enumerate(similar_results):
+                if result.get('metadata'):
+                    metadata = result['metadata']
+                    similarity_score = result.get('score', 0.0)
+                    
+                    # Skip articles with very low similarity
+                    if similarity_score < similarity_threshold:
+                        continue
+                    
+                    # Calculate thematic relevance boost
+                    thematic_score = self._calculate_thematic_relevance(
+                        original_article, metadata, similarity_score
+                    )
+                    
+                    # Only include if thematically relevant
+                    if thematic_score > 0.3:  # Minimum thematic relevance
+                        related_article = {
+                            'title': metadata.get('title', 'Untitled'),
+                            'source': metadata.get('news_source', 'Unknown Source'),
+                            'url': metadata.get('uri', ''),
+                            'bias': metadata.get('bias'),
+                            'summary': metadata.get('summary', 'No summary available'),
+                            'similarity_score': thematic_score,  # Use enhanced score
+                            'category': metadata.get('category', ''),
+                            'factual_reporting': metadata.get('factual_reporting', '')
+                        }
+                        related_articles.append(related_article)
+                        logger.debug(f"Related article {len(related_articles)}: {related_article['title']} (thematic score: {thematic_score:.3f})")
+                        
+                        # Stop when we have enough high-quality matches
+                        if len(related_articles) >= top_k:
+                            break
+            
+            logger.info(f"Successfully processed {len(related_articles)} thematically related articles")
+            return related_articles
+            
+        except ImportError as e:
+            logger.error(f"Vector store import failed: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error finding related articles for {article_uri}: {e}")
+            logger.exception("Full traceback:")
+            return []
+    
+    def _calculate_thematic_relevance(self, original_article: Dict, candidate_metadata: Dict, base_similarity: float) -> float:
+        """Calculate enhanced thematic relevance score"""
+        
+        # Start with base similarity
+        score = base_similarity
+        
+        # Extract key information
+        orig_title = original_article.get('title', '').lower()
+        orig_summary = original_article.get('summary', '').lower()
+        orig_category = original_article.get('category', '')
+        
+        cand_title = candidate_metadata.get('title', '').lower()
+        cand_summary = candidate_metadata.get('summary', '').lower()
+        cand_category = candidate_metadata.get('category', '')
+        
+        # Boost for same category
+        if orig_category and cand_category and orig_category == cand_category:
+            score += 0.2
+            
+        # Boost for entity/company name overlap
+        # Extract potential entity names (capitalized words, common company indicators)
+        import re
+        orig_entities = set(re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', original_article.get('title', '')))
+        orig_entities.update(re.findall(r'\b(?:Tesla|Apple|Google|Microsoft|Amazon|Meta|OpenAI|Anthropic|DeepMind)\b', orig_title, re.IGNORECASE))
+        
+        cand_entities = set(re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b', candidate_metadata.get('title', '')))
+        cand_entities.update(re.findall(r'\b(?:Tesla|Apple|Google|Microsoft|Amazon|Meta|OpenAI|Anthropic|DeepMind)\b', cand_title, re.IGNORECASE))
+        
+        # Strong boost for entity overlap
+        entity_overlap = len(orig_entities.intersection(cand_entities))
+        if entity_overlap > 0:
+            score += entity_overlap * 0.3  # Significant boost for entity matches
+            
+        # Boost for keyword overlap in titles
+        orig_keywords = set(word for word in orig_title.split() if len(word) > 3)
+        cand_keywords = set(word for word in cand_title.split() if len(word) > 3)
+        keyword_overlap = len(orig_keywords.intersection(cand_keywords)) / max(len(orig_keywords), 1)
+        score += keyword_overlap * 0.15
+        
+        # Penalize if articles are too similar (likely duplicates)
+        if base_similarity > 0.9:
+            score *= 0.5  # Reduce score for likely duplicates
+            
+        return min(score, 1.0)  # Cap at 1.0
     
     async def _generate_article_list(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest, page: int = 1, per_page: int = 20) -> Dict:
         """Generate paginated article list similar to topic dashboard"""
@@ -211,51 +431,84 @@ class NewsFeedService:
         }
     
     async def _generate_six_articles_report(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
-        """Generate detailed six articles report using specific analyst prompt"""
+        """Generate detailed six articles report using Auspex service"""
         
-        # Create AI prompt for six articles analysis
-        prompt = self._build_six_articles_analyst_prompt(articles_data, date)
+        logger.info(f"Starting six articles generation for {len(articles_data)} articles on {date.date()}")
         
-        # Use AI service directly (bypass Auspex chat sessions to avoid foreign key issues)
+        # Get organizational profile if specified
+        try:
+            org_profile = await self._get_organizational_profile(request.profile_id)
+            logger.info(f"Organizational profile loaded: {org_profile['name'] if org_profile else 'None'}")
+        except Exception as e:
+            logger.error(f"Error loading organizational profile: {e}")
+            org_profile = None
+        
+        # Create AI prompt for six articles analysis with organizational context
+        try:
+            prompt = self._build_six_articles_analyst_prompt(articles_data, date, org_profile)
+            logger.info("Successfully built six articles prompt")
+        except Exception as e:
+            logger.error(f"Error building six articles prompt: {e}")
+            raise
+        
+        # Store current articles data FIRST for URI matching in related articles
+        self._current_articles_data = articles_data
+        logger.info(f"Stored {len(articles_data)} articles for URI matching")
+        
+        # Use direct LLM for now (TODO: migrate to Auspex after testing org profiles)
         try:
             import litellm
             
             # Create messages for the AI
             messages = [
-                {"role": "system", "content": "You are a news analysis AI that creates detailed news reports. Analyze articles from different perspectives including bias and factuality."},
+                {"role": "system", "content": "You are a news analysis AI that creates detailed news reports. Analyze articles from different perspectives including bias and factuality. Always return properly formatted JSON as requested."},
                 {"role": "user", "content": prompt}
             ]
             
-            # Get AI response using litellm directly
+            # Get AI response using litellm directly with settings optimized for JSON
             response = await litellm.acompletion(
                 model=request.model,
                 messages=messages,
-                temperature=0.7,
-                max_tokens=4000
+                temperature=0.3,  # Lower temperature for more consistent JSON output
+                max_tokens=4000,
+                # Don't use JSON mode as it requires object format, we need array format
             )
             
             response_text = response.choices[0].message.content
             
             # Parse AI response - now returns array directly
+            logger.info(f"Parsing AI response (length: {len(response_text)})")
+            logger.info(f"AI response first 200 chars: {response_text[:200]}")
+            logger.info(f"AI response last 200 chars: {response_text[-200:]}")
+            
             articles_data_parsed = self._parse_six_articles_response(response_text)
             
             # If parsing failed (empty array), use fallback
             if not articles_data_parsed:
-                logger.info("JSON parsing returned empty array, using fallback articles")
-                return self._create_fallback_six_articles(articles_data, date)
+                logger.warning("JSON parsing returned empty array, using fallback articles")
+                logger.debug(f"Failed response text: {response_text}")
+                return await self._create_fallback_six_articles(articles_data, date)
             
             # Convert to structured data using new format
             articles = []
-            for article_data in articles_data_parsed:
-                # Create article from new format
-                article = self._create_six_article_from_analyst_data(article_data)
-                if article:
-                    articles.append(article)
+            for i, article_data in enumerate(articles_data_parsed):
+                try:
+                    logger.info(f"Processing article {i+1}/{len(articles_data_parsed)}: {article_data.get('title', 'Untitled')}")
+                    # Create article from new format (now async)
+                    article = await self._create_six_article_from_analyst_data(article_data)
+                    if article:
+                        articles.append(article)
+                        logger.info(f"Successfully created article {i+1} with {len(article.get('related_articles', []))} related articles")
+                    else:
+                        logger.warning(f"Failed to create article {i+1}")
+                except Exception as e:
+                    logger.error(f"Error processing article {i+1}: {e}")
+                    continue
             
             # If no valid articles were created, use fallback
             if not articles:
                 logger.info("No valid articles created from parsed data, using fallback articles")
-                return self._create_fallback_six_articles(articles_data, date)
+                return await self._create_fallback_six_articles(articles_data, date)
             
             # Return just the articles array for the new format
             return articles
@@ -318,10 +571,16 @@ class NewsFeedService:
             if bias and bias.lower() in ['left', 'left-center', 'right', 'right-center', 'mixed']:
                 articles_with_bias.append(article)
         
+        # Get organizational profile if specified
+        org_profile = await self._get_organizational_profile(request.profile_id)
+        
         # Enhanced prompt that considers related articles and political leanings
-        prompt = self._build_enhanced_six_articles_analyst_prompt(articles_data, articles_with_bias, articles_by_source, date)
+        prompt = self._build_enhanced_six_articles_analyst_prompt(articles_data, articles_with_bias, articles_by_source, date, org_profile)
         
         try:
+            # Use direct LLM for now (TODO: migrate to Auspex after testing org profiles)
+            import litellm
+            
             # Generate AI analysis
             response = await litellm.acompletion(
                 model=request.model,
@@ -339,19 +598,22 @@ class NewsFeedService:
             # If parsing failed (empty array), use fallback
             if not articles:
                 logger.info("JSON parsing returned empty array in cached version, using fallback articles")
-                return self._create_fallback_six_articles(articles_data, date)
+                return await self._create_fallback_six_articles(articles_data, date)
+            
+            # Store current articles data for URI matching in related articles
+            self._current_articles_data = articles_data
             
             # Convert to the expected format
             result_articles = []
             for article_data in articles:
-                article = self._create_six_article_from_analyst_data(article_data)
+                article = await self._create_six_article_from_analyst_data(article_data)
                 if article:
                     result_articles.append(article)
             
             # If no valid articles were created, use fallback
             if not result_articles:
                 logger.info("No valid articles created from parsed data in cached version, using fallback articles")
-                return self._create_fallback_six_articles(articles_data, date)
+                return await self._create_fallback_six_articles(articles_data, date)
             
             return result_articles
             
@@ -401,19 +663,25 @@ Focus on stories with:
 
 Return ONLY the JSON response."""
     
-    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime) -> str:
-        """Build AI prompt for six articles detailed analysis"""
+    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None) -> str:
+        """Build AI prompt for six articles detailed analysis with organizational context"""
         
         # Prepare all articles for comprehensive analysis
         articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50)
         
-        return f"""You are an analyst selecting the 6 most important articles published in the last 24 hours for a general organization that is interested in Artificial Intelligence (AI) and its strategic, technical, and societal impacts.
-
-## Audience Profile (Defaults)
+        # Build audience profile from organizational data or use defaults
+        if org_profile:
+            audience_profile = self._build_audience_profile_from_org(org_profile)
+        else:
+            audience_profile = """## Audience Profile (Defaults)
 - Risk Appetite: Moderate (balanced between innovation and caution)
 - Strategic Interests: AI regulation, enterprise adoption, model scaling limits, market shifts, workforce impact, security & safety
 - Sector: General (public + private sector relevance)
-- Political/Cultural Orientation: Centrist (consider diverse viewpoints)
+- Political/Cultural Orientation: Centrist (consider diverse viewpoints)"""
+        
+        return f"""You are an analyst selecting the 6 most important articles published in the last 24 hours for a specific organization interested in Artificial Intelligence (AI) and its strategic, technical, and societal impacts.
+
+{audience_profile}
 
 ## Instructions
 From the provided article corpus (news reports, press releases, blogs, filings, research), select the **6 most important articles** for this organization based on:
@@ -473,9 +741,70 @@ Return as a JSON array with 6 objects like this:
 - Do not include any text before or after the JSON array.
 - The response must be valid JSON that can be parsed directly.
 
-Return ONLY the JSON array with no additional text, explanations, or markdown formatting."""
+CRITICAL OUTPUT REQUIREMENTS:
+- Your response MUST start with [ and end with ]
+- Return ONLY a valid JSON array - NO other text
+- No markdown formatting (no ```json blocks)
+- No explanatory text, comments, or notes
+- Ensure all strings are properly escaped with \\"
+- Do not include any text like "Here are the six articles" or similar
+- Your entire response should be parseable by JSON.parse()
 
-    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime) -> str:
+EXACT FORMAT REQUIRED:
+[{{"title":"Article Title","source":"Source Name","date":"2025-09-15","summary":"Brief summary","why_interesting":"Why it matters","devils_advocate":"Contrarian view","perspectives":{{"left":"Left view","center":"Center view","right":"Right view"}}}}]
+
+START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
+
+    def _build_audience_profile_from_org(self, org_profile: Dict) -> str:
+        """Build audience profile section from organizational profile data"""
+        
+        # Map risk tolerance
+        risk_mapping = {
+            'low': 'Conservative (prioritizes stability and proven solutions)',
+            'medium': 'Moderate (balanced between innovation and caution)',
+            'high': 'Aggressive (embraces high-risk, high-reward opportunities)'
+        }
+        
+        # Map innovation appetite
+        innovation_mapping = {
+            'conservative': 'Conservative (adopts proven technologies)',
+            'moderate': 'Moderate (selective early adoption)',
+            'aggressive': 'Aggressive (cutting-edge technology adoption)'
+        }
+        
+        # Build strategic interests from key concerns and priorities
+        strategic_interests = []
+        strategic_interests.extend(org_profile.get('key_concerns', []))
+        strategic_interests.extend(org_profile.get('strategic_priorities', []))
+        
+        # Add default AI interests if none specified
+        if not strategic_interests:
+            strategic_interests = ['AI regulation', 'enterprise adoption', 'market shifts', 'workforce impact', 'security & safety']
+        
+        profile_text = f"""## Audience Profile ({org_profile.get('name', 'Organization')})
+- **Organization**: {org_profile.get('name', 'Unknown')} ({org_profile.get('organization_type', 'General')})
+- **Industry**: {org_profile.get('industry', 'General')}
+- **Region**: {org_profile.get('region', 'Global')}
+- **Risk Appetite**: {risk_mapping.get(org_profile.get('risk_tolerance', 'medium'), 'Moderate')}
+- **Innovation Appetite**: {innovation_mapping.get(org_profile.get('innovation_appetite', 'moderate'), 'Moderate')}
+- **Strategic Interests**: {', '.join(strategic_interests)}
+- **Key Stakeholders**: {', '.join(org_profile.get('stakeholder_focus', ['General stakeholders']))}
+- **Decision Making**: {org_profile.get('decision_making_style', 'Collaborative')} approach"""
+        
+        # Add custom context if available
+        if org_profile.get('custom_context'):
+            profile_text += f"\n- **Additional Context**: {org_profile.get('custom_context')}"
+        
+        # Add competitive and regulatory context
+        if org_profile.get('competitive_landscape'):
+            profile_text += f"\n- **Competitive Focus**: {', '.join(org_profile.get('competitive_landscape'))}"
+        
+        if org_profile.get('regulatory_environment'):
+            profile_text += f"\n- **Regulatory Concerns**: {', '.join(org_profile.get('regulatory_environment'))}"
+        
+        return profile_text
+
+    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None) -> str:
         """Build enhanced AI prompt that considers related articles and political leanings"""
         
         # Prepare all articles for analysis
@@ -503,7 +832,17 @@ Return ONLY the JSON array with no additional text, explanations, or markdown fo
                 if len(source_articles) > 1:
                     source_context += f"- {source}: {len(source_articles)} articles\n"
         
-        return f"""You are an analyst selecting the 6 most important articles published in the last 24 hours for a general organization that is interested in Artificial Intelligence (AI) and its strategic, technical, and societal impacts.
+        # Build audience profile from organizational data or use defaults
+        if org_profile:
+            audience_profile = self._build_audience_profile_from_org(org_profile)
+        else:
+            audience_profile = """## Audience Profile (Defaults)
+- Risk Appetite: Moderate (balanced between innovation and caution)
+- Strategic Interests: AI regulation, enterprise adoption, model scaling limits, market shifts, workforce impact, security & safety
+- Sector: General (public + private sector relevance)
+- Political/Cultural Orientation: Centrist (consider diverse viewpoints)"""
+        
+        return f"""You are an analyst selecting the 6 most important articles published in the last 24 hours for a specific organization interested in Artificial Intelligence (AI) and its strategic, technical, and societal impacts.
 
 ## Enhanced Analysis Instructions
 
@@ -513,11 +852,7 @@ Return ONLY the JSON array with no additional text, explanations, or markdown fo
 
 {source_context}
 
-## Audience Profile (Defaults)
-- Risk Appetite: Moderate (balanced between innovation and caution)
-- Strategic Interests: AI regulation, enterprise adoption, model scaling limits, market shifts, workforce impact, security & safety
-- Sector: General (public + private sector relevance)
-- Political/Cultural Orientation: Centrist (consider diverse viewpoints)
+{audience_profile}
 
 ## Instructions
 From the provided article corpus, select the **6 most important articles** based on:
@@ -557,19 +892,19 @@ One paragraph outlining why this might be overhyped, flawed, misinterpreted, or 
 Return as a JSON array with 6 objects like this:
 
 [
-  {{
+  {{{{
     "title": "",
     "source": "",
     "date": "",
     "summary": "",
     "why_interesting": "",
     "devils_advocate": "",
-    "perspectives": {{
+    "perspectives": {{{{
       "left": "",
       "center": "",
       "right": ""
-    }}
-  }}
+    }}}}
+  }}}}
 ]
 
 ## Notes
@@ -579,7 +914,14 @@ Return as a JSON array with 6 objects like this:
 - Avoid redundant articles (each should cover a different angle or domain of AI developments).
 - When possible, select articles that have related coverage from sources with different political leanings.
 
-Return ONLY the JSON array."""
+CRITICAL OUTPUT REQUIREMENTS:
+- Your response MUST start with [ and end with ]
+- Return ONLY a valid JSON array - NO other text
+- No explanatory text, comments, or notes
+- Do not include any text like "Here are the six articles" or similar
+- Your entire response should be parseable by JSON.parse()
+
+START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 
     def _prepare_articles_for_prompt(self, articles_data: List[Dict], max_articles: int = 50) -> str:
         """Prepare articles data for AI prompt"""
@@ -628,50 +970,181 @@ Tags: {article.get('tags', '')}
         try:
             # Clean the response text
             response_text = response_text.strip()
+            logger.debug(f"Parsing response text of length: {len(response_text)}")
             
             # Try multiple parsing strategies
+            import re
+            
+            # Strategy 0: Check if response starts with explanatory text and remove it
+            if not response_text.startswith('[') and not response_text.startswith('{'):
+                # Look for the start of JSON after any explanatory text
+                json_start_patterns = [
+                    r'(?:Here is|Here are|Below is|Below are).*?(\[.*\])',
+                    r'(?:The six articles|Six articles|Articles).*?(\[.*\])',
+                    r'^.*?(\[.*\])(?:\s*$|$)',  # Any text followed by JSON array
+                ]
+                
+                for pattern in json_start_patterns:
+                    match = re.search(pattern, response_text, re.DOTALL | re.IGNORECASE)
+                    if match:
+                        potential_json = match.group(1)
+                        logger.debug(f"Found potential JSON after explanatory text: {potential_json[:100]}...")
+                        try:
+                            result = json.loads(potential_json)
+                            if isinstance(result, list):
+                                logger.info(f"Successfully parsed JSON after removing explanatory text: {len(result)} articles")
+                                return result
+                        except json.JSONDecodeError:
+                            continue
             
             # Strategy 1: Look for JSON array in code blocks
-            import re
             json_match = re.search(r'```json\s*(\[.*?\])\s*```', response_text, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
+                logger.debug("Found JSON in code block, attempting to parse")
                 try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    pass
+                    result = json.loads(json_str)
+                    logger.info(f"Successfully parsed JSON from code block: {len(result)} articles")
+                    return result
+                except json.JSONDecodeError as e:
+                    logger.debug(f"Code block JSON parse failed: {e}")
             
-            # Strategy 2: Look for plain JSON array
+            # Strategy 2: Look for JSON object with articles array
+            json_match = re.search(r'(\{.*?"articles"\s*:\s*\[.*?\].*?\})', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+                logger.debug("Found JSON object with articles array, attempting to parse")
+                try:
+                    result = json.loads(json_str)
+                    if 'articles' in result and isinstance(result['articles'], list):
+                        logger.info(f"Successfully parsed JSON object with articles array: {len(result['articles'])} articles")
+                        return result['articles']
+                except json.JSONDecodeError as e:
+                    logger.debug(f"JSON object parse failed: {e}")
+            
+            # Strategy 3: Look for plain JSON array
             json_match = re.search(r'(\[.*?\])', response_text, re.DOTALL)
             if json_match:
                 json_str = json_match.group(1)
+                logger.debug("Found JSON array, attempting to parse")
                 try:
-                    return json.loads(json_str)
-                except json.JSONDecodeError:
-                    pass
+                    result = json.loads(json_str)
+                    logger.info(f"Successfully parsed plain JSON array: {len(result)} articles")
+                    return result
+                except json.JSONDecodeError as e:
+                    logger.debug(f"Plain JSON parse failed: {e}")
             
-            # Strategy 3: Extract JSON array from response (original method)
+            # Strategy 4: Extract JSON array from response (original method with better cleaning)
             json_start = response_text.find('[')
             json_end = response_text.rfind(']') + 1
             if json_start >= 0 and json_end > json_start:
                 json_str = response_text[json_start:json_end]
-                # Clean common JSON issues
-                json_str = json_str.replace('\n', ' ').replace('\t', ' ')
+                logger.debug("Found JSON boundaries, cleaning and parsing")
+                logger.debug(f"Raw JSON string first 100 chars: {json_str[:100]}")
+                
+                # More aggressive cleaning
+                json_str = json_str.replace('\n', ' ').replace('\t', ' ').replace('\r', ' ')
                 # Remove trailing commas before closing brackets/braces
                 json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
-                return json.loads(json_str)
+                # Fix common quote issues
+                json_str = re.sub(r'(["\'])\s*\n\s*(["\'])', r'\1 \2', json_str)
+                # Remove any non-printable characters
+                json_str = re.sub(r'[\x00-\x1f\x7f-\x9f]', ' ', json_str)
+                # Fix multiple spaces
+                json_str = re.sub(r'\s+', ' ', json_str)
+                
+                logger.debug(f"Cleaned JSON string first 100 chars: {json_str[:100]}")
+                
+                try:
+                    result = json.loads(json_str)
+                    logger.info(f"Successfully parsed cleaned JSON: {len(result)} articles")
+                    return result
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Cleaned JSON parse failed at position {e.pos}: {e}")
+                    logger.warning(f"Failed JSON around error position: {json_str[max(0, e.pos-50):e.pos+50]}")
+                    logger.debug(f"Full failed JSON string: {json_str}")
+            
+            # Strategy 5: Try to extract individual article objects
+            logger.debug("Attempting to extract individual article objects")
+            article_pattern = r'\{\s*"title"[^}]*\}'
+            article_matches = re.findall(article_pattern, response_text, re.DOTALL)
+            if article_matches:
+                logger.debug(f"Found {len(article_matches)} potential article objects")
+                articles = []
+                for match in article_matches:
+                    try:
+                        article = json.loads(match)
+                        articles.append(article)
+                    except:
+                        continue
+                if articles:
+                    logger.info(f"Successfully extracted {len(articles)} articles from individual objects")
+                    return articles
                 
         except Exception as e:
             logger.warning(f"Error parsing six articles JSON, using fallback: {e}")
-            logger.debug(f"Response text (first 500 chars): {response_text[:500]}")
+            logger.debug(f"Response text (first 1000 chars): {response_text[:1000]}")
         
         # Fallback structure - return empty array
         logger.info("Using empty array fallback for six articles parsing")
         return []
     
-    def _create_six_article_from_analyst_data(self, article_data: Dict[str, Any]) -> Optional[Dict]:
-        """Create article object from new analyst format"""
+    async def _create_six_article_from_analyst_data(self, article_data: Dict[str, Any]) -> Optional[Dict]:
+        """Create article object from new analyst format with related articles"""
         try:
+            # Find the original article URI to get related articles
+            article_uri = article_data.get('uri', '')
+            if not article_uri:
+                # Try to match by title if no URI provided
+                title = article_data.get('title', '')
+                source = article_data.get('source', '')
+                logger.debug(f"No URI in AI response, trying to match by title: {title}")
+                
+                for article in getattr(self, '_current_articles_data', []):
+                    # Try exact title match first
+                    if article.get('title') == title:
+                        article_uri = article.get('uri', '')
+                        logger.debug(f"Found exact title match: {article_uri}")
+                        break
+                    # Try partial title match if exact fails
+                    elif title and article.get('title') and title.lower() in article.get('title', '').lower():
+                        article_uri = article.get('uri', '')
+                        logger.debug(f"Found partial title match: {article_uri}")
+                        break
+                    # Try source + partial title match
+                    elif (source and article.get('news_source') == source and 
+                          title and article.get('title') and 
+                          any(word in article.get('title', '').lower() for word in title.lower().split() if len(word) > 3)):
+                        article_uri = article.get('uri', '')
+                        logger.debug(f"Found source + keyword match: {article_uri}")
+                        break
+                
+                if not article_uri:
+                    logger.warning(f"Could not find URI for article: {title} from {source}")
+                    # Use the first available article as fallback
+                    if getattr(self, '_current_articles_data', []):
+                        article_uri = self._current_articles_data[0].get('uri', '')
+                        logger.debug(f"Using fallback URI: {article_uri}")
+            
+            # Find related articles if we have a URI
+            related_articles = []
+            if article_uri:
+                try:
+                    logger.info(f"Attempting to find related articles for: {article_uri}")
+                    related_articles = await self._find_related_articles(article_uri, top_k=3)
+                    logger.info(f"Found {len(related_articles)} related articles")
+                except Exception as e:
+                    logger.error(f"Failed to find related articles: {e}")
+                    related_articles = []  # Continue without related articles
+            
+            # Find the original article data to get bias/factuality info
+            original_metadata = None
+            if article_uri:
+                for article in getattr(self, '_current_articles_data', []):
+                    if article.get('uri') == article_uri:
+                        original_metadata = article
+                        break
+            
             return {
                 'title': article_data.get('title', 'Untitled'),
                 'source': article_data.get('source', 'Unknown Source'),
@@ -683,7 +1156,12 @@ Tags: {article.get('tags', '')}
                     'left': article_data.get('perspectives', {}).get('left', ''),
                     'center': article_data.get('perspectives', {}).get('center', ''),
                     'right': article_data.get('perspectives', {}).get('right', '')
-                }
+                },
+                'related_articles': related_articles,
+                # Add bias and factuality from original article metadata
+                'bias': original_metadata.get('bias') if original_metadata else None,
+                'factual_reporting': original_metadata.get('factual_reporting') if original_metadata else None,
+                'uri': article_uri  # Include URI for reference
             }
         except Exception as e:
             logger.error(f"Error creating article from analyst data: {e}")
@@ -875,13 +1353,36 @@ Tags: {article.get('tags', '')}
             summary="Fallback overview generated due to AI processing error."
         )
     
-    def _create_fallback_six_articles(self, articles_data: List[Dict], date: datetime) -> List[Dict]:
+    async def _create_fallback_six_articles(self, articles_data: List[Dict], date: datetime) -> List[Dict]:
         """Create a simple fallback six articles report when AI generation fails"""
         
         # Create simple articles in the new format
         articles = []
         for i, article_data in enumerate(articles_data[:6]):  # Take top 6 articles
             try:
+                # Find related articles for this article
+                related_articles = []
+                article_uri = article_data.get('uri', '')
+                
+                # Debug the URI matching issue
+                logger.info(f"Fallback article {i+1} URI: {article_uri}")
+                logger.info(f"Available articles in _current_articles_data: {len(getattr(self, '_current_articles_data', []))}")
+                
+                # Ensure we have the current articles data set
+                if not hasattr(self, '_current_articles_data'):
+                    self._current_articles_data = articles_data
+                    logger.info("Set _current_articles_data for fallback processing")
+                
+                if article_uri:
+                    try:
+                        related_articles = await self._find_related_articles(article_uri, top_k=3)
+                        logger.info(f"Fallback article {i+1}: found {len(related_articles)} related articles")
+                    except Exception as e:
+                        logger.error(f"Error finding related articles for fallback article {i+1}: {e}")
+                        related_articles = []
+                else:
+                    logger.warning(f"No URI available for fallback article {i+1}: {article_data.get('title', 'Unknown')}")
+                
                 article = {
                     'title': article_data.get('title', 'Unknown Title'),
                     'source': article_data.get('news_source', 'Unknown Source'),
@@ -893,7 +1394,11 @@ Tags: {article.get('tags', '')}
                         'left': 'Analysis not available in fallback mode',
                         'center': 'Analysis not available in fallback mode', 
                         'right': 'Analysis not available in fallback mode'
-                    }
+                    },
+                    'related_articles': related_articles,
+                    'bias': article_data.get('bias'),
+                    'factual_reporting': article_data.get('factual_reporting'),
+                    'uri': article_data.get('uri', '')
                 }
                 
                 articles.append(article)
@@ -913,4 +1418,5 @@ def get_news_feed_service(db: Database) -> NewsFeedService:
     global _news_feed_service
     if _news_feed_service is None:
         _news_feed_service = NewsFeedService(db)
+
     return _news_feed_service

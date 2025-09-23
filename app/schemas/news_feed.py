@@ -49,6 +49,7 @@ class RelatedArticle(BaseModel):
     url: Optional[str] = None
     bias: Optional[BiasRating] = None
     summary: str
+    similarity_score: Optional[float] = None  # For vector similarity ranking
 
 
 class TopStory(BaseModel):
@@ -97,6 +98,7 @@ class NewsFeedRequest(BaseModel):
     max_articles: int = Field(default=50, ge=10, le=200)
     include_bias_analysis: bool = True
     model: str = "gpt-4o"
+    profile_id: Optional[int] = None  # Organizational profile for contextualized analysis
     
     
 class NewsFeedResponse(BaseModel):
