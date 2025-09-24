@@ -1,6 +1,11 @@
 {% extends 'base.html' %}
 {% block title %}Daily News Feed{% endblock %}
 
+{% block extra_js %}
+<!-- Marked.js for markdown rendering in insights -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+{% endblock %}
+
 {% block content %}
 <style>
 /* Techmeme-inspired minimalist design */
@@ -551,6 +556,133 @@
         color: #666666;
         border-color: #dddddd;
     }
+
+    /* Insights Tab Styling */
+    .insights-nav .nav-link {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        margin: 0 2px;
+        color: #666;
+        font-weight: 500;
+        padding: 8px 16px;
+        transition: all 0.2s ease;
+    }
+
+    .insights-nav .nav-link.active {
+        background-color: #000;
+        border-color: #000;
+        color: white;
+    }
+
+    .insights-nav .nav-link:hover:not(.active) {
+        background-color: #f8f9fa;
+        border-color: #999;
+        color: #333;
+    }
+
+    /* Insight Card Styling - matching topic dashboard */
+    .insight-item-card {
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        padding: 1.25rem;
+        margin-bottom: 1rem;
+        flex: 1 1 320px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        display: flex;
+        flex-direction: column;
+        background-color: #fff;
+        min-width: 300px;
+        max-width: 400px;
+    }
+
+    .insight-item-card h6 {
+        font-size: 1rem;
+        color: var(--bs-primary);
+        margin-bottom: 0.75rem;
+    }
+
+    .insight-item-card p {
+        font-size: 0.9rem;
+        flex-grow: 1;
+        max-height: 200px;
+        overflow-y: auto;
+        word-wrap: break-word;
+        margin-bottom: 0.5rem;
+    }
+
+    .insight-content {
+        width: 100%;
+    }
+
+    .insight-content ul, .insight-content ol {
+        padding-left: 1.5rem;
+    }
+
+    .insight-content p {
+        margin-bottom: 0.5rem;
+    }
+
+    /* Category Insights Grid */
+    #category-insights-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.25rem;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    #category-insights-container .insight-item-card {
+        margin-bottom: 0;
+    }
+
+    /* Thematic Clustering Styles */
+    .thematic-cluster {
+        background: linear-gradient(135deg, rgba(255, 105, 180, 0.1) 0%, rgba(255, 255, 255, 1) 100%);
+        border-left: 4px solid #FF69B4;
+    }
+
+    .cluster-article-list {
+        max-height: 200px;
+        overflow-y: auto;
+        border-top: 1px solid #e9ecef;
+        margin-top: 12px;
+        padding-top: 12px;
+    }
+
+    .cluster-article-item {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        font-size: 0.85rem;
+    }
+
+    .cluster-article-item:last-child {
+        border-bottom: none;
+    }
+
+    .cluster-article-item a {
+        color: #333;
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .cluster-article-item a:hover {
+        color: #FF69B4;
+        text-decoration: underline;
+    }
+
+    .cluster-stats {
+        display: flex;
+        gap: 16px;
+        margin-top: 12px;
+        font-size: 0.8rem;
+        color: #343a40;
+    }
+
+    .cluster-stat {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
 </style>
 
 <div class="news-feed-container">
@@ -672,6 +804,9 @@
             <li class="nav-item">
                 <a class="nav-link" id="six-articles-tab" data-bs-toggle="tab" href="#six-articles-content">Six Articles</a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link" id="insights-tab" data-bs-toggle="tab" href="#insights-content">Insights</a>
+            </li>
         </ul>
     </div>
 
@@ -691,21 +826,33 @@
             <div id="articles-filters" class="mb-3" style="display: none;">
                 <div class="d-flex flex-wrap gap-2 align-items-center p-2 bg-light rounded">
                     <span class="text-muted small fw-bold">Filters:</span>
-                    <div id="bias-filters" class="d-flex flex-wrap gap-1"></div>
-                    <div id="factuality-filters" class="d-flex flex-wrap gap-1"></div>
-                    <div id="category-filters" class="d-flex flex-wrap gap-1"></div>
+                    <div class="d-flex align-items-center gap-1">
+                        <span class="text-muted small">Bias:</span>
+                        <div id="bias-filters" class="d-flex flex-wrap gap-1"></div>
+                    </div>
+                    <div class="d-flex align-items-center gap-1">
+                        <span class="text-muted small">Factuality:</span>
+                        <div id="factuality-filters" class="d-flex flex-wrap gap-1"></div>
+                    </div>
+                    <div class="d-flex align-items-center gap-1">
+                        <span class="text-muted small">Category:</span>
+                        <div id="category-filters" class="d-flex flex-wrap gap-1"></div>
+                    </div>
                     <div class="d-flex align-items-center gap-2 ms-auto">
                         <label class="form-label small mb-0">Sort:</label>
                         <select id="sort-select" class="form-select form-select-sm" onchange="handleSortChange()">
                             <option value="date_asc">Date (Oldest First)</option>
                             <option value="date_desc">Date (Newest First)</option>
-                            <option value="category_date">Category (by Date)</option>
+                            <option value="category_date_asc">Category (Oldest First)</option>
+                            <option value="category_date_desc">Category (Newest First)</option>
+                            <option value="bias_date_asc">Political Bias (Oldest First)</option>
+                            <option value="bias_date_desc">Political Bias (Newest First)</option>
                         </select>
                     </div>
                     <div class="d-flex align-items-center" style="min-width: 240px;">
                         <input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search titles, summaries, keywords..." onkeyup="handleSearchInput()">
                     </div>
-                    <button class="btn btn-sm btn-outline-primary" onclick="improveQuality()" title="Filter to high-quality sources only">
+                    <button id="factual-toggle-btn" class="btn btn-sm btn-outline-primary" onclick="toggleFactualFilter()" title="Toggle between factual and opinion articles">
                         <i class="fas fa-shield-alt"></i> Factual Only
                     </button>
                     <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()" title="Clear all filters">
@@ -753,6 +900,94 @@
             </div>
             <div id="six-articles-error" class="error-message" style="display: none;"></div>
             <div id="six-articles-report"></div>
+        </div>
+
+        <!-- Insights Tab -->
+        <div class="tab-pane fade" id="insights-content">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-line me-2"></i>Article & Category Insights
+                </h5>
+                <button id="generate-insights-btn" class="btn btn-primary" onclick="generateInsights()">
+                    <i class="fas fa-brain me-2"></i>Generate Insights
+                </button>
+            </div>
+            
+            <!-- Insights Navigation -->
+            <ul class="nav nav-pills nav-fill mb-3" id="insights-nav">
+                <li class="nav-item">
+                    <a class="nav-link active" id="article-insights-nav" data-bs-toggle="pill" href="#article-insights-panel">
+                        <i class="fas fa-newspaper me-1"></i>Article Insights
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="category-insights-nav" data-bs-toggle="pill" href="#category-insights-panel">
+                        <i class="fas fa-layer-group me-1"></i>Category Analysis
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="thematic-insights-nav" data-bs-toggle="pill" href="#thematic-insights-panel">
+                        <i class="fas fa-sitemap me-1"></i>Thematic Clusters
+                    </a>
+                </li>
+            </ul>
+
+            <!-- Insights Content -->
+            <div class="tab-content" id="insights-tab-content">
+                <!-- Article Insights Panel -->
+                <div class="tab-pane fade show active" id="article-insights-panel">
+                    <div id="article-insights-loading" class="loading" style="display: none;">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div>Analyzing article themes...</div>
+                    </div>
+                    <div id="article-insights-error" class="error-message" style="display: none;"></div>
+                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="article-insights-container">
+                        <div class="text-center p-4 w-100">
+                            <i class="fas fa-newspaper fa-3x text-muted mb-3"></i>
+                            <h5>Article Theme Analysis</h5>
+                            <p class="text-muted">Generate insights to see AI-powered thematic analysis of current articles with research suggestions.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Category Insights Panel -->
+                <div class="tab-pane fade" id="category-insights-panel">
+                    <div id="category-insights-loading" class="loading" style="display: none;">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div>Analyzing categories...</div>
+                    </div>
+                    <div id="category-insights-error" class="error-message" style="display: none;"></div>
+                    <div id="category-insights-container">
+                        <div class="text-center p-4">
+                            <i class="fas fa-layer-group fa-3x text-muted mb-3"></i>
+                            <h5>Category Distribution</h5>
+                            <p class="text-muted">Generate insights to see how articles are distributed across categories.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Thematic Clustering Panel -->
+                <div class="tab-pane fade" id="thematic-insights-panel">
+                    <div id="thematic-insights-loading" class="loading" style="display: none;">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div>Analyzing themes...</div>
+                    </div>
+                    <div id="thematic-insights-error" class="error-message" style="display: none;"></div>
+                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="thematic-insights-container">
+                        <div class="text-center p-4 w-100">
+                            <i class="fas fa-sitemap fa-3x text-muted mb-3"></i>
+                            <h5>Thematic Clusters</h5>
+                            <p class="text-muted">Generate insights to see AI-powered thematic groupings of articles.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -874,6 +1109,38 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    document.getElementById('insights-tab').addEventListener('click', function() {
+        // Only auto-load if we haven't generated insights yet
+        if (!document.getElementById('trend-insights-container').querySelector('.insight-item-card')) {
+            // Show helpful message instead of auto-generating
+            showInsightsWelcomeMessage();
+        }
+    });
+
+    // Initialize insights sub-navigation
+    document.querySelectorAll('#insights-nav .nav-link').forEach(navLink => {
+        navLink.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            // Update active states for insights nav
+            document.querySelectorAll('#insights-nav .nav-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            this.classList.add('active');
+            
+            // Show corresponding panel
+            const targetId = this.getAttribute('href').substring(1);
+            document.querySelectorAll('#insights-tab-content .tab-pane').forEach(pane => {
+                pane.classList.remove('show', 'active');
+            });
+            
+            const targetPanel = document.getElementById(targetId);
+            if (targetPanel) {
+                targetPanel.classList.add('show', 'active');
+            }
+        });
+    });
+
     // Don't auto-load articles to prevent freeze - user can click Generate Feed
     console.log('Initial article loading disabled to prevent freeze');
     
@@ -917,6 +1184,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 localStorage.setItem('newsFeedTopic', sel.value);
                 updateArticleCountForDateRange();
                 generateNewsFeed();
+                
+                // Clear insights when topic changes
+                clearInsightsContent();
             });
         }
     } catch (_) { /* best-effort */ }
@@ -2453,6 +2723,9 @@ function handleDateRangeChange() {
     
     // Auto-reload articles when date range changes
     autoLoadArticles();
+    
+    // Clear insights when date range changes
+    clearInsightsContent();
 }
 
 // Update article count for date range changes
@@ -2892,11 +3165,10 @@ function applyArticleFilters(articles) {
     });
 }
 
-function improveQuality() {
-    // Clear existing filters first
-    activeFilters.bias.clear();
-    activeFilters.factuality.clear();
-    activeFilters.category.clear();
+let factualFilterMode = 'factual'; // 'factual' or 'opinion'
+
+function toggleFactualFilter() {
+    const btn = document.getElementById('factual-toggle-btn');
     
     // Check what factuality values are actually available
     const articlesData = window.lastArticlesData;
@@ -2904,6 +3176,11 @@ function improveQuality() {
         showNotification('No articles data available for filtering', 'warning');
         return;
     }
+    
+    // Clear existing filters first
+    activeFilters.bias.clear();
+    activeFilters.factuality.clear();
+    activeFilters.category.clear();
     
     // Collect all factuality values to see what's available
     const availableFactuality = new Set();
@@ -2913,37 +3190,61 @@ function improveQuality() {
         }
     });
     
-    console.log('Available factuality values:', Array.from(availableFactuality));
-    
-    // Add high-quality factuality filters (more inclusive)
-    const highQualityFactuality = Array.from(availableFactuality).filter(factuality => {
-        const lower = factuality.toLowerCase();
-        return lower.includes('high') || 
-               lower.includes('mostly') || 
-               lower.includes('factual') ||
-               lower === 'very high' ||
-               lower === 'high' ||
-               lower === 'mostly factual';
-    });
-    
-    if (highQualityFactuality.length === 0) {
-        // If no high-quality matches found, be more lenient
-        const acceptableFactuality = Array.from(availableFactuality).filter(factuality => {
+    if (factualFilterMode === 'factual') {
+        // Switch to opinion mode
+        factualFilterMode = 'opinion';
+        btn.innerHTML = '<i class="fas fa-comment"></i> Opinion Only';
+        btn.title = 'Showing opinion articles only';
+        
+        // Add opinion/low factuality filters
+        const opinionFactuality = Array.from(availableFactuality).filter(factuality => {
             const lower = factuality.toLowerCase();
-            return !lower.includes('low') && !lower.includes('very low');
+            return lower.includes('mixed') || 
+                   lower.includes('low') ||
+                   lower === 'mixed';
         });
         
-        acceptableFactuality.forEach(factuality => {
+        opinionFactuality.forEach(factuality => {
             activeFilters.factuality.add(factuality);
         });
         
-        showNotification(`Showing ${acceptableFactuality.length > 0 ? 'acceptable' : 'all available'} quality sources`, 'info');
+        showNotification(`Showing ${opinionFactuality.length} opinion/mixed factuality types`, 'info');
     } else {
-        highQualityFactuality.forEach(factuality => {
-            activeFilters.factuality.add(factuality);
+        // Switch to factual mode
+        factualFilterMode = 'factual';
+        btn.innerHTML = '<i class="fas fa-shield-alt"></i> Factual Only';
+        btn.title = 'Showing factual articles only';
+        
+        // Add high-quality factuality filters
+        const highQualityFactuality = Array.from(availableFactuality).filter(factuality => {
+            const lower = factuality.toLowerCase();
+            return lower.includes('high') || 
+                   lower.includes('mostly') || 
+                   lower.includes('factual') ||
+                   lower === 'very high' ||
+                   lower === 'high' ||
+                   lower === 'mostly factual';
         });
         
-        showNotification(`Showing ${highQualityFactuality.length} high-quality source types`, 'success');
+        if (highQualityFactuality.length === 0) {
+            // If no high-quality matches found, be more lenient
+            const acceptableFactuality = Array.from(availableFactuality).filter(factuality => {
+                const lower = factuality.toLowerCase();
+                return !lower.includes('low') && !lower.includes('very low');
+            });
+            
+            acceptableFactuality.forEach(factuality => {
+                activeFilters.factuality.add(factuality);
+            });
+            
+            showNotification(`Showing ${acceptableFactuality.length > 0 ? 'acceptable' : 'all available'} quality sources`, 'info');
+        } else {
+            highQualityFactuality.forEach(factuality => {
+                activeFilters.factuality.add(factuality);
+            });
+            
+            showNotification(`Showing ${highQualityFactuality.length} high-quality source types`, 'success');
+        }
     }
     
     // Re-render articles with quality filters
@@ -3991,12 +4292,30 @@ function applyFiltersAndDisplay() {
                 return new Date(b.publication_date || 0) - new Date(a.publication_date || 0);
             case 'date_asc':
                 return new Date(a.publication_date || 0) - new Date(b.publication_date || 0);
-            case 'category_date':
-                // Sort by category first, then by date within category
+            case 'category_date_asc':
+                // Sort by category first, then by date asc within category
                 if (a.category !== b.category) {
                     return (a.category || '').localeCompare(b.category || '');
                 }
                 return new Date(a.publication_date || 0) - new Date(b.publication_date || 0);
+            case 'category_date_desc':
+                // Sort by category first, then by date desc within category
+                if (a.category !== b.category) {
+                    return (a.category || '').localeCompare(b.category || '');
+                }
+                return new Date(b.publication_date || 0) - new Date(a.publication_date || 0);
+            case 'bias_date_asc':
+                // Sort by political bias first, then by date asc within bias
+                if (a.bias !== b.bias) {
+                    return (a.bias || '').localeCompare(b.bias || '');
+                }
+                return new Date(a.publication_date || 0) - new Date(b.publication_date || 0);
+            case 'bias_date_desc':
+                // Sort by political bias first, then by date desc within bias
+                if (a.bias !== b.bias) {
+                    return (a.bias || '').localeCompare(b.bias || '');
+                }
+                return new Date(b.publication_date || 0) - new Date(a.publication_date || 0);
             default:
                 return 0;
         }
@@ -5361,6 +5680,697 @@ I'm ready to discuss this article with you. You can use your tools to search for
     } catch (error) {
         console.error('Error launching Auspex chat:', error);
         showNotification(`Failed to launch Auspex chat: ${error.message}`, 'error');
+    }
+}
+
+// ===== INSIGHTS TAB FUNCTIONALITY =====
+
+function showInsightsWelcomeMessage() {
+    // Show welcome messages in each panel if they're empty
+    const articleContainer = document.getElementById('article-insights-container');
+    const categoryContainer = document.getElementById('category-insights-container');
+    const thematicContainer = document.getElementById('thematic-insights-container');
+    
+    if (!articleContainer.querySelector('.insight-item-card')) {
+        articleContainer.innerHTML = `
+            <div class="text-center p-4 w-100">
+                <i class="fas fa-newspaper fa-3x text-muted mb-3"></i>
+                <h5>Article Theme Analysis</h5>
+                <p class="text-muted">Generate insights to see AI-powered thematic analysis of current articles with research suggestions.</p>
+            </div>
+        `;
+    }
+    
+    if (!categoryContainer.querySelector('.insight-item-card')) {
+        categoryContainer.innerHTML = `
+            <div class="text-center p-4">
+                <i class="fas fa-layer-group fa-3x text-muted mb-3"></i>
+                <h5>Category Distribution</h5>
+                <p class="text-muted">Generate insights to see how articles are distributed across categories.</p>
+            </div>
+        `;
+    }
+    
+    if (!thematicContainer.querySelector('.insight-item-card')) {
+        thematicContainer.innerHTML = `
+            <div class="text-center p-4 w-100">
+                <i class="fas fa-sitemap fa-3x text-muted mb-3"></i>
+                <h5>Thematic Clusters</h5>
+                <p class="text-muted">Generate insights to see AI-powered thematic groupings of articles.</p>
+            </div>
+        `;
+    }
+}
+
+async function generateInsights() {
+    console.log('Generate insights button clicked');
+    
+    const selectedTopic = document.getElementById('topic-select').value.trim();
+    if (!selectedTopic) {
+        showNotification('Please select a topic to generate insights', 'warning');
+        return;
+    }
+    
+    // Get current date range parameters
+    const dateRangeValue = document.getElementById('date-range-select').value;
+    let startDate = null;
+    let endDate = null;
+    let daysLimit = 30;
+    
+    if (dateRangeValue === 'custom') {
+        const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
+        if (customDate) {
+            startDate = customDate;
+            endDate = customDate;
+        }
+    } else if (dateRangeValue !== 'all') {
+        // Calculate date range based on selection
+        const now = new Date();
+        endDate = now.toISOString().split('T')[0];
+        
+        switch (dateRangeValue) {
+            case '24h':
+                daysLimit = 1;
+                break;
+            case '7d':
+                daysLimit = 7;
+                break;
+            case '30d':
+                daysLimit = 30;
+                break;
+            case '3m':
+                daysLimit = 90;
+                break;
+            case '1y':
+                daysLimit = 365;
+                break;
+        }
+        
+        const startDateObj = new Date(now.getTime() - daysLimit * 24 * 60 * 60 * 1000);
+        startDate = startDateObj.toISOString().split('T')[0];
+    }
+    
+    console.log('Loading insights for topic:', selectedTopic, 'date range:', startDate, 'to', endDate, 'days:', daysLimit);
+    
+    // Load all three types of insights
+    await Promise.all([
+        loadArticleInsights(selectedTopic, startDate, endDate, daysLimit),
+        loadCategoryInsights(selectedTopic, startDate, endDate, daysLimit),
+        loadThematicInsights(selectedTopic, startDate, endDate, daysLimit)
+    ]);
+    
+    showNotification('Insights generated successfully!', 'success');
+}
+
+async function loadArticleInsights(topic, startDate, endDate, daysLimit) {
+    const loadingEl = document.getElementById('article-insights-loading');
+    const errorEl = document.getElementById('article-insights-error');
+    const containerEl = document.getElementById('article-insights-container');
+    
+    loadingEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    
+    try {
+        const params = new URLSearchParams();
+        if (startDate && endDate) {
+            params.append('start_date', startDate);
+            params.append('end_date', endDate);
+        } else {
+            params.append('days_limit', daysLimit.toString());
+        }
+        
+        const response = await fetch(`/api/dashboard/article-insights/${encodeURIComponent(topic)}?${params}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        renderArticleInsights(data);
+        
+    } catch (error) {
+        console.error('Error loading article insights:', error);
+        errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to load article insights: ${error.message}</div>`;
+        errorEl.style.display = 'block';
+        
+        // Show fallback message
+        containerEl.innerHTML = `
+            <div class="text-center p-4 w-100">
+                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
+                <h5>Article Insights Unavailable</h5>
+                <p class="text-muted">Unable to generate article insights. Please try again or check if the topic has sufficient articles.</p>
+            </div>
+        `;
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+}
+
+async function loadCategoryInsights(topic, startDate, endDate, daysLimit) {
+    const loadingEl = document.getElementById('category-insights-loading');
+    const errorEl = document.getElementById('category-insights-error');
+    const containerEl = document.getElementById('category-insights-container');
+    
+    loadingEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    
+    try {
+        const params = new URLSearchParams();
+        if (startDate && endDate) {
+            params.append('start_date', startDate);
+            params.append('end_date', endDate);
+        } else {
+            params.append('days_limit', daysLimit.toString());
+        }
+        
+        const response = await fetch(`/api/dashboard/category-insights/${encodeURIComponent(topic)}?${params}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        renderCategoryInsights(data);
+        
+    } catch (error) {
+        console.error('Error loading category insights:', error);
+        errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to load category insights: ${error.message}</div>`;
+        errorEl.style.display = 'block';
+        
+        // Show fallback message
+        containerEl.innerHTML = `
+            <div class="text-center p-4">
+                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
+                <h5>Category Analysis Unavailable</h5>
+                <p class="text-muted">Unable to generate category insights. Please try again or check if the topic has sufficient articles.</p>
+            </div>
+        `;
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+}
+
+async function loadThematicInsights(topic, startDate, endDate, daysLimit) {
+    const loadingEl = document.getElementById('thematic-insights-loading');
+    const errorEl = document.getElementById('thematic-insights-error');
+    const containerEl = document.getElementById('thematic-insights-container');
+    
+    loadingEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    
+    try {
+        // Get current articles from the news feed to analyze for themes
+        const currentArticles = window.lastArticlesData?.items || [];
+        
+        if (currentArticles.length < 3) {
+            throw new Error('Not enough articles loaded for thematic analysis. Please load articles first.');
+        }
+        
+        // Use the vector article-insights endpoint for thematic analysis
+        const selectedModel = document.getElementById('model-select').value || 'gpt-4o-mini';
+        const articleUris = currentArticles.slice(0, 20).map(article => article.uri); // Limit to top 20 articles
+        
+        const response = await fetch('/api/article-insights', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                ids: articleUris, 
+                model: selectedModel,
+                structured: true
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        // Transform the response to match our rendering format
+        const themes = data.research_themes || [];
+        const transformedData = themes.map((theme, index) => ({
+            theme_name: theme,
+            theme_summary: `Research theme identified from ${articleUris.length} articles`,
+            articles: currentArticles.slice(0, Math.min(5, currentArticles.length)),
+            article_count: currentArticles.length,
+            confidence: 0.8,
+            source_diversity: [...new Set(currentArticles.map(a => a.source_type || 'unknown'))].length
+        }));
+        
+        renderThematicInsights(transformedData);
+        
+    } catch (error) {
+        console.error('Error loading thematic insights:', error);
+        errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to load thematic insights: ${error.message}</div>`;
+        errorEl.style.display = 'block';
+        
+        // Show fallback message
+        containerEl.innerHTML = `
+            <div class="text-center p-4 w-100">
+                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
+                <h5>Thematic Analysis Unavailable</h5>
+                <p class="text-muted">Unable to generate thematic clusters. Please load articles first and try again.</p>
+            </div>
+        `;
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+}
+
+function renderArticleInsights(data) {
+    const container = document.getElementById('article-insights-container');
+    container.innerHTML = '';
+    
+    if (!data || data.length === 0) {
+        container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No article insights available for this period.</div>';
+        return;
+    }
+    
+    console.log(`Rendering ${data.length} article insights:`, data);
+    
+    data.forEach((themeItem, index) => {
+        const insightCard = document.createElement('div');
+        insightCard.className = 'insight-item-card';
+        
+        // Build articles list with links
+        let articlesHtml = '<ul class="list-unstyled mt-2 mb-0 small">';
+        if (themeItem.articles && themeItem.articles.length > 0) {
+            themeItem.articles.forEach(article => {
+                const pubDate = article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'N/A';
+                articlesHtml += `
+                    <li class="mb-1">
+                        <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
+                            ${article.title || 'Untitled Article'}
+                        </a>
+                        <small class="text-muted d-block">${article.news_source || 'Unknown Source'} - ${pubDate}</small>
+                        ${article.summary ? `<p class="mb-0 fst-italic text-muted" style="font-size: 0.8rem;">${article.summary.substring(0, 100)}...</p>` : ''}
+                    </li>`;
+            });
+        } else {
+            articlesHtml += '<li class="text-muted">No specific articles listed for this theme.</li>';
+        }
+        articlesHtml += '</ul>';
+
+        insightCard.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0 text-primary">${themeItem.theme_name || 'Unnamed Theme'}</h6>
+                <span class="badge bg-warning text-dark">Theme</span>
+            </div>
+            <p class="mb-1 small">${themeItem.theme_summary || 'No summary provided for this theme.'}</p>
+            ${articlesHtml}
+            <div class="mt-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(themeItem.theme_name)}', 'article_theme')">
+                    <i class="fas fa-search me-1"></i>Research with Auspex
+                </button>
+            </div>
+        `;
+        container.appendChild(insightCard);
+    });
+}
+
+function renderCategoryInsights(data) {
+    const container = document.getElementById('category-insights-container');
+    container.innerHTML = '';
+    
+    if (!data || data.length === 0) {
+        container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No category insights available for this period.</div>';
+        return;
+    }
+    
+    data.forEach(categoryItem => {
+        const card = document.createElement('div');
+        card.className = 'insight-item-card';
+        
+        // Get articles from current feed that match this category
+        const currentArticles = window.lastArticlesData?.items || [];
+        const categoryArticles = currentArticles.filter(article => 
+            article.category && article.category.toLowerCase() === categoryItem.category.toLowerCase()
+        ).slice(0, 5); // Show up to 5 articles
+        
+        // Build articles list
+        let articlesHtml = '';
+        if (categoryArticles.length > 0) {
+            articlesHtml = `
+                <div class="mt-2 mb-2">
+                    <small class="text-muted fw-bold">Sample Articles:</small>
+                    <ul class="list-unstyled mt-1 mb-0 small">
+                        ${categoryArticles.map(article => {
+                            const pubDate = article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'N/A';
+                            return `
+                                <li class="mb-1">
+                                    <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
+                                        ${article.title || 'Untitled Article'}
+                                    </a>
+                                    <small class="text-muted d-block">${article.news_source || 'Unknown Source'} - ${pubDate}</small>
+                                </li>`;
+                        }).join('')}
+                    </ul>
+                </div>
+            `;
+        }
+
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0 text-primary">${categoryItem.category}</h6>
+                <span class="badge bg-success text-dark">Category</span>
+            </div>
+            <p class="mb-1 small"><strong>Article Count:</strong> ${categoryItem.article_count}</p>
+            <p class="mb-2 small fst-italic">${categoryItem.insight_text || 'Further analysis for this category will be available soon.'}</p>
+            ${articlesHtml}
+            <div class="mt-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(categoryItem.category)}', 'category')">
+                    <i class="fas fa-search me-1"></i>Research Category
+                </button>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+function renderThematicInsights(data) {
+    const container = document.getElementById('thematic-insights-container');
+    container.innerHTML = '';
+    
+    if (!data || data.length === 0) {
+        container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No thematic clusters available for this period.</div>';
+        return;
+    }
+    
+    data.forEach((cluster, index) => {
+        const card = document.createElement('div');
+        card.className = 'insight-item-card thematic-cluster';
+        
+        // Source diversity indicators
+        const sourceTypes = cluster.source_types || [];
+        const sourceBadges = sourceTypes.map(type => {
+            const color = type === 'arxiv' ? 'primary' : 
+                         type === 'bluesky' ? 'info' : 
+                         type === 'thenewsapi' ? 'success' : 'secondary';
+            return `<span class="badge bg-${color} me-1">${type.toUpperCase()}</span>`;
+        }).join('');
+        
+        // Articles list (initially hidden)
+        let articlesHtml = '';
+        if (cluster.articles && cluster.articles.length > 0) {
+            articlesHtml = `
+                <div class="cluster-article-list" id="cluster-articles-${index}" style="display: none;">
+                    ${cluster.articles.map(article => `
+                        <div class="cluster-article-item">
+                            <a href="${article.url || '#'}" target="_blank" rel="noopener">
+                                <strong>${article.title || 'Untitled Article'}</strong>
+                            </a>
+                            <div class="text-muted small mt-1">
+                                ${article.source_type ? `<span class="badge bg-secondary me-2">${article.source_type.toUpperCase()}</span>` : ''}
+                                ${article.publication_date ? new Date(article.publication_date).toLocaleDateString() : 'No date'}
+                                ${article.author ? ` • ${article.author}` : ''}
+                            </div>
+                            ${article.content ? `<p class="small text-muted mt-1 mb-0">${article.content.substring(0, 150)}...</p>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        const stats = `
+            <div class="cluster-stats">
+                <div class="cluster-stat">
+                    <i class="fas fa-file-alt"></i>
+                    <span>${cluster.article_count || cluster.articles?.length || 0} articles</span>
+                </div>
+                <div class="cluster-stat">
+                    <i class="fas fa-percentage"></i>
+                    <span>${Math.round((cluster.confidence || 0) * 100)}% confidence</span>
+                </div>
+                <div class="cluster-stat">
+                    <i class="fas fa-layer-group"></i>
+                    <span>${cluster.source_diversity || 1} sources</span>
+                </div>
+            </div>
+        `;
+        
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0 text-primary">${cluster.theme_name || `Theme ${index + 1}`}</h6>
+                <div class="d-flex align-items-center gap-2">
+                    ${sourceBadges}
+                    <span class="badge bg-info">Thematic</span>
+                </div>
+            </div>
+            <p class="mb-2 small">${cluster.theme_summary || cluster.description || 'No summary available for this theme.'}</p>
+            ${stats}
+            ${cluster.articles && cluster.articles.length > 0 ? `
+            <div class="mt-2 d-flex gap-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="toggleClusterArticles(${index})">
+                    <i class="fas fa-eye"></i> <span id="toggle-text-${index}">Show Articles</span>
+                </button>
+                <button class="btn btn-sm btn-outline-success" onclick="launchAuspexResearchFromInsight('${escapeHTML(cluster.theme_name || `Theme ${index + 1}`)}', 'thematic_cluster')">
+                    <i class="fas fa-search me-1"></i>Research Theme
+                </button>
+            </div>
+            ${articlesHtml}` : ''}
+        `;
+        
+        container.appendChild(card);
+    });
+}
+
+function toggleClusterArticles(clusterIndex) {
+    const articlesList = document.getElementById(`cluster-articles-${clusterIndex}`);
+    const toggleText = document.getElementById(`toggle-text-${clusterIndex}`);
+    
+    if (!articlesList) return;
+    
+    if (articlesList.style.display === 'none') {
+        articlesList.style.display = 'block';
+        if (toggleText) toggleText.textContent = 'Hide Articles';
+    } else {
+        articlesList.style.display = 'none';
+        if (toggleText) toggleText.textContent = 'Show Articles';
+    }
+}
+
+function clearInsightsContent() {
+    // Clear all insights content when topic or date range changes
+    const articleContainer = document.getElementById('article-insights-container');
+    const categoryContainer = document.getElementById('category-insights-container');
+    const thematicContainer = document.getElementById('thematic-insights-container');
+    
+    if (articleContainer) {
+        articleContainer.innerHTML = `
+            <div class="text-center p-4 w-100">
+                <i class="fas fa-newspaper fa-3x text-muted mb-3"></i>
+                <h5>Article Theme Analysis</h5>
+                <p class="text-muted">Generate insights to see AI-powered thematic analysis of current articles with research suggestions.</p>
+            </div>
+        `;
+    }
+    
+    if (categoryContainer) {
+        categoryContainer.innerHTML = `
+            <div class="text-center p-4">
+                <i class="fas fa-layer-group fa-3x text-muted mb-3"></i>
+                <h5>Category Distribution</h5>
+                <p class="text-muted">Generate insights to see how articles are distributed across categories.</p>
+            </div>
+        `;
+    }
+    
+    if (thematicContainer) {
+        thematicContainer.innerHTML = `
+            <div class="text-center p-4 w-100">
+                <i class="fas fa-sitemap fa-3x text-muted mb-3"></i>
+                <h5>Thematic Clusters</h5>
+                <p class="text-muted">Generate insights to see AI-powered thematic groupings of articles.</p>
+            </div>
+        `;
+    }
+}
+
+// Launch Auspex research from insights (similar to article research themes)
+async function launchAuspexResearchFromInsight(insightTopic, insightType) {
+    try {
+        showNotification(`Launching Auspex research on: ${insightTopic}`, 'info');
+        
+        // Get the current topic and articles context
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const currentArticles = window.lastArticlesData?.items || [];
+        
+        console.log(`Research setup: Insight="${insightTopic}", Type="${insightType}", Topic="${actualTopic}"`);
+        
+        // Create Auspex chat session
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `${insightType === 'category' ? 'Category' : insightType === 'thematic_cluster' ? 'Theme' : 'Article'} Research: ${insightTopic}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        // Get the selected model from the news feed UI
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        // Build comprehensive research prompt based on insight type
+        let researchPrompt = '';
+        
+        if (insightType === 'category') {
+            // Category research prompt
+            const categoryArticles = currentArticles.filter(article => 
+                article.category && article.category.toLowerCase() === insightTopic.toLowerCase()
+            ).slice(0, 10);
+            
+            researchPrompt = `Conduct comprehensive research on the "${insightTopic}" category in ${actualTopic}.
+
+CONTEXT FROM NEWS FEED:
+Found ${categoryArticles.length} articles in this category from current feed:
+${categoryArticles.map((article, idx) => `${idx + 1}. ${article.title} (${article.news_source}) - ${article.summary?.substring(0, 100)}...`).join('\n')}
+
+RESEARCH FOCUS: "${insightTopic}" category analysis
+
+Please use your tools to:
+1. Search for recent articles in the "${insightTopic}" category within "${actualTopic}"
+2. Analyze key developments and trends in this category
+3. Identify major players and organizations involved
+4. Assess market implications and future outlook
+5. Compare current developments to historical patterns
+6. Provide strategic recommendations for decision-makers
+
+The context articles above represent current activity in this category - expand the analysis using your tools to find additional relevant articles and insights.`;
+        } else if (insightType === 'thematic_cluster') {
+            // Thematic cluster research prompt
+            researchPrompt = `Conduct deep research on the theme "${insightTopic}" within ${actualTopic}.
+
+CONTEXT FROM THEMATIC ANALYSIS:
+This theme was identified through AI analysis of current articles in the news feed.
+
+RESEARCH FOCUS: "${insightTopic}" thematic analysis
+
+Please use your tools to:
+1. Search for articles related to "${insightTopic}" in the topic "${actualTopic}"
+2. Analyze the broader context and implications of this theme
+3. Identify key trends and developments around this theme
+4. Assess strategic importance and potential impacts
+5. Find related themes and connections to other developments
+6. Provide actionable insights for stakeholders
+
+Use your search and analysis tools to build a comprehensive understanding of this theme beyond the current news feed articles.`;
+        } else {
+            // Article theme research prompt
+            researchPrompt = `Conduct comprehensive analysis of the theme "${insightTopic}" identified from recent ${actualTopic} articles.
+
+CONTEXT FROM ARTICLE ANALYSIS:
+This theme emerged from AI analysis of recent articles in the news feed.
+
+RESEARCH FOCUS: "${insightTopic}"
+TOPIC AREA: "${actualTopic}"
+
+Please use your tools to:
+1. Search for recent articles related to "${insightTopic}" in "${actualTopic}"
+2. Analyze current developments and key insights around this theme
+3. Identify market trends and their implications
+4. Assess future outlook and potential impacts
+5. Find connections to related themes and developments
+6. Provide strategic recommendations for decision-makers
+
+Provide a thorough analysis using the structured format from your system prompt.`;
+        }
+        
+        // Send initial research message
+        const messageResponse = await fetch('/api/auspex/chat/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                message: researchPrompt,
+                model: selectedModel,
+                limit: 50,
+                tools_config: {
+                    search_articles: true,
+                    get_sentiment_analysis: true,
+                    semantic_search_and_analyze: true
+                }
+            })
+        });
+        
+        if (!messageResponse.ok) {
+            throw new Error(`Failed to send research message: ${messageResponse.status}`);
+        }
+        
+        // Open Auspex chat modal and connect to the existing session
+        const auspexModal = new bootstrap.Modal(document.getElementById('floatingChatModal'));
+        
+        // Store the chat ID for the modal to use
+        window.auspexActiveChatId = chatId;
+        window.auspexActiveTheme = insightTopic;
+        
+        // Set the topic and model in the modal properly
+        const topicSelect = document.getElementById('floatingTopicSelect');
+        const modelSelect = document.getElementById('floatingModelSelect');
+        
+        if (topicSelect) {
+            topicSelect.value = actualTopic;
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+        
+        if (modelSelect) {
+            modelSelect.value = selectedModel;
+            modelSelect.dispatchEvent(new Event('change'));
+        }
+        
+        // Enable the chat input and send button
+        setTimeout(() => {
+            const chatInput = document.getElementById('floatingChatInput');
+            const sendButton = document.getElementById('floatingChatSend');
+            
+            if (chatInput) {
+                chatInput.disabled = false;
+                chatInput.placeholder = `Continue research on ${insightTopic}...`;
+            }
+            if (sendButton) {
+                sendButton.disabled = false;
+            }
+        }, 200);
+        
+        // Clear existing messages and add our research status
+        const chatMessages = document.getElementById('floatingChatMessages');
+        if (chatMessages) {
+            chatMessages.innerHTML = `
+                <div class="floating-message assistant">
+                    <div class="floating-message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="floating-message-content">
+                        <strong>${insightType === 'category' ? 'Category' : insightType === 'thematic_cluster' ? 'Theme' : 'Article'} Research Active</strong><br>
+                        I'm conducting comprehensive research on "<strong>${insightTopic}</strong>". 
+                        The analysis has been started and results will appear here shortly...
+                        <div class="mt-2">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            <small class="text-muted">Analyzing articles and generating insights...</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Open the modal
+        auspexModal.show();
+        
+        // Start polling for the research results
+        pollForAuspexResults(chatId, insightTopic);
+        
+        showNotification(`Auspex research launched! Analyzing: ${insightTopic}`, 'success');
+        
+    } catch (error) {
+        console.error('Error launching Auspex research from insight:', error);
+        showNotification(`Failed to launch Auspex research: ${error.message}`, 'error');
     }
 }
 
