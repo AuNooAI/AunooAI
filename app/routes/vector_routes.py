@@ -27,6 +27,8 @@ from app.database import Database, get_database_instance
 
 router = APIRouter(prefix="/api", tags=["vector-search"])
 
+logger = logging.getLogger(__name__)
+
 
 @router.get("/vector-search")
 def vector_search_endpoint(

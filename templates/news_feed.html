@@ -2372,19 +2372,65 @@ function renderSixArticles(articles) {
                     
                     <!-- Research Actions -->
                     <div class="section">
-                        <h6 class="text-primary"><i class="fas fa-search me-2"></i>Research Actions</h6>
-                        <div class="d-flex gap-2 flex-wrap">
-                            <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(article.title)}', 'ceo_article')">
-                                <i class="fas fa-microscope me-1"></i>Deep Dive Analysis
-                            </button>
-                            ${article.category ? `
-                            <button class="btn btn-sm btn-outline-success" onclick="launchAuspexResearchFromInsight('${escapeHTML(article.category)}', 'category')">
-                                <i class="fas fa-layer-group me-1"></i>Research ${article.category}
-                            </button>` : ''}
-                            ${article.url ? `
-                            <button class="btn btn-sm btn-outline-info" onclick="window.open('${article.url}', '_blank')" title="View original article">
-                                <i class="fas fa-external-link-alt me-1"></i>Read Original
-                            </button>` : ''}
+                        <h6 class="text-primary"><i class="fas fa-search me-2"></i>Research & Analysis Options</h6>
+                        
+                        <!-- Primary Analysis Options -->
+                        <div class="mb-2">
+                            <small class="text-muted fw-bold">Deep Analysis:</small>
+                            <div class="d-flex gap-1 flex-wrap mt-1">
+                                <button class="btn btn-sm btn-outline-primary" onclick="launchSixArticleDeepDive('${escapeHTML(article.title)}', '${article.url || ''}')">
+                                    <i class="fas fa-microscope me-1"></i>Deep Dive
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="launchSixArticleConsensus('${escapeHTML(article.title)}', '${article.url || ''}')">
+                                    <i class="fas fa-balance-scale me-1"></i>Consensus Analysis
+                                </button>
+                                <button class="btn btn-sm btn-outline-dark" onclick="launchSixArticleTimeline('${escapeHTML(article.title)}', '${article.url || ''}')">
+                                    <i class="fas fa-clock me-1"></i>Impact Timeline
+                                </button>
+                                <button class="btn btn-sm btn-outline-info" onclick="launchSixArticleChat('${escapeHTML(article.title)}', '${article.url || ''}')">
+                                    <i class="fas fa-comments me-1"></i>Ask Auspex
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- Thematic Research Options -->
+                        ${(article.category || article.strategic_relevance) ? `
+                        <div class="mb-2">
+                            <small class="text-muted fw-bold">Thematic Research:</small>
+                            <div class="d-flex gap-1 flex-wrap mt-1">
+                                ${article.category ? `
+                                <button class="btn btn-sm btn-outline-success" onclick="launchAuspexResearchFromInsight('${escapeHTML(article.category)} developments in AI', 'category_deep')">
+                                    <i class="fas fa-layer-group me-1"></i>${article.category} Trends
+                                </button>` : ''}
+                                ${article.strategic_relevance ? `
+                                <button class="btn btn-sm btn-outline-warning" onclick="launchAuspexResearchFromInsight('strategic implications of ${escapeHTML(article.title)}', 'strategic_analysis')">
+                                    <i class="fas fa-chess me-1"></i>Strategic Impact
+                                </button>` : ''}
+                                ${article.time_horizon ? `
+                                <button class="btn btn-sm btn-outline-info" onclick="launchAuspexResearchFromInsight('${article.time_horizon.toLowerCase()} impact scenarios for ${escapeHTML(article.title)}', 'timeline_analysis')">
+                                    <i class="fas fa-hourglass me-1"></i>${article.time_horizon} Impact
+                                </button>` : ''}
+                            </div>
+                        </div>` : ''}
+                        
+                        <!-- Utility Options -->
+                        <div>
+                            <small class="text-muted fw-bold">View Options:</small>
+                            <div class="d-flex gap-1 flex-wrap mt-1">
+                                ${article.url ? `
+                                <button class="btn btn-sm btn-outline-info" onclick="window.open('${article.url}', '_blank')" title="View original article">
+                                    <i class="fas fa-external-link-alt me-1"></i>Read Original
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary" onclick="window.open('https://12ft.io/${article.url}', '_blank')" title="Bypass paywall">
+                                    <i class="fas fa-unlock-alt me-1"></i>12ft.io
+                                </button>
+                                <button class="btn btn-sm btn-outline-warning" onclick="window.open('https://archive.is/${article.url}', '_blank')" title="Archived version">
+                                    <i class="fas fa-archive me-1"></i>Archive
+                                </button>` : ''}
+                                <button class="btn btn-sm btn-outline-success" onclick="openSixArticleAnnotation('${article.url || ''}', '${escapeHTML(article.title)}')">
+                                    <i class="fas fa-sticky-note me-1"></i>Annotate
+                                </button>
+                            </div>
                         </div>
                     </div>
                     
@@ -5924,6 +5970,40 @@ async function loadArticleInsights(topic, startDate, endDate, daysLimit) {
         }
         
         const data = await response.json();
+        
+        // Cache insights in database
+        try {
+            const cacheKey = `article_insights_${topic}_${startDate || 'no_start'}_${endDate || 'no_end'}_${daysLimit}`;
+            const cacheContent = JSON.stringify(data, null, 2);
+            const cacheMetadata = {
+                topic: topic,
+                start_date: startDate,
+                end_date: endDate,
+                days_limit: daysLimit,
+                insight_type: 'article_themes'
+            };
+            
+            const cacheResponse = await fetch('/api/save-analysis-cache', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    article_uri: cacheKey,
+                    analysis_type: 'insights',
+                    content: cacheContent,
+                    model_name: 'dashboard_api',
+                    metadata: cacheMetadata
+                })
+            });
+            
+            if (cacheResponse.ok) {
+                console.log('Cached article insights in database');
+            } else {
+                console.warn('Failed to cache article insights - server error:', cacheResponse.status);
+            }
+        } catch (cacheError) {
+            console.warn('Failed to cache article insights:', cacheError);
+        }
+        
         renderArticleInsights(data);
         
     } catch (error) {
@@ -5968,6 +6048,40 @@ async function loadCategoryInsights(topic, startDate, endDate, daysLimit) {
         }
         
         const data = await response.json();
+        
+        // Cache category insights in database
+        try {
+            const cacheKey = `category_insights_${topic}_${startDate || 'no_start'}_${endDate || 'no_end'}_${daysLimit}`;
+            const cacheContent = JSON.stringify(data, null, 2);
+            const cacheMetadata = {
+                topic: topic,
+                start_date: startDate,
+                end_date: endDate,
+                days_limit: daysLimit,
+                insight_type: 'category_distribution'
+            };
+            
+            const cacheResponse = await fetch('/api/save-analysis-cache', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    article_uri: cacheKey,
+                    analysis_type: 'insights',
+                    content: cacheContent,
+                    model_name: 'dashboard_api',
+                    metadata: cacheMetadata
+                })
+            });
+            
+            if (cacheResponse.ok) {
+                console.log('Cached category insights in database');
+            } else {
+                console.warn('Failed to cache category insights - server error:', cacheResponse.status);
+            }
+        } catch (cacheError) {
+            console.warn('Failed to cache category insights:', cacheError);
+        }
+        
         renderCategoryInsights(data);
         
     } catch (error) {
@@ -6507,6 +6621,238 @@ Provide a thorough analysis using the structured format from your system prompt.
         console.error('Error launching Auspex research:', error);
         showNotification(`Failed to launch Auspex research: ${error.message}`, 'error');
     }
+}
+
+// ===== ENHANCED SIX ARTICLES RESEARCH FUNCTIONS =====
+
+// Launch Deep Dive analysis for six articles
+async function launchSixArticleDeepDive(articleTitle, articleUrl) {
+    try {
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        showNotification('Launching deep-dive analysis...', 'info');
+        
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `CEO Deep Dive: ${articleTitle}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        const deepDivePrompt = `Conduct a comprehensive executive-level deep-dive analysis of this CEO Daily Top-6 article using the Deep Dive Template framework.
+
+CONTEXT ARTICLE (CEO Daily Selected):
+Title: ${articleTitle}
+URL: ${articleUrl}
+Selected as: One of the 6 most strategically important AI articles for executives
+
+EXECUTIVE DEEP DIVE INSTRUCTIONS:
+Use your tools to search for articles related to the themes in this CEO Daily selection and conduct a comprehensive C-suite analysis following the Deep Dive Template structure:
+
+1. Executive Summary & Context Setting
+2. Strategic Dimensions Analysis (4-5 relevant dimensions for executives)
+3. Market & Competitive Impact Analysis  
+4. Regulatory & Risk Assessment
+5. Strategic Implications & Evidence
+6. Executive Decision Framework
+7. Recommended Actions & Timeline
+
+Focus on providing evidence-based analysis grounded in multiple sources that would be valuable for board discussions and executive decision-making. Use your search tools to find related articles and build a comprehensive strategic picture.
+
+Target: Executive briefing quality, 900-1200 words with specific data points and actionable strategic insights.`;
+        
+        await launchAuspexWithPrompt(chatId, deepDivePrompt, selectedModel, actualTopic, 'CEO Deep Dive Analysis');
+        
+    } catch (error) {
+        console.error('Error launching six article deep dive:', error);
+        showNotification(`Failed to launch deep dive: ${error.message}`, 'error');
+    }
+}
+
+// Launch Consensus analysis for six articles
+async function launchSixArticleConsensus(articleTitle, articleUrl) {
+    try {
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        showNotification('Launching consensus analysis...', 'info');
+        
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `Consensus Analysis: ${articleTitle}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        const consensusPrompt = `Analyze the consensus vs outlier perspectives regarding this CEO Daily Top-6 article.
+
+CONTEXT ARTICLE (CEO Daily Selected):
+Title: ${articleTitle}
+URL: ${articleUrl}
+Strategic Importance: Selected as one of 6 most important AI articles for executives
+
+CONSENSUS ANALYSIS INSTRUCTIONS:
+1. Identify the key claims or predictions made in this strategically important article
+2. Use your tools to search for related articles in "${actualTopic}"
+3. Analyze whether these claims represent:
+   - Executive consensus (majority C-suite/analyst view)
+   - Emerging consensus (growing agreement among experts)
+   - Contrarian perspective (minority/outlier executive view)
+   - Mixed expert views (no clear consensus)
+
+4. Provide evidence-based executive analysis showing:
+   - What the market consensus actually says about these topics
+   - How this article's perspective compares to mainstream executive thinking
+   - Timeline consensus among industry leaders (when impacts are expected)
+   - Confidence levels in different strategic scenarios
+   - Notable outlier perspectives from credible sources
+
+5. Structure your response for executive consumption with clear sections showing the comparison between this article's strategic claims and broader market consensus.
+
+Use your search and analysis tools to gather comprehensive evidence from authoritative sources.`;
+        
+        await launchAuspexWithPrompt(chatId, consensusPrompt, selectedModel, actualTopic, 'Executive Consensus Analysis');
+        
+    } catch (error) {
+        console.error('Error launching six article consensus:', error);
+        showNotification(`Failed to launch consensus analysis: ${error.message}`, 'error');
+    }
+}
+
+// Launch Timeline analysis for six articles
+async function launchSixArticleTimeline(articleTitle, articleUrl) {
+    try {
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        showNotification('Launching timeline analysis...', 'info');
+        
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `Executive Timeline: ${articleTitle}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        const timelinePrompt = `Analyze the executive timeline and strategic planning horizons for this CEO Daily Top-6 article.
+
+CONTEXT ARTICLE (CEO Daily Selected):
+Title: ${articleTitle}
+URL: ${articleUrl}
+Strategic Priority: Selected as one of 6 most important AI articles for C-suite
+
+EXECUTIVE TIMELINE ANALYSIS INSTRUCTIONS:
+1. Identify the key strategic themes and business implications mentioned in this article
+2. Use your tools to search for related articles in "${actualTopic}" to build a comprehensive executive timeline
+3. Create strategic planning horizons for C-suite decision-making:
+   - Immediate actions (Q4 2025)
+   - Short-term strategic moves (2025-2027)
+   - Mid-term transformations (2027-2030)
+   - Long-term strategic positioning (2030-2035+)
+
+4. For each timeframe, provide:
+   - Key business milestones and executive decision points
+   - Strategic implications for market positioning and competitive advantage
+   - Risk and opportunity windows for executives
+   - Investment and resource allocation considerations
+   - Regulatory and compliance timeline factors
+   - Evidence from authoritative industry sources
+
+5. Structure your analysis for board-level strategic planning with specific timelines, actionable insights, and evidence-based executive recommendations.
+
+Use your search and analysis tools to gather comprehensive timeline evidence from credible business and industry sources.`;
+        
+        await launchAuspexWithPrompt(chatId, timelinePrompt, selectedModel, actualTopic, 'Executive Timeline Analysis');
+        
+    } catch (error) {
+        console.error('Error launching six article timeline:', error);
+        showNotification(`Failed to launch timeline analysis: ${error.message}`, 'error');
+    }
+}
+
+// Launch Chat with Auspex for six articles
+async function launchSixArticleChat(articleTitle, articleUrl) {
+    try {
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        showNotification('Setting up Auspex chat for CEO article...', 'info');
+        
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `CEO Article Discussion: ${articleTitle}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        const contextPrompt = `I'd like to discuss this CEO Daily Top-6 article with you.
+
+ARTICLE CONTEXT (CEO Daily Selected):
+Title: ${articleTitle}
+URL: ${articleUrl}
+Strategic Importance: This was selected as one of the 6 most important AI articles for executives and senior decision-makers.
+
+EXECUTIVE DISCUSSION SETUP:
+This article was chosen based on high scores for strategic relevance, novelty, credibility, and representativeness. It's designed for C-suite consumption and strategic decision-making.
+
+I'm ready to discuss this article with you from an executive perspective. You can use your tools to search for related information, analyze market implications, assess competitive dynamics, or dive deeper into any strategic aspect of this article.
+
+What executive-level insights or strategic analysis would you like to explore about this article?`;
+        
+        await launchAuspexWithPrompt(chatId, contextPrompt, selectedModel, actualTopic, 'CEO Article Discussion');
+        
+    } catch (error) {
+        console.error('Error launching six article chat:', error);
+        showNotification(`Failed to launch Auspex chat: ${error.message}`, 'error');
+    }
+}
+
+// Open annotation modal for six articles
+function openSixArticleAnnotation(articleUrl, articleTitle) {
+    if (!articleUrl) {
+        showNotification('No URL available for annotation', 'warning');
+        return;
+    }
+    
+    // Reuse the existing annotation modal functionality
+    openAnnotationModal(articleUrl, articleTitle, 'CEO Daily Top-6 Article', 'CEO Daily Selection');
 }
 
 </script>

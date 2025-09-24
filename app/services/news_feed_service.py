@@ -650,10 +650,53 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
                 logger.info(f"Using cached six articles for {cache_key}")
                 return cache_entry['data']
         
+        # Check database cache first
+        try:
+            db = get_database_instance()
+            cached_result = db.get_article_analysis_cache(
+                article_uri=f"six_articles_{cache_key}",
+                analysis_type="six_articles",
+                model_used=request.model
+            )
+            if cached_result:
+                logger.info(f"Using database cached six articles for {cache_key}")
+                import json
+                return json.loads(cached_result["content"])
+        except Exception as e:
+            logger.debug(f"Database cache check failed: {e}")
+        
         # Generate new analysis with enhanced political analysis
         six_articles = await self._generate_six_articles_with_political_analysis(articles_data, date, request)
         
-        # Cache the result
+        # Cache the result in database
+        try:
+            db = get_database_instance()
+            import json
+            cache_content = json.dumps(six_articles, ensure_ascii=False, indent=2)
+            cache_metadata = {
+                "date": date.isoformat(),
+                "topic": request.topic,
+                "article_count": len(articles_data),
+                "format_version": "ceo_daily_v3"
+            }
+            
+            success = db.save_article_analysis_cache(
+                article_uri=f"six_articles_{cache_key}",
+                analysis_type="six_articles",
+                content=cache_content,
+                model_used=request.model,
+                metadata=cache_metadata
+            )
+            
+            if success:
+                logger.info(f"Cached six articles in database for {cache_key}")
+            else:
+                logger.warning(f"Failed to cache six articles in database for {cache_key}")
+                
+        except Exception as e:
+            logger.error(f"Error caching six articles to database: {e}")
+        
+        # Keep in-memory cache as fallback
         if not hasattr(self, '_six_articles_cache'):
             self._six_articles_cache = {}
         
@@ -664,7 +707,6 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
         
         # Keep cache size reasonable (max 10 entries)
         if len(self._six_articles_cache) > 10:
-            # Remove oldest entry
             oldest_key = min(self._six_articles_cache.keys(), 
                            key=lambda k: self._six_articles_cache[k]['timestamp'])
             del self._six_articles_cache[oldest_key]
