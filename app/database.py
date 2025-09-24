@@ -782,6 +782,119 @@ Remember to cite your sources and provide actionable insights where possible."""
                 logger.error(f"Error deleting article: {e}", exc_info=True)
                 return False
 
+    def save_article_analysis_cache(self, article_uri: str, analysis_type: str, content: str, model_used: str, metadata: dict = None) -> bool:
+        """Save analysis result to cache with expiration."""
+        from datetime import datetime, timedelta
+        
+        expires_at = datetime.utcnow() + timedelta(days=7)  # Cache for 7 days
+        metadata_json = json.dumps(metadata) if metadata else None
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Create table if it doesn't exist (migration)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS article_analysis_cache (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        article_uri TEXT NOT NULL,
+                        analysis_type TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        model_used TEXT NOT NULL,
+                        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP,
+                        metadata TEXT,
+                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
+                        UNIQUE(article_uri, analysis_type, model_used)
+                    )
+                """)
+                
+                # Insert or replace cached analysis
+                cursor.execute("""
+                    INSERT OR REPLACE INTO article_analysis_cache 
+                    (article_uri, analysis_type, content, model_used, expires_at, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (article_uri, analysis_type, content, model_used, expires_at, metadata_json))
+                
+                conn.commit()
+                logger.info(f"Cached {analysis_type} analysis for article {article_uri} with model {model_used}")
+                return True
+            except Exception as e:
+                logger.error(f"Error saving analysis cache: {e}")
+                conn.rollback()
+                return False
+
+    def get_article_analysis_cache(self, article_uri: str, analysis_type: str, model_used: str = None) -> dict:
+        """Get cached analysis result if not expired."""
+        from datetime import datetime
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Create table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS article_analysis_cache (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        article_uri TEXT NOT NULL,
+                        analysis_type TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        model_used TEXT NOT NULL,
+                        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP,
+                        metadata TEXT,
+                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
+                        UNIQUE(article_uri, analysis_type, model_used)
+                    )
+                """)
+                
+                # Query for cached analysis
+                if model_used:
+                    cursor.execute("""
+                        SELECT content, model_used, generated_at, metadata 
+                        FROM article_analysis_cache 
+                        WHERE article_uri = ? AND analysis_type = ? AND model_used = ? 
+                        AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                        ORDER BY generated_at DESC LIMIT 1
+                    """, (article_uri, analysis_type, model_used))
+                else:
+                    cursor.execute("""
+                        SELECT content, model_used, generated_at, metadata 
+                        FROM article_analysis_cache 
+                        WHERE article_uri = ? AND analysis_type = ? 
+                        AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+                        ORDER BY generated_at DESC LIMIT 1
+                    """, (article_uri, analysis_type))
+                
+                result = cursor.fetchone()
+                if result:
+                    metadata = json.loads(result[3]) if result[3] else {}
+                    return {
+                        'content': result[0],
+                        'model_used': result[1],
+                        'generated_at': result[2],
+                        'metadata': metadata
+                    }
+                return None
+            except Exception as e:
+                logger.error(f"Error getting analysis cache: {e}")
+                return None
+
+    def clean_expired_analysis_cache(self) -> int:
+        """Clean up expired analysis cache entries."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    DELETE FROM article_analysis_cache 
+                    WHERE expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP
+                """)
+                conn.commit()
+                deleted_count = cursor.rowcount
+                logger.info(f"Cleaned up {deleted_count} expired analysis cache entries")
+                return deleted_count
+            except Exception as e:
+                logger.error(f"Error cleaning analysis cache: {e}")
+                return 0
+
     def search_articles(
         self,
         topic: Optional[str] = None,

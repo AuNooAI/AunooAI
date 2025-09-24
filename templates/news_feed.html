@@ -2598,7 +2598,52 @@ function renderArticles(articlesData) {
                         </h6>
                         
                         <div class="metadata-grid">
-                            <!-- Only show additional metadata not visible in main card -->
+                            <!-- Enhanced metadata for detailed view -->
+                            ${article.sentiment ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Sentiment</small>
+                                <span class="badge ${getSentimentClass(article.sentiment)}">${article.sentiment}</span>
+                                ${article.sentiment_explanation ? `<br><small class="text-muted">${article.sentiment_explanation}</small>` : ''}
+                            </div>` : ''}
+                            
+                            ${article.driver_type ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Driver Type</small>
+                                <span class="badge bg-secondary">${article.driver_type}</span>
+                                ${article.driver_type_explanation ? `<br><small class="text-muted">${article.driver_type_explanation}</small>` : ''}
+                            </div>` : ''}
+                            
+                            ${article.time_to_impact ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Time to Impact</small>
+                                <span class="badge bg-warning text-dark">${article.time_to_impact}</span>
+                                ${article.time_to_impact_explanation ? `<br><small class="text-muted">${article.time_to_impact_explanation}</small>` : ''}
+                            </div>` : ''}
+                            
+                            ${article.future_signal ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Future Signal</small>
+                                <span class="badge bg-dark text-white">${article.future_signal}</span>
+                                ${article.future_signal_explanation ? `<br><small class="text-muted">${article.future_signal_explanation}</small>` : ''}
+                            </div>` : ''}
+                            
+                            ${article.tags ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Tags</small>
+                                <div class="d-flex flex-wrap gap-1">
+                                    ${(() => {
+                                        let tags = [];
+                                        if (Array.isArray(article.tags)) {
+                                            tags = article.tags;
+                                        } else if (typeof article.tags === 'string') {
+                                            tags = article.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
+                                        }
+                                        return tags.map(tag => 
+                                            `<span class="badge bg-light text-dark" style="font-size: 8px;">${escapeHTML(tag)}</span>`
+                                        ).join('');
+                                    })()}
+                                </div>
+                            </div>` : ''}
                             
             <!-- View & Analysis Options (Detailed View Only) -->
             <div class="metadata-item mb-2 mt-3 pt-2 border-top">
@@ -2624,7 +2669,7 @@ function renderArticles(articlesData) {
                     </button>
                 </div>
                 <small class="text-muted d-block mb-1">Analysis Options</small>
-                <div class="d-flex flex-wrap gap-1">
+                <div class="d-flex flex-wrap gap-1 mb-1">
                     <button class="btn btn-outline-primary btn-sm" 
                             style="font-size: 9px; padding: 1px 4px;"
                             onclick="launchAuspexDeepDive('${article.uri}')"
@@ -2642,6 +2687,14 @@ function renderArticles(articlesData) {
                             onclick="launchTimelineAnalysis('${article.uri}')"
                             title="Analyze impact timeline">
                         <i class="fas fa-clock me-1"></i>Timeline
+                    </button>
+                </div>
+                <div class="d-flex flex-wrap gap-1">
+                    <button class="btn btn-outline-info btn-sm" 
+                            style="font-size: 9px; padding: 1px 4px;"
+                            onclick="launchAuspexChat('${article.uri}')"
+                            title="Chat with Auspex about this article">
+                        <i class="fas fa-comments me-1"></i>Ask Auspex
                     </button>
                 </div>
             </div>
@@ -2943,6 +2996,35 @@ async function generateArticleAnalysis(articleUri) {
     
     if (!analysisDiv) return;
     
+    // Check for cached analysis first
+    const selectedModel = document.getElementById('model-select').value;
+    try {
+        const cacheResponse = await fetch(`/api/analysis-cache/${encodeURIComponent(articleUri)}?analysis_type=summary&model=${encodeURIComponent(selectedModel)}`);
+        if (cacheResponse.ok) {
+            const cacheData = await cacheResponse.json();
+            if (cacheData.cached) {
+                const cacheDate = new Date(cacheData.generated_at).toLocaleString();
+                analysisDiv.innerHTML = `
+                    <div class="analysis-text bg-info-subtle p-3 rounded border">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-database me-2 text-info"></i>
+                                <strong class="text-info">Strategic Analysis (Cached)</strong>
+                                <span class="badge bg-info ms-2">${cacheData.model_used}</span>
+                            </div>
+                            <small class="text-muted">Generated: ${cacheDate}</small>
+                        </div>
+                        ${cacheData.content}
+                    </div>
+                `;
+                analysisDiv.dataset.loaded = 'true';
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to check cache, proceeding with generation:', e);
+    }
+    
     try {
         analysisDiv.innerHTML = `
             <div class="text-center">
@@ -3020,13 +3102,34 @@ async function generateArticleAnalysis(articleUri) {
         
         // Format the response properly
         const formattedAnalysis = formatMarkdownAnalysis(analysis);
+        const timestamp = new Date().toISOString();
+        const displayDate = new Date().toLocaleString();
+        
+        // Cache the analysis in database
+        try {
+            await fetch('/api/save-analysis-cache', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    article_uri: articleUri,
+                    analysis_type: 'summary',
+                    content: formattedAnalysis,
+                    model_used: selectedModel
+                })
+            });
+        } catch (cacheError) {
+            console.warn('Failed to cache analysis:', cacheError);
+        }
         
         analysisDiv.innerHTML = `
             <div class="analysis-text bg-success-subtle p-3 rounded border">
-                <div class="d-flex align-items-center mb-3">
-                    <i class="fas fa-robot me-2 text-success"></i>
-                    <strong class="text-success">Strategic Analysis</strong>
-                    <span class="badge bg-success ms-2">${selectedModel}</span>
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                    <div class="d-flex align-items-center">
+                        <i class="fas fa-robot me-2 text-success"></i>
+                        <strong class="text-success">Strategic Analysis</strong>
+                        <span class="badge bg-success ms-2">${selectedModel}</span>
+                    </div>
+                    <small class="text-muted">Generated: ${displayDate}</small>
                 </div>
                 ${formattedAnalysis}
             </div>
@@ -3405,6 +3508,36 @@ async function generateResearchThemes(articleUri) {
     const themesDiv = document.getElementById(themesId);
     
     if (!themesDiv || themesDiv.dataset.loaded) return;
+    
+    // Check for cached themes first
+    const selectedModel = document.getElementById('model-select').value;
+    try {
+        const cacheResponse = await fetch(`/api/analysis-cache/${encodeURIComponent(articleUri)}?analysis_type=themes&model=${encodeURIComponent(selectedModel)}`);
+        if (cacheResponse.ok) {
+            const cacheData = await cacheResponse.json();
+            if (cacheData.cached && cacheData.metadata && cacheData.metadata.research_themes) {
+                // Use cached structured themes
+                const themes = cacheData.metadata.research_themes;
+                let html = '<div class="d-flex flex-wrap gap-1">';
+                themes.forEach((theme, index) => {
+                    html += `<button class="btn btn-outline-primary btn-sm research-theme-btn" 
+                            style="font-size: 10px; padding: 2px 6px; border-radius: 10px;"
+                            onclick="launchAuspexResearch('${escapeHTML(theme)}', '${articleUri}')"
+                            title="Launch Auspex research on: ${escapeHTML(theme)}">
+                        <i class="fas fa-search me-1"></i>${escapeHTML(theme)}
+                    </button>`;
+                });
+                html += '</div>';
+                const cacheDate = new Date(cacheData.generated_at).toLocaleString();
+                html += `<small class="text-muted d-block mt-1" style="font-size: 8px;">Cached: ${cacheDate}</small>`;
+                themesDiv.innerHTML = html;
+                themesDiv.dataset.loaded = 'true';
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn('Failed to check themes cache, proceeding with generation:', e);
+    }
     
     try {
         themesDiv.innerHTML = `
@@ -4526,6 +4659,163 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize article count for default date range
     updateArticleCountForDateRange();
 });
+
+// Helper function for sentiment styling
+function getSentimentClass(sentiment) {
+    if (!sentiment) return 'bg-light text-dark';
+    const sentimentLower = sentiment.toLowerCase();
+    if (sentimentLower.includes('positive')) return 'bg-success text-white';
+    if (sentimentLower.includes('negative') || sentimentLower.includes('critical')) return 'bg-danger text-white';
+    if (sentimentLower.includes('neutral')) return 'bg-secondary text-white';
+    return 'bg-light text-dark';
+}
+
+// Launch Ask Auspex chat with article context
+async function launchAuspexChat(articleUri) {
+    try {
+        const article = window.lastArticlesData?.items?.find(a => a.uri === articleUri);
+        if (!article) {
+            throw new Error('Source article not found in current dataset');
+        }
+        
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        showNotification('Setting up Auspex chat for this article...', 'info');
+        
+        // Create Auspex chat session
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `Article Discussion: ${article.title}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        // Get the current analysis if available
+        const analysisId = `analysis-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const analysisDiv = document.getElementById(analysisId);
+        const existingAnalysis = analysisDiv?.querySelector('.analysis-text')?.textContent || 'No analysis available yet';
+        
+        // Build context prompt with article and analysis
+        const contextPrompt = `I'd like to discuss this article with you. Here's the full context:
+
+ARTICLE DETAILS:
+Title: ${article.title}
+Source: ${article.source}
+Date: ${article.date}
+URL: ${article.uri}
+Category: ${article.category || 'Not specified'}
+Sentiment: ${article.sentiment || 'Not specified'}
+Future Signal: ${article.future_signal || 'Not specified'}
+Time to Impact: ${article.time_to_impact || 'Not specified'}
+Driver Type: ${article.driver_type || 'Not specified'}
+Tags: ${article.tags || 'None'}
+
+ARTICLE SUMMARY:
+${article.summary}
+
+CURRENT ANALYSIS:
+${existingAnalysis}
+
+I'm ready to discuss this article with you. You can use your tools to search for related information, analyze trends, or dive deeper into any aspect of this article. What would you like to explore?`;
+        
+        // Send the context message
+        const messageResponse = await fetch('/api/auspex/chat/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                message: contextPrompt,
+                model: selectedModel,
+                limit: 50,
+                tools_config: {
+                    search_articles: true,
+                    get_sentiment_analysis: true,
+                    semantic_search_and_analyze: true
+                }
+            })
+        });
+        
+        if (!messageResponse.ok) {
+            throw new Error(`Failed to send context message: ${messageResponse.status}`);
+        }
+        
+        // Open Auspex modal and set it up for conversation
+        const auspexModal = new bootstrap.Modal(document.getElementById('floatingChatModal'));
+        
+        // Set the topic and model in the modal
+        const topicSelect = document.getElementById('floatingTopicSelect');
+        const modelSelect = document.getElementById('floatingModelSelect');
+        
+        if (topicSelect) {
+            topicSelect.value = actualTopic;
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+        
+        if (modelSelect) {
+            modelSelect.value = selectedModel;
+            modelSelect.dispatchEvent(new Event('change'));
+        }
+        
+        // Enable the chat input for continued conversation
+        setTimeout(() => {
+            const chatInput = document.getElementById('floatingChatInput');
+            const sendButton = document.getElementById('floatingChatSend');
+            
+            if (chatInput) {
+                chatInput.disabled = false;
+                chatInput.placeholder = `Ask me anything about: ${article.title.substring(0, 50)}...`;
+                chatInput.focus();
+            }
+            if (sendButton) {
+                sendButton.disabled = false;
+            }
+        }, 200);
+        
+        // Show initial message
+        const chatMessages = document.getElementById('floatingChatMessages');
+        if (chatMessages) {
+            chatMessages.innerHTML = `
+                <div class="floating-message assistant">
+                    <div class="floating-message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="floating-message-content">
+                        <strong>Article Context Loaded</strong><br>
+                        I've analyzed the article "<strong>${article.title}</strong>" and I'm ready to discuss it with you.
+                        <div class="mt-2">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            <small class="text-muted">Processing article context...</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Open the modal
+        auspexModal.show();
+        
+        // Poll for the context response, then enable chat
+        pollForAuspexResults(chatId, 'Article Context');
+        
+        showNotification('Auspex chat ready for article discussion!', 'success');
+        
+    } catch (error) {
+        console.error('Error launching Auspex chat:', error);
+        showNotification(`Failed to launch Auspex chat: ${error.message}`, 'error');
+    }
+}
+
 </script>
 
 {% endblock %}

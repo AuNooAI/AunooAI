@@ -1615,10 +1615,103 @@ async def article_insights(
                 logger.warning("Failed to parse structured insights, falling back to markdown: %s", parse_exc)
                 return {"response": content, "generated_at": generated_at}
         
+        # Save to database cache
+        try:
+            from app.database import get_database_instance
+            db = get_database_instance()
+            
+            # Save both structured and raw response
+            cache_metadata = {"research_themes": research_themes} if research_themes else {}
+            db.save_article_analysis_cache(
+                article_uri=req.ids[0],
+                analysis_type="themes",
+                content=content,
+                model_used=model_name,
+                metadata=cache_metadata
+            )
+        except Exception as cache_exc:
+            logger.warning(f"Failed to cache themes analysis: {cache_exc}")
+        
         return {"response": content, "generated_at": generated_at}
     except Exception as exc:
         logger.error("LLM article-insights failed with model %s: %s", model_name, exc)
         raise HTTPException(status_code=500, detail=f"LLM error with model {model_name}: {str(exc)}")
+
+# ------------------------------------------------------------------
+# Analysis cache endpoints
+# ------------------------------------------------------------------
+
+
+@router.get("/analysis-cache/{article_uri}")
+async def get_analysis_cache(
+    article_uri: str,
+    analysis_type: str = Query(..., description="Type of analysis (summary, themes, etc.)"),
+    model: str = Query(None, description="Specific model used"),
+    session=Depends(verify_session),
+):
+    """Get cached analysis for an article."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        cached = db.get_article_analysis_cache(
+            article_uri=urllib.parse.unquote(article_uri),
+            analysis_type=analysis_type,
+            model_used=model
+        )
+        
+        if cached:
+            return {
+                "cached": True,
+                "content": cached["content"],
+                "model_used": cached["model_used"],
+                "generated_at": cached["generated_at"],
+                "metadata": cached.get("metadata", {})
+            }
+        else:
+            return {"cached": False}
+            
+    except Exception as exc:
+        logger.error("Error getting analysis cache: %s", exc)
+        raise HTTPException(status_code=500, detail="Cache retrieval error")
+
+
+class _SaveAnalysisCacheRequest(BaseModel):
+    """Payload for saving analysis cache."""
+    
+    article_uri: str = Field(..., description="Article URI")
+    analysis_type: str = Field(..., description="Type of analysis")
+    content: str = Field(..., description="Analysis content")
+    model_used: str = Field(..., description="Model used for analysis")
+    metadata: dict = Field(default_factory=dict, description="Additional metadata")
+
+
+@router.post("/save-analysis-cache")
+async def save_analysis_cache(
+    req: _SaveAnalysisCacheRequest,
+    session=Depends(verify_session),
+):
+    """Save analysis result to database cache."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        success = db.save_article_analysis_cache(
+            article_uri=req.article_uri,
+            analysis_type=req.analysis_type,
+            content=req.content,
+            model_used=req.model_used,
+            metadata=req.metadata
+        )
+        
+        if success:
+            return {"success": True, "message": "Analysis cached successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to cache analysis")
+            
+    except Exception as exc:
+        logger.error("Error saving analysis cache: %s", exc)
+        raise HTTPException(status_code=500, detail="Cache save error")
 
 # ------------------------------------------------------------------
 # Article deep-dive endpoint – uses deepdiveprompt.md template
