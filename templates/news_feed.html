@@ -588,8 +588,10 @@
                 </div>
             </div>
             <div class="control-group-inline">
-                <label for="topic-input" class="form-label">Topic:</label>
-                <input type="text" id="topic-input" class="form-control form-control-sm" placeholder="Optional filter" style="width: 150px;" />
+                <label for="topic-select" class="form-label">Topic:</label>
+                <select id="topic-select" class="form-select form-select-sm" style="width: 180px;">
+                    <option value="">All Topics</option>
+                </select>
             </div>
             <div class="control-group-inline">
                 <label for="model-select" class="form-label">Model:</label>
@@ -786,6 +788,46 @@ document.addEventListener('DOMContentLoaded', function() {
         day: 'numeric'
     });
 
+    // Persist selected model between sessions
+    try {
+        const savedModel = localStorage.getItem('newsFeedDefaultModel');
+        if (savedModel) {
+            const modelSelect = document.getElementById('model-select');
+            if (modelSelect && Array.from(modelSelect.options).some(o => o.value === savedModel)) {
+                modelSelect.value = savedModel;
+            }
+        }
+        const modelSelectEl = document.getElementById('model-select');
+        if (modelSelectEl) {
+            modelSelectEl.addEventListener('change', () => {
+                localStorage.setItem('newsFeedDefaultModel', modelSelectEl.value);
+            });
+        }
+    } catch (_) { /* best-effort */ }
+
+    // Persist selected organizational profile between sessions
+    try {
+        const profileSelect = document.getElementById('profile-select');
+        const savedProfile = localStorage.getItem('newsFeedProfileId');
+        if (savedProfile) {
+            const opt = Array.from(profileSelect.options).find(o => o.value === savedProfile);
+            if (opt) profileSelect.value = savedProfile;
+        }
+        profileSelect.addEventListener('change', () => {
+            localStorage.setItem('newsFeedProfileId', profileSelect.value);
+            updateArticleCountForDateRange();
+        });
+    } catch (_) { /* best-effort */ }
+
+    // Default to last 7 days
+    try {
+        const dr = document.getElementById('date-range-select');
+        if (dr) {
+            dr.value = '7d';
+            handleDateRangeChange();
+        }
+    } catch (_) { /* best-effort */ }
+
     // Generate button click handler
     document.getElementById('generate-btn').addEventListener('click', generateNewsFeed);
 
@@ -829,6 +871,26 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
     }
     
+    // Populate topics dropdown and wire change handlers
+    try {
+        const sel = document.getElementById('topic-select');
+        if (sel) {
+            fetch('/api/topics')
+                .then(r => r.json())
+                .then(topics => {
+                    sel.innerHTML = '<option value="">All Topics</option>' + topics.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+                    const savedTopic = localStorage.getItem('newsFeedTopic');
+                    if (savedTopic && Array.from(sel.options).some(o => o.value === savedTopic)) sel.value = savedTopic;
+                })
+                .catch(() => {});
+            sel.addEventListener('change', () => {
+                localStorage.setItem('newsFeedTopic', sel.value);
+                updateArticleCountForDateRange();
+                generateNewsFeed();
+            });
+        }
+    } catch (_) { /* best-effort */ }
+
     // Load saved feeds when modal is opened
     document.getElementById('savedFeedsModal').addEventListener('show.bs.modal', loadSavedFeeds);
     
@@ -1545,7 +1607,7 @@ async function loadArticles(page = 1) {
             params.append('date', customDate);
         }
 
-        const topic = document.getElementById('topic-input').value.trim();
+        const topic = document.getElementById('topic-select').value.trim();
         if (topic) {
             params.append('topic', topic);
         }
@@ -1644,7 +1706,7 @@ async function loadSixArticles() {
             params.append('date', customDate);
         }
 
-        const topic = document.getElementById('topic-input').value.trim();
+        const topic = document.getElementById('topic-select').value.trim();
         if (topic) {
             params.append('topic', topic);
         }
@@ -1671,6 +1733,13 @@ async function loadSixArticles() {
 
         const data = await response.json();
         console.log('Six articles response data:', data);
+        // Stamp generated date at top of report
+        const generatedAt = new Date().toLocaleString();
+        const header = document.createElement('div');
+        header.className = 'small text-muted mb-2';
+        header.innerHTML = `<i class="far fa-clock me-1"></i>Generated: ${generatedAt}`;
+        const container = document.getElementById('six-articles-report');
+        if (container) container.prepend(header);
         console.log('Six articles array:', data.six_articles);
         if (data.six_articles && data.six_articles.length > 0) {
             console.log('First article related_articles:', data.six_articles[0].related_articles);
@@ -1848,10 +1917,11 @@ function renderSixArticles(articles) {
     
     // Render each article
     articles.forEach((article, index) => {
+        const isStarred = article.uri && starredArticles.has(article.uri);
         html += `
             <div class="article-analysis mb-5 p-4 border rounded">
                 <div class="article-header mb-3">
-                    <h4 class="text-primary">${index + 1}. ${article.title}</h4>
+                    <h4 class="text-primary">${index + 1}. ${article.title} ${isStarred ? '<span class="badge bg-warning text-dark ms-2">Starred</span>' : ''}</h4>
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <div>
                     <p class="text-muted mb-1"><strong>Source:</strong> ${article.source}</p>
