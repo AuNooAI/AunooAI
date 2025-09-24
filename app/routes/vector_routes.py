@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
     search_articles,
     upsert_article,
@@ -1606,6 +1606,24 @@ async def article_insights(
                     if research_themes:
                         logger.info(f"Fallback extraction found {len(research_themes)} themes: {research_themes}")
                 
+                # Cache the themes analysis
+                try:
+                    from app.database import get_database_instance
+                    db = get_database_instance()
+                    
+                    # Save themes to cache
+                    cache_metadata = {"research_themes": research_themes}
+                    db.save_article_analysis_cache(
+                        article_uri=req.ids[0] if req.ids else "unknown",
+                        analysis_type="themes",
+                        content=content,
+                        model_used=req.model,
+                        metadata=cache_metadata
+                    )
+                    logger.info(f"Cached themes analysis for article {req.ids[0] if req.ids else 'unknown'} with model {req.model}")
+                except Exception as cache_exc:
+                    logger.warning(f"Failed to cache themes analysis: {cache_exc}")
+                
                 return {
                     "generated_at": generated_at,
                     "research_themes": research_themes,
@@ -1642,12 +1660,12 @@ async def article_insights(
 # ------------------------------------------------------------------
 
 
-@router.get("/analysis-cache/{article_uri}")
+@router.get("/analysis-cache/{article_uri:path}")
 async def get_analysis_cache(
     article_uri: str,
     analysis_type: str = Query(..., description="Type of analysis (summary, themes, etc.)"),
     model: str = Query(None, description="Specific model used"),
-    session=Depends(verify_session),
+    session=Depends(verify_session_optional),
 ):
     """Get cached analysis for an article."""
     try:
@@ -1676,20 +1694,52 @@ async def get_analysis_cache(
         raise HTTPException(status_code=500, detail="Cache retrieval error")
 
 
+# Alternate endpoint using query parameter for article_uri to avoid any URL path matching issues
+@router.get("/analysis-cache")
+async def get_analysis_cache_qp(
+    article_uri: str = Query(..., description="Full article URI"),
+    analysis_type: str = Query(..., description="Type of analysis (summary, themes, etc.)"),
+    model: str = Query(None, description="Specific model used"),
+    session=Depends(verify_session_optional),
+):
+    """Get cached analysis for an article (article_uri as query param)."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        cached = db.get_article_analysis_cache(
+            article_uri=article_uri,
+            analysis_type=analysis_type,
+            model_used=model,
+        )
+        if cached:
+            return {
+                "cached": True,
+                "content": cached["content"],
+                "model_used": cached["model_used"],
+                "generated_at": cached["generated_at"],
+                "metadata": cached.get("metadata", {}),
+            }
+        return {"cached": False}
+    except Exception as exc:
+        logger.error("Error getting analysis cache (qp): %s", exc)
+        raise HTTPException(status_code=500, detail="Cache retrieval error")
+
+
 class _SaveAnalysisCacheRequest(BaseModel):
     """Payload for saving analysis cache."""
     
     article_uri: str = Field(..., description="Article URI")
     analysis_type: str = Field(..., description="Type of analysis")
     content: str = Field(..., description="Analysis content")
-    model_used: str = Field(..., description="Model used for analysis")
+    model_name: str = Field(..., description="Model used for analysis")
     metadata: dict = Field(default_factory=dict, description="Additional metadata")
 
 
 @router.post("/save-analysis-cache")
 async def save_analysis_cache(
     req: _SaveAnalysisCacheRequest,
-    session=Depends(verify_session),
+    session=Depends(verify_session_optional),
 ):
     """Save analysis result to database cache."""
     try:
@@ -1700,7 +1750,7 @@ async def save_analysis_cache(
             article_uri=req.article_uri,
             analysis_type=req.analysis_type,
             content=req.content,
-            model_used=req.model_used,
+            model_used=req.model_name,
             metadata=req.metadata
         )
         

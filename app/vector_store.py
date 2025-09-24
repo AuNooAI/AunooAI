@@ -3,8 +3,24 @@ import logging
 from typing import List, Dict, Any, Optional
 
 import chromadb
-from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
-from chromadb.errors import NotFoundError as ChromaNotFoundError  # type: ignore
+try:
+    # Try new ChromaDB import path first
+    from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
+except ImportError:
+    try:
+        # Fallback to older import path
+        from chromadb.embedding_functions import OpenAIEmbeddingFunction
+    except ImportError:
+        # Final fallback - define a dummy function
+        class OpenAIEmbeddingFunction:
+            def __init__(self, *args, **kwargs):
+                pass
+
+try:
+    from chromadb.errors import NotFoundError as ChromaNotFoundError
+except ImportError:
+    # Fallback for older ChromaDB versions
+    ChromaNotFoundError = Exception
 
 try:
     import openai  # Optional; only required if OPENAI_API_KEY configured
@@ -20,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Singleton helpers
 # --------------------------------------------------------------------------------------
 
-_CHROMA_CLIENT: Optional[chromadb.Client] = None
+_CHROMA_CLIENT: Optional[Any] = None  # ChromaDB client - type varies by version
 _COLLECTION_NAME = "articles"
 
 # Add pathlib import
@@ -93,7 +109,7 @@ def _get_embedding_function():
     return None  # Caller will embed manually.
 
 
-def get_chroma_client() -> chromadb.Client:
+def get_chroma_client():
     """Return a (singleton) ChromaDB client instance."""
     global _CHROMA_CLIENT
     if _CHROMA_CLIENT is None:
@@ -114,7 +130,7 @@ def get_chroma_client() -> chromadb.Client:
     return _CHROMA_CLIENT
 
 
-def _get_collection() -> chromadb.Collection:
+def _get_collection():
     """Return (and create if necessary) the Chroma collection for articles."""
     client = get_chroma_client()
 

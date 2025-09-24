@@ -204,6 +204,7 @@ app.include_router(saved_searches_router)  # Saved searches
 app.include_router(websocket_router, prefix="/keyword-monitor")  # WebSocket routes for real-time updates
 app.include_router(forecast_chart_router)  # API routes
 app.include_router(forecast_chart_web_router)  # Web routes
+app.include_router(vector_router)  # Vector/AI analysis routes (already has /api prefix)
 # app.include_router(news_feed_router)  # News feed routes - Now registered via app factory
 
 def get_template_context(request: Request, additional_context: dict = None) -> dict:

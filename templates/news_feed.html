@@ -562,40 +562,55 @@
 
     <!-- Controls -->
     <div class="controls">
-        <div class="controls-row">
-            <div class="control-group-inline">
-                <label class="form-label">Date Range:</label>
-                <select id="date-range-select" class="form-select form-select-sm" style="width: 140px;" onchange="handleDateRangeChange()">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">
+                <i class="fas fa-cogs me-2"></i>Feed Configuration
+            </h6>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleControlsBtn" onclick="toggleControlsPanel()">
+                <i class="fas fa-chevron-up" id="controlsToggleIcon"></i>
+            </button>
+        </div>
+        <div id="controlsContent">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small">Date Range:</label>
+                            <select id="date-range-select" class="form-select form-select-sm" onchange="handleDateRangeChange()">
                     <option value="24h">Last 24 Hours</option>
                     <option value="7d">Last 7 Days</option>
                     <option value="30d">Last 30 Days</option>
-                    <option value="3m">Last 3 Months</option>
+                                <option value="3m" selected>Last 90 Days</option>
                     <option value="1y">Last Year</option>
                     <option value="all">All Time</option>
                     <option value="custom">Custom Date</option>
                 </select>
             </div>
-            <div class="control-group-inline">
-                <div id="date-range-display" class="selected-date-compact">
-                    <i class="fas fa-clock"></i> <strong id="date-range-text">Last 24 Hours</strong> 
+                        <div class="col-6">
+                            <label class="form-label small">Topic:</label>
+                            <select id="topic-select" class="form-select form-select-sm">
+                                <option value="">All Topics</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="mt-2">
+                        <div id="date-range-display" class="small text-muted">
+                            <i class="fas fa-clock"></i> <strong id="date-range-text">Last 90 Days</strong> 
                     (<span id="selected-date-count">loading...</span> articles)
                 </div>
                 <div id="custom-date-section" style="display: none;" class="mt-1">
-                    <input type="date" id="custom-date-input" class="form-control form-control-sm" value="2025-09-15" style="width: 160px;">
+                            <input type="date" id="custom-date-input" class="form-control form-control-sm" value="2025-09-15">
                     <button type="button" class="btn btn-outline-secondary btn-sm ms-1" data-bs-toggle="collapse" data-bs-target="#calendar-collapse">
                         <i class="fas fa-calendar-alt"></i>
                 </button>
                 </div>
             </div>
-            <div class="control-group-inline">
-                <label for="topic-select" class="form-label">Topic:</label>
-                <select id="topic-select" class="form-select form-select-sm" style="width: 180px;">
-                    <option value="">All Topics</option>
-                </select>
             </div>
-            <div class="control-group-inline">
-                <label for="model-select" class="form-label">Model:</label>
-                <select id="model-select" class="form-select form-select-sm" style="width: 140px;">
+                <div class="col-md-6">
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small">Model:</label>
+                            <select id="model-select" class="form-select form-select-sm">
                     <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
                     <option value="gpt-4o">GPT-4o</option>
                     <option value="gpt-4o-mini">GPT-4o Mini</option>
@@ -606,34 +621,43 @@
                     <option value="gemini-pro">Gemini Pro</option>
                 </select>
             </div>
-            <div class="mb-3">
-                <label for="profile-select" class="form-label">Organizational Profile:</label>
-                <div class="d-flex gap-2">
-                    <select id="profile-select" class="form-select form-select-sm" style="width: 200px;">
-                        <option value="">General Analysis (No Profile)</option>
+                        <div class="col-6">
+                            <label class="form-label small">Profile:</label>
+                            <div class="d-flex gap-1">
+                                <select id="profile-select" class="form-select form-select-sm">
+                                    <option value="">General Analysis</option>
                     </select>
-                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadOrganizationalProfiles()" title="Refresh Profiles">
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadOrganizationalProfiles()" title="Refresh">
                         <i class="fas fa-sync"></i>
                     </button>
                 </div>
-                <div class="form-text">
-                    <small class="text-muted">Select for contextualized analysis based on your organization's needs.</small>
                 </div>
             </div>
-            <div class="control-group-inline">
-                <button id="generate-btn" class="btn btn-primary">Generate Feed</button>
-                <button id="save-btn" class="btn btn-outline-primary" onclick="saveFeed()" style="display: none;" title="Save current feed">
-                    <i class="fas fa-save"></i> Save Feed
+                    <div class="mt-2">
+                        <div class="row g-2">
+                            <div class="col-4">
+                                <label class="form-label small">Sort:</label>
+                                <select id="sort-select" class="form-select form-select-sm" onchange="handleSortChange()">
+                                    <option value="date_asc">Date (Oldest First)</option>
+                                    <option value="date_desc">Date (Newest First)</option>
+                                    <option value="category_date">Category (by Date)</option>
+                                </select>
+                            </div>
+                            <div class="col-8">
+                                <label class="form-label small">Search:</label>
+                                <input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search titles, summaries, keywords..." onkeyup="handleSearchInput()">
+                            </div>
+                        </div>
+                    <div class="mt-2 d-flex gap-2">
+                        <button type="button" class="btn btn-outline-info btn-sm" onclick="saveCurrentAsDefaults()" title="Save current settings as defaults">
+                            <i class="fas fa-star"></i> Save Defaults
                 </button>
-                <button id="saved-feeds-btn" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#savedFeedsModal">
-                    <i class="fas fa-bookmark"></i> Saved Feeds
-                </button>
-                <button id="restore-articles-btn" class="btn btn-outline-warning" onclick="clearExcludedArticles()" style="display: none;" title="Restore hidden articles">
+                        <button id="restore-articles-btn" class="btn btn-outline-warning btn-sm" onclick="clearExcludedArticles()" style="display: none;" title="Restore hidden articles">
                     <i class="fas fa-undo"></i> Restore Hidden
                 </button>
-                <button id="export-markdown-btn" class="btn btn-outline-success" onclick="exportToMarkdown()" style="display: none;" title="Export as Markdown">
-                    <i class="fas fa-download"></i> Export MD
-                </button>
+                    </div>
+                    </div>
+                </div>
             </div>
         </div>
         
@@ -693,15 +717,36 @@
             </div>
             
             <div id="articles-list"></div>
-            <nav aria-label="Article navigation">
-                <ul class="pagination pagination-sm justify-content-center mt-3" id="articles-pagination">
-                    <!-- Pagination controls will be added by JS -->
-                </ul>
-            </nav>
+            
+            <!-- Pagination Controls -->
+            <div id="pagination-container" class="d-flex justify-content-between align-items-center mt-3" style="display: none;">
+                <div class="pagination-info">
+                    <small class="text-muted">
+                        Showing <span id="articles-start">1</span>-<span id="articles-end">25</span> of <span id="articles-total">0</span> articles
+                    </small>
+                </div>
+                <div class="pagination-controls">
+                    <button id="prev-page-btn" class="btn btn-outline-secondary btn-sm me-2" onclick="previousPage()" disabled>
+                        <i class="fas fa-chevron-left"></i> Previous
+                    </button>
+                    <span class="mx-2">
+                        Page <span id="current-page">1</span> of <span id="total-pages">1</span>
+                    </span>
+                    <button id="next-page-btn" class="btn btn-outline-secondary btn-sm ms-2" onclick="nextPage()" disabled>
+                        Next <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
         </div>
 
         <!-- Six Articles Tab -->
         <div class="tab-pane fade" id="six-articles-content">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="mb-0">AI-Generated Six Articles</h5>
+                <button id="generate-btn" class="btn btn-primary" onclick="generateNewsFeed()">
+                    <i class="fas fa-magic me-2"></i>Generate Six Articles
+                </button>
+            </div>
             <div id="six-articles-loading" class="loading" style="display: none;">
                 <div class="spinner-border" role="status">
                     <span class="visually-hidden">Loading...</span>
@@ -805,37 +850,24 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     } catch (_) { /* best-effort */ }
 
-    // Persist selected organizational profile between sessions
-    try {
-        const profileSelect = document.getElementById('profile-select');
-        const savedProfile = localStorage.getItem('newsFeedProfileId');
-        if (savedProfile) {
-            const opt = Array.from(profileSelect.options).find(o => o.value === savedProfile);
-            if (opt) profileSelect.value = savedProfile;
-        }
-        profileSelect.addEventListener('change', () => {
-            localStorage.setItem('newsFeedProfileId', profileSelect.value);
-            updateArticleCountForDateRange();
-        });
-    } catch (_) { /* best-effort */ }
+    // Profile persistence is now handled in loadOrganizationalProfiles() after profiles are loaded
 
-    // Default to last 7 days
+    // Default to last 90 days
     try {
         const dr = document.getElementById('date-range-select');
         if (dr) {
-            dr.value = '7d';
+            dr.value = '3m';
+            document.getElementById('date-range-text').textContent = 'Last 90 Days';
             handleDateRangeChange();
         }
     } catch (_) { /* best-effort */ }
 
-    // Generate button click handler
-    document.getElementById('generate-btn').addEventListener('click', generateNewsFeed);
+    // Generate button is now in Six Articles tab - event listener added there
 
     // Tab change handlers
     document.getElementById('articles-tab').addEventListener('click', function() {
-        if (!document.getElementById('articles-list').innerHTML.trim()) {
-            loadArticles();
-        }
+        // Always auto-load fresh articles when Articles tab is clicked
+        autoLoadArticles();
     });
 
     document.getElementById('six-articles-tab').addEventListener('click', function() {
@@ -2036,8 +2068,8 @@ function getFactualityBadge(factuality) {
 // Old share functionality removed - these elements no longer exist
 
 function showSaveButton() {
-    document.getElementById('save-btn').style.display = 'inline-block';
-    document.getElementById('export-markdown-btn').style.display = 'inline-block';
+    // Save and export buttons have been removed - this function is now a no-op
+    // Keep for compatibility with existing calls
 }
 
 function renderArticlesPagination(data) {
@@ -2322,6 +2354,28 @@ async function loadOrganizationalProfiles() {
                 profileSelect.appendChild(option);
             });
             
+            // Restore saved profile selection after loading profiles
+            const savedProfile = localStorage.getItem('newsFeedProfileId');
+            if (savedProfile) {
+                const opt = Array.from(profileSelect.options).find(o => o.value === savedProfile);
+                if (opt) {
+                    profileSelect.value = savedProfile;
+                    console.log(`Restored saved profile: ${savedProfile}`);
+                } else {
+                    console.warn(`Saved profile ${savedProfile} not found in loaded profiles`);
+                }
+            }
+            
+            // Add change listener to save future selections (if not already added)
+            if (!profileSelect.dataset.listenerAdded) {
+                profileSelect.addEventListener('change', () => {
+                    localStorage.setItem('newsFeedProfileId', profileSelect.value);
+                    console.log(`Saved profile selection: ${profileSelect.value}`);
+                    updateArticleCountForDateRange();
+                });
+                profileSelect.dataset.listenerAdded = 'true';
+            }
+            
             console.log(`Loaded ${data.profiles.length} organizational profiles`);
         }
     } catch (error) {
@@ -2399,8 +2453,8 @@ function handleDateRangeChange() {
         }
     }
     
-    // Update article count for the new date range
-    updateArticleCountForDateRange();
+    // Auto-reload articles when date range changes
+    autoLoadArticles();
 }
 
 // Update article count for date range changes
@@ -2432,9 +2486,9 @@ async function updateArticleCountForDateRange() {
         }
         
         // Add topic filter if set
-        const topic = document.getElementById('topic-input').value.trim();
-        if (topic) {
-            params.append('topic', topic);
+        const topicEl = document.getElementById('topic-select');
+        if (topicEl && topicEl.value) {
+            params.append('topic', topicEl.value.trim());
         }
         
         // Make a lightweight request to get just the count
@@ -2522,6 +2576,11 @@ function renderArticles(articlesData) {
                         <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
                             ${escapeHTML(article.title)}
                         </a>
+                        <span class="cached-indicator" id="cached-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none;">
+                            <span class="badge bg-info text-white ms-2" style="font-size: 8px;">
+                                <i class="fas fa-database me-1"></i>Cached
+                            </span>
+                        </span>
                     </h6>
                     <p class="mb-1 small text-muted">
                         <i class="fas fa-building me-1"></i>${escapeHTML(article.news_source)}
@@ -2729,6 +2788,9 @@ function renderArticles(articlesData) {
     
     listContainer.appendChild(articlesList);
     updateStarredCount();
+    
+    // Check for cached analysis and show indicators
+    checkCachedAnalysisIndicators(articlesData.items);
     
     // Update count display to show filtered vs total
     const countEl = document.getElementById('selected-date-count');
@@ -2966,13 +3028,25 @@ function toggleArticleDetails(articleUri, buttonElement) {
             if (!isValid) {
                 showNotification('Select a valid AI model to generate analysis', 'warning');
             } else {
+                console.log(`Analysis div check: exists=${!!analysisDiv}, loaded=${analysisDiv?.dataset.loaded}`);
                 if (analysisDiv && !analysisDiv.dataset.loaded) {
+                    console.log(`Generating analysis for ${articleUri}`);
                     generateArticleAnalysis(articleUri);
+                } else {
+                    console.log(`Skipping analysis generation - already loaded or div missing`);
                 }
                 // Load related articles for sidebar
                 loadRelatedArticlesSidebar(articleUri);
-                // Generate research themes for sidebar
-                generateResearchThemes(articleUri);
+                
+                // Generate research themes for sidebar (check if already loaded)
+                const themesDiv = document.getElementById(`themes-sidebar-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`);
+                console.log(`Themes div check: exists=${!!themesDiv}, loaded=${themesDiv?.dataset.loaded}`);
+                if (themesDiv && !themesDiv.dataset.loaded) {
+                    console.log(`Generating themes for ${articleUri}`);
+                    generateResearchThemes(articleUri);
+                } else {
+                    console.log(`Skipping themes generation - already loaded or div missing`);
+                }
             }
         } catch (_) { /* best-effort */ }
     } else {
@@ -2996,20 +3070,33 @@ async function generateArticleAnalysis(articleUri) {
     
     if (!analysisDiv) return;
     
-    // Check for cached analysis first
-    const selectedModel = document.getElementById('model-select').value;
+    // Check for cached analysis first (database + localStorage fallback)
+    const selectedModel = document.getElementById('model-select')?.value;
+    
+    console.log(`=== CACHE CHECK START ===`);
+    console.log(`Article URI: ${articleUri}`);
+    console.log(`Selected Model: ${selectedModel}`);
+    console.log(`Analysis div loaded: ${analysisDiv.dataset.loaded}`);
+    
+    // Try database cache first
     try {
+        console.log(`Checking cache for: ${articleUri} with model: ${selectedModel}`);
         const cacheResponse = await fetch(`/api/analysis-cache/${encodeURIComponent(articleUri)}?analysis_type=summary&model=${encodeURIComponent(selectedModel)}`);
+        console.log(`Cache response status: ${cacheResponse.status}`);
+        
         if (cacheResponse.ok) {
             const cacheData = await cacheResponse.json();
+            console.log('Cache response data:', cacheData);
+            
             if (cacheData.cached) {
+                console.log('Using cached analysis from database');
                 const cacheDate = new Date(cacheData.generated_at).toLocaleString();
                 analysisDiv.innerHTML = `
                     <div class="analysis-text bg-info-subtle p-3 rounded border">
                         <div class="d-flex align-items-center justify-content-between mb-3">
                             <div class="d-flex align-items-center">
                                 <i class="fas fa-database me-2 text-info"></i>
-                                <strong class="text-info">Strategic Analysis (Cached)</strong>
+                                <strong class="text-info">Strategic Analysis (DB Cache)</strong>
                                 <span class="badge bg-info ms-2">${cacheData.model_used}</span>
                             </div>
                             <small class="text-muted">Generated: ${cacheDate}</small>
@@ -3019,10 +3106,49 @@ async function generateArticleAnalysis(articleUri) {
                 `;
                 analysisDiv.dataset.loaded = 'true';
                 return;
+            } else {
+                console.log('No cached analysis found in database');
+            }
+        } else {
+            console.warn(`Cache API returned ${cacheResponse.status}`);
+        }
+    } catch (e) {
+        console.warn('Database cache failed, checking localStorage:', e);
+    }
+    
+    // Fallback to localStorage cache
+    try {
+        const localCacheKey = `analysis_cache_${articleUri}_summary_${selectedModel}`;
+        const localCache = localStorage.getItem(localCacheKey);
+        if (localCache) {
+            const cacheData = JSON.parse(localCache);
+            const cacheAge = new Date() - new Date(cacheData.generated_at);
+            const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+            
+            if (cacheAge < maxAge) {
+                const cacheDate = new Date(cacheData.generated_at).toLocaleString();
+                analysisDiv.innerHTML = `
+                    <div class="analysis-text bg-warning-subtle p-3 rounded border">
+                        <div class="d-flex align-items-center justify-content-between mb-3">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-hdd me-2 text-warning"></i>
+                                <strong class="text-warning">Strategic Analysis (Local Cache)</strong>
+                                <span class="badge bg-warning ms-2">${cacheData.model_used}</span>
+                            </div>
+                            <small class="text-muted">Generated: ${cacheDate}</small>
+                        </div>
+                        ${cacheData.content}
+                    </div>
+                `;
+                analysisDiv.dataset.loaded = 'true';
+                return;
+            } else {
+                // Cache expired, remove it
+                localStorage.removeItem(localCacheKey);
             }
         }
     } catch (e) {
-        console.warn('Failed to check cache, proceeding with generation:', e);
+        console.warn('localStorage cache check failed:', e);
     }
     
     try {
@@ -3105,29 +3231,44 @@ async function generateArticleAnalysis(articleUri) {
         const timestamp = new Date().toISOString();
         const displayDate = new Date().toLocaleString();
         
-        // Cache the analysis in database
+        // Cache the analysis in database with localStorage fallback
         try {
-            await fetch('/api/save-analysis-cache', {
+            const cacheResponse = await fetch('/api/save-analysis-cache', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     article_uri: articleUri,
                     analysis_type: 'summary',
                     content: formattedAnalysis,
-                    model_used: selectedModel
+                    model_name: selectedModel
                 })
             });
+            
+            if (cacheResponse.ok) {
+                console.log('Analysis cached to database successfully');
+            } else {
+                throw new Error(`Database cache failed: ${cacheResponse.status}`);
+            }
         } catch (cacheError) {
-            console.warn('Failed to cache analysis:', cacheError);
+            console.warn('Database cache failed, using localStorage fallback:', cacheError);
+            
+            // Fallback to localStorage
+            const cacheData = {
+                content: formattedAnalysis,
+                model_used: selectedModel,
+                generated_at: new Date().toISOString(),
+                analysis_type: 'summary'
+            };
+            localStorage.setItem(`analysis_cache_${articleUri}_summary_${selectedModel}`, JSON.stringify(cacheData));
         }
         
         analysisDiv.innerHTML = `
             <div class="analysis-text bg-success-subtle p-3 rounded border">
                 <div class="d-flex align-items-center justify-content-between mb-3">
                     <div class="d-flex align-items-center">
-                        <i class="fas fa-robot me-2 text-success"></i>
-                        <strong class="text-success">Strategic Analysis</strong>
-                        <span class="badge bg-success ms-2">${selectedModel}</span>
+                    <i class="fas fa-robot me-2 text-success"></i>
+                    <strong class="text-success">Strategic Analysis</strong>
+                    <span class="badge bg-success ms-2">${selectedModel}</span>
                     </div>
                     <small class="text-muted">Generated: ${displayDate}</small>
                 </div>
@@ -3139,7 +3280,16 @@ async function generateArticleAnalysis(articleUri) {
     } catch (error) {
         console.error('Error generating article analysis:', error);
         
-        // Fallback to enhanced metadata analysis
+        // Show clear error message about server configuration
+        analysisDiv.innerHTML = `
+            <div class="alert alert-danger">
+                <h6><i class="fas fa-exclamation-triangle me-2"></i>Analysis Unavailable</h6>
+                <p class="mb-2">Vector routes not mounted on server. Analysis endpoints returning 404.</p>
+                <small class="text-muted">
+                    <strong>Solution:</strong> Ensure your server instance mounts vector_routes via app/core/routers.py
+                </small>
+            </div>
+        `;
         const article = window.lastArticlesData?.items?.find(a => a.uri === articleUri);
         if (article) {
             const enhancedAnalysis = generateEnhancedAnalysis(article);
@@ -3279,6 +3429,7 @@ function formatMarkdownAnalysis(markdown) {
     
     return html;
 }
+
 
 // Enhanced markdown formatter for Auspex research results
 function formatAuspexMarkdown(markdown) {
@@ -3510,7 +3661,7 @@ async function generateResearchThemes(articleUri) {
     if (!themesDiv || themesDiv.dataset.loaded) return;
     
     // Check for cached themes first
-    const selectedModel = document.getElementById('model-select').value;
+    const selectedModel = document.getElementById('model-select')?.value;
     try {
         const cacheResponse = await fetch(`/api/analysis-cache/${encodeURIComponent(articleUri)}?analysis_type=themes&model=${encodeURIComponent(selectedModel)}`);
         if (cacheResponse.ok) {
@@ -3655,10 +3806,12 @@ async function generateResearchThemes(articleUri) {
         
     } catch (error) {
         console.error('Error generating research themes:', error);
+        
+        // Show clear error about server configuration
         themesDiv.innerHTML = `
-            <div class="text-warning small">
+            <div class="text-danger small">
                 <i class="fas fa-exclamation-triangle me-1"></i>
-                <small>Failed to load themes</small>
+                <small>Vector routes not mounted (404)</small>
             </div>
         `;
     }
@@ -3737,6 +3890,390 @@ async function generateDeepDive(articleUri) {
         console.error('Error generating deep dive:', error);
         showNotification(`Failed to generate deep-dive: ${error.message}`, 'error');
     }
+}
+
+// Check for cached analysis and show indicators
+async function checkCachedAnalysisIndicators(articles) {
+    const selectedModel = document.getElementById('model-select')?.value;
+    if (!selectedModel || !articles || articles.length === 0) return;
+    
+    // Check cache for each article (database + localStorage fallback)
+    for (const article of articles) {
+        let hasCachedAnalysis = false;
+        
+        // Try database cache first
+        try {
+            const cacheResponse = await fetch(`/api/analysis-cache/${encodeURIComponent(article.uri)}?analysis_type=summary&model=${encodeURIComponent(selectedModel)}`);
+            if (cacheResponse.ok) {
+                const cacheData = await cacheResponse.json();
+                if (cacheData.cached) {
+                    hasCachedAnalysis = true;
+                }
+            }
+        } catch (e) {
+            // Database failed, check localStorage
+            try {
+                const localCacheKey = `analysis_cache_${article.uri}_summary_${selectedModel}`;
+                const localCache = localStorage.getItem(localCacheKey);
+                if (localCache) {
+                    const cacheData = JSON.parse(localCache);
+                    const cacheAge = new Date() - new Date(cacheData.generated_at);
+                    const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
+                    
+                    if (cacheAge < maxAge) {
+                        hasCachedAnalysis = true;
+                    }
+                }
+            } catch (localError) {
+                console.debug(`Local cache check failed for ${article.uri}:`, localError);
+            }
+        }
+        
+        // Show indicator if cached analysis found
+        if (hasCachedAnalysis) {
+            const indicator = document.getElementById(`cached-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}`);
+            if (indicator) {
+                indicator.style.display = 'inline';
+            }
+        }
+    }
+}
+
+// Pagination and filtering variables
+let allArticlesData = [];
+let filteredArticlesData = [];
+let currentPage = 1;
+const articlesPerPage = 25;
+let currentSort = 'date_asc';
+let currentSearchTerm = '';
+
+// Handle sort change
+function handleSortChange() {
+    currentSort = document.getElementById('sort-select').value;
+    currentPage = 1; // Reset to first page
+    applyFiltersAndDisplay();
+}
+
+// Handle search input with debouncing
+let searchTimeout;
+function handleSearchInput() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+        currentSearchTerm = document.getElementById('search-input').value.toLowerCase().trim();
+        currentPage = 1; // Reset to first page
+        applyFiltersAndDisplay();
+    }, 300);
+}
+
+// Apply filters and display current page
+function applyFiltersAndDisplay() {
+    if (!allArticlesData || !Array.isArray(allArticlesData) || allArticlesData.length === 0) {
+        console.warn('No valid articles data available for filtering');
+        return;
+    }
+    
+    // Filter articles based on search term
+    filteredArticlesData = allArticlesData.filter(article => {
+        if (!currentSearchTerm) return true;
+        
+        const searchableText = [
+            article.title || '',
+            article.summary || '',
+            article.tags || '',
+            article.category || ''
+        ].join(' ').toLowerCase();
+        
+        return searchableText.includes(currentSearchTerm);
+    });
+    
+    // Sort articles
+    filteredArticlesData.sort((a, b) => {
+        switch (currentSort) {
+            case 'date_desc':
+                return new Date(b.publication_date || 0) - new Date(a.publication_date || 0);
+            case 'date_asc':
+                return new Date(a.publication_date || 0) - new Date(b.publication_date || 0);
+            case 'category_date':
+                // Sort by category first, then by date within category
+                if (a.category !== b.category) {
+                    return (a.category || '').localeCompare(b.category || '');
+                }
+                return new Date(a.publication_date || 0) - new Date(b.publication_date || 0);
+            default:
+                return 0;
+        }
+    });
+    
+    // Update pagination info
+    updatePaginationInfo();
+    
+    // Display current page
+    displayCurrentPage();
+}
+
+// Update pagination information
+function updatePaginationInfo() {
+    const totalArticles = filteredArticlesData.length;
+    const totalPages = Math.ceil(totalArticles / articlesPerPage);
+    const start = (currentPage - 1) * articlesPerPage + 1;
+    const end = Math.min(currentPage * articlesPerPage, totalArticles);
+    
+    document.getElementById('articles-start').textContent = totalArticles > 0 ? start : 0;
+    document.getElementById('articles-end').textContent = end;
+    document.getElementById('articles-total').textContent = totalArticles;
+    document.getElementById('current-page').textContent = currentPage;
+    document.getElementById('total-pages').textContent = totalPages;
+    
+    // Update button states
+    document.getElementById('prev-page-btn').disabled = currentPage <= 1;
+    document.getElementById('next-page-btn').disabled = currentPage >= totalPages;
+    
+    // Show/hide pagination container
+    const paginationContainer = document.getElementById('pagination-container');
+    if (paginationContainer) {
+        paginationContainer.style.display = totalArticles > articlesPerPage ? 'flex' : 'none';
+    }
+}
+
+// Display current page of articles
+function displayCurrentPage() {
+    const start = (currentPage - 1) * articlesPerPage;
+    const end = start + articlesPerPage;
+    const pageArticles = filteredArticlesData.slice(start, end);
+    
+    renderArticles({ items: pageArticles });
+    
+    // Check for cached analysis indicators
+    checkCachedAnalysisIndicators(pageArticles);
+}
+
+// Pagination navigation
+function previousPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        displayCurrentPage();
+        updatePaginationInfo();
+    }
+}
+
+function nextPage() {
+    const totalPages = Math.ceil(filteredArticlesData.length / articlesPerPage);
+    if (currentPage < totalPages) {
+        currentPage++;
+        displayCurrentPage();
+        updatePaginationInfo();
+    }
+}
+
+// Auto-load database articles on page load (no LLM generation)
+async function autoLoadArticles() {
+    try {
+        console.log('Auto-loading database articles...');
+        
+        // Get current settings
+        const dateRange = document.getElementById('date-range-select')?.value || '3m';
+        const topic = document.getElementById('topic-select')?.value || '';
+        
+        // Convert date range to days for database query
+        let days = 90; // Default
+        if (dateRange.endsWith('d')) {
+            days = parseInt(dateRange.replace('d', ''));
+        } else if (dateRange.endsWith('h')) {
+            days = Math.max(1, parseInt(dateRange.replace('h', '')) / 24);
+        } else if (dateRange === '3m') {
+            days = 90; // 3 months = 90 days
+        } else if (dateRange === '1y') {
+            days = 365; // 1 year = 365 days
+        } else if (dateRange === 'all') {
+            days = 9999; // Large number for "all time"
+        }
+        
+        console.log(`Date range: ${dateRange} -> ${days} days back`);
+        
+        // Calculate actual start date for the API
+        const now = new Date();
+        const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+        const dateParam = startDate.toISOString().split('T')[0]; // YYYY-MM-DD format
+        
+        console.log(`Calculated date range: ${dateParam} to ${now.toISOString().split('T')[0]} (${days} days)`);
+        
+        // Build database query parameters to match news_feed_routes.py endpoint
+        const params = new URLSearchParams({
+            date_range: dateRange, // Use the original date_range parameter
+            per_page: '100', // Match endpoint max limit
+            page: '1',
+            max_articles: '100'
+        });
+        
+        if (topic) params.append('topic', topic);
+        
+        console.log(`API call: /api/news-feed/articles?${params.toString()}`);
+        console.log(`Date range: ${dateRange} -> should get ${days} days of articles`);
+        
+        // Load articles directly from database (not LLM-generated)
+        const response = await fetch(`/api/news-feed/articles?${params}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('Database articles loaded:', data);
+        
+        // Handle response structure
+        let articles = [];
+        if (Array.isArray(data)) {
+            articles = data;
+        } else if (data.articles) {
+            // Check if data.articles is an array or has nested structure
+            if (Array.isArray(data.articles)) {
+                articles = data.articles;
+            } else if (data.articles.items && Array.isArray(data.articles.items)) {
+                articles = data.articles.items;
+            } else if (data.articles.articles && Array.isArray(data.articles.articles)) {
+                articles = data.articles.articles;
+            } else {
+                console.warn('data.articles is not an array:', data.articles);
+                console.log('data.articles keys:', Object.keys(data.articles));
+                articles = [];
+            }
+        } else if (data.items && Array.isArray(data.items)) {
+            articles = data.items;
+        } else if (data.results && Array.isArray(data.results)) {
+            articles = data.results;
+        } else {
+            console.warn('Unexpected database response structure:', data);
+            console.log('Available keys:', Object.keys(data));
+            articles = [];
+        }
+        
+        // Store all articles and initialize filtering
+        allArticlesData = articles;
+        currentPage = 1;
+        
+        // Also store in window.lastArticlesData for analysis functions
+        window.lastArticlesData = { items: articles };
+        
+        console.log(`Loaded ${allArticlesData.length} database articles`);
+        
+        // Apply initial filters and display
+        if (allArticlesData.length > 0) {
+            applyFiltersAndDisplay();
+        } else {
+            // Show empty state
+            const listContainer = document.getElementById('articles-list');
+            if (listContainer) {
+                listContainer.innerHTML = `
+                    <div class="text-center p-4">
+                        <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                        <h5 class="text-muted">No Articles Found</h5>
+                        <p class="text-muted">No articles found for the selected criteria.</p>
+                        <small class="text-muted">Date range: ${dateRange}${topic ? `, Topic: ${topic}` : ''}</small>
+                    </div>
+                `;
+            }
+        }
+        
+        console.log(`Database articles auto-loaded: ${allArticlesData.length} total`);
+        
+    } catch (error) {
+        console.error('Error auto-loading database articles:', error);
+        
+        // Show error in articles list
+        const listContainer = document.getElementById('articles-list');
+        if (listContainer) {
+            listContainer.innerHTML = `
+                <div class="alert alert-danger">
+                    <h6><i class="fas fa-exclamation-triangle me-2"></i>Failed to Load Articles</h6>
+                    <p class="mb-0">Error: ${error.message}</p>
+                </div>
+            `;
+        }
+    }
+}
+
+// Toggle controls panel visibility
+function toggleControlsPanel() {
+    const controlsContent = document.getElementById('controlsContent');
+    const toggleIcon = document.getElementById('controlsToggleIcon');
+    const isCollapsed = controlsContent.style.display === 'none';
+    
+    if (isCollapsed) {
+        // Show controls
+        controlsContent.style.display = 'block';
+        toggleIcon.className = 'fas fa-chevron-up';
+        localStorage.setItem('newsFeedControlsCollapsed', 'false');
+    } else {
+        // Hide controls
+        controlsContent.style.display = 'none';
+        toggleIcon.className = 'fas fa-chevron-down';
+        localStorage.setItem('newsFeedControlsCollapsed', 'true');
+    }
+}
+
+// Restore controls panel state
+function restoreControlsState() {
+    const isCollapsed = localStorage.getItem('newsFeedControlsCollapsed') === 'true';
+    if (isCollapsed) {
+        const controlsContent = document.getElementById('controlsContent');
+        const toggleIcon = document.getElementById('controlsToggleIcon');
+        
+        if (controlsContent && toggleIcon) {
+            controlsContent.style.display = 'none';
+            toggleIcon.className = 'fas fa-chevron-down';
+        }
+    }
+}
+
+// Save all current settings as defaults
+function saveCurrentAsDefaults() {
+    try {
+        const settings = {
+            dateRange: document.getElementById('date-range-select')?.value,
+            topic: document.getElementById('topic-select')?.value,
+            model: document.getElementById('model-select')?.value,
+            profile: document.getElementById('profile-select')?.value,
+            timestamp: new Date().toISOString()
+        };
+        
+        localStorage.setItem('newsFeedDefaults', JSON.stringify(settings));
+        showNotification('Current settings saved as defaults!', 'success');
+        console.log('Saved defaults:', settings);
+    } catch (error) {
+        console.error('Error saving defaults:', error);
+        showNotification('Failed to save defaults', 'error');
+    }
+}
+
+// Load saved defaults
+function loadSavedDefaults() {
+    try {
+        const savedDefaults = localStorage.getItem('newsFeedDefaults');
+        if (savedDefaults) {
+            const settings = JSON.parse(savedDefaults);
+            
+            // Apply saved settings
+            if (settings.dateRange) {
+                const dateRangeEl = document.getElementById('date-range-select');
+                if (dateRangeEl) dateRangeEl.value = settings.dateRange;
+            }
+            
+            if (settings.topic) {
+                const topicEl = document.getElementById('topic-select');
+                if (topicEl) topicEl.value = settings.topic;
+            }
+            
+            if (settings.model) {
+                const modelEl = document.getElementById('model-select');
+                if (modelEl) modelEl.value = settings.model;
+            }
+            
+            console.log('Loaded saved defaults:', settings);
+            return true;
+        }
+    } catch (error) {
+        console.error('Error loading defaults:', error);
+    }
+    return false;
 }
 
 // Get the currently selected topic from the news feed
@@ -4650,14 +5187,27 @@ document.head.appendChild(style);
 
 // Initialize calendar when page loads
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM loaded, initializing calendar...');
+    console.log('DOM loaded, initializing news feed...');
+    
+    // Restore controls state first
+    restoreControlsState();
+    
+    // Load saved defaults
+    loadSavedDefaults();
+    
+    // Load calendar and other data
     loadAvailableDates();
     
-    // Load organizational profiles
+    // Load organizational profiles (this will restore profile selection)
     loadOrganizationalProfiles();
     
     // Initialize article count for default date range
     updateArticleCountForDateRange();
+    
+    // Auto-load articles with 90-day default
+    setTimeout(() => {
+        autoLoadArticles();
+    }, 1000); // Delay to ensure all settings are loaded
 });
 
 // Helper function for sentiment styling
