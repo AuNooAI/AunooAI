@@ -3163,6 +3163,51 @@ function formatMarkdownAnalysis(markdown) {
     return html;
 }
 
+// Enhanced markdown formatter for Auspex research results
+function formatAuspexMarkdown(markdown) {
+    if (!markdown || typeof markdown !== 'string') {
+        return '<div class="text-muted">No content available</div>';
+    }
+    
+    // Use marked.js for proper markdown rendering if available
+    if (typeof marked !== 'undefined') {
+        try {
+            // Configure marked for better rendering
+            marked.setOptions({
+                breaks: true,
+                gfm: true,
+                headerIds: false,
+                mangle: false
+            });
+            
+            let html = marked.parse(markdown);
+            
+            // Add Bootstrap classes for better styling
+            html = html.replace(/<table>/g, '<table class="table table-striped table-sm mt-3">');
+            html = html.replace(/<h1>/g, '<h1 class="text-primary">');
+            html = html.replace(/<h2>/g, '<h2 class="text-primary mt-4 mb-3">');
+            html = html.replace(/<h3>/g, '<h3 class="text-primary mt-3 mb-2">');
+            html = html.replace(/<h4>/g, '<h4 class="text-secondary mt-3 mb-2">');
+            html = html.replace(/<h5>/g, '<h5 class="text-secondary mt-2 mb-2">');
+            html = html.replace(/<h6>/g, '<h6 class="text-secondary mt-2 mb-1">');
+            html = html.replace(/<ul>/g, '<ul class="mb-3">');
+            html = html.replace(/<ol>/g, '<ol class="mb-3">');
+            html = html.replace(/<li>/g, '<li class="mb-1">');
+            html = html.replace(/<blockquote>/g, '<blockquote class="blockquote border-start border-primary ps-3 ms-3">');
+            html = html.replace(/<code>/g, '<code class="bg-light text-dark px-1 rounded">');
+            html = html.replace(/<pre>/g, '<pre class="bg-light p-3 rounded">');
+            html = html.replace(/<hr>/g, '<hr class="my-4">');
+            
+            return html;
+        } catch (error) {
+            console.warn('Marked.js parsing failed, falling back to simple formatting:', error);
+        }
+    }
+    
+    // Fallback to simple formatting if marked.js isn't available
+    return formatMarkdownAnalysis(markdown);
+}
+
 function generateEnhancedAnalysis(article) {
     let analysis = '';
     
@@ -3640,27 +3685,35 @@ Provide a thorough analysis using the structured format from your system prompt.
         window.auspexActiveChatId = chatId;
         window.auspexActiveTheme = theme;
         
-        // Set the topic in the modal without triggering change events
+        // Set the topic and model in the modal properly
         const topicSelect = document.getElementById('floatingTopicSelect');
+        const modelSelect = document.getElementById('floatingModelSelect');
+        
         if (topicSelect) {
-            // Temporarily disable the change handler to avoid clearing chat
-            const originalHandler = topicSelect.onchange;
-            topicSelect.onchange = null;
-            
-            // Set the topic value to the actual topic, not the theme
             topicSelect.value = actualTopic;
-            
-            // Restore the handler after a brief delay
-            setTimeout(() => {
-                topicSelect.onchange = originalHandler;
-            }, 100);
+            // Trigger the change event to properly initialize the chat
+            topicSelect.dispatchEvent(new Event('change'));
         }
         
-        // Set the model in the modal
-        const modelSelect = document.getElementById('floatingModelSelect');
         if (modelSelect) {
             modelSelect.value = selectedModel;
+            // Trigger the change event to enable the chat input
+            modelSelect.dispatchEvent(new Event('change'));
         }
+        
+        // Enable the chat input and send button
+        setTimeout(() => {
+            const chatInput = document.getElementById('floatingChatInput');
+            const sendButton = document.getElementById('floatingChatSend');
+            
+            if (chatInput) {
+                chatInput.disabled = false;
+                chatInput.placeholder = `Continue research on ${theme}...`;
+            }
+            if (sendButton) {
+                sendButton.disabled = false;
+            }
+        }, 200);
         
         // Clear existing messages and add our research status
         const chatMessages = document.getElementById('floatingChatMessages');
@@ -3761,6 +3814,9 @@ async function pollForAuspexResults(chatId, theme) {
 function displayAuspexResult(content, theme) {
     const chatMessages = document.getElementById('floatingChatMessages');
     if (chatMessages) {
+        // Use marked.js for proper markdown rendering
+        const formattedContent = formatAuspexMarkdown(content);
+        
         chatMessages.innerHTML = `
             <div class="floating-message assistant">
                 <div class="floating-message-avatar">
@@ -3768,8 +3824,8 @@ function displayAuspexResult(content, theme) {
                 </div>
                 <div class="floating-message-content">
                     <strong>Research Complete: ${theme}</strong><br>
-                    <div class="mt-2">
-                        ${formatMarkdownAnalysis(content)}
+                    <div class="mt-2 auspex-research-content">
+                        ${formattedContent}
                     </div>
                 </div>
             </div>
@@ -3839,13 +3895,13 @@ async function loadRelatedArticlesSidebar(articleUri) {
             results.forEach((related, index) => {
                 if (index < 8) { // Show up to 8 in sidebar
                     html += `<div class="mb-1">
-                        <a href="${related.id}" target="_blank" 
-                           class="text-decoration-none small d-block"
-                           style="font-size: 10px; line-height: 1.2;"
-                           title="${escapeHTML(related.metadata?.title || 'Related article')}">
-                            <i class="fas fa-external-link-alt me-1 text-muted"></i>
+                        <button class="btn btn-link p-0 text-start" 
+                                style="font-size: 10px; line-height: 1.2; border: none; background: none; color: #0066cc;"
+                                onclick="loadRelatedArticleAnalysis('${related.id}')"
+                                title="${escapeHTML(related.metadata?.title || 'Related article')}">
+                            <i class="fas fa-arrow-right me-1 text-muted"></i>
                             ${escapeHTML((related.metadata?.title || 'Related article').substring(0, 60))}${(related.metadata?.title || '').length > 60 ? '...' : ''}
-                        </a>
+                        </button>
                     </div>`;
                 }
             });
@@ -3953,6 +4009,95 @@ async function saveAnnotationFromModal(articleUri) {
     } catch (error) {
         console.error('Error saving annotation:', error);
         showNotification(`Failed to save annotation: ${error.message}`, 'error');
+    }
+}
+
+// Load related article analysis in-app
+async function loadRelatedArticleAnalysis(articleUri) {
+    try {
+        showNotification('Loading related article analysis...', 'info');
+        
+        // Find if this article is already in our current dataset
+        const existingArticle = window.lastArticlesData?.items?.find(a => a.uri === articleUri);
+        
+        if (existingArticle) {
+            // Article already loaded - just scroll to it and expand
+            const articleElement = document.querySelector(`[onclick*="${articleUri}"]`);
+            if (articleElement) {
+                articleElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Trigger expansion
+                const expandButton = articleElement.closest('.list-group-item').querySelector('.expand-arrow-btn');
+                if (expandButton && expandButton.querySelector('i').className.includes('chevron-right')) {
+                    expandButton.click();
+                }
+                showNotification('Scrolled to related article', 'success');
+                return;
+            }
+        }
+        
+        // Article not in current view - load it in a modal
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        // Get article analysis
+        const response = await fetch('/api/vector-summary-raw', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                ids: [articleUri], 
+                model: selectedModel
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to load article: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Create modal to show the related article
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.innerHTML = `
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="fas fa-newspaper me-2"></i>Related Article Analysis
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="related-article-content">
+                            ${formatMarkdownAnalysis(data.response || 'Analysis not available')}
+                        </div>
+                        <div class="text-end mt-3">
+                            <small class="text-muted">
+                                <a href="${articleUri}" target="_blank" class="text-decoration-none">
+                                    <i class="fas fa-external-link-alt me-1"></i>View original article
+                                </a>
+                            </small>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        
+        modal.addEventListener('hidden.bs.modal', () => {
+            document.body.removeChild(modal);
+        });
+        
+        showNotification('Related article loaded', 'success');
+        
+    } catch (error) {
+        console.error('Error loading related article:', error);
+        showNotification(`Failed to load related article: ${error.message}`, 'error');
     }
 }
 

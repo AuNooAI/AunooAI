@@ -1570,7 +1570,14 @@ async def article_insights(
                             line = line.strip()
                             logger.debug(f"Line {i}: '{original_line}' -> stripped: '{line}'")
                             if line.startswith('-') or line.startswith('*'):
-                                theme = line.lstrip('- *').strip()
+                                # Remove the bullet point more reliably
+                                if line.startswith('-'):
+                                    theme = line[1:].strip()  # Remove first character and strip
+                                elif line.startswith('*'):
+                                    theme = line[1:].strip()  # Remove first character and strip
+                                else:
+                                    theme = line.strip()
+                                
                                 logger.debug(f"Extracted theme: '{theme}'")
                                 if theme and len(theme) > 2:  # Only add non-empty themes
                                     research_themes.append(theme)
