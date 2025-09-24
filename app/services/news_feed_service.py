@@ -580,7 +580,6 @@ class NewsFeedService:
             for i, article_data in enumerate(articles_data_parsed):
                 try:
                     logger.info(f"Processing article {i+1}/{len(articles_data_parsed)}: {article_data.get('title', 'Untitled')}")
-                    # Create article from new format (now async)
                     article = await self._create_six_article_from_analyst_data(article_data)
                     if article:
                         articles.append(article)
@@ -602,7 +601,7 @@ class NewsFeedService:
         except Exception as e:
             logger.error(f"Error generating six articles report: {e}")
             # Fallback to simple report
-            return self._create_fallback_six_articles(articles_data, date)
+            return await self._create_fallback_six_articles(articles_data, date)
     
     async def _generate_six_articles_report_cached(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
         """Generate six articles report with caching and enhanced political analysis"""

@@ -1173,64 +1173,250 @@ async def vector_summary(
         summary_short = shorten(summary, width=300, placeholder="…")
         cat = m.get("category") or "?"
         sentiment = m.get("sentiment") or "?"
-        lines.append(
-            f"{idx}. {title} "
-            f"(category: {cat}, sentiment: {sentiment})\n"
-            f"{summary_short}\n"
-        )
+        sent_expl = m.get("sentiment_explanation") or ""
+        source = m.get("news_source") or "Unknown"
+        date = m.get("publication_date") or ""
+        bias = m.get("bias") or ""
+        factual = m.get("factual_reporting") or ""
+        cred = m.get("mbfc_credibility_rating") or ""
+        driver = m.get("driver_type") or ""
+        tti = m.get("time_to_impact") or ""
+        signal = m.get("future_signal") or ""
+        url = m.get("uri") or ""
+
+        parts: list[str] = [
+            f"{idx}. Title: {title}",
+            f"Source: {source}",
+        ]
+        if date:
+            parts.append(f"Date: {date}")
+        if url:
+            parts.append(f"URL: {url}")
+        parts.append(f"Category: {cat}")
+        line_sent = f"Sentiment: {sentiment}"
+        if sent_expl:
+            line_sent += f" - {sent_expl}"
+        parts.append(line_sent)
+        if bias:
+            parts.append(f"Bias: {bias}")
+        if factual:
+            parts.append(f"Factual reporting: {factual}")
+        if cred:
+            parts.append(f"Credibility: {cred}")
+        if driver:
+            parts.append(f"Driver type: {driver}")
+        if tti:
+            parts.append(f"Time to impact: {tti}")
+        if signal:
+            parts.append(f"Future signal: {signal}")
+        parts.append(f"Summary: {summary_short}")
+
+        lines.append("\n".join(parts) + "\n")
 
     joined = "\n".join(lines)
 
     # --------------------------------------------------------------------------------
-    # 3. Query Auspex (LLM) – pick requested or default model
+    # 3. Query LLM directly using litellm (same approach as six articles generation)
     # --------------------------------------------------------------------------------
-    from app.ai_models import (
-        get_ai_model,
-        ai_get_available_models,  # type: ignore
-    )
+    import litellm
+    logger = logging.getLogger(__name__)
 
     # Use provided model or default to gpt-4o-mini (lightweight)
     model_name = req.model or "gpt-4o-mini"
+    
+    logger.info(f"Vector summary requested with model: {model_name}")
 
-    # ai_get_available_models() returns a list of dicts → extract the names
-    available_models = ai_get_available_models()
-    available_names = [m["name"] for m in available_models]
+    # Choose prompt based on number of articles to preserve backward compatibility
+    is_single_article = len(metas) == 1
+    if is_single_article:
+        # Article-focused prompt with explicit sections – ignore line-length linting  # noqa: E501
+        system_msg = (
+            "You are Auspex – an expert news analyst. Analyze the provided article using only the supplied metadata and summary. "
+            "Produce a single-article analysis; do not reference clusters or multiple articles. "
+            "Respond in markdown with the following exact sections and headings, concise and factual:\n\n"
+            "## What is the article about?\n"
+            "## Who does it concern?\n"
+            "## Key takeaways\n- 3–6 bullet points\n"
+            "## Summary\n- 3–5 sentences\n"
+            "## Key themes\n- 2–5 bullet points\n\n"
+            "Avoid speculation; prefer neutral tone. Omit sections or bullets only if information is unavailable. Limit to ~400 words."
+        )
+    else:
+        # Legacy cluster-style prompt for multi-article inputs
+        system_msg = (
+            "You are Auspex – an expert analyst. "
+            "The user supplied a set of news articles in bullet-point form. "
+            "The articles are part of a cluster determined by a cluster analysis."
+            "The user wants to know more about the cluster."
+            "Provide a concise markdown summary covering key insights, any "
+            "recurring themes, trends, or outliers. Start with a "
+            "one-sentence summary. Then use bullet points and short sections "
+            "(Key Themes, Sentiment, Notable Articles). Limit to about 500 words."
+        )
 
-    if model_name not in available_names:
-        # Fallback to the first configured model name (if any)
-        model_name = available_names[0] if available_names else "gpt-3.5-turbo"
-
-    model = get_ai_model(model_name)
-    if model is None:
-        raise HTTPException(status_code=500, detail="AI model not configured")
-
-    # Long but readable prompt – ignore line-length linting  # noqa: E501
-    system_msg = (
-        "You are Auspex – an expert analyst. "
-        "The user supplied a set of news articles in bullet-point form. "
-        "The articles are part of a cluster determined by a cluster analysis."
-        "The user wants to know more about the cluster."
-        "Provide a concise markdown summary covering key insights, any "
-        "recurring themes, trends, or outliers. Start with a "
-        "one-sentence summary. Then use bullet points and short sections "
-        "(Key Themes, Sentiment, Notable Articles). Limit to about 500 words."
-    )
+    if is_single_article:
+        user_intro = "Here is the article context (metadata + summary):\n\n"
+    else:
+        user_intro = "Here are the articles (metadata + summaries):\n\n"
 
     messages = [
         {"role": "system", "content": system_msg},
-        {"role": "user", "content": f"Here are the articles:\n\n{joined}"},
+        {"role": "user", "content": f"{user_intro}{joined}"},
     ]
 
     try:
-        summary = model.generate_response(messages)
-    except Exception as exc:
-        logging.getLogger(__name__).error(
-            "LLM summary failed: %s", exc,
+        # Use litellm directly (same as six articles generation)
+        response = await litellm.acompletion(
+            model=model_name,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=2000
         )
-        raise HTTPException(status_code=500, detail="LLM error")
+        
+        summary = response.choices[0].message.content
+        logger.info(f"Vector summary generated successfully with model: {model_name}")
+        
+    except Exception as exc:
+        logger.error(f"LLM summary failed with model {model_name}: {exc}")
+        raise HTTPException(status_code=500, detail=f"LLM error with model {model_name}: {str(exc)}")
 
     return {"response": summary}
 
+
+# ------------------------------------------------------------------
+# Raw-text summarisation endpoint – uses full article documents
+# ------------------------------------------------------------------
+
+
+class _SummaryRawRequest(BaseModel):
+    """Payload for /vector-summary-raw."""
+
+    ids: list[str] = Field(..., description="IDs")
+    model: str | None = Field(None, description="LLM name (optional)")
+
+
+@router.post("/vector-summary-raw")
+async def vector_summary_raw(
+    req: _SummaryRawRequest,
+    session=Depends(verify_session),
+):
+    """Return a detailed markdown analysis using raw article documents.
+
+    Single article → five-section analysis (article-focused).
+    Multiple articles → legacy cluster-style analysis.
+    """
+
+    import litellm
+    logger = logging.getLogger(__name__)
+
+    # 1) Fetch documents + metadata from Chroma
+    collection = _vector_collection()
+    try:
+        res = collection.get(  # type: ignore[arg-type]
+            ids=req.ids[:20],
+            include=["metadatas", "documents"],
+        )
+    except Exception as exc:
+        logger.error("Chroma get failed for raw summary: %s", exc)
+        raise HTTPException(status_code=500, detail="Vector store error")
+
+    metas: list[dict] = res.get("metadatas", [])
+    docs: list[str] = res.get("documents", [])
+    if not metas or not docs:
+        raise HTTPException(
+            status_code=404,
+            detail="No documents found for the given ids",
+        )
+
+    def _truncate(text: str, max_chars: int = 16000) -> str:
+        if not text:
+            return ""
+        text = str(text)
+        return text if len(text) <= max_chars else text[:max_chars]
+
+    blocks: list[str] = []
+    for idx, (m, d) in enumerate(zip(metas, docs), start=1):
+        title = m.get("title") or "Untitled"
+        source = m.get("news_source") or "Unknown"
+        date = m.get("publication_date") or ""
+        url = m.get("uri") or ""
+        category = m.get("category") or ""
+        sentiment = m.get("sentiment") or ""
+        sent_expl = m.get("sentiment_explanation") or ""
+        bias = m.get("bias") or ""
+        factual = m.get("factual_reporting") or ""
+        cred = m.get("mbfc_credibility_rating") or ""
+
+        header_lines = [
+            f"{idx}. Title: {title}",
+            f"Source: {source}",
+        ]
+        if date:
+            header_lines.append(f"Date: {date}")
+        if url:
+            header_lines.append(f"URL: {url}")
+        if category:
+            header_lines.append(f"Category: {category}")
+        if sentiment:
+            line = f"Sentiment: {sentiment}"
+            if sent_expl:
+                line += f" - {sent_expl}"
+            header_lines.append(line)
+        if bias:
+            header_lines.append(f"Bias: {bias}")
+        if factual:
+            header_lines.append(f"Factual reporting: {factual}")
+        if cred:
+            header_lines.append(f"Credibility: {cred}")
+
+        full_text = _truncate(d)
+        blocks.append("\n".join(header_lines) + f"\nFull text:\n{full_text}\n")
+
+    joined = "\n\n".join(blocks)
+
+    # 2) Prompt selection
+    model_name = req.model or "gpt-4o-mini"
+    is_single_article = len(metas) == 1
+
+    if is_single_article:
+        system_msg = (
+            "You are Auspex – an expert news analyst. Analyze the provided article using only the supplied content. "
+            "Produce a concrete single-article analysis; do not reference clusters or multiple articles. "
+            "Name specific companies, organizations, tickers, people, products, and any financial figures or dates mentioned. "
+            "If a requested detail is not present, explicitly write 'Not stated'. Respond in markdown with these sections:\n\n"
+            "## What is the article about?\n"
+            "## Who does it concern?\n"
+            "## Key takeaways\n- 3–6 bullets, each with concrete nouns/numbers where possible\n"
+            "## Summary\n- 3–5 sentences, specific details over generalities\n"
+            "## Key themes\n- 2–5 bullets capturing underlying ideas\n\n"
+            "Keep neutral tone and avoid speculation. Limit to ~500 words."
+        )
+        user_intro = "Here is the article (metadata + full text):\n\n"
+    else:
+        system_msg = (
+            "You are Auspex – an expert analyst. The user supplied multiple articles. "
+            "Provide a concise markdown cluster summary: one-sentence overview, then Key Themes, Sentiment, Notable Articles."
+        )
+        user_intro = "Here are the articles (metadata + full text):\n\n"
+
+    messages = [
+        {"role": "system", "content": system_msg},
+        {"role": "user", "content": f"{user_intro}{joined}"},
+    ]
+
+    try:
+        resp = await litellm.acompletion(
+            model=model_name,
+            messages=messages,
+            temperature=0.2,
+            max_tokens=2000,
+        )
+        content = resp.choices[0].message.content
+        logger.info("Vector raw summary generated successfully with model: %s", model_name)
+        return {"response": content}
+    except Exception as exc:
+        logger.error("LLM raw summary failed with model %s: %s", model_name, exc)
+        raise HTTPException(status_code=500, detail=f"LLM error with model {model_name}: {str(exc)}")
 
 # ------------------------------------------------------------------
 # Endpoint for retrieving fun news facts

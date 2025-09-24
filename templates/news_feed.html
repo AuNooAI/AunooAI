@@ -584,7 +584,7 @@
                     <input type="date" id="custom-date-input" class="form-control form-control-sm" value="2025-09-15" style="width: 160px;">
                     <button type="button" class="btn btn-outline-secondary btn-sm ms-1" data-bs-toggle="collapse" data-bs-target="#calendar-collapse">
                         <i class="fas fa-calendar-alt"></i>
-                    </button>
+                </button>
                 </div>
             </div>
             <div class="control-group-inline">
@@ -1544,7 +1544,7 @@ async function loadArticles(page = 1) {
             const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
             params.append('date', customDate);
         }
-        
+
         const topic = document.getElementById('topic-input').value.trim();
         if (topic) {
             params.append('topic', topic);
@@ -1854,8 +1854,8 @@ function renderSixArticles(articles) {
                     <h4 class="text-primary">${index + 1}. ${article.title}</h4>
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <div>
-                            <p class="text-muted mb-1"><strong>Source:</strong> ${article.source}</p>
-                            ${article.date ? `<p class="text-muted mb-0"><strong>Date:</strong> ${article.date}</p>` : ''}
+                    <p class="text-muted mb-1"><strong>Source:</strong> ${article.source}</p>
+                    ${article.date ? `<p class="text-muted mb-0"><strong>Date:</strong> ${article.date}</p>` : ''}
                         </div>
                         <div class="text-end">
                             ${article.bias ? `<span class="badge ${getBiasClass(article.bias)} mb-1">${article.bias}</span><br>` : ''}
@@ -1898,30 +1898,26 @@ function renderSixArticles(articles) {
                         </div>
                     </div>
                     
-                    <!-- Related Articles Section -->
+                    <!-- Related Articles Section (compact) -->
                     ${article.related_articles && article.related_articles.length > 0 ? `
-                    <div class="section mt-4">
+                    <div class="section mt-3">
                         <h6 class="text-primary">Related Articles</h6>
-                        <div class="row">
+                        <ul class="list-unstyled mb-0">
                             ${article.related_articles.map(related => `
-                                <div class="col-md-6 mb-2">
-                                    <div class="card card-body p-2 bg-light">
-                                        <h6 class="card-title mb-1" style="font-size: 0.9rem;">
-                                            <a href="${related.url}" target="_blank" rel="noopener" class="text-decoration-none">
-                                                ${related.title}
-                                            </a>
-                                        </h6>
-                                        <p class="card-text mb-1" style="font-size: 0.8rem;">
-                                            <strong>Source:</strong> ${related.source}
-                                            ${related.similarity_score ? `<span class="badge bg-secondary ms-1">${(related.similarity_score * 100).toFixed(0)}% similar</span>` : ''}
-                                        </p>
-                                        <p class="card-text small text-muted" style="font-size: 0.75rem;">
-                                            ${related.summary.length > 100 ? related.summary.substring(0, 100) + '...' : related.summary}
-                                        </p>
+                                <li class="py-1">
+                                    <div class="d-flex align-items-start justify-content-between gap-2">
+                                        <div class="flex-grow-1">
+                                            <a href="${related.url}" target="_blank" rel="noopener" class="text-decoration-none small fw-semibold">${related.title}</a>
+                                            <div class="small text-muted">
+                                                <strong>Source:</strong> ${related.source}
+                                                ${related.similarity_score ? `<span class=\"ms-2 badge bg-secondary\">${(related.similarity_score * 100).toFixed(0)}% similar</span>` : ''}
+                                            </div>
+                                            ${related.summary ? `<div class=\"small text-secondary\">${related.summary.length > 110 ? related.summary.substring(0,110) + '…' : related.summary}</div>` : ''}
+                                        </div>
                                     </div>
-                                </div>
+                                </li>
                             `).join('')}
-                        </div>
+                        </ul>
                     </div>
                     ` : ''}
                 </div>
@@ -2433,6 +2429,14 @@ function renderArticles(articlesData) {
                     onclick="toggleStarArticle('${article.uri}', this)"
                     title="${isStarred ? 'Remove from Six Articles' : 'Add to Six Articles'}">★</button>
             
+            <!-- Expand arrow (left side) -->
+            <button class="btn btn-sm position-absolute expand-arrow-btn" 
+                    style="top: 50%; left: -2px; transform: translateY(-50%); width: 20px; height: 40px; padding: 0; font-size: 12px; border: none; background: #007bff; color: white; border-radius: 0 8px 8px 0; box-shadow: 2px 0 4px rgba(0,0,0,0.1);"
+                    onclick="toggleArticleDetails('${article.uri}', this)"
+                    title="Show detailed view">
+                <i class="fas fa-chevron-right"></i>
+            </button>
+            
             <!-- Two Column Layout -->
             <div class="row" style="margin-left: 30px; margin-right: 30px;">
                 <!-- Column 1: Content -->
@@ -2479,6 +2483,124 @@ function renderArticles(articlesData) {
                             <span class="text-muted small me-2" style="min-width: 80px;">Category:</span>
                             <span class="badge bg-light text-dark">${article.category}</span>
                         </div>` : ''}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Detailed View (Initially Hidden) -->
+            <div class="article-details" id="details-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-left: 20px; margin-right: 10px; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
+                <div class="row">
+                    <!-- Left Column: Enhanced Summary & Analysis -->
+                    <div class="col-md-8">
+                        <h6 class="text-primary mb-3">
+                            <i class="fas fa-search-plus me-2"></i>Detailed Analysis
+                        </h6>
+                        
+                        <div class="mb-3">
+                            <h6 class="text-secondary">Full Summary</h6>
+                            <p class="small">${escapeHTML(article.summary)}</p>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <h6 class="text-secondary">AI Analysis</h6>
+                            <div class="analysis-content bg-white p-3 rounded border" id="analysis-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}">
+                                <div class="analysis-text bg-light p-2 rounded small text-muted">
+                                    Analysis will be generated automatically when you expand this article.
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <h6 class="text-secondary">Related Articles</h6>
+                            <div class="related-articles-content" id="related-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}">
+                                <div class="text-center text-muted small">
+                                    Related articles will load automatically when you expand this article.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Right Column: Complete Metadata -->
+                    <div class="col-md-4">
+                        <h6 class="text-primary mb-3">
+                            <i class="fas fa-info-circle me-2"></i>Complete Metadata
+                        </h6>
+                        
+                        <div class="metadata-grid">
+                            ${article.bias ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Political Bias</small>
+                                <span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>
+                                ${article.bias_source ? `<br><small class="text-muted">Source: ${article.bias_source}</small>` : ''}
+                            </div>` : ''}
+                            
+                            ${article.factual_reporting ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Factual Reporting</small>
+                                <span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>
+                            </div>` : ''}
+                            
+                            ${article.mbfc_credibility_rating ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Credibility Rating</small>
+                                <span class="badge bg-info text-white">${article.mbfc_credibility_rating}</span>
+                            </div>` : ''}
+                            
+                            ${article.category ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Category</small>
+                                <span class="badge bg-light text-dark">${article.category}</span>
+                            </div>` : ''}
+                            
+                            ${article.sentiment ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Sentiment</small>
+                                <span class="badge ${getBiasClass(article.sentiment)}">${article.sentiment}</span>
+                                ${article.sentiment_explanation ? `<br><small class="text-muted">${article.sentiment_explanation}</small>` : ''}
+                            </div>` : ''}
+                            
+                            ${article.time_to_impact ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Time to Impact</small>
+                                <span class="badge bg-warning text-dark">${article.time_to_impact}</span>
+                            </div>` : ''}
+                            
+                            ${article.driver_type ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Driver Type</small>
+                                <span class="badge bg-secondary">${article.driver_type}</span>
+                            </div>` : ''}
+                            
+                            ${article.future_signal ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Future Signal</small>
+                                <span class="badge bg-dark text-white">${article.future_signal}</span>
+                            </div>` : ''}
+                            
+                            ${article.bias_country ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Country</small>
+                                <span class="badge bg-light text-dark">${article.bias_country}</span>
+                            </div>` : ''}
+                            
+                            ${article.press_freedom ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Press Freedom</small>
+                                <span class="badge bg-success">${article.press_freedom}</span>
+                            </div>` : ''}
+                            
+                            ${article.media_type ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Media Type</small>
+                                <span class="badge bg-light text-dark">${article.media_type}</span>
+                            </div>` : ''}
+                            
+                            ${article.popularity ? `
+                            <div class="metadata-item mb-2">
+                                <small class="text-muted d-block">Popularity</small>
+                                <span class="badge bg-info">${article.popularity}</span>
+                            </div>` : ''}
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2688,6 +2810,482 @@ function clearAllFilters() {
         renderArticles(articlesData);
         showNotification('All filters cleared', 'info');
     }
+}
+
+// Article detailed view functionality
+function toggleArticleDetails(articleUri, buttonElement) {
+    const detailsId = `details-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const detailsDiv = document.getElementById(detailsId);
+    const icon = buttonElement.querySelector('i');
+    
+    if (!detailsDiv) return;
+    
+    if (detailsDiv.style.display === 'none') {
+        // Expand
+        detailsDiv.style.display = 'block';
+        icon.className = 'fas fa-chevron-down';
+        buttonElement.title = 'Hide detailed view';
+        buttonElement.style.background = '#28a745'; // Green when expanded
+        
+        // Animate expansion
+        detailsDiv.style.opacity = '0';
+        detailsDiv.style.transform = 'translateY(-10px)';
+        setTimeout(() => {
+            detailsDiv.style.transition = 'all 0.3s ease';
+            detailsDiv.style.opacity = '1';
+            detailsDiv.style.transform = 'translateY(0)';
+        }, 10);
+
+        // Auto-generate AI analysis and related articles on expand if a valid model is selected
+        try {
+            const model = document.getElementById('model-select')?.value;
+            const isValid = model && typeof model === 'string' && model.trim().length > 0;
+            const analysisId = `analysis-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const relatedId = `related-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const analysisDiv = document.getElementById(analysisId);
+            const relatedDiv = document.getElementById(relatedId);
+
+            if (!isValid) {
+                showNotification('Select a valid AI model to generate analysis', 'warning');
+            } else {
+                if (analysisDiv && !analysisDiv.dataset.loaded) {
+                    generateArticleAnalysis(articleUri);
+                }
+                if (relatedDiv && !relatedDiv.dataset.loaded) {
+                    loadRelatedArticles(articleUri);
+                }
+            }
+        } catch (_) { /* best-effort */ }
+    } else {
+        // Collapse
+        detailsDiv.style.transition = 'all 0.3s ease';
+        detailsDiv.style.opacity = '0';
+        detailsDiv.style.transform = 'translateY(-10px)';
+        setTimeout(() => {
+            detailsDiv.style.display = 'none';
+        }, 300);
+        
+        icon.className = 'fas fa-chevron-right';
+        buttonElement.title = 'Show detailed view';
+        buttonElement.style.background = '#007bff'; // Blue when collapsed
+    }
+}
+
+async function generateArticleAnalysis(articleUri) {
+    const analysisId = `analysis-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const analysisDiv = document.getElementById(analysisId);
+    
+    if (!analysisDiv) return;
+    
+    try {
+        analysisDiv.innerHTML = `
+            <div class="text-center">
+                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                Generating analysis...
+            </div>
+        `;
+        
+        // Get the selected model
+        const selectedModel = document.getElementById('model-select').value;
+        console.log(`Generating analysis for ${articleUri} using model: ${selectedModel}`);
+        
+        // Get the article data from our current dataset
+        const article = window.lastArticlesData?.items?.find(a => a.uri === articleUri);
+        if (!article) {
+            throw new Error('Article not found in current dataset');
+        }
+        
+        // Prefer raw-text endpoint, fall back to legacy metadata summary
+        let response = await fetch('/api/vector-summary-raw', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: [articleUri], model: selectedModel || 'gpt-4.1-mini' })
+        });
+        if (!response.ok) {
+            console.warn('Raw summary failed, falling back to legacy summary');
+            response = await fetch('/api/vector-summary', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ids: [articleUri], model: selectedModel || 'gpt-4.1-mini' })
+            });
+        }
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API Error Response:', errorText);
+            throw new Error(`HTTP ${response.status}: ${errorText || response.statusText}`);
+        }
+        
+        const responseText = await response.text();
+        console.log('Raw API response:', responseText);
+        
+        let result;
+        try {
+            result = JSON.parse(responseText);
+        } catch (jsonError) {
+            console.error('JSON Parse Error:', jsonError);
+            console.log('Response that failed to parse:', responseText);
+            throw new Error(`Invalid JSON response: ${jsonError.message}`);
+        }
+        
+        let analysis = result.response || result.message || result.content || 'No analysis available';
+        // Normalize to single-article framing
+        analysis = analysis
+            // Remove common cluster lead-ins
+            .replace(/^\s*Cluster Summary:.*$/gmi, '')
+            .replace(/^\s*Summary of .*?cluster.*$/gmi, 'Article Summary')
+            .replace(/^\s*This cluster[^\n]*$/gmi, '')
+            .replace(/^\s*Overall, the cluster[^\n]*$/gmi, '')
+            // Re-label section headers
+            .replace(/^\s*Key Themes\s*$/gmi, '## Key Themes')
+            .replace(/^\s*Sentiment\s*$/gmi, '## Sentiment')
+            // Drop multi-article sections entirely
+            .replace(/(^\s*(Notable|Key) Articles[\s\S]*?)(?=^\s*##\s|^\s*#\s|\Z)/gmi, '')
+            // Tone down remaining cluster words
+            .replace(/\b[Cc]lusters\b/g, 'articles')
+            .replace(/\b[Cc]luster\b/g, 'article')
+            // Clean horizontal rules
+            .replace(/^\s*-{3,}\s*$/gm, '')
+            .trim();
+        
+        if (!analysis || analysis.trim() === '') {
+            throw new Error('Empty analysis response');
+        }
+        
+        // Format the response properly
+        const formattedAnalysis = formatMarkdownAnalysis(analysis);
+        
+        analysisDiv.innerHTML = `
+            <div class="analysis-text bg-success-subtle p-3 rounded border">
+                <div class="d-flex align-items-center mb-3">
+                    <i class="fas fa-robot me-2 text-success"></i>
+                    <strong class="text-success">Strategic Analysis</strong>
+                    <span class="badge bg-success ms-2">${selectedModel}</span>
+                </div>
+                ${formattedAnalysis}
+            </div>
+        `;
+        analysisDiv.dataset.loaded = 'true';
+        
+    } catch (error) {
+        console.error('Error generating article analysis:', error);
+        
+        // Fallback to enhanced metadata analysis
+        const article = window.lastArticlesData?.items?.find(a => a.uri === articleUri);
+        if (article) {
+            const enhancedAnalysis = generateEnhancedAnalysis(article);
+            analysisDiv.innerHTML = `
+                <div class="analysis-text bg-warning-subtle p-3 rounded border">
+                    <div class="d-flex align-items-center mb-3">
+                        <i class="fas fa-exclamation-triangle me-2 text-warning"></i>
+                        <strong class="text-warning">Analysis Failed</strong>
+                        <span class="badge bg-warning text-dark ms-2">Using Enhanced Metadata</span>
+                    </div>
+                    <div class="alert alert-warning alert-sm mb-3">
+                        <small><strong>Error:</strong> ${error.message}</small>
+                    </div>
+                    ${enhancedAnalysis}
+                    <div class="mt-3">
+                        <button class="btn btn-sm btn-outline-primary" onclick="generateArticleAnalysis('${articleUri}')">
+                            <i class="fas fa-sync me-1"></i>Retry Analysis
+                        </button>
+                    </div>
+                </div>
+            `;
+        } else {
+            analysisDiv.innerHTML = `
+                <div class="text-danger small">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    Error: ${error.message}
+                </div>
+            `;
+        }
+    }
+}
+
+// Enhanced Analysis feature removed per requirements
+
+async function loadRelatedArticles(articleUri) {
+    const relatedId = `related-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const relatedDiv = document.getElementById(relatedId);
+    
+    if (!relatedDiv) return;
+    
+    try {
+        relatedDiv.innerHTML = `
+            <div class="text-center">
+                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                Finding related articles...
+            </div>
+        `;
+        
+        // Call vector similarity API
+        const response = await fetch(`/api/vector-similar?uri=${encodeURIComponent(articleUri)}&top_k=5`);
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const result = await response.json();
+        const relatedArticles = result.results || [];
+        
+        if (relatedArticles.length === 0) {
+            relatedDiv.innerHTML = `
+                <div class="text-muted small">
+                    <i class="fas fa-info-circle me-2"></i>
+                    No related articles found
+                </div>
+            `;
+            return;
+        }
+        
+        let relatedHtml = '<ul class="list-unstyled mb-0">';
+        relatedArticles.forEach((related) => {
+            const metadata = related.metadata || {};
+            const similarity = (related.score * 100).toFixed(0);
+            const truncatedSummary = (metadata.summary || '').trim();
+            const summaryShort = truncatedSummary ? escapeHTML(truncatedSummary.substring(0, 110)) + (truncatedSummary.length > 110 ? '…' : '') : '';
+            relatedHtml += `
+                <li class="py-1 border-0">
+                    <div class="d-flex align-items-start justify-content-between gap-2">
+                        <div class="flex-grow-1">
+                            <a href="${metadata.uri}" target="_blank" rel="noopener" class="text-decoration-none small fw-semibold">${escapeHTML(metadata.title || 'Untitled')}</a>
+                            <div class="small text-muted">
+                                <i class="fas fa-building me-1"></i>${escapeHTML(metadata.news_source || 'Unknown')}
+                                ${metadata.category ? `<span class="ms-2 badge bg-light text-dark">${metadata.category}</span>` : ''}
+                                ${metadata.bias ? `<span class="ms-1 badge ${getBiasClass(metadata.bias)}">${metadata.bias}</span>` : ''}
+                                ${metadata.factual_reporting ? `<span class="ms-1 badge ${getFactualityClass(metadata.factual_reporting)}">${metadata.factual_reporting}</span>` : ''}
+                            </div>
+                            ${summaryShort ? `<div class="small text-secondary">${summaryShort}</div>` : ''}
+                        </div>
+                        <span class="badge bg-secondary align-self-start">${similarity}%</span>
+                    </div>
+                </li>`;
+        });
+        relatedHtml += '</ul>';
+        
+        relatedDiv.innerHTML = relatedHtml;
+        relatedDiv.dataset.loaded = 'true';
+        
+    } catch (error) {
+        console.error('Error loading related articles:', error);
+        relatedDiv.innerHTML = `
+            <div class="text-danger small">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                Error loading related articles: ${error.message}
+            </div>
+        `;
+    }
+}
+
+function formatMarkdownAnalysis(markdown) {
+    // Convert markdown to HTML for better display
+    let html = markdown;
+    
+    // Convert headers
+    html = html.replace(/^### (.*$)/gm, '<h6 class="text-primary mt-3 mb-2">$1</h6>');
+    html = html.replace(/^## (.*$)/gm, '<h5 class="text-primary mt-4 mb-3">$1</h5>');
+    html = html.replace(/^# (.*$)/gm, '<h4 class="text-primary mt-4 mb-3">$1</h4>');
+    
+    // Convert bold text
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    // Convert bullet points
+    html = html.replace(/^- (.*$)/gm, '<li class="mb-1">$1</li>');
+    
+    // Wrap consecutive list items in ul tags
+    html = html.replace(/(<li.*?<\/li>\s*)+/g, '<ul class="mb-3">$&</ul>');
+    
+    // Convert paragraphs (double line breaks)
+    html = html.replace(/\n\n/g, '</p><p class="mb-2">');
+    html = '<p class="mb-2">' + html + '</p>';
+    
+    // Clean up empty paragraphs
+    html = html.replace(/<p class="mb-2"><\/p>/g, '');
+    html = html.replace(/<p class="mb-2">\s*<\/p>/g, '');
+    
+    // Convert horizontal rules
+    html = html.replace(/^---$/gm, '<hr class="my-3">');
+    
+    // Clean up any remaining newlines
+    html = html.replace(/\n/g, '<br>');
+    
+    return html;
+}
+
+function generateEnhancedAnalysis(article) {
+    let analysis = '';
+    
+    // Strategic insights section
+    analysis += '<h6 class="text-primary mt-0 mb-2">Key Strategic Insights</h6>';
+    analysis += '<ul class="mb-3">';
+    
+    if (article.category) {
+        analysis += `<li class="mb-1">Categorized as <strong>${article.category}</strong>, indicating relevance to current sector developments</li>`;
+    }
+    
+    if (article.time_to_impact && article.driver_type) {
+        analysis += `<li class="mb-1">Expected <strong>${article.time_to_impact.toLowerCase()}</strong> impact, acting as a <strong>${article.driver_type.toLowerCase()}</strong> for related trends</li>`;
+    }
+    
+    if (article.future_signal) {
+        analysis += `<li class="mb-1">Signals <strong>${article.future_signal.toLowerCase()}</strong> future developments in the sector</li>`;
+    }
+    
+    analysis += '</ul>';
+    
+    // Source credibility assessment
+    analysis += '<h6 class="text-primary mb-2">Source Credibility</h6>';
+    analysis += '<ul class="mb-3">';
+    
+    if (article.factual_reporting) {
+        const factualityAssessment = article.factual_reporting.toLowerCase().includes('high') ? 'highly reliable' : 
+                                   article.factual_reporting.toLowerCase().includes('mostly') ? 'generally reliable' :
+                                   article.factual_reporting.toLowerCase().includes('mixed') ? 'moderately reliable' : 'reliability unclear';
+        analysis += `<li class="mb-1">Factual reporting rated as <strong>${article.factual_reporting}</strong> - ${factualityAssessment}</li>`;
+    }
+    
+    if (article.bias) {
+        const biasImpact = article.bias.toLowerCase().includes('center') ? 'minimal bias impact on factual content' :
+                          article.bias.toLowerCase().includes('left') ? 'may emphasize regulatory/social aspects' :
+                          article.bias.toLowerCase().includes('right') ? 'may emphasize market/business aspects' : 'bias impact unclear';
+        analysis += `<li class="mb-1">Political bias: <strong>${article.bias}</strong> - ${biasImpact}</li>`;
+    }
+    
+    if (article.mbfc_credibility_rating) {
+        analysis += `<li class="mb-1">Overall credibility: <strong>${article.mbfc_credibility_rating}</strong> rating</li>`;
+    }
+    
+    analysis += '</ul>';
+    
+    // Strategic implications
+    analysis += '<h6 class="text-primary mb-2">Strategic Implications</h6>';
+    analysis += '<ul class="mb-3">';
+    
+    if (article.sentiment) {
+        const sentimentImplication = article.sentiment.toLowerCase() === 'positive' ? 'suggests optimistic market outlook' :
+                                   article.sentiment.toLowerCase() === 'negative' ? 'indicates potential challenges or concerns' :
+                                   article.sentiment.toLowerCase() === 'critical' ? 'highlights significant issues requiring attention' :
+                                   'presents balanced perspective';
+        analysis += `<li class="mb-1">Sentiment is <strong>${article.sentiment.toLowerCase()}</strong> - ${sentimentImplication}</li>`;
+    }
+    
+    // Add organizational context if available
+    const profileSelect = document.getElementById('profile-select');
+    if (profileSelect && profileSelect.value) {
+        const selectedProfile = profileSelect.options[profileSelect.selectedIndex].text;
+        analysis += `<li class="mb-1">For <strong>${selectedProfile}</strong>: Consider alignment with organizational risk tolerance and strategic priorities</li>`;
+    }
+    
+    analysis += '</ul>';
+    
+    // Risk considerations
+    analysis += '<h6 class="text-primary mb-2">Risk Considerations</h6>';
+    analysis += '<ul class="mb-0">';
+    
+    if (article.bias && !article.bias.toLowerCase().includes('center')) {
+        analysis += `<li class="mb-1">Source bias (${article.bias}) may influence framing - consider alternative perspectives</li>`;
+    }
+    
+    if (article.time_to_impact && article.time_to_impact.toLowerCase().includes('long')) {
+        analysis += `<li class="mb-1">Long-term impact timeline suggests gradual rather than immediate strategic implications</li>`;
+    }
+    
+    if (!article.factual_reporting || article.factual_reporting.toLowerCase().includes('mixed')) {
+        analysis += `<li class="mb-1">Factual reporting quality suggests verifying key claims with additional sources</li>`;
+    }
+    
+    analysis += '<li class="mb-1">Consider this analysis alongside broader market trends and organizational context</li>';
+    analysis += '</ul>';
+    
+    return analysis;
+}
+
+function generateSimpleAnalysisHTML(article) {
+    // This version is for template rendering - returns HTML directly
+    let analysis = '';
+    
+    // Sentiment analysis
+    if (article.sentiment) {
+        analysis += `<p class="mb-2 small"><strong>Sentiment:</strong> ${article.sentiment}`;
+        if (article.sentiment_explanation) {
+            analysis += ` - ${escapeHTML(article.sentiment_explanation)}`;
+        }
+        analysis += '</p>';
+    }
+    
+    // Source quality
+    if (article.bias && article.factual_reporting) {
+        analysis += `<p class="mb-2 small"><strong>Source Quality:</strong> ${article.bias} bias, ${article.factual_reporting} factual reporting`;
+        if (article.mbfc_credibility_rating) {
+            analysis += `, ${article.mbfc_credibility_rating} credibility`;
+        }
+        analysis += '</p>';
+    }
+    
+    // Impact timing
+    if (article.time_to_impact) {
+        analysis += `<p class="mb-2 small"><strong>Impact Timing:</strong> ${article.time_to_impact}`;
+        if (article.driver_type) {
+            analysis += ` (${article.driver_type})`;
+        }
+        analysis += '</p>';
+    }
+    
+    // Future signals
+    if (article.future_signal) {
+        analysis += `<p class="mb-2 small"><strong>Future Signal:</strong> ${article.future_signal}</p>`;
+    }
+    
+    return analysis || '<p class="mb-2 small text-muted">Limited metadata available.</p>';
+}
+
+function generateSimpleAnalysis(article) {
+    let analysis = '';
+    
+    // Sentiment analysis
+    if (article.sentiment) {
+        analysis += `<p class="mb-2 small"><strong>Sentiment Analysis:</strong> This article has a ${article.sentiment.toLowerCase()} tone`;
+        if (article.sentiment_explanation) {
+            analysis += ` - ${article.sentiment_explanation}`;
+        }
+        analysis += '.</p>';
+    }
+    
+    // Bias and factuality assessment
+    if (article.bias && article.factual_reporting) {
+        analysis += `<p class="mb-2 small"><strong>Source Quality:</strong> Published by a ${article.bias.toLowerCase()} source with ${article.factual_reporting.toLowerCase()} factual reporting standards`;
+        if (article.mbfc_credibility_rating) {
+            analysis += ` and ${article.mbfc_credibility_rating.toLowerCase()} credibility rating`;
+        }
+        analysis += '.</p>';
+    }
+    
+    // Impact and timing analysis
+    if (article.time_to_impact || article.driver_type) {
+        analysis += `<p class="mb-2 small"><strong>Impact Assessment:</strong> `;
+        if (article.time_to_impact) {
+            analysis += `Expected to have ${article.time_to_impact.toLowerCase()} impact`;
+        }
+        if (article.driver_type) {
+            analysis += `${article.time_to_impact ? ' and acts as a ' : 'Acts as a '}${article.driver_type.toLowerCase()} for related developments`;
+        }
+        analysis += '.</p>';
+    }
+    
+    // Future signals
+    if (article.future_signal) {
+        analysis += `<p class="mb-2 small"><strong>Future Implications:</strong> This article signals ${article.future_signal.toLowerCase()} future developments in the ${article.category || 'relevant'} sector.</p>`;
+    }
+    
+    // Category context
+    if (article.category) {
+        analysis += `<p class="mb-2 small"><strong>Thematic Context:</strong> Categorized under ${article.category}, indicating relevance to ongoing developments in this area.</p>`;
+    }
+    
+    if (!analysis) {
+        analysis = '<p class="mb-2 small text-muted">Limited metadata available for analysis.</p>';
+    }
+    
+    return analysis;
 }
 
 function toggleStarArticle(articleUri, buttonElement) {
