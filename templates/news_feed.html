@@ -2505,13 +2505,6 @@ function renderArticles(articlesData) {
                     onclick="toggleStarArticle('${article.uri}', this)"
                     title="${isStarred ? 'Remove from Six Articles' : 'Add to Six Articles'}">★</button>
             
-            <!-- Deep Dive button (top-right) -->
-            <button class="btn btn-sm position-absolute" 
-                    style="top: 8px; right: 8px; padding: 2px 6px; font-size: 11px; border: 1px solid #17a2b8; background: rgba(23, 162, 184, 0.1); color: #17a2b8; border-radius: 12px;"
-                    onclick="generateDeepDive('${article.uri}')"
-                    title="Generate deep-dive analysis">
-                <i class="fas fa-microscope me-1"></i>Deep Dive
-            </button>
             
             <!-- Expand arrow (left side) -->
             <button class="btn btn-sm position-absolute expand-arrow-btn" 
@@ -2607,30 +2600,51 @@ function renderArticles(articlesData) {
                         <div class="metadata-grid">
                             <!-- Only show additional metadata not visible in main card -->
                             
-                            <!-- Archive & View Options (Detailed View Only) -->
-                            <div class="metadata-item mb-2 mt-3 pt-2 border-top">
-                                <small class="text-muted d-block mb-1">View Options</small>
-                                <div class="d-flex flex-wrap gap-1">
-                                    <button class="btn btn-outline-info btn-sm" 
-                                            style="font-size: 9px; padding: 1px 4px;"
-                                            onclick="window.open('https://12ft.io/${article.uri}', '_blank')"
-                                            title="View via 12ft.io (bypass paywall)">
-                                        <i class="fas fa-unlock-alt me-1"></i>12ft
-                                    </button>
-                                    <button class="btn btn-outline-warning btn-sm" 
-                                            style="font-size: 9px; padding: 1px 4px;"
-                                            onclick="window.open('https://archive.is/${article.uri}', '_blank')"
-                                            title="View archived version">
-                                        <i class="fas fa-archive me-1"></i>Archive
-                                    </button>
-                                    <button class="btn btn-outline-success btn-sm" 
-                                            style="font-size: 9px; padding: 1px 4px;"
-                                            onclick="openAnnotationModal('${article.uri}')"
-                                            title="Add annotation">
-                                        <i class="fas fa-sticky-note me-1"></i>Note
-                                    </button>
-                                </div>
-                            </div>
+            <!-- View & Analysis Options (Detailed View Only) -->
+            <div class="metadata-item mb-2 mt-3 pt-2 border-top">
+                <small class="text-muted d-block mb-1">View Options</small>
+                <div class="d-flex flex-wrap gap-1 mb-2">
+                    <button class="btn btn-outline-info btn-sm" 
+                            style="font-size: 9px; padding: 1px 4px;"
+                            onclick="window.open('https://12ft.io/${article.uri}', '_blank')"
+                            title="View via 12ft.io (bypass paywall)">
+                        <i class="fas fa-unlock-alt me-1"></i>12ft
+                    </button>
+                    <button class="btn btn-outline-warning btn-sm" 
+                            style="font-size: 9px; padding: 1px 4px;"
+                            onclick="window.open('https://archive.is/${article.uri}', '_blank')"
+                            title="View archived version">
+                        <i class="fas fa-archive me-1"></i>Archive
+                    </button>
+                    <button class="btn btn-outline-success btn-sm" 
+                            style="font-size: 9px; padding: 1px 4px;"
+                            onclick="openAnnotationModal('${article.uri}')"
+                            title="Add annotation">
+                        <i class="fas fa-sticky-note me-1"></i>Note
+                    </button>
+                </div>
+                <small class="text-muted d-block mb-1">Analysis Options</small>
+                <div class="d-flex flex-wrap gap-1">
+                    <button class="btn btn-outline-primary btn-sm" 
+                            style="font-size: 9px; padding: 1px 4px;"
+                            onclick="launchAuspexDeepDive('${article.uri}')"
+                            title="Generate comprehensive deep-dive analysis">
+                        <i class="fas fa-microscope me-1"></i>Deep Dive
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" 
+                            style="font-size: 9px; padding: 1px 4px;"
+                            onclick="launchConsensusAnalysis('${article.uri}')"
+                            title="Compare article claims to consensus">
+                        <i class="fas fa-balance-scale me-1"></i>Consensus
+                    </button>
+                    <button class="btn btn-outline-dark btn-sm" 
+                            style="font-size: 9px; padding: 1px 4px;"
+                            onclick="launchTimelineAnalysis('${article.uri}')"
+                            title="Analyze impact timeline">
+                        <i class="fas fa-clock me-1"></i>Timeline
+                    </button>
+                </div>
+            </div>
 
                             <!-- Research Themes Section (Detailed View Only) -->
                             <div class="metadata-item mb-2 mt-3 pt-2 border-top">
@@ -3894,13 +3908,19 @@ async function loadRelatedArticlesSidebar(articleUri) {
             let html = '<div class="related-articles-compact">';
             results.forEach((related, index) => {
                 if (index < 8) { // Show up to 8 in sidebar
-                    html += `<div class="mb-1">
-                        <button class="btn btn-link p-0 text-start" 
-                                style="font-size: 10px; line-height: 1.2; border: none; background: none; color: #0066cc;"
+                    html += `<div class="mb-1 d-flex align-items-center gap-1">
+                        <a href="${related.id}" target="_blank" 
+                           class="text-decoration-none small flex-grow-1"
+                           style="font-size: 10px; line-height: 1.2; color: #0066cc;"
+                           title="${escapeHTML(related.metadata?.title || 'Related article')}">
+                            <i class="fas fa-external-link-alt me-1 text-muted"></i>
+                            ${escapeHTML((related.metadata?.title || 'Related article').substring(0, 50))}${(related.metadata?.title || '').length > 50 ? '...' : ''}
+                        </a>
+                        <button class="btn btn-outline-primary btn-sm" 
+                                style="font-size: 8px; padding: 0px 2px; line-height: 1;"
                                 onclick="loadRelatedArticleAnalysis('${related.id}')"
-                                title="${escapeHTML(related.metadata?.title || 'Related article')}">
-                            <i class="fas fa-arrow-right me-1 text-muted"></i>
-                            ${escapeHTML((related.metadata?.title || 'Related article').substring(0, 60))}${(related.metadata?.title || '').length > 60 ? '...' : ''}
+                                title="Analyze this related article">
+                            <i class="fas fa-search"></i>
                         </button>
                     </div>`;
                 }
@@ -4098,6 +4118,294 @@ async function loadRelatedArticleAnalysis(articleUri) {
     } catch (error) {
         console.error('Error loading related article:', error);
         showNotification(`Failed to load related article: ${error.message}`, 'error');
+    }
+}
+
+// Launch Auspex Deep Dive analysis
+async function launchAuspexDeepDive(articleUri) {
+    try {
+        const article = window.lastArticlesData?.items?.find(a => a.uri === articleUri);
+        if (!article) {
+            throw new Error('Source article not found in current dataset');
+        }
+        
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        showNotification('Launching Auspex deep-dive analysis...', 'info');
+        
+        // Create Auspex chat session
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `Deep Dive: ${article.title}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        // Build deep dive prompt using the deepdiveprompt.md template
+        const deepDivePrompt = `Conduct a comprehensive deep-dive analysis of the topic covered in this article using the Deep Dive Template framework.
+
+CONTEXT ARTICLE:
+Title: ${article.title}
+Source: ${article.source}
+Date: ${article.date}
+Summary: ${article.summary}
+Why Interesting: ${article.why_interesting || 'Key insights for analysis'}
+
+DEEP DIVE INSTRUCTIONS:
+Use your tools to search for articles related to the themes in this article and conduct a comprehensive analysis following the Deep Dive Template structure:
+
+1. Topic Definition & Context Setting
+2. Multi-Dimensional Analysis (4-5 relevant dimensions)
+3. Strategic Summary Analysis  
+4. Consensus vs Industry Narrative Comparison
+5. Strategic Breakdown & Evidence
+6. Synthesis & Strategic Insights
+7. Final Assessment
+
+Focus on providing evidence-based analysis grounded in multiple sources, not just the context article. Use your search tools to find related articles and build a comprehensive picture.
+
+Target length: 900-1200 words with specific data points and strategic insights.`;
+        
+        await launchAuspexWithPrompt(chatId, deepDivePrompt, selectedModel, actualTopic, 'Deep Dive Analysis');
+        
+    } catch (error) {
+        console.error('Error launching deep dive:', error);
+        showNotification(`Failed to launch deep dive: ${error.message}`, 'error');
+    }
+}
+
+// Launch Consensus vs Fringe Voices analysis
+async function launchConsensusAnalysis(articleUri) {
+    try {
+        const article = window.lastArticlesData?.items?.find(a => a.uri === articleUri);
+        if (!article) {
+            throw new Error('Source article not found in current dataset');
+        }
+        
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        showNotification('Launching consensus vs fringe analysis...', 'info');
+        
+        // Create Auspex chat session
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `Consensus Analysis: ${article.title}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        // Extract key claims from the article
+        const consensusPrompt = `Analyze the consensus vs fringe voices regarding the claims made in this article.
+
+CONTEXT ARTICLE:
+Title: ${article.title}
+Source: ${article.source}
+Summary: ${article.summary}
+
+CONSENSUS ANALYSIS INSTRUCTIONS:
+1. Identify the key claims or predictions made in this article
+2. Use your tools to search for related articles in the topic "${actualTopic}"
+3. Analyze whether these claims represent:
+   - Mainstream consensus (majority view)
+   - Emerging consensus (growing agreement)
+   - Fringe perspective (minority/outlier view)
+   - Mixed views (no clear consensus)
+
+4. Provide evidence-based analysis showing:
+   - What the consensus actually says about these topics
+   - How this article's perspective compares to the broader evidence
+   - Timeline consensus (when impacts are expected)
+   - Confidence levels in different scenarios
+   - Notable outlier perspectives (both optimistic and pessimistic)
+
+5. Structure your response with clear sections showing the comparison between this article's claims and the broader consensus patterns.
+
+Use your search and analysis tools to gather comprehensive evidence from multiple sources.`;
+        
+        await launchAuspexWithPrompt(chatId, consensusPrompt, selectedModel, actualTopic, 'Consensus Analysis');
+        
+    } catch (error) {
+        console.error('Error launching consensus analysis:', error);
+        showNotification(`Failed to launch consensus analysis: ${error.message}`, 'error');
+    }
+}
+
+// Launch Impact Timeline analysis
+async function launchTimelineAnalysis(articleUri) {
+    try {
+        const article = window.lastArticlesData?.items?.find(a => a.uri === articleUri);
+        if (!article) {
+            throw new Error('Source article not found in current dataset');
+        }
+        
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        showNotification('Launching impact timeline analysis...', 'info');
+        
+        // Create Auspex chat session
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `Timeline Analysis: ${article.title}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        // Extract themes and build timeline prompt
+        const timelinePrompt = `Analyze the impact timeline and strategic planning horizons for the themes discussed in this article.
+
+CONTEXT ARTICLE:
+Title: ${article.title}
+Source: ${article.source}
+Category: ${article.category || 'Not specified'}
+Future Signal: ${article.future_signal || 'Not specified'}
+Time to Impact: ${article.time_to_impact || 'Not specified'}
+Summary: ${article.summary}
+
+TIMELINE ANALYSIS INSTRUCTIONS:
+1. Identify the key themes and developments mentioned in this article
+2. Use your tools to search for related articles in "${actualTopic}" to build a comprehensive timeline
+3. Create strategic planning horizons showing:
+   - Immediate impacts (2025)
+   - Short-term developments (2025-2027)
+   - Mid-term transformations (2027-2030)
+   - Long-term implications (2030-2035+)
+
+4. For each timeframe, provide:
+   - Key milestones and decision points
+   - Strategic implications for decision-makers
+   - Risk and opportunity windows
+   - Evidence from multiple sources
+
+5. Structure your analysis to help strategic planning with specific timelines, actionable insights, and evidence-based projections.
+
+Use your search and analysis tools to gather comprehensive timeline evidence from multiple sources.`;
+        
+        await launchAuspexWithPrompt(chatId, timelinePrompt, selectedModel, actualTopic, 'Timeline Analysis');
+        
+    } catch (error) {
+        console.error('Error launching timeline analysis:', error);
+        showNotification(`Failed to launch timeline analysis: ${error.message}`, 'error');
+    }
+}
+
+// Common function to launch Auspex with a specific prompt
+async function launchAuspexWithPrompt(chatId, prompt, model, topic, analysisType) {
+    try {
+        // Send the analysis prompt
+        const messageResponse = await fetch('/api/auspex/chat/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                message: prompt,
+                model: model,
+                limit: 50,
+                tools_config: {
+                    search_articles: true,
+                    get_sentiment_analysis: true,
+                    semantic_search_and_analyze: true
+                }
+            })
+        });
+        
+        if (!messageResponse.ok) {
+            throw new Error(`Failed to send analysis message: ${messageResponse.status}`);
+        }
+        
+        // Open Auspex modal and set up the session
+        const auspexModal = new bootstrap.Modal(document.getElementById('floatingChatModal'));
+        
+        // Set the topic and model in the modal properly
+        const topicSelect = document.getElementById('floatingTopicSelect');
+        const modelSelect = document.getElementById('floatingModelSelect');
+        
+        if (topicSelect) {
+            topicSelect.value = topic;
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+        
+        if (modelSelect) {
+            modelSelect.value = model;
+            modelSelect.dispatchEvent(new Event('change'));
+        }
+        
+        // Enable the chat input and send button
+        setTimeout(() => {
+            const chatInput = document.getElementById('floatingChatInput');
+            const sendButton = document.getElementById('floatingChatSend');
+            
+            if (chatInput) {
+                chatInput.disabled = false;
+                chatInput.placeholder = `Continue ${analysisType.toLowerCase()}...`;
+            }
+            if (sendButton) {
+                sendButton.disabled = false;
+            }
+        }, 200);
+        
+        // Clear existing messages and add our analysis status
+        const chatMessages = document.getElementById('floatingChatMessages');
+        if (chatMessages) {
+            chatMessages.innerHTML = `
+                <div class="floating-message assistant">
+                    <div class="floating-message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="floating-message-content">
+                        <strong>${analysisType} Active</strong><br>
+                        I'm conducting comprehensive ${analysisType.toLowerCase()} analysis. 
+                        The analysis has been started and results will appear here shortly...
+                        <div class="mt-2">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            <small class="text-muted">Analyzing articles and generating insights...</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Open the modal
+        auspexModal.show();
+        
+        // Start polling for the analysis results
+        pollForAuspexResults(chatId, analysisType);
+        
+        showNotification(`${analysisType} launched successfully!`, 'success');
+        
+    } catch (error) {
+        console.error(`Error launching ${analysisType}:`, error);
+        showNotification(`Failed to launch ${analysisType}: ${error.message}`, 'error');
     }
 }
 
