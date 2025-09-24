@@ -1419,6 +1419,314 @@ async def vector_summary_raw(
         raise HTTPException(status_code=500, detail=f"LLM error with model {model_name}: {str(exc)}")
 
 # ------------------------------------------------------------------
+# Article insights endpoint – themes, insights, and follow-ups
+# ------------------------------------------------------------------
+
+
+class _ArticleInsightsRequest(BaseModel):
+    """Payload for /article-insights."""
+
+    ids: list[str] = Field(..., description="Article IDs (URIs) to analyze")
+    model: str | None = Field(None, description="LLM name (optional)")
+    structured: bool = Field(False, description="Return structured JSON instead of markdown")
+
+
+@router.post("/article-insights")
+async def article_insights(
+    req: _ArticleInsightsRequest,
+    session=Depends(verify_session),
+):
+    """Generate concise themes, insights, and follow-up prompts for given articles.
+
+    - Single article → article-focused insights
+    - Multiple articles → cluster-focused insights
+    """
+
+    import litellm
+    logger = logging.getLogger(__name__)
+
+    # 1) Fetch metadatas (and summaries) from Chroma
+    collection = _vector_collection()
+    try:
+        res = collection.get(  # type: ignore[arg-type]
+            ids=req.ids[:100],
+            include=["metadatas"],
+        )
+    except Exception as exc:
+        logger.error("Chroma get failed for article-insights: %s", exc)
+        raise HTTPException(status_code=500, detail="Vector store error")
+
+    metas: list[dict] = res.get("metadatas", [])
+    if not metas:
+        raise HTTPException(status_code=404, detail="No metadata found for the given ids")
+
+    # 2) Build concise context
+    from textwrap import shorten
+    lines: list[str] = []
+    for idx, m in enumerate(metas, start=1):
+        title = m.get("title") or "Untitled"
+        source = m.get("news_source") or "Unknown"
+        date = m.get("publication_date") or ""
+        url = m.get("uri") or ""
+        category = m.get("category") or ""
+        sentiment = m.get("sentiment") or ""
+        signal = m.get("future_signal") or ""
+        driver = m.get("driver_type") or ""
+        tti = m.get("time_to_impact") or ""
+        summary = shorten(m.get("summary") or "", width=400, placeholder="…")
+
+        parts: list[str] = [
+            f"{idx}. Title: {title}",
+            f"Source: {source}",
+        ]
+        if date:
+            parts.append(f"Date: {date}")
+        if url:
+            parts.append(f"URL: {url}")
+        if category:
+            parts.append(f"Category: {category}")
+        if sentiment:
+            parts.append(f"Sentiment: {sentiment}")
+        if signal:
+            parts.append(f"Future signal: {signal}")
+        if driver:
+            parts.append(f"Driver type: {driver}")
+        if tti:
+            parts.append(f"Time to impact: {tti}")
+        parts.append(f"Summary: {summary}")
+
+        lines.append("\n".join(parts) + "\n")
+
+    joined = "\n".join(lines)
+
+    # 3) Prompt and LLM call
+    model_name = req.model or "gpt-4o-mini"
+    is_single_article = len(metas) == 1
+
+    if is_single_article:
+        system_msg = (
+            "You are Auspex – an expert news analyst. Based only on the provided article metadata and summary, "
+            "identify research themes that warrant deeper investigation. Respond in markdown with EXACT section:\n\n"
+            "## Research themes\n- 4–8 bullets: each a specific research topic (2–5 words) suitable for comprehensive Auspex analysis\n\n"
+            "Focus ONLY on identifying themes for deep research. Each theme should be broad enough to find multiple related articles."
+        )
+        user_intro = "Here is the article context (metadata + summary):\n\n"
+    else:
+        system_msg = (
+            "You are Auspex – an expert analyst. The user provided multiple related articles as metadata+summaries. "
+            "Identify research themes for deep investigation. Respond in markdown with EXACT section:\n\n"
+            "## Research themes\n- 5–10 bullets: each a specific research topic (2–5 words) suitable for Auspex analysis\n\n"
+            "Focus ONLY on identifying themes that warrant investigation beyond these articles."
+        )
+        user_intro = "Here are the articles (metadata + summaries):\n\n"
+
+    messages = [
+        {"role": "system", "content": system_msg},
+        {"role": "user", "content": f"{user_intro}{joined}"},
+    ]
+
+    try:
+        from datetime import datetime
+        generated_at = datetime.utcnow().isoformat() + "Z"
+        
+        resp = await litellm.acompletion(
+            model=model_name,
+            messages=messages,
+            temperature=0.3,
+            max_tokens=2000,
+        )
+        content = resp.choices[0].message.content
+        logger.info("Article insights generated successfully with model: %s", model_name)
+        
+        # Return structured JSON if requested
+        if req.structured:
+            try:
+                import re
+                # Parse markdown sections into structured data
+                research_themes = []
+                
+                # Extract research themes - try multiple header variations
+                themes_patterns = [
+                    r'## Research themes\n(.*?)(?=\n##|\n$)',
+                    r'## Research Themes\n(.*?)(?=\n##|\n$)', 
+                    r'##\s*Research\s*[Tt]hemes\s*\n(.*?)(?=\n##|\n$)',
+                    r'Research themes:?\n(.*?)(?=\n##|\n$)',
+                    r'Research Themes:?\n(.*?)(?=\n##|\n$)'
+                ]
+                
+                research_themes = []
+                for pattern in themes_patterns:
+                    themes_match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+                    if themes_match:
+                        matched_content = themes_match.group(1)
+                        logger.info(f"Pattern matched: {pattern}")
+                        logger.info(f"Matched content: '{matched_content[:200]}...'")
+                        
+                        # Extract lines that start with - or *
+                        lines = matched_content.split('\n')
+                        logger.info(f"Processing {len(lines)} lines from matched content")
+                        for i, line in enumerate(lines):
+                            original_line = line
+                            line = line.strip()
+                            logger.debug(f"Line {i}: '{original_line}' -> stripped: '{line}'")
+                            if line.startswith('-') or line.startswith('*'):
+                                theme = line.lstrip('- *').strip()
+                                logger.debug(f"Extracted theme: '{theme}'")
+                                if theme and len(theme) > 2:  # Only add non-empty themes
+                                    research_themes.append(theme)
+                                    logger.info(f"Added theme: '{theme}'")
+                        
+                        logger.info(f"Successfully extracted {len(research_themes)} themes: {research_themes}")
+                        break
+                
+                if not research_themes:
+                    logger.warning(f"No research themes found in content. Content preview: {content[:500]}...")
+                    # Try a more aggressive extraction as last resort
+                    lines = content.split('\n')
+                    in_themes_section = False
+                    for line in lines:
+                        line = line.strip()
+                        if 'research themes' in line.lower():
+                            in_themes_section = True
+                            continue
+                        if in_themes_section and line.startswith('#'):
+                            break  # End of section
+                        if in_themes_section and (line.startswith('-') or line.startswith('*')):
+                            theme = line.lstrip('- *').strip()
+                            if theme and len(theme) > 2:
+                                research_themes.append(theme)
+                    
+                    if research_themes:
+                        logger.info(f"Fallback extraction found {len(research_themes)} themes: {research_themes}")
+                
+                return {
+                    "generated_at": generated_at,
+                    "research_themes": research_themes,
+                    "raw_response": content
+                }
+            except Exception as parse_exc:
+                logger.warning("Failed to parse structured insights, falling back to markdown: %s", parse_exc)
+                return {"response": content, "generated_at": generated_at}
+        
+        return {"response": content, "generated_at": generated_at}
+    except Exception as exc:
+        logger.error("LLM article-insights failed with model %s: %s", model_name, exc)
+        raise HTTPException(status_code=500, detail=f"LLM error with model {model_name}: {str(exc)}")
+
+# ------------------------------------------------------------------
+# Article deep-dive endpoint – uses deepdiveprompt.md template
+# ------------------------------------------------------------------
+
+
+class _ArticleDeepDiveRequest(BaseModel):
+    """Payload for /article-deep-dive."""
+
+    ids: list[str] = Field(..., description="Single article ID (URI)")
+    model: str | None = Field(None, description="LLM name (optional)")
+
+
+@router.post("/article-deep-dive")
+async def article_deep_dive(
+    req: _ArticleDeepDiveRequest,
+    session=Depends(verify_session),
+):
+    """Produce a deep-dive analysis for a single article using the template in deepdiveprompt.md."""
+
+    import litellm
+    logger = logging.getLogger(__name__)
+
+    if len(req.ids) != 1:
+        raise HTTPException(status_code=400, detail="Provide exactly one id for deep-dive analysis")
+
+    # Load template content
+    try:
+        template_path = (Path(__file__).parent.parent.parent / "deepdiveprompt.md").resolve()
+        with open(template_path, "r", encoding="utf-8") as f:
+            template_text = f.read()
+    except Exception as exc:
+        logger.warning("Failed to load deepdiveprompt.md, using fallback instructions: %s", exc)
+        template_text = (
+            "Use the provided structure to produce a comprehensive deep-dive with sections for definition/context,"
+            " multi-dimensional analysis (4-5 dimensions), strategic summary, consensus vs narrative comparison,"
+            " strategic/sentiment breakdown, notable examples, conclusion, and final thoughts. Limit 900–1200 words."
+        )
+
+    # Fetch document + metadata for the article
+    collection = _vector_collection()
+    try:
+        res = collection.get(ids=req.ids[:1], include=["metadatas", "documents"])  # type: ignore[arg-type]
+    except Exception as exc:
+        logger.error("Chroma get failed for article-deep-dive: %s", exc)
+        raise HTTPException(status_code=500, detail="Vector store error")
+
+    metas: list[dict] = res.get("metadatas", [])
+    docs: list[str] = res.get("documents", [])
+    if not metas or not docs:
+        raise HTTPException(status_code=404, detail="No document found for the given id")
+
+    meta = metas[0]
+    doc = docs[0] or ""
+
+    # Construct context
+    title = meta.get("title") or "Untitled"
+    source = meta.get("news_source") or "Unknown"
+    date = meta.get("publication_date") or ""
+    url = meta.get("uri") or ""
+    category = meta.get("category") or ""
+    sentiment = meta.get("sentiment") or ""
+    context_header = [
+        f"Title: {title}",
+        f"Source: {source}",
+    ]
+    if date:
+        context_header.append(f"Date: {date}")
+    if url:
+        context_header.append(f"URL: {url}")
+    if category:
+        context_header.append(f"Category: {category}")
+    if sentiment:
+        context_header.append(f"Sentiment: {sentiment}")
+
+    # Truncate long documents conservatively
+    def _truncate(text: str, max_chars: int = 20000) -> str:
+        text = str(text or "")
+        return text if len(text) <= max_chars else text[:max_chars]
+
+    article_block = "\n".join(context_header) + "\n\n" + _truncate(doc)
+
+    model_name = req.model or "gpt-4o-mini"
+    system_msg = (
+        "You are Auspex – an expert strategic analyst. Follow the provided template strictly;"
+        " ground every point in the article content. Do not invent data."
+    )
+    user_msg = (
+        "Deep-Dive Template Follows (use its structure and headings), then the Article Content:\n\n"
+        "=== TEMPLATE START ===\n" + template_text + "\n=== TEMPLATE END ===\n\n"
+        "=== ARTICLE START ===\n" + article_block + "\n=== ARTICLE END ===\n\n"
+        "Write a 900–1200 word deep-dive tailored to this single article."
+    )
+
+    try:
+        from datetime import datetime
+        generated_at = datetime.utcnow().isoformat() + "Z"
+        
+        resp = await litellm.acompletion(
+            model=model_name,
+            messages=[
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": user_msg},
+            ],
+            temperature=0.2,
+            max_tokens=2500,
+        )
+        content = resp.choices[0].message.content
+        logger.info("Article deep-dive generated successfully with model: %s", model_name)
+        return {"response": content, "generated_at": generated_at}
+    except Exception as exc:
+        logger.error("LLM article-deep-dive failed with model %s: %s", model_name, exc)
+        raise HTTPException(status_code=500, detail=f"LLM error with model {model_name}: {str(exc)}")
+
+# ------------------------------------------------------------------
 # Endpoint for retrieving fun news facts
 # ------------------------------------------------------------------
 

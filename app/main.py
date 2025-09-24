@@ -3781,4 +3781,5 @@ async def auspex_status_page(request: Request, session=Depends(verify_session)):
         get_template_context(request, {"session": session})
     )
 
+
 # Route moved to app/routes/forecast_chart_routes.py to avoid duplication

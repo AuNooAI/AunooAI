@@ -2411,7 +2411,13 @@ async function updateArticleCountForDateRange() {
     try {
         countEl.textContent = 'loading...';
         
-        const dateRangeValue = document.getElementById('date-range-select').value;
+        const dateRangeEl = document.getElementById('date-range-select');
+        if (!dateRangeEl) {
+            console.warn('date-range-select element not found');
+            countEl.textContent = '0';
+            return;
+        }
+        const dateRangeValue = dateRangeEl.value;
         const params = new URLSearchParams({
             date_range: dateRangeValue,
             count_only: 'true'
@@ -2499,6 +2505,14 @@ function renderArticles(articlesData) {
                     onclick="toggleStarArticle('${article.uri}', this)"
                     title="${isStarred ? 'Remove from Six Articles' : 'Add to Six Articles'}">★</button>
             
+            <!-- Deep Dive button (top-right) -->
+            <button class="btn btn-sm position-absolute" 
+                    style="top: 8px; right: 8px; padding: 2px 6px; font-size: 11px; border: 1px solid #17a2b8; background: rgba(23, 162, 184, 0.1); color: #17a2b8; border-radius: 12px;"
+                    onclick="generateDeepDive('${article.uri}')"
+                    title="Generate deep-dive analysis">
+                <i class="fas fa-microscope me-1"></i>Deep Dive
+            </button>
+            
             <!-- Expand arrow (left side) -->
             <button class="btn btn-sm position-absolute expand-arrow-btn" 
                     style="top: 50%; left: -2px; transform: translateY(-50%); width: 20px; height: 40px; padding: 0; font-size: 12px; border: none; background: #007bff; color: white; border-radius: 0 8px 8px 0; box-shadow: 2px 0 4px rgba(0,0,0,0.1);"
@@ -2553,6 +2567,7 @@ function renderArticles(articlesData) {
                             <span class="text-muted small me-2" style="min-width: 80px;">Category:</span>
                             <span class="badge bg-light text-dark">${article.category}</span>
                         </div>` : ''}
+                        
                     </div>
                 </div>
             </div>
@@ -2580,14 +2595,7 @@ function renderArticles(articlesData) {
                             </div>
                         </div>
                         
-                        <div class="mb-3">
-                            <h6 class="text-secondary">Related Articles</h6>
-                            <div class="related-articles-content" id="related-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}">
-                                <div class="text-center text-muted small">
-                                    Related articles will load automatically when you expand this article.
-                                </div>
-                            </div>
-                        </div>
+                        
                     </div>
                     
                     <!-- Right Column: Complete Metadata -->
@@ -2597,79 +2605,52 @@ function renderArticles(articlesData) {
                         </h6>
                         
                         <div class="metadata-grid">
-                            ${article.bias ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Political Bias</small>
-                                <span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>
-                                ${article.bias_source ? `<br><small class="text-muted">Source: ${article.bias_source}</small>` : ''}
-                            </div>` : ''}
+                            <!-- Only show additional metadata not visible in main card -->
                             
-                            ${article.factual_reporting ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Factual Reporting</small>
-                                <span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>
-                            </div>` : ''}
-                            
-                            ${article.mbfc_credibility_rating ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Credibility Rating</small>
-                                <span class="badge bg-info text-white">${article.mbfc_credibility_rating}</span>
-                            </div>` : ''}
-                            
-                            ${article.category ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Category</small>
-                                <span class="badge bg-light text-dark">${article.category}</span>
-                            </div>` : ''}
-                            
-                            ${article.sentiment ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Sentiment</small>
-                                <span class="badge ${getBiasClass(article.sentiment)}">${article.sentiment}</span>
-                                ${article.sentiment_explanation ? `<br><small class="text-muted">${article.sentiment_explanation}</small>` : ''}
-                            </div>` : ''}
-                            
-                            ${article.time_to_impact ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Time to Impact</small>
-                                <span class="badge bg-warning text-dark">${article.time_to_impact}</span>
-                            </div>` : ''}
-                            
-                            ${article.driver_type ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Driver Type</small>
-                                <span class="badge bg-secondary">${article.driver_type}</span>
-                            </div>` : ''}
-                            
-                            ${article.future_signal ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Future Signal</small>
-                                <span class="badge bg-dark text-white">${article.future_signal}</span>
-                            </div>` : ''}
-                            
-                            ${article.bias_country ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Country</small>
-                                <span class="badge bg-light text-dark">${article.bias_country}</span>
-                            </div>` : ''}
-                            
-                            ${article.press_freedom ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Press Freedom</small>
-                                <span class="badge bg-success">${article.press_freedom}</span>
-                            </div>` : ''}
-                            
-                            ${article.media_type ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Media Type</small>
-                                <span class="badge bg-light text-dark">${article.media_type}</span>
-                            </div>` : ''}
-                            
-                            ${article.popularity ? `
-                            <div class="metadata-item mb-2">
-                                <small class="text-muted d-block">Popularity</small>
-                                <span class="badge bg-info">${article.popularity}</span>
-                            </div>` : ''}
+                            <!-- Archive & View Options (Detailed View Only) -->
+                            <div class="metadata-item mb-2 mt-3 pt-2 border-top">
+                                <small class="text-muted d-block mb-1">View Options</small>
+                                <div class="d-flex flex-wrap gap-1">
+                                    <button class="btn btn-outline-info btn-sm" 
+                                            style="font-size: 9px; padding: 1px 4px;"
+                                            onclick="window.open('https://12ft.io/${article.uri}', '_blank')"
+                                            title="View via 12ft.io (bypass paywall)">
+                                        <i class="fas fa-unlock-alt me-1"></i>12ft
+                                    </button>
+                                    <button class="btn btn-outline-warning btn-sm" 
+                                            style="font-size: 9px; padding: 1px 4px;"
+                                            onclick="window.open('https://archive.is/${article.uri}', '_blank')"
+                                            title="View archived version">
+                                        <i class="fas fa-archive me-1"></i>Archive
+                                    </button>
+                                    <button class="btn btn-outline-success btn-sm" 
+                                            style="font-size: 9px; padding: 1px 4px;"
+                                            onclick="openAnnotationModal('${article.uri}')"
+                                            title="Add annotation">
+                                        <i class="fas fa-sticky-note me-1"></i>Note
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Research Themes Section (Detailed View Only) -->
+                            <div class="metadata-item mb-2 mt-3 pt-2 border-top">
+                                <small class="text-muted d-block mb-1">Research Themes</small>
+                                <div class="research-themes-sidebar" id="themes-sidebar-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}">
+                                    <div class="text-muted small">
+                                        <i class="fas fa-spinner fa-spin me-1"></i>Loading themes...
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Related Articles Section (Detailed View Only) -->
+                            <div class="metadata-item mb-2 mt-3 pt-2 border-top">
+                                <small class="text-muted d-block mb-1">Related Articles</small>
+                                <div class="related-articles-sidebar" id="related-sidebar-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}">
+                                    <div class="text-muted small">
+                                        <i class="fas fa-spinner fa-spin me-1"></i>Loading...
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -2921,9 +2902,10 @@ function toggleArticleDetails(articleUri, buttonElement) {
                 if (analysisDiv && !analysisDiv.dataset.loaded) {
                     generateArticleAnalysis(articleUri);
                 }
-                if (relatedDiv && !relatedDiv.dataset.loaded) {
-                    loadRelatedArticles(articleUri);
-                }
+                // Load related articles for sidebar
+                loadRelatedArticlesSidebar(articleUri);
+                // Generate research themes for sidebar
+                generateResearchThemes(articleUri);
             }
         } catch (_) { /* best-effort */ }
     } else {
@@ -3356,6 +3338,622 @@ function generateSimpleAnalysis(article) {
     }
     
     return analysis;
+}
+
+// Generate research themes for sidebar
+async function generateResearchThemes(articleUri) {
+    const themesId = `themes-sidebar-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const themesDiv = document.getElementById(themesId);
+    
+    if (!themesDiv || themesDiv.dataset.loaded) return;
+    
+    try {
+        themesDiv.innerHTML = `
+            <div class="text-center">
+                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                <small>Generating themes...</small>
+            </div>
+        `;
+        
+        const selectedModel = document.getElementById('model-select').value;
+        
+        const response = await fetch('/api/article-insights', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                ids: [articleUri], 
+                model: selectedModel || 'gpt-4o-mini',
+                structured: true
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('Research themes API response:', data);
+        console.log('Response keys:', Object.keys(data));
+        console.log('Has research_themes:', !!data.research_themes);
+        console.log('Has response:', !!data.response);
+        console.log('Structured flag sent:', true);
+        
+        console.log('Research themes array:', data.research_themes);
+        console.log('Research themes length:', data.research_themes?.length);
+        
+        if (data.research_themes && data.research_themes.length > 0) {
+            // Compact sidebar format - just theme buttons
+            let html = '<div class="d-flex flex-wrap gap-1">';
+            data.research_themes.forEach((theme, index) => {
+                html += `<button class="btn btn-outline-primary btn-sm research-theme-btn" 
+                        style="font-size: 10px; padding: 2px 6px; border-radius: 10px;"
+                        onclick="launchAuspexResearch('${escapeHTML(theme)}', '${articleUri}')"
+                        title="Launch Auspex research on: ${escapeHTML(theme)}">
+                    <i class="fas fa-search me-1"></i>${escapeHTML(theme)}
+                </button>`;
+            });
+            html += '</div>';
+            html += '<small class="text-muted d-block mt-1" style="font-size: 9px;">Click to research</small>';
+            themesDiv.innerHTML = html;
+        } else if (data.response) {
+            // Fallback to markdown - extract just themes
+            const themesMatch = data.response.match(/## Research themes\n(.*?)(?=\n##|\n$)/s);
+            if (themesMatch) {
+                const themeLines = themesMatch[1].split('\n').filter(line => line.trim().startsWith('-'));
+                let html = '<div class="d-flex flex-wrap gap-1">';
+                themeLines.forEach(line => {
+                    const theme = line.replace(/^-\s*/, '').trim();
+                    if (theme) {
+                        html += `<button class="btn btn-outline-primary btn-sm research-theme-btn" 
+                                style="font-size: 10px; padding: 2px 6px; border-radius: 10px;"
+                                onclick="launchAuspexResearch('${escapeHTML(theme)}', '${articleUri}')"
+                                title="Launch Auspex research on: ${escapeHTML(theme)}">
+                            <i class="fas fa-search me-1"></i>${escapeHTML(theme)}
+                        </button>`;
+                    }
+                });
+                html += '</div>';
+                html += '<small class="text-muted d-block mt-1" style="font-size: 9px;">Click to research</small>';
+                themesDiv.innerHTML = html;
+            } else {
+                themesDiv.innerHTML = '<small class="text-muted">No themes available</small>';
+            }
+        } else if (data.response) {
+            // Try to extract themes from markdown response as fallback
+            console.log('Attempting to parse themes from markdown response:', data.response);
+            const themesMatch = data.response.match(/## Research themes\n(.*?)(?=\n##|\n$)/s);
+            if (themesMatch) {
+                const themeLines = themesMatch[1].split('\n').filter(line => line.trim().startsWith('-'));
+                if (themeLines.length > 0) {
+                    let html = '<div class="d-flex flex-wrap gap-1">';
+                    themeLines.forEach(line => {
+                        const theme = line.replace(/^-\s*/, '').trim();
+                        if (theme) {
+                            html += `<button class="btn btn-outline-primary btn-sm research-theme-btn" 
+                                    style="font-size: 10px; padding: 2px 6px; border-radius: 10px;"
+                                    onclick="launchAuspexResearch('${escapeHTML(theme)}', '${articleUri}')"
+                                    title="Launch Auspex research on: ${escapeHTML(theme)}">
+                                <i class="fas fa-search me-1"></i>${escapeHTML(theme)}
+                            </button>`;
+                        }
+                    });
+                    html += '</div>';
+                    html += '<small class="text-muted d-block mt-1" style="font-size: 9px;">Click to research</small>';
+                    themesDiv.innerHTML = html;
+                } else {
+                    themesDiv.innerHTML = '<small class="text-warning">No themes found in response</small>';
+                }
+            } else {
+                themesDiv.innerHTML = '<small class="text-warning">Could not parse themes</small>';
+            }
+        } else {
+            console.warn('No research themes or response in API data:', data);
+            console.log('Full response object:', JSON.stringify(data, null, 2));
+            
+            // Show what we actually got for debugging
+            if (data && typeof data === 'object') {
+                const keys = Object.keys(data);
+                themesDiv.innerHTML = `<small class="text-warning">Debug: Got keys: ${keys.join(', ')}</small>`;
+            } else {
+                themesDiv.innerHTML = '<small class="text-muted">API returned no data</small>';
+            }
+        }
+        
+        themesDiv.dataset.loaded = 'true';
+        
+    } catch (error) {
+        console.error('Error generating research themes:', error);
+        themesDiv.innerHTML = `
+            <div class="text-warning small">
+                <i class="fas fa-exclamation-triangle me-1"></i>
+                <small>Failed to load themes</small>
+            </div>
+        `;
+    }
+}
+
+// Generate deep dive analysis
+async function generateDeepDive(articleUri) {
+    try {
+        const selectedModel = document.getElementById('model-select').value;
+        if (!selectedModel) {
+            showNotification('Select a valid AI model to generate deep-dive analysis', 'warning');
+            return;
+        }
+        
+        showNotification('Generating deep-dive analysis...', 'info');
+        
+        const response = await fetch('/api/article-deep-dive', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                ids: [articleUri], 
+                model: selectedModel
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.response) {
+            throw new Error('No deep-dive content received');
+        }
+        
+        // Create a modal to show the deep dive
+        const modal = document.createElement('div');
+        modal.className = 'modal fade';
+        modal.innerHTML = `
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="fas fa-microscope me-2"></i>Deep-Dive Analysis
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="deep-dive-content">
+                            ${formatMarkdownAnalysis(data.response)}
+                        </div>
+                        <div class="text-end mt-3">
+                            <small class="text-muted">
+                                Generated: ${data.generated_at ? new Date(data.generated_at).toLocaleString() : 'Just now'} | Model: ${selectedModel}
+                            </small>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        const bsModal = new bootstrap.Modal(modal);
+        bsModal.show();
+        
+        modal.addEventListener('hidden.bs.modal', () => {
+            document.body.removeChild(modal);
+        });
+        
+        showNotification('Deep-dive analysis generated successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Error generating deep dive:', error);
+        showNotification(`Failed to generate deep-dive: ${error.message}`, 'error');
+    }
+}
+
+// Get the currently selected topic from the news feed
+function getCurrentTopic() {
+    const topicSelect = document.getElementById('topic-select');
+    return topicSelect?.value || null;
+}
+
+// Launch Auspex research for a specific theme
+async function launchAuspexResearch(theme, sourceArticleUri) {
+    try {
+        showNotification(`Launching Auspex research on: ${theme}`, 'info');
+        
+        // Get the article data to extract the actual topic and context
+        const article = window.lastArticlesData?.items?.find(a => a.uri === sourceArticleUri);
+        if (!article) {
+            throw new Error('Source article not found in current dataset');
+        }
+        
+        // Use the article's topic, not the theme as topic
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning'; // Fallback to default topic
+        
+        console.log(`Research setup: Theme="${theme}", Topic="${actualTopic}", Article="${article.title}"`);
+        
+        // Create Auspex chat session with the actual topic
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `Deep Research: ${theme}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        // Get the selected model from the news feed UI
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        // Build comprehensive research prompt with article context
+        const researchPrompt = `Conduct a comprehensive analysis of "${theme}" using your tools to search recent articles, analyze trends, and provide strategic insights.
+
+CONTEXT ARTICLE:
+Title: ${article.title}
+Source: ${article.source}
+Summary: ${article.summary}
+Why Interesting: ${article.why_interesting || 'Key insights for analysis'}
+
+RESEARCH FOCUS: "${theme}"
+TOPIC AREA: "${actualTopic}"
+
+Please use your tools to:
+1. Search for recent articles related to "${theme}" in the topic "${actualTopic}"
+2. Analyze current developments and key players in this space
+3. Identify market trends and their implications
+4. Assess future outlook and potential impacts
+5. Provide strategic recommendations for decision-makers
+
+The context article above sparked this research into "${theme}" - use it as a starting point but expand the analysis using your tools to find additional relevant articles and insights.
+
+Provide a thorough analysis using the structured format from your system prompt.`;
+        
+        // Send initial research message
+        const messageResponse = await fetch('/api/auspex/chat/message', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: chatId,
+                message: researchPrompt,
+                model: selectedModel,
+                limit: 50,
+                tools_config: {
+                    search_articles: true,
+                    get_sentiment_analysis: true,
+                    semantic_search_and_analyze: true
+                }
+            })
+        });
+        
+        if (!messageResponse.ok) {
+            throw new Error(`Failed to send research message: ${messageResponse.status}`);
+        }
+        
+        // Open Auspex chat modal and connect to the existing session
+        const auspexModal = new bootstrap.Modal(document.getElementById('floatingChatModal'));
+        
+        // Store the chat ID for the modal to use
+        window.auspexActiveChatId = chatId;
+        window.auspexActiveTheme = theme;
+        
+        // Set the topic in the modal without triggering change events
+        const topicSelect = document.getElementById('floatingTopicSelect');
+        if (topicSelect) {
+            // Temporarily disable the change handler to avoid clearing chat
+            const originalHandler = topicSelect.onchange;
+            topicSelect.onchange = null;
+            
+            // Set the topic value to the actual topic, not the theme
+            topicSelect.value = actualTopic;
+            
+            // Restore the handler after a brief delay
+            setTimeout(() => {
+                topicSelect.onchange = originalHandler;
+            }, 100);
+        }
+        
+        // Set the model in the modal
+        const modelSelect = document.getElementById('floatingModelSelect');
+        if (modelSelect) {
+            modelSelect.value = selectedModel;
+        }
+        
+        // Clear existing messages and add our research status
+        const chatMessages = document.getElementById('floatingChatMessages');
+        if (chatMessages) {
+            chatMessages.innerHTML = `
+                <div class="floating-message assistant">
+                    <div class="floating-message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="floating-message-content">
+                        <strong>Research Session Active</strong><br>
+                        I'm conducting comprehensive research on "<strong>${theme}</strong>". 
+                        The analysis has been started and results will appear here shortly...
+                        <div class="mt-2">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            <small class="text-muted">Analyzing articles and generating insights...</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+        
+        // Open the modal
+        auspexModal.show();
+        
+        // Start polling for the research results
+        pollForAuspexResults(chatId, theme);
+        
+        showNotification(`Auspex research launched! Analyzing: ${theme}`, 'success');
+        
+        // Log for debugging
+        console.log(`Launched Auspex research - Theme: ${theme}, Chat ID: ${chatId}, Source: ${sourceArticleUri}`);
+        
+    } catch (error) {
+        console.error('Error launching Auspex research:', error);
+        showNotification(`Failed to launch Auspex research: ${error.message}`, 'error');
+    }
+}
+
+// Poll for Auspex research results
+async function pollForAuspexResults(chatId, theme) {
+    let pollCount = 0;
+    const maxPolls = 60; // Poll for up to 1 minute
+    const pollInterval = 2000; // Poll every 2 seconds
+    
+    const poll = async () => {
+        try {
+            // Get chat history to see if there are new messages
+            const response = await fetch(`/api/auspex/chat/sessions/${chatId}/messages`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Failed to get chat history: ${response.status} - ${errorText}`);
+            }
+            
+            const data = await response.json();
+            console.log(`Poll ${pollCount}: Response data:`, data);
+            
+            // Handle different response structures - the API returns {chat_id, messages, topic}
+            const messages = data.messages || [];
+            console.log(`Poll ${pollCount}: Got ${messages.length} messages for chat ${chatId}`);
+            
+            // Look for assistant messages (responses) - exclude system messages
+            const assistantMessages = messages.filter(msg => msg.role === 'assistant' && msg.content && msg.content.trim().length > 0);
+            console.log(`Poll ${pollCount}: Found ${assistantMessages.length} assistant messages`);
+            
+            // We need at least 2 messages: the initial system message and our research response
+            if (assistantMessages.length > 0) {
+                // Get the latest assistant message
+                const latestResponse = assistantMessages[assistantMessages.length - 1];
+                
+                // Make sure it's not just an error message or empty response
+                if (latestResponse.content && latestResponse.content.length > 50) {
+                    displayAuspexResult(latestResponse.content, theme);
+                    return; // Stop polling
+                }
+            }
+            
+            pollCount++;
+            if (pollCount < maxPolls) {
+                setTimeout(poll, pollInterval);
+            } else {
+                // Timeout - show error message
+                displayAuspexTimeout(theme);
+            }
+            
+        } catch (error) {
+            console.error('Error polling for Auspex results:', error);
+            displayAuspexError(error.message, theme);
+        }
+    };
+    
+    // Start polling after a brief delay
+    setTimeout(poll, pollInterval);
+}
+
+// Display Auspex research result
+function displayAuspexResult(content, theme) {
+    const chatMessages = document.getElementById('floatingChatMessages');
+    if (chatMessages) {
+        chatMessages.innerHTML = `
+            <div class="floating-message assistant">
+                <div class="floating-message-avatar">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div class="floating-message-content">
+                    <strong>Research Complete: ${theme}</strong><br>
+                    <div class="mt-2">
+                        ${formatMarkdownAnalysis(content)}
+                    </div>
+                </div>
+            </div>
+        `;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+    
+    showNotification(`Research complete for: ${theme}`, 'success');
+}
+
+// Display timeout message
+function displayAuspexTimeout(theme) {
+    const chatMessages = document.getElementById('floatingChatMessages');
+    if (chatMessages) {
+        chatMessages.innerHTML = `
+            <div class="floating-message assistant">
+                <div class="floating-message-avatar">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div class="floating-message-content">
+                    <strong>Research Timeout</strong><br>
+                    The research for "${theme}" is taking longer than expected. You can continue chatting in this session - the results may still appear.
+                </div>
+            </div>
+        `;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+}
+
+// Display error message
+function displayAuspexError(errorMessage, theme) {
+    const chatMessages = document.getElementById('floatingChatMessages');
+    if (chatMessages) {
+        chatMessages.innerHTML = `
+            <div class="floating-message assistant">
+                <div class="floating-message-avatar">
+                    <i class="fas fa-exclamation-triangle text-warning"></i>
+                </div>
+                <div class="floating-message-content">
+                    <strong>Research Error</strong><br>
+                    There was an error with the research for "${theme}": ${errorMessage}
+                </div>
+            </div>
+        `;
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+}
+
+// Load related articles for sidebar (headlines only)
+async function loadRelatedArticlesSidebar(articleUri) {
+    const sidebarId = `related-sidebar-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const sidebarDiv = document.getElementById(sidebarId);
+    
+    if (!sidebarDiv || sidebarDiv.dataset.loaded) return;
+    
+    try {
+        const response = await fetch(`/api/vector-similar?uri=${encodeURIComponent(articleUri)}&top_k=8`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        const results = data.results || [];
+        
+        if (results.length > 0) {
+            let html = '<div class="related-articles-compact">';
+            results.forEach((related, index) => {
+                if (index < 8) { // Show up to 8 in sidebar
+                    html += `<div class="mb-1">
+                        <a href="${related.id}" target="_blank" 
+                           class="text-decoration-none small d-block"
+                           style="font-size: 10px; line-height: 1.2;"
+                           title="${escapeHTML(related.metadata?.title || 'Related article')}">
+                            <i class="fas fa-external-link-alt me-1 text-muted"></i>
+                            ${escapeHTML((related.metadata?.title || 'Related article').substring(0, 60))}${(related.metadata?.title || '').length > 60 ? '...' : ''}
+                        </a>
+                    </div>`;
+                }
+            });
+            html += '</div>';
+            sidebarDiv.innerHTML = html;
+        } else {
+            sidebarDiv.innerHTML = '<small class="text-muted">No related articles</small>';
+        }
+        
+        sidebarDiv.dataset.loaded = 'true';
+        
+    } catch (error) {
+        console.error('Error loading related articles for sidebar:', error);
+        sidebarDiv.innerHTML = '<small class="text-warning">Failed to load</small>';
+    }
+}
+
+// Open annotation modal
+function openAnnotationModal(articleUri) {
+    // Create annotation modal
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.id = 'annotationModal';
+    modal.innerHTML = `
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-sticky-note me-2"></i>Add Annotation
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label">Article URL</label>
+                        <input type="url" class="form-control" value="${articleUri}" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Annotation</label>
+                        <textarea class="form-control" id="annotationContent" rows="4" 
+                                  placeholder="Add your analysis or comments..."></textarea>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="annotationPrivate">
+                        <label class="form-check-label" for="annotationPrivate">
+                            Private note (not included in analysis)
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveAnnotationFromModal('${articleUri}')">
+                        <i class="fas fa-save me-1"></i>Save Annotation
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(modal);
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+    
+    // Clean up modal after it's hidden
+    modal.addEventListener('hidden.bs.modal', () => {
+        document.body.removeChild(modal);
+    });
+}
+
+// Save annotation from modal
+async function saveAnnotationFromModal(articleUri) {
+    const content = document.getElementById('annotationContent').value.trim();
+    const isPrivate = document.getElementById('annotationPrivate').checked;
+    
+    if (!content) {
+        showNotification('Please enter annotation content', 'warning');
+        return;
+    }
+    
+    try {
+        const doubleEncodedUri = encodeURIComponent(encodeURIComponent(articleUri));
+        
+        const response = await fetch(`/api/articles/${doubleEncodedUri}/annotations`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                content,
+                is_private: isPrivate
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || 'Failed to save annotation');
+        }
+        
+        // Close modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('annotationModal'));
+        modal.hide();
+        
+        showNotification('Annotation saved successfully!', 'success');
+        
+    } catch (error) {
+        console.error('Error saving annotation:', error);
+        showNotification(`Failed to save annotation: ${error.message}`, 'error');
+    }
 }
 
 function toggleStarArticle(articleUri, buttonElement) {
