@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 import asyncio
 import time
+from urllib.parse import urlparse, urlunparse
 
 from app.schemas.news_feed import (
     DailyOverview, SixArticlesReport, TopStory, NewsArticle, 
@@ -548,9 +549,30 @@ class NewsFeedService:
         try:
             import litellm
             
-            # Create messages for the AI
+            # Create messages for the AI with explicit CEO Daily format enforcement
+            system_message = """You are a CEO-focused news analyst. You MUST return articles in the new CEO Daily format.
+
+CRITICAL: Use ONLY these field names in your JSON response:
+- title (string)
+- source (string) 
+- date (string YYYY-MM-DD)
+- url (string)
+- executive_takeaway (string, max 20 words)
+- summary (string)
+- strategic_relevance (string)
+- time_horizon (string: "Immediate", "Medium", or "Long-term")
+- risk_opportunity (string: "risk", "opportunity", or "mixed")
+- signal_strength (string: "weak", "moderate", or "strong")
+- executive_action (array of strings)
+- category (string: "policy", "market", "tech", "workforce", "security", or "society")
+- scores (object with relevance, novelty, credibility, representativeness numbers 0-5)
+
+FORBIDDEN: Do NOT use these old field names: why_interesting, devils_advocate, perspectives
+
+Return ONLY a JSON array starting with [ and ending with ]. No other text."""
+
             messages = [
-                {"role": "system", "content": "You are a news analysis AI that creates detailed news reports. Analyze articles from different perspectives including bias and factuality. Always return properly formatted JSON as requested."},
+                {"role": "system", "content": system_message},
                 {"role": "user", "content": prompt}
             ]
             
@@ -566,9 +588,16 @@ class NewsFeedService:
             response_text = response.choices[0].message.content
             
             # Parse AI response - now returns array directly
+            logger.info(f"=== SIX ARTICLES GENERATION DEBUG ===")
+            logger.info(f"Model used: {request.model}")
+            logger.info(f"Prompt first 500 chars: {prompt[:500]}")
+            logger.info(f"System message: {system_message}")
             logger.info(f"Parsing AI response (length: {len(response_text)})")
-            logger.info(f"AI response first 200 chars: {response_text[:200]}")
+            logger.info(f"AI response first 500 chars: {response_text[:500]}")
             logger.info(f"AI response last 200 chars: {response_text[-200:]}")
+            logger.info(f"Response contains 'executive_takeaway': {'executive_takeaway' in response_text}")
+            logger.info(f"Response contains 'why_interesting': {'why_interesting' in response_text}")
+            logger.info(f"=== END DEBUG ===")
             
             articles_data_parsed = self._parse_six_articles_response(response_text)
             
@@ -609,8 +638,9 @@ class NewsFeedService:
     async def _generate_six_articles_report_cached(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
         """Generate six articles report with caching and enhanced political analysis"""
         
-        # Create cache key based on date, topic, and article count
-        cache_key = f"six_articles_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}_{len(articles_data)}"
+        # Create cache key based on date, topic, article count, and prompt version
+        # Added v3 to invalidate cache after CEO Daily format enforcement
+        cache_key = f"six_articles_v3_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}_{len(articles_data)}"
         
         # Try to get from cache first (implement simple in-memory cache)
         if hasattr(self, '_six_articles_cache') and cache_key in self._six_articles_cache:
@@ -669,16 +699,48 @@ class NewsFeedService:
             # Use direct LLM for now (TODO: migrate to Auspex after testing org profiles)
             import litellm
             
-            # Generate AI analysis
+            # Generate AI analysis with explicit system message for new format
+            system_message = """You are a CEO-focused news analyst. You MUST return articles in the new CEO Daily format.
+
+CRITICAL: Use ONLY these field names in your JSON response:
+- title (string)
+- source (string) 
+- date (string YYYY-MM-DD)
+- url (string)
+- executive_takeaway (string, max 20 words)
+- summary (string)
+- strategic_relevance (string)
+- time_horizon (string: "Immediate", "Medium", or "Long-term")
+- risk_opportunity (string: "risk", "opportunity", or "mixed")
+- signal_strength (string: "weak", "moderate", or "strong")
+- executive_action (array of strings)
+- category (string: "policy", "market", "tech", "workforce", "security", or "society")
+- scores (object with relevance, novelty, credibility, representativeness numbers 0-5)
+
+FORBIDDEN: Do NOT use these old field names: why_interesting, devils_advocate, perspectives
+
+Return ONLY a JSON array starting with [ and ending with ]. No other text."""
+            
             response = await litellm.acompletion(
                 model=request.model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt}
+                ],
                 temperature=0.3,
-                max_tokens=3000
+                max_tokens=4000
             )
             
             content = response.choices[0].message.content.strip()
-            logger.info(f"AI response for enhanced six articles: {content[:200]}...")
+            logger.info(f"=== ENHANCED SIX ARTICLES GENERATION DEBUG ===")
+            logger.info(f"Model used: {request.model}")
+            logger.info(f"Enhanced prompt first 500 chars: {prompt[:500]}")
+            logger.info(f"System message: {system_message}")
+            logger.info(f"AI response for enhanced six articles (length: {len(content)})")
+            logger.info(f"AI response first 500 chars: {content[:500]}")
+            logger.info(f"Response contains 'executive_takeaway': {'executive_takeaway' in content}")
+            logger.info(f"Response contains 'why_interesting': {'why_interesting' in content}")
+            logger.info(f"=== END ENHANCED DEBUG ===")
             
             # Parse response
             articles = self._parse_six_articles_response(content)
@@ -761,73 +823,105 @@ Return ONLY the JSON response."""
         if org_profile:
             audience_profile = self._build_audience_profile_from_org(org_profile)
         else:
-            audience_profile = """## Audience Profile (Defaults)
-- Risk Appetite: Moderate (balanced between innovation and caution)
-- Strategic Interests: AI regulation, enterprise adoption, model scaling limits, market shifts, workforce impact, security & safety
-- Sector: General (public + private sector relevance)
-- Political/Cultural Orientation: Centrist (consider diverse viewpoints)"""
+            audience_profile = """## Audience Defaults
+- **Risk appetite**: Moderate (innovation with caution)
+- **Priorities**: Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact
+- **Time**: Will only read 6 items/day — each must add distinct value"""
         
-        return f"""You are an analyst selecting the 6 most important articles published in the last 24 hours for a specific organization interested in Artificial Intelligence (AI) and its strategic, technical, and societal impacts.
+        return f"""🎯 CEO Daily Top-6 AI Articles — Analyst Prompt
+
+You are an analyst selecting the 6 most important articles published in the last 24 hours for executives (CEOs and senior decision-makers) interested in AI's strategic, technical, and societal impacts.
 
 {audience_profile}
 
-## Instructions
-From the provided article corpus (news reports, press releases, blogs, filings, research), select the **6 most important articles** for this organization based on:
-- Strategic relevance (impact on policy, markets, regulation, technology, workforce, security)
-- Novelty (new information, shifts, or evidence)
-- Credibility (reliable sources, verifiable data)
-- Representativeness (captures major debates or trends)
+## Selection Rules
+Choose exactly 6 articles from the provided corpus (news, filings, research, regulator posts). Each must score high on at least two:
+1) Strategic relevance, 2) Novelty, 3) Credibility, 4) Representativeness (captures a bigger debate/trend).
+
+- **Diversity**: Cover ≥3 domains (e.g., policy, business/market, tech/R&D, workforce/society).
+- **No redundancy**: Don't select multiple pieces on the same event unless they provide non-overlapping value (e.g., a filing + a data-driven analysis).
+- **Recency**: Past 24 hours only.
 
 ## Article Corpus
 {articles_summary}
 
-For each of the 6 articles, output the following fields:
-
-### 1. Title & Source
-**Title** (Source, Date, Author)
-
-### 2. Summary
-2–3 sentences covering the core facts, developments, or claims.
-
-### 3. Why It's Interesting / Matters
-Explain why this matters strategically, operationally, or competitively for the organization (1–2 sentences).
-
-### 4. Devil's Advocate
-One paragraph outlining why this might be overhyped, flawed, misinterpreted, or low-impact (contrarian take).
-
-### 5. Political & Ideological Perspectives
-- **Left-leaning framing** — how progressive / left media or experts are likely to frame this
-- **Centrist framing** — how mainstream / establishment outlets might frame it
-- **Right-leaning framing** — how conservative / market-oriented outlets might frame it
-
----
-
-## Output Format
-Return as a JSON array with 6 objects like this:
-
+## EXAMPLE OUTPUT (you must follow this exact structure):
 [
   {{
-    "title": "",
-    "source": "",
-    "date": "",
-    "summary": "",
-    "why_interesting": "",
-    "devils_advocate": "",
-    "perspectives": {{
-      "left": "",
-      "center": "",
-      "right": ""
-    }}
+    "title": "EU AI Act enforcement begins with first company fines (Reuters, 2025-09-15, Sarah Johnson)",
+    "source": "Reuters",
+    "date": "2025-09-15",
+    "url": "https://reuters.com/technology/eu-ai-act-enforcement-begins",
+    "executive_takeaway": "EU begins AI Act enforcement with €50M fines, affecting global AI deployment timelines.",
+    "summary": "European regulators issued first AI Act penalties totaling €50 million to three companies for non-compliance with transparency requirements. The enforcement covers foundation models and high-risk AI systems deployed after August 2025.",
+    "strategic_relevance": "Sets precedent for global AI regulation enforcement, requiring immediate compliance review for any EU operations. Could influence similar regulatory approaches in other jurisdictions and affect AI deployment strategies worldwide.",
+    "time_horizon": "Immediate",
+    "risk_opportunity": "risk",
+    "signal_strength": "strong",
+    "executive_action": [
+      "Review EU AI Act compliance for all AI systems in European markets",
+      "Assess potential regulatory risk exposure in other jurisdictions"
+    ],
+    "category": "policy",
+    "scores": {{"relevance": 5, "novelty": 4, "credibility": 5, "representativeness": 5}}
   }}
 ]
 
-## Notes
-- Be concise but analytical (each field < 100 words).
-- Prefer primary reporting and expert commentary over speculation or marketing.
-- Avoid redundant articles (each should cover a different angle or domain of AI developments).
-- Ensure all JSON strings are properly escaped (use \\" for quotes inside strings).
-- Do not include any text before or after the JSON array.
-- The response must be valid JSON that can be parsed directly.
+## What to Output per Article
+
+**title** — Full headline with source and date: "Headline (Source, YYYY-MM-DD, Author)"
+**source** — Publisher name (e.g., "Reuters")
+**date** — YYYY-MM-DD
+**url** — Plain canonical URL (no markdown, no tracking params)
+**executive_takeaway** — 1 sentence: the critical gist for a CEO in ~15 words
+**summary** — 2–3 sentences of core facts/developments
+**strategic_relevance** — 1 short paragraph on why this matters (policy, competition, tech, workforce, risk posture)
+**time_horizon** — Immediate (0–6m) | Medium (6–18m) | Long-term (18m+)
+**risk_opportunity** — "risk" | "opportunity" | "mixed" + brief rationale
+**signal_strength** — "weak" | "moderate" | "strong" with a short justification
+**executive_action** — Array of 1–2 bullets: what to watch, decide, or delegate now
+**category** — "policy" | "market" | "tech" | "workforce" | "security" | "society"
+**scores** — Optional scoring object: {{"relevance": 0-5, "novelty": 0-5, "credibility": 0-5, "representativeness": 0-5}}
+
+## REQUIRED JSON OUTPUT FORMAT
+You MUST return exactly this JSON structure with these exact field names:
+
+[
+  {{
+    "title": "Full headline (Source, YYYY-MM-DD, Author if available)",
+    "source": "Publisher name only",
+    "date": "YYYY-MM-DD",
+    "url": "Clean URL without tracking parameters",
+    "executive_takeaway": "One sentence under 20 words with critical CEO insight",
+    "summary": "2-3 sentences of core facts and developments",
+    "strategic_relevance": "One paragraph on why this matters for executive decisions",
+    "time_horizon": "Immediate",
+    "risk_opportunity": "risk",
+    "signal_strength": "strong",
+    "executive_action": [
+      "First actionable item for executives",
+      "Second actionable item if relevant"
+    ],
+    "category": "policy",
+    "scores": {{"relevance": 5, "novelty": 4, "credibility": 5, "representativeness": 4}}
+  }}
+]
+
+MANDATORY FIELD REQUIREMENTS:
+- title: Must include source and date in parentheses
+- executive_takeaway: Must be under 20 words, one sentence
+- time_horizon: Must be exactly "Immediate", "Medium", or "Long-term"
+- risk_opportunity: Must be exactly "risk", "opportunity", or "mixed"
+- signal_strength: Must be exactly "weak", "moderate", or "strong"
+- category: Must be exactly one of "policy", "market", "tech", "workforce", "security", "society"
+- executive_action: Must be array of 1-2 short action items
+
+## Style & Constraints
+- Be concise but analytical; each field <100 words (takeaway ≤ 20 words).
+- Prefer primary reporting and regulator/court/filing documents over PR or opinion.
+- No duplicates, no filler, no hype words.
+- Use plain URLs (LinkedIn-safe). Strip tracking (?utm_…, &ref=…, fbclid, etc.).
+- If multiple sources cover the same development, pick the most authoritative or the one with new data.
 
 CRITICAL OUTPUT REQUIREMENTS:
 - Your response MUST start with [ and end with ]
@@ -838,8 +932,13 @@ CRITICAL OUTPUT REQUIREMENTS:
 - Do not include any text like "Here are the six articles" or similar
 - Your entire response should be parseable by JSON.parse()
 
-EXACT FORMAT REQUIRED:
-[{{"title":"Article Title","source":"Source Name","date":"2025-09-15","summary":"Brief summary","why_interesting":"Why it matters","devils_advocate":"Contrarian view","perspectives":{{"left":"Left view","center":"Center view","right":"Right view"}}}}]
+DO NOT USE THESE OLD FIELD NAMES:
+- why_interesting (use strategic_relevance instead)
+- devils_advocate (remove this entirely)
+- perspectives (remove this entirely)
+
+ONLY USE THE NEW FIELD NAMES SPECIFIED ABOVE:
+executive_takeaway, strategic_relevance, time_horizon, risk_opportunity, signal_strength, executive_action, category, scores
 
 START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 
@@ -924,90 +1023,122 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
         if org_profile:
             audience_profile = self._build_audience_profile_from_org(org_profile)
         else:
-            audience_profile = """## Audience Profile (Defaults)
-- Risk Appetite: Moderate (balanced between innovation and caution)
-- Strategic Interests: AI regulation, enterprise adoption, model scaling limits, market shifts, workforce impact, security & safety
-- Sector: General (public + private sector relevance)
-- Political/Cultural Orientation: Centrist (consider diverse viewpoints)"""
+            audience_profile = """## Audience Defaults
+- **Risk appetite**: Moderate (innovation with caution)
+- **Priorities**: Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact
+- **Time**: Will only read 6 items/day — each must add distinct value"""
         
-        return f"""You are an analyst selecting the 6 most important articles published in the last 24 hours for a specific organization interested in Artificial Intelligence (AI) and its strategic, technical, and societal impacts.
+        return f"""🎯 CEO Daily Top-6 AI Articles — Analyst Prompt
 
-## Enhanced Analysis Instructions
-
-**CRITICAL: Use the actual political bias data provided below to inform your political perspective analysis. Do not assume political leanings - only analyze perspectives where you have actual bias information from the source data.**
-
-{bias_context}
-
-{source_context}
+You are an analyst selecting the 6 most important articles published in the last 24 hours for executives (CEOs and senior decision-makers) interested in AI's strategic, technical, and societal impacts.
 
 {audience_profile}
 
-## Instructions
-From the provided article corpus, select the **6 most important articles** based on:
-- Strategic relevance (impact on policy, markets, regulation, technology, workforce, security)
-- Novelty (new information, shifts, or evidence)
-- Credibility (reliable sources, verifiable data)
-- Representativeness (captures major debates or trends)
-- **Availability of diverse political perspectives** (prioritize topics where you have articles from different bias sources)
+## Selection Rules
+Choose exactly 6 articles from the provided corpus (news, filings, research, regulator posts). Each must score high on at least two:
+1) Strategic relevance, 2) Novelty, 3) Credibility, 4) Representativeness (captures a bigger debate/trend).
+
+- **Diversity**: Cover ≥3 domains (e.g., policy, business/market, tech/R&D, workforce/society).
+- **No redundancy**: Don't select multiple pieces on the same event unless they provide non-overlapping value (e.g., a filing + a data-driven analysis).
+- **Recency**: Past 24 hours only.
 
 ## Article Corpus
 {articles_summary}
 
-For each of the 6 articles, output the following fields:
-
-### 1. Title & Source
-**Title** (Source, Date, Author)
-
-### 2. Summary
-2–3 sentences covering the core facts, developments, or claims.
-
-### 3. Why It's Interesting / Matters
-Explain why this matters strategically, operationally, or competitively for the organization (1–2 sentences).
-
-### 4. Devil's Advocate
-One paragraph outlining why this might be overhyped, flawed, misinterpreted, or low-impact (contrarian take).
-
-### 5. Political & Ideological Perspectives
-**IMPORTANT**: Only provide perspective analysis where you have actual source bias data. If no bias information is available for related articles, state "Insufficient bias data for perspective analysis" instead of making assumptions.
-
-- **Left-leaning framing** — Based on actual left/left-center sources in the corpus
-- **Centrist framing** — Based on actual least biased/mixed sources in the corpus  
-- **Right-leaning framing** — Based on actual right/right-center sources in the corpus
-
----
-
-## Output Format
-Return as a JSON array with 6 objects like this:
-
+## EXAMPLE OUTPUT (you must follow this exact structure):
 [
-  {{{{
-    "title": "",
-    "source": "",
-    "date": "",
-    "summary": "",
-    "why_interesting": "",
-    "devils_advocate": "",
-    "perspectives": {{{{
-      "left": "",
-      "center": "",
-      "right": ""
-    }}}}
-  }}}}
+  {{
+    "title": "EU AI Act enforcement begins with first company fines (Reuters, 2025-09-15, Sarah Johnson)",
+    "source": "Reuters",
+    "date": "2025-09-15",
+    "url": "https://reuters.com/technology/eu-ai-act-enforcement-begins",
+    "executive_takeaway": "EU begins AI Act enforcement with €50M fines, affecting global AI deployment timelines.",
+    "summary": "European regulators issued first AI Act penalties totaling €50 million to three companies for non-compliance with transparency requirements. The enforcement covers foundation models and high-risk AI systems deployed after August 2025.",
+    "strategic_relevance": "Sets precedent for global AI regulation enforcement, requiring immediate compliance review for any EU operations. Could influence similar regulatory approaches in other jurisdictions and affect AI deployment strategies worldwide.",
+    "time_horizon": "Immediate",
+    "risk_opportunity": "risk",
+    "signal_strength": "strong",
+    "executive_action": [
+      "Review EU AI Act compliance for all AI systems in European markets",
+      "Assess potential regulatory risk exposure in other jurisdictions"
+    ],
+    "category": "policy",
+    "scores": {{"relevance": 5, "novelty": 4, "credibility": 5, "representativeness": 5}}
+  }}
 ]
 
-## Notes
-- Be concise but analytical (each field < 100 words).
-- **Ground political analysis in actual source bias data - do not speculate**.
-- Prefer primary reporting and expert commentary over speculation or marketing.
-- Avoid redundant articles (each should cover a different angle or domain of AI developments).
-- When possible, select articles that have related coverage from sources with different political leanings.
+## What to Output per Article
+
+**title** — Full headline with source and date: "Headline (Source, YYYY-MM-DD, Author)"
+**source** — Publisher name (e.g., "Reuters")
+**date** — YYYY-MM-DD
+**url** — Plain canonical URL (no markdown, no tracking params)
+**executive_takeaway** — 1 sentence: the critical gist for a CEO in ~15 words
+**summary** — 2–3 sentences of core facts/developments
+**strategic_relevance** — 1 short paragraph on why this matters (policy, competition, tech, workforce, risk posture)
+**time_horizon** — Immediate (0–6m) | Medium (6–18m) | Long-term (18m+)
+**risk_opportunity** — "risk" | "opportunity" | "mixed" + brief rationale
+**signal_strength** — "weak" | "moderate" | "strong" with a short justification
+**executive_action** — Array of 1–2 bullets: what to watch, decide, or delegate now
+**category** — "policy" | "market" | "tech" | "workforce" | "security" | "society"
+**scores** — Optional scoring object: {{"relevance": 0-5, "novelty": 0-5, "credibility": 0-5, "representativeness": 0-5}}
+
+## REQUIRED JSON OUTPUT FORMAT
+You MUST return exactly this JSON structure with these exact field names:
+
+[
+  {{
+    "title": "Full headline (Source, YYYY-MM-DD, Author if available)",
+    "source": "Publisher name only",
+    "date": "YYYY-MM-DD",
+    "url": "Clean URL without tracking parameters",
+    "executive_takeaway": "One sentence under 20 words with critical CEO insight",
+    "summary": "2-3 sentences of core facts and developments",
+    "strategic_relevance": "One paragraph on why this matters for executive decisions",
+    "time_horizon": "Immediate",
+    "risk_opportunity": "risk",
+    "signal_strength": "strong",
+    "executive_action": [
+      "First actionable item for executives",
+      "Second actionable item if relevant"
+    ],
+    "category": "policy",
+    "scores": {{"relevance": 5, "novelty": 4, "credibility": 5, "representativeness": 4}}
+  }}
+]
+
+MANDATORY FIELD REQUIREMENTS:
+- title: Must include source and date in parentheses
+- executive_takeaway: Must be under 20 words, one sentence
+- time_horizon: Must be exactly "Immediate", "Medium", or "Long-term"
+- risk_opportunity: Must be exactly "risk", "opportunity", or "mixed"
+- signal_strength: Must be exactly "weak", "moderate", or "strong"
+- category: Must be exactly one of "policy", "market", "tech", "workforce", "security", "society"
+- executive_action: Must be array of 1-2 short action items
+
+## Style & Constraints
+- Be concise but analytical; each field <100 words (takeaway ≤ 20 words).
+- Prefer primary reporting and regulator/court/filing documents over PR or opinion.
+- No duplicates, no filler, no hype words.
+- Use plain URLs (LinkedIn-safe). Strip tracking (?utm_…, &ref=…, fbclid, etc.).
+- If multiple sources cover the same development, pick the most authoritative or the one with new data.
 
 CRITICAL OUTPUT REQUIREMENTS:
 - Your response MUST start with [ and end with ]
 - Return ONLY a valid JSON array - NO other text
+- No markdown formatting (no ```json blocks)
 - No explanatory text, comments, or notes
+- Ensure all strings are properly escaped with \\"
 - Do not include any text like "Here are the six articles" or similar
 - Your entire response should be parseable by JSON.parse()
+
+DO NOT USE THESE OLD FIELD NAMES:
+- why_interesting (use strategic_relevance instead)
+- devils_advocate (remove this entirely)
+- perspectives (remove this entirely)
+
+ONLY USE THE NEW FIELD NAMES SPECIFIED ABOVE:
+executive_takeaway, strategic_relevance, time_horizon, risk_opportunity, signal_strength, executive_action, category, scores
 
 START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 
@@ -1234,22 +1365,32 @@ Tags: {article.get('tags', '')}
                         break
             
             return {
+                # Core CEO Daily fields
                 'title': article_data.get('title', 'Untitled'),
                 'source': article_data.get('source', 'Unknown Source'),
                 'date': article_data.get('date', ''),
+                'url': (lambda raw: (lambda parsed: urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', '')))(urlparse(raw)) if raw else '')(article_data.get('url') or article_uri or ''),
+                'executive_takeaway': article_data.get('executive_takeaway', ''),
                 'summary': article_data.get('summary', ''),
-                'why_interesting': article_data.get('why_interesting', ''),
-                'devils_advocate': article_data.get('devils_advocate', ''),
-                'perspectives': {
-                    'left': article_data.get('perspectives', {}).get('left', ''),
-                    'center': article_data.get('perspectives', {}).get('center', ''),
-                    'right': article_data.get('perspectives', {}).get('right', '')
-                },
+                'strategic_relevance': article_data.get('strategic_relevance', ''),
+                'time_horizon': article_data.get('time_horizon', ''),
+                'risk_opportunity': article_data.get('risk_opportunity', ''),
+                'signal_strength': article_data.get('signal_strength', ''),
+                'executive_action': (article_data.get('executive_action') if isinstance(article_data.get('executive_action'), list) else ([article_data.get('executive_action')] if isinstance(article_data.get('executive_action'), str) and article_data.get('executive_action') else [])),
+                'category': article_data.get('category', ''),
+                'scores': article_data.get('scores'),
+
+                # Related articles and metadata
                 'related_articles': related_articles,
                 # Add bias and factuality from original article metadata
                 'bias': original_metadata.get('bias') if original_metadata else None,
                 'factual_reporting': original_metadata.get('factual_reporting') if original_metadata else None,
-                'uri': article_uri  # Include URI for reference
+                'uri': article_uri,  # Include URI for reference
+
+                # Legacy fields (kept for compatibility; UI now ignores them)
+                'why_interesting': article_data.get('why_interesting', ''),
+                'devils_advocate': article_data.get('devils_advocate', ''),
+                'perspectives': article_data.get('perspectives', {}) or {}
             }
         except Exception as e:
             logger.error(f"Error creating article from analyst data: {e}")

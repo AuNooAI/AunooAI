@@ -1111,7 +1111,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     document.getElementById('insights-tab').addEventListener('click', function() {
         // Only auto-load if we haven't generated insights yet
-        if (!document.getElementById('trend-insights-container').querySelector('.insight-item-card')) {
+        const insightsContainer = document.getElementById('article-insights-container');
+        if (insightsContainer && !insightsContainer.querySelector('.insight-item-card')) {
             // Show helpful message instead of auto-generating
             showInsightsWelcomeMessage();
         }
@@ -2196,11 +2197,8 @@ function renderSixArticles(articles) {
     console.log('renderSixArticles called with:', articles);
     console.log('Articles length:', articles ? articles.length : 'null/undefined');
     if (articles && articles.length > 0) {
-        console.log('First article structure:', articles[0]);
-        console.log('First article has related_articles:', !!articles[0].related_articles);
-        if (articles[0].related_articles) {
-            console.log('Related articles count:', articles[0].related_articles.length);
-        }
+        console.log('First article format:', articles[0].executive_takeaway ? 'New CEO Daily format' : 'Legacy format');
+        console.log('Available fields:', Object.keys(articles[0]));
     }
     
     if (!articles || articles.length === 0) {
@@ -2210,14 +2208,50 @@ function renderSixArticles(articles) {
     
     let html = `
         <div class="six-articles-analysis">
-            <h3>Strategic Analysis: Six Most Important Articles</h3>
-            <p class="mb-4">Selected based on strategic relevance, novelty, credibility, and representativeness for AI-focused organizations.</p>
+            <h3>🎯 CEO Daily Top-6 AI Articles</h3>
+            <p class="mb-4">Selected based on strategic relevance, novelty, credibility, and representativeness for executive decision-makers.</p>
         </div>
     `;
     
-    // Render each article
+    // Render each article with new CEO format
     articles.forEach((article, index) => {
         const isStarred = article.uri && starredArticles.has(article.uri);
+        
+        // Get category color and icon
+        const categoryColors = {
+            'policy': 'text-danger',
+            'market': 'text-success', 
+            'tech': 'text-primary',
+            'workforce': 'text-warning',
+            'security': 'text-dark',
+            'society': 'text-info'
+        };
+        const categoryColor = categoryColors[article.category] || 'text-secondary';
+        
+        // Get time horizon badge color
+        const timeHorizonColors = {
+            'Immediate': 'bg-danger',
+            'Medium': 'bg-warning',
+            'Long-term': 'bg-info'
+        };
+        const timeHorizonColor = timeHorizonColors[article.time_horizon] || 'bg-secondary';
+        
+        // Get risk/opportunity badge color
+        const riskOpportunityColors = {
+            'risk': 'bg-danger',
+            'opportunity': 'bg-success',
+            'mixed': 'bg-warning text-dark'
+        };
+        const riskOpportunityColor = riskOpportunityColors[article.risk_opportunity] || 'bg-secondary';
+        
+        // Get signal strength badge color
+        const signalStrengthColors = {
+            'weak': 'bg-light text-dark',
+            'moderate': 'bg-warning text-dark',
+            'strong': 'bg-success'
+        };
+        const signalStrengthColor = signalStrengthColors[article.signal_strength] || 'bg-secondary';
+        
         html += `
             <div class="article-analysis mb-5 p-4 border rounded">
                 <div class="article-header mb-3">
@@ -2226,49 +2260,135 @@ function renderSixArticles(articles) {
                         <div>
                     <p class="text-muted mb-1"><strong>Source:</strong> ${article.source}</p>
                     ${article.date ? `<p class="text-muted mb-0"><strong>Date:</strong> ${article.date}</p>` : ''}
+                            ${article.url ? `<p class="text-muted mb-0"><strong>URL:</strong> <a href="${article.url}" target="_blank" class="text-decoration-none">${article.url}</a></p>` : ''}
                         </div>
                         <div class="text-end">
-                            ${article.bias ? `<span class="badge ${getBiasClass(article.bias)} mb-1">${article.bias}</span><br>` : ''}
-                            ${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>` : ''}
+                            ${article.category ? `<span class="badge bg-light text-dark mb-1 ${categoryColor}">${article.category.toUpperCase()}</span><br>` : ''}
+                            ${article.scores ? `<small class="text-muted">Score: ${article.scores.relevance || 'N/A'}/5</small>` : ''}
                         </div>
                     </div>
                 </div>
                 
                 <div class="article-content">
+                    ${article.executive_takeaway ? `
                     <div class="section mb-3">
-                        <h6 class="text-secondary">Summary</h6>
+                        <h6 class="text-primary"><i class="fas fa-bullseye me-2"></i>Executive Takeaway</h6>
+                        <div class="alert alert-primary py-2">
+                            <strong>${article.executive_takeaway}</strong>
+                    </div>
+                    </div>` : ''}
+                    
+                    <div class="section mb-3">
+                        <h6 class="text-secondary"><i class="fas fa-file-text me-2"></i>Summary</h6>
                         <p>${article.summary}</p>
                     </div>
                     
+                    ${article.strategic_relevance ? `
+                    <div class="section mb-3">
+                        <h6 class="text-success"><i class="fas fa-chess me-2"></i>Strategic Relevance</h6>
+                        <p>${article.strategic_relevance}</p>
+                    </div>` : ''}
+                    
+                    <!-- Executive Indicators Row -->
+                    ${(article.time_horizon || article.risk_opportunity || article.signal_strength) ? `
+                    <div class="section mb-3">
+                        <h6 class="text-info"><i class="fas fa-tachometer-alt me-2"></i>Executive Indicators</h6>
+                        <div class="row">
+                            ${article.time_horizon ? `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted d-block">Time Horizon</small>
+                                <span class="badge ${timeHorizonColor}">${article.time_horizon}</span>
+                            </div>` : ''}
+                            ${article.risk_opportunity ? `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted d-block">Risk/Opportunity</small>
+                                <span class="badge ${riskOpportunityColor}">${article.risk_opportunity}</span>
+                            </div>` : ''}
+                            ${article.signal_strength ? `
+                            <div class="col-md-4 mb-2">
+                                <small class="text-muted d-block">Signal Strength</small>
+                                <span class="badge ${signalStrengthColor}">${article.signal_strength}</span>
+                            </div>` : ''}
+                    </div>
+                    </div>` : ''}
+                    
+                    ${article.executive_action && Array.isArray(article.executive_action) && article.executive_action.length > 0 ? `
+                    <div class="section mb-3">
+                        <h6 class="text-warning"><i class="fas fa-tasks me-2"></i>Executive Actions</h6>
+                        <ul class="mb-0">
+                            ${article.executive_action.map(action => `<li>${action}</li>`).join('')}
+                        </ul>
+                    </div>` : ''}
+                    
+                    ${article.scores ? `
+                    <div class="section mb-3">
+                        <h6 class="text-dark"><i class="fas fa-chart-bar me-2"></i>Selection Scores</h6>
+                        <div class="row">
+                            <div class="col-6 col-md-3 mb-1">
+                                <small class="text-muted">Relevance</small><br>
+                                <span class="badge bg-primary">${article.scores.relevance || 'N/A'}/5</span>
+                            </div>
+                            <div class="col-6 col-md-3 mb-1">
+                                <small class="text-muted">Novelty</small><br>
+                                <span class="badge bg-info">${article.scores.novelty || 'N/A'}/5</span>
+                            </div>
+                            <div class="col-6 col-md-3 mb-1">
+                                <small class="text-muted">Credibility</small><br>
+                                <span class="badge bg-success">${article.scores.credibility || 'N/A'}/5</span>
+                            </div>
+                            <div class="col-6 col-md-3 mb-1">
+                                <small class="text-muted">Representativeness</small><br>
+                                <span class="badge bg-warning text-dark">${article.scores.representativeness || 'N/A'}/5</span>
+                        </div>
+                    </div>
+                    </div>` : ''}
+                    
+                    <!-- Fallback: Show legacy fields if new format not available (excluding political perspectives) -->
+                    ${(!article.executive_takeaway && !article.strategic_relevance && article.why_interesting) ? `
                     <div class="section mb-3">
                         <h6 class="text-success">Why It Matters</h6>
                         <p>${article.why_interesting}</p>
-                    </div>
+                    </div>` : ''}
                     
-                    <div class="section mb-3">
-                        <h6 class="text-warning">Devil's Advocate</h6>
-                        <p>${article.devils_advocate}</p>
-                    </div>
+                    <!-- Format status notice -->
+                    ${!article.executive_takeaway ? `
+                    <div class="section mb-3" style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;">
+                        <h6 class="text-warning"><i class="fas fa-sync-alt me-2"></i>New CEO Daily Format Available</h6>
+                        <div class="text-dark small">
+                            <p class="mb-2">This analysis uses the legacy format. Regenerate to get the new <strong>CEO Daily Top-6</strong> format with:</p>
+                            <ul class="mb-2 small">
+                                <li><strong>Executive Takeaway</strong> - Critical insight in ~15 words</li>
+                                <li><strong>Strategic Relevance</strong> - Why it matters for executives</li>
+                                <li><strong>Time Horizon</strong> - Immediate/Medium/Long-term impact</li>
+                                <li><strong>Risk/Opportunity</strong> - Assessment for decision-makers</li>
+                                <li><strong>Executive Actions</strong> - Specific next steps to take</li>
+                                <li><strong>Selection Scores</strong> - Relevance/novelty/credibility ratings</li>
+                            </ul>
+                            <button class="btn btn-sm btn-warning" onclick="loadSixArticles()">
+                                <i class="fas fa-magic me-1"></i>Regenerate with CEO Daily Format
+                            </button>
+                        </div>
+                    </div>` : ''}
                     
+                    <!-- Research Actions -->
                     <div class="section">
-                        <h6 class="text-info">Political & Ideological Perspectives</h6>
-                        <div class="row">
-                            <div class="col-md-4">
-                                <strong class="text-danger">Left-leaning:</strong>
-                                <p class="small">${article.perspectives.left}</p>
-                            </div>
-                            <div class="col-md-4">
-                                <strong class="text-primary">Centrist:</strong>
-                                <p class="small">${article.perspectives.center}</p>
-                            </div>
-                            <div class="col-md-4">
-                                <strong class="text-warning">Right-leaning:</strong>
-                                <p class="small">${article.perspectives.right}</p>
-                            </div>
+                        <h6 class="text-primary"><i class="fas fa-search me-2"></i>Research Actions</h6>
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(article.title)}', 'ceo_article')">
+                                <i class="fas fa-microscope me-1"></i>Deep Dive Analysis
+                            </button>
+                            ${article.category ? `
+                            <button class="btn btn-sm btn-outline-success" onclick="launchAuspexResearchFromInsight('${escapeHTML(article.category)}', 'category')">
+                                <i class="fas fa-layer-group me-1"></i>Research ${article.category}
+                            </button>` : ''}
+                            ${article.url ? `
+                            <button class="btn btn-sm btn-outline-info" onclick="window.open('${article.url}', '_blank')" title="View original article">
+                                <i class="fas fa-external-link-alt me-1"></i>Read Original
+                            </button>` : ''}
                         </div>
                     </div>
                     
-                    <!-- Related Articles Section (compact) -->
+                    <!-- Related Articles Section (if available) -->
                     ${article.related_articles && article.related_articles.length > 0 ? `
                     <div class="section mt-3">
                         <h6 class="text-primary">Related Articles</h6>
@@ -4692,13 +4812,11 @@ Provide a thorough analysis using the structured format from your system prompt.
         
         if (topicSelect) {
             topicSelect.value = actualTopic;
-            // Trigger the change event to properly initialize the chat
             topicSelect.dispatchEvent(new Event('change'));
         }
         
         if (modelSelect) {
             modelSelect.value = selectedModel;
-            // Trigger the change event to enable the chat input
             modelSelect.dispatchEvent(new Event('change'));
         }
         
@@ -5691,7 +5809,7 @@ function showInsightsWelcomeMessage() {
     const categoryContainer = document.getElementById('category-insights-container');
     const thematicContainer = document.getElementById('thematic-insights-container');
     
-    if (!articleContainer.querySelector('.insight-item-card')) {
+    if (articleContainer && !articleContainer.querySelector('.insight-item-card')) {
         articleContainer.innerHTML = `
             <div class="text-center p-4 w-100">
                 <i class="fas fa-newspaper fa-3x text-muted mb-3"></i>
@@ -5701,7 +5819,7 @@ function showInsightsWelcomeMessage() {
         `;
     }
     
-    if (!categoryContainer.querySelector('.insight-item-card')) {
+    if (categoryContainer && !categoryContainer.querySelector('.insight-item-card')) {
         categoryContainer.innerHTML = `
             <div class="text-center p-4">
                 <i class="fas fa-layer-group fa-3x text-muted mb-3"></i>
@@ -5711,7 +5829,7 @@ function showInsightsWelcomeMessage() {
         `;
     }
     
-    if (!thematicContainer.querySelector('.insight-item-card')) {
+    if (thematicContainer && !thematicContainer.querySelector('.insight-item-card')) {
         thematicContainer.innerHTML = `
             <div class="text-center p-4 w-100">
                 <i class="fas fa-sitemap fa-3x text-muted mb-3"></i>
@@ -5879,59 +5997,101 @@ async function loadThematicInsights(topic, startDate, endDate, daysLimit) {
     errorEl.style.display = 'none';
     
     try {
-        // Get current articles from the news feed to analyze for themes
-        const currentArticles = window.lastArticlesData?.items || [];
-        
-        if (currentArticles.length < 3) {
-            throw new Error('Not enough articles loaded for thematic analysis. Please load articles first.');
+        // Require a topic (dashboard article-insights is topic-scoped)
+        const topicSelect = document.getElementById('topic-select');
+        const selectedTopic = topicSelect ? (topicSelect.value || '').trim() : '';
+        if (!selectedTopic) {
+            errorEl.innerHTML = `<div class="alert alert-warning"><i class=\"fas fa-info-circle me-2\"></i>Select a topic to generate thematic clusters.</div>`;
+            errorEl.style.display = 'block';
+            return;
+        }
+
+        // Build time params from the current date range
+        const drSel = document.getElementById('date-range-select');
+        const drVal = drSel ? drSel.value : '3m';
+        const params = new URLSearchParams();
+        let periodLabel = 'this period';
+        switch (drVal) {
+            case '24h':
+                params.append('days_limit', '1'); periodLabel = 'the last 24 hours'; break;
+            case '7d':
+                params.append('days_limit', '7'); periodLabel = 'the last 7 days'; break;
+            case '30d':
+                params.append('days_limit', '30'); periodLabel = 'the last 30 days'; break;
+            case '3m':
+                params.append('days_limit', '90'); periodLabel = 'the last 3 months'; break;
+            case '1y':
+                params.append('days_limit', '365'); periodLabel = 'the last year'; break;
+            case 'all':
+                // Let the backend decide; do not pass days_limit
+                periodLabel = 'all time'; break;
+            case 'custom':
+                // Use the selected date as both start and end
+                const customDate = document.getElementById('custom-date-input')?.value || document.getElementById('selected-date')?.value;
+                if (customDate) {
+                    params.append('start_date', customDate);
+                    params.append('end_date', customDate);
+                    periodLabel = 'the selected date';
+                } else {
+                    params.append('days_limit', '1');
+                    periodLabel = 'the last 24 hours';
+                }
+                break;
+            default:
+                params.append('days_limit', '90'); periodLabel = 'the last 3 months';
         }
         
-        // Use the vector article-insights endpoint for thematic analysis
-        const selectedModel = document.getElementById('model-select').value || 'gpt-4o-mini';
-        const articleUris = currentArticles.slice(0, 20).map(article => article.uri); // Limit to top 20 articles
-        
-        const response = await fetch('/api/article-insights', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                ids: articleUris, 
-                model: selectedModel,
-                structured: true
-            })
-        });
-        
+        // Call topic dashboard article-insights (same logic as topic_dashboard.html)
+        const response = await fetch(`/api/dashboard/article-insights/${encodeURIComponent(selectedTopic)}?${params}`);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
         const data = await response.json();
+
+        // If no themes returned, show explicit reason (no fallback rendering)
+        if (!data || (Array.isArray(data) && data.length === 0)) {
+            errorEl.innerHTML = `<div class=\"alert alert-warning\"><i class=\"fas fa-info-circle me-2\"></i>No thematic clusters available. Reason: insufficient thematic signal for ${periodLabel}.</div>`;
+            errorEl.style.display = 'block';
+            return;
+        }
+
+        // Transform dashboard themes -> cluster format used by renderThematicInsights
+        const currentArticles = (window.lastArticlesData && window.lastArticlesData.items) ? window.lastArticlesData.items : [];
+        const transformed = (Array.isArray(data) ? data : []).map((theme, idx) => {
+            // Try to find article details from current dataset by URIs if provided
+            let articles = [];
+            const articleUris = theme.article_uris || theme.articleIds || theme.article_ids || [];
+            if (Array.isArray(articleUris) && articleUris.length > 0 && currentArticles.length > 0) {
+                articles = articleUris.map(uri => currentArticles.find(a => a.uri === uri)).filter(Boolean);
+            }
+            // Fallback: if API already includes article objects
+            if ((!articles || articles.length === 0) && Array.isArray(theme.articles)) {
+                articles = theme.articles;
+            }
+            // Compute simple source diversity
+            const sourceDiversity = [...new Set((articles || []).map(a => a?.source_type || a?.news_source || 'unknown'))].length;
+            
+            return {
+                theme_name: theme.theme_name || theme.name || `Theme ${idx + 1}`,
+                theme_summary: theme.theme_summary || theme.summary || '',
+                articles: articles || [],
+                article_count: (articles || []).length,
+                confidence: typeof theme.confidence === 'number' ? theme.confidence : undefined,
+                source_diversity: sourceDiversity
+            };
+        });
+
+        if (!transformed || transformed.length === 0) {
+            errorEl.innerHTML = `<div class=\"alert alert-warning\"><i class=\"fas fa-info-circle me-2\"></i>No thematic clusters available. Reason: the topic has themes but no matching articles were loaded for ${periodLabel}. Try regenerating articles or adjusting the date range.</div>`;
+            errorEl.style.display = 'block';
+            return;
+        }
         
-        // Transform the response to match our rendering format
-        const themes = data.research_themes || [];
-        const transformedData = themes.map((theme, index) => ({
-            theme_name: theme,
-            theme_summary: `Research theme identified from ${articleUris.length} articles`,
-            articles: currentArticles.slice(0, Math.min(5, currentArticles.length)),
-            article_count: currentArticles.length,
-            confidence: 0.8,
-            source_diversity: [...new Set(currentArticles.map(a => a.source_type || 'unknown'))].length
-        }));
-        
-        renderThematicInsights(transformedData);
-        
+        renderThematicInsights(transformed);
     } catch (error) {
         console.error('Error loading thematic insights:', error);
-        errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to load thematic insights: ${error.message}</div>`;
+        errorEl.innerHTML = `<div class=\"alert alert-warning\"><i class=\"fas fa-exclamation-triangle me-2\"></i>Failed to load thematic insights: ${error.message}</div>`;
         errorEl.style.display = 'block';
-        
-        // Show fallback message
-        containerEl.innerHTML = `
-            <div class="text-center p-4 w-100">
-                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
-                <h5>Thematic Analysis Unavailable</h5>
-                <p class="text-muted">Unable to generate thematic clusters. Please load articles first and try again.</p>
-            </div>
-        `;
     } finally {
         loadingEl.style.display = 'none';
     }
@@ -6220,7 +6380,27 @@ async function launchAuspexResearchFromInsight(insightTopic, insightType) {
         // Build comprehensive research prompt based on insight type
         let researchPrompt = '';
         
-        if (insightType === 'category') {
+        if (insightType === 'ceo_article') {
+            // CEO article deep dive research prompt
+            researchPrompt = `Conduct executive-level deep dive analysis on: "${insightTopic}"
+
+This article was selected as one of the top 6 most important AI articles for CEOs and senior decision-makers.
+
+RESEARCH FOCUS: Executive deep dive on "${insightTopic}"
+TOPIC AREA: "${actualTopic}"
+
+Please use your tools to:
+1. Search for related articles and background context on this topic
+2. Analyze strategic implications for executive decision-making
+3. Identify competitive landscape and market dynamics
+4. Assess regulatory and policy implications
+5. Evaluate risks and opportunities for organizations
+6. Provide actionable recommendations for senior leadership
+7. Identify key stakeholders and decision points
+8. Analyze potential timeline and impact scenarios
+
+Focus on executive-level strategic insights that would be valuable for C-suite decision-making and board discussions.`;
+        } else if (insightType === 'category') {
             // Category research prompt
             const categoryArticles = currentArticles.filter(article => 
                 article.category && article.category.toLowerCase() === insightTopic.toLowerCase()
@@ -6323,53 +6503,8 @@ Provide a thorough analysis using the structured format from your system prompt.
             modelSelect.value = selectedModel;
             modelSelect.dispatchEvent(new Event('change'));
         }
-        
-        // Enable the chat input and send button
-        setTimeout(() => {
-            const chatInput = document.getElementById('floatingChatInput');
-            const sendButton = document.getElementById('floatingChatSend');
-            
-            if (chatInput) {
-                chatInput.disabled = false;
-                chatInput.placeholder = `Continue research on ${insightTopic}...`;
-            }
-            if (sendButton) {
-                sendButton.disabled = false;
-            }
-        }, 200);
-        
-        // Clear existing messages and add our research status
-        const chatMessages = document.getElementById('floatingChatMessages');
-        if (chatMessages) {
-            chatMessages.innerHTML = `
-                <div class="floating-message assistant">
-                    <div class="floating-message-avatar">
-                        <i class="fas fa-robot"></i>
-                    </div>
-                    <div class="floating-message-content">
-                        <strong>${insightType === 'category' ? 'Category' : insightType === 'thematic_cluster' ? 'Theme' : 'Article'} Research Active</strong><br>
-                        I'm conducting comprehensive research on "<strong>${insightTopic}</strong>". 
-                        The analysis has been started and results will appear here shortly...
-                        <div class="mt-2">
-                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                            <small class="text-muted">Analyzing articles and generating insights...</small>
-                        </div>
-                    </div>
-                </div>
-            `;
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-        
-        // Open the modal
-        auspexModal.show();
-        
-        // Start polling for the research results
-        pollForAuspexResults(chatId, insightTopic);
-        
-        showNotification(`Auspex research launched! Analyzing: ${insightTopic}`, 'success');
-        
     } catch (error) {
-        console.error('Error launching Auspex research from insight:', error);
+        console.error('Error launching Auspex research:', error);
         showNotification(`Failed to launch Auspex research: ${error.message}`, 'error');
     }
 }
