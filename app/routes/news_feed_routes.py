@@ -258,19 +258,20 @@ page_router = APIRouter(tags=["news-feed-pages"])
 
 
 @page_router.get("/news-feed", response_class=HTMLResponse)
-async def news_feed_page(request: Request):
+async def news_feed_page(request: Request, session=Depends(verify_session)):
     """Render the main news feed page (Techmeme-style)"""
     return templates.TemplateResponse("news_feed.html", {
         "request": request,
         "page_title": "Daily News Feed",
         "show_share_button": True,
-        "session": {}  # Empty session for public access
+        "session": session
     })
 
 
 @page_router.get("/news-feed/overview", response_class=HTMLResponse)
 async def news_overview_page(
     request: Request,
+    session=Depends(verify_session),
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format")
 ):
     """Render the news overview page"""
@@ -279,13 +280,14 @@ async def news_overview_page(
         "date": date,
         "page_title": "Daily News Overview",
         "show_share_button": True,
-        "session": {}  # Empty session for public access
+        "session": session
     })
 
 
 @page_router.get("/news-feed/six-articles", response_class=HTMLResponse)
 async def six_articles_page(
     request: Request,
+    session=Depends(verify_session),
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format")
 ):
     """Render the six articles detailed report page"""
