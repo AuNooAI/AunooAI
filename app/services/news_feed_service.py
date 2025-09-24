@@ -116,10 +116,10 @@ class NewsFeedService:
         query = f"""
         SELECT 
             uri, title, summary, news_source, publication_date, submission_date,
-            category, sentiment, sentiment_explanation, time_to_impact, tags,
-            bias, factual_reporting, mbfc_credibility_rating, bias_source, 
+            category, sentiment, sentiment_explanation, time_to_impact, time_to_impact_explanation,
+            tags, bias, factual_reporting, mbfc_credibility_rating, bias_source, 
             bias_country, press_freedom, media_type, popularity,
-            future_signal, driver_type
+            future_signal, future_signal_explanation, driver_type, driver_type_explanation
         FROM articles 
         WHERE {date_condition}
         AND category IS NOT NULL
@@ -492,7 +492,9 @@ class NewsFeedService:
                 'sentiment': article_dict.get('sentiment'),
                 'sentiment_explanation': article_dict.get('sentiment_explanation'),
                 'time_to_impact': article_dict.get('time_to_impact'),
+                'time_to_impact_explanation': article_dict.get('time_to_impact_explanation'),
                 'driver_type': article_dict.get('driver_type'),
+                'driver_type_explanation': article_dict.get('driver_type_explanation'),
                 'tags': article_dict.get('tags', '').split(',') if article_dict.get('tags') else [],
                 'url': article_dict.get('url', ''),  # For archive links
                 'bias': article_dict.get('bias'),
@@ -503,7 +505,8 @@ class NewsFeedService:
                 'press_freedom': article_dict.get('press_freedom'),
                 'media_type': article_dict.get('media_type'),
                 'popularity': article_dict.get('popularity'),
-                'future_signal': article_dict.get('future_signal')
+                'future_signal': article_dict.get('future_signal'),
+                'future_signal_explanation': article_dict.get('future_signal_explanation')
             })
         
         return {

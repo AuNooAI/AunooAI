@@ -634,20 +634,7 @@
                 </div>
             </div>
                     <div class="mt-2">
-                        <div class="row g-2">
-                            <div class="col-4">
-                                <label class="form-label small">Sort:</label>
-                                <select id="sort-select" class="form-select form-select-sm" onchange="handleSortChange()">
-                                    <option value="date_asc">Date (Oldest First)</option>
-                                    <option value="date_desc">Date (Newest First)</option>
-                                    <option value="category_date">Category (by Date)</option>
-                                </select>
-                            </div>
-                            <div class="col-8">
-                                <label class="form-label small">Search:</label>
-                                <input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search titles, summaries, keywords..." onkeyup="handleSearchInput()">
-                            </div>
-                        </div>
+                        
                     <div class="mt-2 d-flex gap-2">
                         <button type="button" class="btn btn-outline-info btn-sm" onclick="saveCurrentAsDefaults()" title="Save current settings as defaults">
                             <i class="fas fa-star"></i> Save Defaults
@@ -703,12 +690,23 @@
             <!-- Filter Section -->
             <div id="articles-filters" class="mb-3" style="display: none;">
                 <div class="d-flex flex-wrap gap-2 align-items-center p-2 bg-light rounded">
-                    <span class="text-muted small fw-bold">Filter by:</span>
+                    <span class="text-muted small fw-bold">Filters:</span>
                     <div id="bias-filters" class="d-flex flex-wrap gap-1"></div>
                     <div id="factuality-filters" class="d-flex flex-wrap gap-1"></div>
                     <div id="category-filters" class="d-flex flex-wrap gap-1"></div>
+                    <div class="d-flex align-items-center gap-2 ms-auto">
+                        <label class="form-label small mb-0">Sort:</label>
+                        <select id="sort-select" class="form-select form-select-sm" onchange="handleSortChange()">
+                            <option value="date_asc">Date (Oldest First)</option>
+                            <option value="date_desc">Date (Newest First)</option>
+                            <option value="category_date">Category (by Date)</option>
+                        </select>
+                    </div>
+                    <div class="d-flex align-items-center" style="min-width: 240px;">
+                        <input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search titles, summaries, keywords..." onkeyup="handleSearchInput()">
+                    </div>
                     <button class="btn btn-sm btn-outline-primary" onclick="improveQuality()" title="Filter to high-quality sources only">
-                        <i class="fas fa-shield-alt"></i> Improve Quality
+                        <i class="fas fa-shield-alt"></i> Factual Only
                     </button>
                     <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()" title="Clear all filters">
                         <i class="fas fa-times"></i> Clear
@@ -2639,7 +2637,7 @@ function renderArticles(articlesData) {
                         </div>
                         
                         <div class="mb-3">
-                            <h6 class="text-secondary">AI Analysis</h6>
+                            <h6 class="text-secondary">Auspex Analysis</h6>
                             <div class="analysis-content bg-white p-3 rounded border" id="analysis-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}">
                                 <div class="analysis-text bg-light p-2 rounded small text-muted">
                                     Analysis will be generated automatically when you expand this article.
@@ -2665,25 +2663,25 @@ function renderArticles(articlesData) {
                                 ${article.sentiment_explanation ? `<br><small class="text-muted">${article.sentiment_explanation}</small>` : ''}
                             </div>` : ''}
                             
-                            ${article.driver_type ? `
+                            ${(article.driver_type || article.driver_type_explanation) ? `
                             <div class="metadata-item mb-2">
                                 <small class="text-muted d-block">Driver Type</small>
-                                <span class="badge bg-secondary">${article.driver_type}</span>
-                                ${article.driver_type_explanation ? `<br><small class="text-muted">${article.driver_type_explanation}</small>` : ''}
+                                ${article.driver_type ? `<span class=\"badge bg-secondary\">${article.driver_type}</span>` : ''}
+                                ${article.driver_type_explanation ? `<br><small class=\"text-muted\">${escapeHTML(article.driver_type_explanation)}</small>` : ''}
                             </div>` : ''}
                             
-                            ${article.time_to_impact ? `
+                            ${(article.time_to_impact || article.time_to_impact_explanation) ? `
                             <div class="metadata-item mb-2">
                                 <small class="text-muted d-block">Time to Impact</small>
-                                <span class="badge bg-warning text-dark">${article.time_to_impact}</span>
-                                ${article.time_to_impact_explanation ? `<br><small class="text-muted">${article.time_to_impact_explanation}</small>` : ''}
+                                ${article.time_to_impact ? `<span class=\"badge bg-warning text-dark\">${article.time_to_impact}</span>` : ''}
+                                ${article.time_to_impact_explanation ? `<br><small class=\"text-muted\">${escapeHTML(article.time_to_impact_explanation)}</small>` : ''}
                             </div>` : ''}
                             
-                            ${article.future_signal ? `
+                            ${(article.future_signal || article.future_signal_explanation) ? `
                             <div class="metadata-item mb-2">
                                 <small class="text-muted d-block">Future Signal</small>
-                                <span class="badge bg-dark text-white">${article.future_signal}</span>
-                                ${article.future_signal_explanation ? `<br><small class="text-muted">${article.future_signal_explanation}</small>` : ''}
+                                ${article.future_signal ? `<span class=\"badge bg-dark text-white\">${article.future_signal}</span>` : ''}
+                                ${article.future_signal_explanation ? `<br><small class=\"text-muted\">${escapeHTML(article.future_signal_explanation)}</small>` : ''}
                             </div>` : ''}
                             
                             ${article.tags ? `
@@ -3081,7 +3079,7 @@ async function generateArticleAnalysis(articleUri) {
     // Try database cache first
     try {
         console.log(`Checking cache for: ${articleUri} with model: ${selectedModel}`);
-        const cacheResponse = await fetch(`/api/analysis-cache/${encodeURIComponent(articleUri)}?analysis_type=summary&model=${encodeURIComponent(selectedModel)}`);
+        const cacheResponse = await fetch(`/api/analysis-cache?article_uri=${encodeURIComponent(articleUri)}&analysis_type=summary&model=${encodeURIComponent(selectedModel)}`);
         console.log(`Cache response status: ${cacheResponse.status}`);
         
         if (cacheResponse.ok) {
@@ -3663,7 +3661,7 @@ async function generateResearchThemes(articleUri) {
     // Check for cached themes first
     const selectedModel = document.getElementById('model-select')?.value;
     try {
-        const cacheResponse = await fetch(`/api/analysis-cache/${encodeURIComponent(articleUri)}?analysis_type=themes&model=${encodeURIComponent(selectedModel)}`);
+        const cacheResponse = await fetch(`/api/analysis-cache?article_uri=${encodeURIComponent(articleUri)}&analysis_type=themes&model=${encodeURIComponent(selectedModel)}`);
         if (cacheResponse.ok) {
             const cacheData = await cacheResponse.json();
             if (cacheData.cached && cacheData.metadata && cacheData.metadata.research_themes) {
@@ -3903,7 +3901,7 @@ async function checkCachedAnalysisIndicators(articles) {
         
         // Try database cache first
         try {
-            const cacheResponse = await fetch(`/api/analysis-cache/${encodeURIComponent(article.uri)}?analysis_type=summary&model=${encodeURIComponent(selectedModel)}`);
+            const cacheResponse = await fetch(`/api/analysis-cache?article_uri=${encodeURIComponent(article.uri)}&analysis_type=summary&model=${encodeURIComponent(selectedModel)}`);
             if (cacheResponse.ok) {
                 const cacheData = await cacheResponse.json();
                 if (cacheData.cached) {
