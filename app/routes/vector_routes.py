@@ -2457,8 +2457,8 @@ async def run_signal_instructions(
 async def get_signal_alerts(
     topic: Optional[str] = Query(None, description="Filter by topic"),
     instruction_id: Optional[int] = Query(None, description="Filter by instruction ID"),
-    acknowledged: Optional[bool] = Query(None, description="Filter by acknowledgment status"),
-    limit: int = Query(100, ge=1, le=500, description="Maximum alerts to return"),
+    acknowledged: Optional[str] = Query(None, description="Filter by acknowledgment status (true/false/null)"),
+    limit: int = Query(100, ge=1, le=10000, description="Maximum alerts to return"),
     session=Depends(verify_session_optional),
 ):
     """Get signal alerts for the dashboard."""
@@ -2466,10 +2466,24 @@ async def get_signal_alerts(
         from app.database import get_database_instance
         db = get_database_instance()
         
+        logger.info(f"Signal alerts request - topic: {topic}, instruction_id: {instruction_id}, acknowledged: {acknowledged}, limit: {limit}")
+        
+        # Convert string boolean to actual boolean
+        acknowledged_bool = None
+        if acknowledged is not None:
+            if acknowledged.lower() == 'true':
+                acknowledged_bool = True
+            elif acknowledged.lower() == 'false':
+                acknowledged_bool = False
+            else:
+                logger.warning(f"Invalid acknowledged value: {acknowledged}")
+        
+        logger.info(f"Converted acknowledged_bool: {acknowledged_bool}")
+        
         alerts = db.get_signal_alerts(
             topic=topic,
             instruction_id=instruction_id,
-            acknowledged=acknowledged,
+            acknowledged=acknowledged_bool,
             limit=limit
         )
         
