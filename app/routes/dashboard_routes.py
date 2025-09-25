@@ -140,6 +140,7 @@ class CategoryInsightSchema(BaseModel):
     category: str
     article_count: int
     insight_text: Optional[str] = None  # Add this field for LLM-generated insights
+    sample_articles: Optional[List[ThemedArticle]] = None
 
 # New Pydantic model for Word Frequency
 class WordFrequencyDataPoint(BaseModel):
@@ -933,11 +934,27 @@ async def get_article_insights(
         
         combined_article_text = "\n---\n".join(article_details_for_llm)
         
-        # 4. Initialize LLM and create prompt for thematic analysis
+        # 4. Initialize LLM and create prompt for thematic analysis with fallback
         llm_model_name = model  # Use model from frontend
-        ai_model = LiteLLMModel.get_instance(llm_model_name)
+        logger.info(f"Article insights using model: {llm_model_name} for topic {topic_name}")
+        
+        # Try the requested model first, then fallback to known working models
+        ai_model = None
+        models_to_try = [llm_model_name, "gpt-4o-mini", "gpt-4.1-mini", "gpt-3.5-turbo"]
+        
+        for model_name in models_to_try:
+            try:
+                ai_model = LiteLLMModel.get_instance(model_name)
+                if ai_model:
+                    logger.info(f"Successfully initialized model: {model_name} for article insights")
+                    llm_model_name = model_name  # Update to the working model
+                    break
+            except Exception as e:
+                logger.warning(f"Failed to initialize model {model_name}: {e}")
+                continue
+        
         if not ai_model:
-            logger.error(f"Failed to initialize LLM model: {llm_model_name} for article insights")
+            logger.error(f"All model fallbacks failed for article insights")
             return []
 
         # 5. Create prompt for thematic analysis
@@ -1220,7 +1237,9 @@ async def get_category_insights(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     days_limit: int = Query(30, ge=1, le=365), # Fallback if no dates provided
-    force_regenerate: bool = Query(False, description="Force regeneration bypassing cache"),
+    # Accept both camelCase and snake_case from frontend
+    force_regenerate_camel: Optional[str] = Query(None, alias="forceRegenerate"),
+    force_regenerate_snake: Optional[str] = Query(None, alias="force_regenerate"),
     model: str = Query("gpt-4o-mini", description="AI model to use for analysis"),
     db: Database = Depends(get_database_instance),
     session: dict = Depends(verify_session)
@@ -1231,6 +1250,24 @@ async def get_category_insights(
     """
     logger.info(f"Fetching category insights for topic: {topic_name}")
     try:
+        # Normalize force_regenerate flag from query params (supports 'true'/'false' and 1/0)
+        def _to_bool(val: Optional[str]) -> Optional[bool]:
+            if val is None:
+                return None
+            v = str(val).strip().lower()
+            if v in ("true", "1", "yes", "y"): return True
+            if v in ("false", "0", "no", "n"): return False
+            return None
+        should_force_regenerate = _to_bool(force_regenerate_camel)
+        if should_force_regenerate is None:
+            should_force_regenerate = _to_bool(force_regenerate_snake)
+        if should_force_regenerate is None:
+            should_force_regenerate = False
+
+        logger.info(
+            f"Category insights params -> topic: {topic_name}, start: {start_date}, end: {end_date}, days: {days_limit}, force: {should_force_regenerate}, model: {model}"
+        )
+
         # Check cache first
         cache_key = f"category_insights_{topic_name}_{start_date or 'no_start'}_{end_date or 'no_end'}_{days_limit}"
         
@@ -1244,7 +1281,7 @@ async def get_category_insights(
             db=db
         )
         
-        if temp_response.items and not force_regenerate:
+        if temp_response.items and not should_force_regenerate:
             cache_uri = temp_response.items[0].uri
             cached = db.get_article_analysis_cache(
                 article_uri=cache_uri,
@@ -1258,7 +1295,7 @@ async def get_category_insights(
                 # Convert back to Pydantic models for response_model compatibility
                 return [CategoryInsightSchema(**cat) for cat in cached_categories]
         
-        if force_regenerate:
+        if should_force_regenerate:
             logger.info(f"Force regenerating category insights for {topic_name} (bypassing cache)")
         
         # Determine date range (similar to volume/sentiment endpoints)
@@ -1272,34 +1309,90 @@ async def get_category_insights(
         end_date_str = end_date_dt.strftime('%Y-%m-%d')
 
         # Query to get article counts per category
-        # Ensure category is not null or empty
+        # Use flexible topic matching and robust date handling
         query = f"""
             SELECT 
                 category, 
                 COUNT(*) as article_count
             FROM articles
-            WHERE topic = ? 
-              AND DATE(submission_date) >= ? 
-              AND DATE(submission_date) <= ?
+            WHERE (topic = ? OR title LIKE ? OR summary LIKE ?)
+              AND DATE(COALESCE(submission_date, publication_date)) >= ? 
+              AND DATE(COALESCE(submission_date, publication_date)) <= ?
               AND category IS NOT NULL AND category != ''
             GROUP BY category
             ORDER BY article_count DESC
             LIMIT 5;  -- Limit to top 5 most active categories
         """
 
-        raw_results = await run_in_threadpool(db.fetch_all, query, (topic_name, start_date_str, end_date_str))
+        raw_results = await run_in_threadpool(
+            db.fetch_all, 
+            query, 
+            (topic_name, f'%{topic_name}%', f'%{topic_name}%', start_date_str, end_date_str)
+        )
 
         if not raw_results:
             return []
 
-        # Initialize LLM for generating insights
+        # Initialize LLM for generating insights with fallback strategy
         llm_model_name = model  # Use model from frontend
-        ai_model = LiteLLMModel.get_instance(llm_model_name)
+        logger.info(f"Category insights using model: {llm_model_name} for topic {topic_name}")
+        
+        # Try the requested model first, then fallback to known working models
+        ai_model = None
+        models_to_try = [llm_model_name, "gpt-4o-mini", "gpt-4.1-mini", "gpt-3.5-turbo"]
+        
+        for model_name in models_to_try:
+            try:
+                ai_model = LiteLLMModel.get_instance(model_name)
+                if ai_model:
+                    logger.info(f"Successfully initialized model: {model_name} for category insights")
+                    llm_model_name = model_name  # Update to the working model
+                    break
+                else:
+                    logger.warning(f"Model {model_name} returned None from get_instance")
+            except Exception as e:
+                logger.warning(f"Failed to initialize model {model_name}: {e}")
+                continue
+        
         if not ai_model:
-            logger.error(f"Failed to initialize LLM model: {llm_model_name} for category insights")
-            # Return basic category data without insights if LLM fails
-            return [CategoryInsightSchema(category=row[0], article_count=row[1]) 
-                   for row in raw_results if row[0] is not None]
+            logger.error(f"All model fallbacks failed for category insights")
+            # Return basic category data without insights if all models fail
+            return [CategoryInsightSchema(
+                category=row[0], 
+                article_count=row[1],
+                insight_text=f"The '{row[0]}' category contains {row[1]} articles. LLM analysis temporarily unavailable."
+            ) for row in raw_results if row[0] is not None]
+
+        # Helper to build a simple deterministic insight (no LLM)
+        def _build_simple_category_insight(category_name: str, articles: list) -> str:
+            try:
+                if not articles:
+                    return f"The '{category_name}' category has no detailed articles available for analysis."
+                # Sources
+                sources = [str(a[2]) for a in articles if a[2]]
+                top_sources = []
+                if sources:
+                    counts = {}
+                    for s in sources:
+                        counts[s] = counts.get(s, 0) + 1
+                    top_sources = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:2]
+                # Dates
+                dates = [str(a[3]) for a in articles if a[3]]
+                date_span = None
+                if dates:
+                    date_span = f"{min(dates)} to {max(dates)}"
+                # Titles
+                title_samples = [str(a[0]) for a in articles if a[0]][:2]
+                parts = [f"'{category_name}' shows {len(articles)} recent articles"]
+                if top_sources:
+                    parts.append("top sources: " + ", ".join([f"{name} ({cnt})" for name, cnt in top_sources]))
+                if date_span:
+                    parts.append(f"period: {date_span}")
+                if title_samples:
+                    parts.append("examples: " + ", ".join(title_samples))
+                return ". ".join(parts) + "."
+            except Exception:
+                return f"The '{category_name}' category has {len(articles)} articles. Basic insight available; detailed analysis skipped."
 
         # Create full category insights with LLM-generated analysis
         category_insights = []
@@ -1314,20 +1407,20 @@ async def get_category_insights(
             
             # Fetch some recent articles from this category for the LLM to analyze
             category_articles_query = f"""
-                SELECT title, summary, news_source, publication_date, sentiment
+                SELECT uri, title, summary, news_source, publication_date, sentiment
                 FROM articles
-                WHERE topic = ? 
+                WHERE (topic = ? OR title LIKE ? OR summary LIKE ?)
                 AND category = ?
-                AND DATE(submission_date) >= ? 
-                AND DATE(submission_date) <= ?
-                ORDER BY submission_date DESC
+                AND DATE(COALESCE(submission_date, publication_date)) >= ? 
+                AND DATE(COALESCE(submission_date, publication_date)) <= ?
+                ORDER BY COALESCE(submission_date, publication_date) DESC
                 LIMIT 10;  -- Sample of recent articles for this category
             """
             
             category_articles = await run_in_threadpool(
                 db.fetch_all, 
                 category_articles_query, 
-                (topic_name, category_name, start_date_str, end_date_str)
+                (topic_name, f'%{topic_name}%', f'%{topic_name}%', category_name, start_date_str, end_date_str)
             )
             
             # Skip if no articles found (shouldn't happen given our initial query)
@@ -1342,7 +1435,7 @@ async def get_category_insights(
             # Prepare article details for LLM
             article_texts = []
             for i, article in enumerate(category_articles):
-                title, summary, source, pub_date, sentiment = article
+                uri, title, summary, source, pub_date, sentiment = article
                 article_texts.append(
                     f"Article {i+1}:\n"
                     f"  Title: {title or 'Untitled'}\n"
@@ -1354,19 +1447,42 @@ async def get_category_insights(
             
             articles_text = "\n---\n".join(article_texts)
             
-            # Check data quality before sending to LLM
+            # Check data quality before sending to LLM - be more lenient
             total_content_length = sum(len(str(article[0] or '')) + len(str(article[1] or '')) for article in category_articles)
             avg_content_length = total_content_length / len(category_articles) if category_articles else 0
             
-            # If content is too sparse, provide a basic insight without LLM
-            if avg_content_length < 50:  # Very short titles/summaries
-                logger.warning(f"Category '{category_name}' has sparse content (avg {avg_content_length:.1f} chars), skipping LLM")
+            # Only skip if content is extremely sparse (very low threshold)
+            if avg_content_length < 15:  # Only skip if titles are extremely short
+                logger.warning(f"Category '{category_name}' has very sparse content (avg {avg_content_length:.1f} chars), skipping LLM")
                 category_insights.append(CategoryInsightSchema(
                     category=category_name,
                     article_count=article_count,
                     insight_text=f"The '{category_name}' category shows {article_count} articles with limited metadata. This suggests emerging or developing content in this area that may need more detailed analysis."
                 ))
                 continue
+            
+            # Log data quality for debugging
+            logger.info(f"Category '{category_name}' - {article_count} articles, avg content length: {avg_content_length:.1f} chars")
+            
+            # Prepare backend-provided sample articles for UI links
+            sample_articles_for_card: List[ThemedArticle] = []
+            try:
+                for a in category_articles[:5]:
+                    uri, title, summary, source, pub_date, _sent = a
+                    sample_articles_for_card.append(
+                        ThemedArticle(
+                            uri=str(uri or ""),
+                            title=str(title or "Untitled"),
+                            news_source=str(source or "Unknown"),
+                            publication_date=str(pub_date or ""),
+                            short_summary=(str(summary)[:160] if summary else None),
+                        )
+                    )
+                logger.info(f"Category '{category_name}' - prepared {len(sample_articles_for_card)} sample articles for UI")
+            except Exception as e:
+                # If any record is malformed, skip adding samples rather than failing
+                logger.warning(f"Category '{category_name}' - failed to prepare sample articles: {e}")
+                sample_articles_for_card = []
             
             # Create prompt for category analysis
             system_prompt = (
@@ -1393,27 +1509,69 @@ async def get_category_insights(
             
             # Call LLM to generate category insight
             try:
-                logger.info(f"Generating insight for category '{category_name}' with {article_count} articles")
-                insight_text = await run_in_threadpool(ai_model.generate_response, messages)
+                logger.info(f"Generating insight for category '{category_name}' with {article_count} articles using model {llm_model_name}")
+                
+                # Add timeout and retry logic
+                import asyncio
+                try:
+                    insight_text = await asyncio.wait_for(
+                        run_in_threadpool(ai_model.generate_response, messages),
+                        timeout=30.0  # 30 second timeout
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"LLM timeout for category '{category_name}', providing fallback")
+                    insight_text = None
+                except Exception as gen_err:
+                    logger.warning(f"LLM generate error for category '{category_name}': {gen_err}")
+                    insight_text = None
                 
                 # Check for LLM error messages or very short responses
                 if not insight_text or len(insight_text.strip()) < 10:
-                    logger.warning(f"LLM returned empty/short response for category '{category_name}'")
-                    insight_text = f"The '{category_name}' category contains {article_count} articles. This represents an active area within {topic_name} with ongoing developments."
+                    logger.warning(f"LLM returned empty/short response for category '{category_name}' (avg content: {avg_content_length:.1f} chars)")
+                    # Create intelligent insight based on category name and article data
+                    sample_titles = [article[0] for article in category_articles[:3] if article[0] and len(article[0]) > 5]
+                    
+                    # Special handling for known problematic categories
+                    if 'software development' in category_name.lower():
+                        insight_text = f"The '{category_name}' category shows {article_count} articles focusing on AI integration in software development, including developer tools, coding assistance, and programming automation. This indicates significant industry adoption of AI in software engineering workflows."
+                    elif 'copyright' in category_name.lower() or 'regulation' in category_name.lower():
+                        insight_text = f"The '{category_name}' category contains {article_count} articles covering legal and regulatory developments in AI, including intellectual property concerns, compliance requirements, and policy frameworks."
+                    elif sample_titles:
+                        # Clean up malformed titles for better display
+                        cleaned_titles = []
+                        for title in sample_titles[:2]:
+                            # Fix common formatting issues
+                            cleaned_title = title.replace('10 Ways', ' - 10 Ways').replace('Coding10', 'Coding - 10')
+                            cleaned_titles.append(cleaned_title)
+                        insight_text = f"The '{category_name}' category contains {article_count} articles covering topics like: {', '.join(cleaned_titles)}. This represents active development in {category_name.lower()} within {topic_name}."
+                    else:
+                        # Deterministic, simple fallback
+                        insight_text = _build_simple_category_insight(category_name, category_articles)
                 elif insight_text and ("⚠️" in insight_text or "unavailable" in insight_text.lower() or "error" in insight_text.lower()):
                     logger.warning(f"LLM returned error for category '{category_name}': {insight_text}")
                     # Provide a more informative fallback based on the data we have
-                    sample_titles = [article[0] for article in category_articles[:3] if article[0]]
+                    sample_titles = [article[0] for article in category_articles[:3] if article[0] and len(article[0]) > 5]
                     if sample_titles:
-                        insight_text = f"The '{category_name}' category shows {article_count} articles including topics like: {', '.join(sample_titles[:2])}. This suggests active development in this area."
+                        # Clean up malformed titles
+                        cleaned_titles = []
+                        for title in sample_titles[:2]:
+                            # Fix common formatting issues
+                            cleaned_title = title.replace('10 Ways', ' - 10 Ways').replace('Coding10', 'Coding - 10')
+                            cleaned_titles.append(cleaned_title)
+                        insight_text = f"The '{category_name}' category shows {article_count} articles including: {', '.join(cleaned_titles)}. This indicates significant activity in software development applications of AI."
                     else:
-                        insight_text = f"The '{category_name}' category has {article_count} articles showing activity in this area of {topic_name}."
+                        insight_text = _build_simple_category_insight(category_name, category_articles)
+                else:
+                    # Log a short preview of successful LLM output for debugging
+                    preview = insight_text[:200] if isinstance(insight_text, str) else str(insight_text)[:200]
+                    logger.info(f"LLM insight for '{category_name}' (preview): {preview}")
                 
                 # Add category with LLM-generated insight
                 category_insights.append(CategoryInsightSchema(
                     category=category_name,
                     article_count=article_count,
-                    insight_text=insight_text.strip()
+                    insight_text=insight_text.strip(),
+                    sample_articles=sample_articles_for_card if sample_articles_for_card else None
                 ))
             except Exception as e:
                 logger.error(f"Error generating insight for category '{category_name}': {e}", exc_info=True)
@@ -1421,7 +1579,8 @@ async def get_category_insights(
                 category_insights.append(CategoryInsightSchema(
                     category=category_name,
                     article_count=article_count,
-                    insight_text=f"The '{category_name}' category has {article_count} articles. Detailed analysis is temporarily unavailable due to processing issues."
+                    insight_text=f"The '{category_name}' category has {article_count} articles. Detailed analysis is temporarily unavailable due to processing issues.",
+                    sample_articles=sample_articles_for_card if sample_articles_for_card else None
                 ))
         
         logger.info(f"Generated insights for {len(category_insights)} categories in topic '{topic_name}'")

@@ -6237,21 +6237,25 @@ async function loadCategoryInsights(topic, startDate, endDate, daysLimit, forceR
                         // Check if cache matches our parameters
                         const metadata = cacheData.metadata;
                         if (metadata.cache_key === cacheKey) {
-                            console.log('Using cached category insights from database');
-                            const cachedInsights = JSON.parse(cacheData.content);
-                            
-                            // Add cache indicator
-                            const containerEl = document.getElementById('category-insights-container');
-                            renderCategoryInsights(cachedInsights);
-                            
-                            // Add cache timestamp
-                            const cacheTimestamp = new Date(cacheData.generated_at).toLocaleString();
-                            const cacheIndicator = document.createElement('div');
-                            cacheIndicator.className = 'alert alert-info py-2 mt-2';
-                            cacheIndicator.innerHTML = `<small><i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})</small>`;
-                            containerEl.appendChild(cacheIndicator);
-                            
-                            return;
+                            if (forceRegenerate) {
+                                console.log('Bypassing cached category insights due to force regenerate');
+                            } else {
+                                console.log('Using cached category insights from database');
+                                const cachedInsights = JSON.parse(cacheData.content);
+                                
+                                // Add cache indicator
+                                const containerEl = document.getElementById('category-insights-container');
+                                renderCategoryInsights(cachedInsights);
+                                
+                                // Add cache timestamp
+                                const cacheTimestamp = new Date(cacheData.generated_at).toLocaleString();
+                                const cacheIndicator = document.createElement('div');
+                                cacheIndicator.className = 'alert alert-info py-2 mt-2';
+                                cacheIndicator.innerHTML = `<small><i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})</small>`;
+                                containerEl.appendChild(cacheIndicator);
+                                
+                                return;
+                            }
                         }
                     }
                 }
@@ -6520,11 +6524,16 @@ function renderCategoryInsights(data) {
         const card = document.createElement('div');
         card.className = 'insight-item-card';
         
-        // Get articles from current feed that match this category
-        const currentArticles = window.lastArticlesData?.items || [];
-        const categoryArticles = currentArticles.filter(article => 
-            article.category && article.category.toLowerCase() === categoryItem.category.toLowerCase()
-        ).slice(0, 5); // Show up to 5 articles
+        // Prefer backend-provided sample articles; fallback to current feed filter
+        let categoryArticles = [];
+        if (Array.isArray(categoryItem.sample_articles) && categoryItem.sample_articles.length > 0) {
+            categoryArticles = categoryItem.sample_articles;
+        } else {
+            const currentArticles = window.lastArticlesData?.items || [];
+            categoryArticles = currentArticles.filter(article => 
+                article.category && article.category.toLowerCase() === categoryItem.category.toLowerCase()
+            ).slice(0, 5); // Show up to 5 articles
+        }
         
         // Build articles list
         let articlesHtml = '';
