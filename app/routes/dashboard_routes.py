@@ -862,6 +862,33 @@ async def get_article_insights(
     Uses LLM to analyze and extract insights about article content.
     """
     try:
+        # Check cache first
+        cache_key = f"article_insights_{topic_name}_{start_date or 'no_start'}_{end_date or 'no_end'}_{days_limit}"
+        
+        # Get representative article for cache anchoring
+        temp_response = await get_topic_articles(
+            topic_name=topic_name,
+            page=1,
+            per_page=1,
+            start_date=start_date,
+            end_date=end_date,
+            db=db
+        )
+        
+        if temp_response.items:
+            cache_uri = temp_response.items[0].uri
+            cached = db.get_article_analysis_cache(
+                article_uri=cache_uri,
+                analysis_type=f"article_insights_{topic_name}",
+                model_used="dashboard_api"
+            )
+            
+            if cached and cached.get("metadata", {}).get("cache_key") == cache_key:
+                logger.info(f"Cache HIT: article insights for {topic_name}")
+                cached_themes = json.loads(cached["content"])
+                # Convert back to Pydantic models for response_model compatibility
+                return [ThemeWithArticlesSchema(**theme) for theme in cached_themes]
+        
         # 1. Fetch recent articles within the date range
         paginated_response = await get_topic_articles(
             topic_name=topic_name,
@@ -902,7 +929,7 @@ async def get_article_insights(
         combined_article_text = "\n---\n".join(article_details_for_llm)
         
         # 4. Initialize LLM and create prompt for thematic analysis
-        llm_model_name = "gpt-4o"  # Use most capable model for analysis
+        llm_model_name = "gpt-4o-mini"  # Use reliable model for analysis
         ai_model = LiteLLMModel.get_instance(llm_model_name)
         if not ai_model:
             logger.error(f"Failed to initialize LLM model: {llm_model_name} for article insights")
@@ -939,6 +966,11 @@ async def get_article_insights(
         if not llm_response_str:
             logger.warning(f"LLM returned empty response for article insights on topic {topic_name}")
             return []
+        
+        # Check for LLM error messages first
+        if "⚠️" in llm_response_str or "unavailable" in llm_response_str.lower() or "error" in llm_response_str.lower():
+            logger.error(f"LLM returned error message for article insights: {llm_response_str}")
+            return []
             
         try:
             # Attempt to extract JSON from the response - handle both clean JSON and markdown code blocks
@@ -951,8 +983,11 @@ async def get_article_insights(
             else:
                 # Fallback - try parsing the whole response as JSON
                 llm_themes = json.loads(llm_response_str)
+        except json.JSONDecodeError as je:
+            logger.error(f"Failed to parse LLM response as JSON: {je}. Response was: {llm_response_str[:200]}...")
+            return []
         except Exception as e:
-            logger.error(f"Unexpected error processing LLM theme response: {e}. Response was: {llm_response_str}", exc_info=True)
+            logger.error(f"Unexpected error processing LLM theme response: {e}. Response was: {llm_response_str[:200]}...", exc_info=True)
             return []
 
         # 8. Build themed insights from LLM analysis
@@ -995,6 +1030,38 @@ async def get_article_insights(
                 logger.info(f"Theme '{llm_theme_data['theme_name']}' had no matching articles from DB, skipping.")
 
         logger.info(f"Successfully generated {len(final_themed_insights)} thematic insights for topic {topic_name}.")
+        
+        # Cache the results for future requests
+        try:
+            if articles and final_themed_insights:
+                cache_uri = articles[0].uri
+                # Convert Pydantic models to dict for JSON serialization
+                cache_content = json.dumps([theme.dict() for theme in final_themed_insights], ensure_ascii=False, default=str)
+                cache_metadata = {
+                    "cache_key": cache_key,
+                    "topic": topic_name,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "days_limit": days_limit,
+                    "insight_type": "article_themes",
+                    "article_count": len(articles)
+                }
+                
+                success = db.save_article_analysis_cache(
+                    article_uri=cache_uri,
+                    analysis_type=f"article_insights_{topic_name}",
+                    content=cache_content,
+                    model_used="dashboard_api",
+                    metadata=cache_metadata
+                )
+                
+                if success:
+                    logger.info(f"Cache SAVE: article insights for {topic_name}")
+                else:
+                    logger.warning(f"Cache SAVE FAILED: article insights for {topic_name}")
+        except Exception as cache_error:
+            logger.warning(f"Failed to cache article insights: {cache_error}")
+        
         return final_themed_insights
 
     except HTTPException:  # Re-raise HTTPExceptions
@@ -1157,6 +1224,33 @@ async def get_category_insights(
     """
     logger.info(f"Fetching category insights for topic: {topic_name}")
     try:
+        # Check cache first
+        cache_key = f"category_insights_{topic_name}_{start_date or 'no_start'}_{end_date or 'no_end'}_{days_limit}"
+        
+        # Get representative article for cache anchoring
+        temp_response = await get_topic_articles(
+            topic_name=topic_name,
+            page=1,
+            per_page=1,
+            start_date=start_date,
+            end_date=end_date,
+            db=db
+        )
+        
+        if temp_response.items:
+            cache_uri = temp_response.items[0].uri
+            cached = db.get_article_analysis_cache(
+                article_uri=cache_uri,
+                analysis_type=f"category_insights_{topic_name}",
+                model_used="dashboard_api"
+            )
+            
+            if cached and cached.get("metadata", {}).get("cache_key") == cache_key:
+                logger.info(f"Cache HIT: category insights for {topic_name}")
+                cached_categories = json.loads(cached["content"])
+                # Convert back to Pydantic models for response_model compatibility
+                return [CategoryInsightSchema(**cat) for cat in cached_categories]
+        
         # Determine date range (similar to volume/sentiment endpoints)
         end_date_dt = datetime.utcnow() if not end_date else datetime.strptime(end_date, '%Y-%m-%d')
         if start_date:
@@ -1189,7 +1283,7 @@ async def get_category_insights(
             return []
 
         # Initialize LLM for generating insights
-        llm_model_name = "gpt-4o"  # Use capable model for insights
+        llm_model_name = "gpt-4o-mini"  # Use reliable model for insights
         ai_model = LiteLLMModel.get_instance(llm_model_name)
         if not ai_model:
             logger.error(f"Failed to initialize LLM model: {llm_model_name} for category insights")
@@ -1274,6 +1368,12 @@ async def get_category_insights(
             # Call LLM to generate category insight
             try:
                 insight_text = await run_in_threadpool(ai_model.generate_response, messages)
+                
+                # Check for LLM error messages
+                if insight_text and ("⚠️" in insight_text or "unavailable" in insight_text.lower() or "error" in insight_text.lower()):
+                    logger.warning(f"LLM returned error for category '{category_name}': {insight_text}")
+                    insight_text = f"Analysis temporarily unavailable for '{category_name}' category."
+                
                 # Add category with LLM-generated insight
                 category_insights.append(CategoryInsightSchema(
                     category=category_name,
@@ -1290,6 +1390,49 @@ async def get_category_insights(
                 ))
         
         logger.info(f"Generated insights for {len(category_insights)} categories in topic '{topic_name}'")
+        
+        # Cache the results for future requests
+        try:
+            if category_insights:
+                # Use first article from temp_response as cache anchor
+                temp_response = await get_topic_articles(
+                    topic_name=topic_name,
+                    page=1,
+                    per_page=1,
+                    start_date=start_date,
+                    end_date=end_date,
+                    db=db
+                )
+                
+                if temp_response.items:
+                    cache_uri = temp_response.items[0].uri
+                    # Convert Pydantic models to dict for JSON serialization
+                    cache_content = json.dumps([cat.dict() for cat in category_insights], ensure_ascii=False, default=str)
+                    cache_metadata = {
+                        "cache_key": cache_key,
+                        "topic": topic_name,
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "days_limit": days_limit,
+                        "insight_type": "category_distribution",
+                        "category_count": len(category_insights)
+                    }
+                    
+                    success = db.save_article_analysis_cache(
+                        article_uri=cache_uri,
+                        analysis_type=f"category_insights_{topic_name}",
+                        content=cache_content,
+                        model_used="dashboard_api",
+                        metadata=cache_metadata
+                    )
+                    
+                    if success:
+                        logger.info(f"Cache SAVE: category insights for {topic_name}")
+                    else:
+                        logger.warning(f"Cache SAVE FAILED: category insights for {topic_name}")
+        except Exception as cache_error:
+            logger.warning(f"Failed to cache category insights: {cache_error}")
+        
         return category_insights
 
     except Exception as e:

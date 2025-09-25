@@ -236,7 +236,7 @@ async def get_six_articles_report(
             # Return empty result instead of 404
             return {"six_articles": []}
         
-        six_articles = await news_feed_service._generate_six_articles_report(articles_data, target_date or datetime.now(), request)
+        six_articles = await news_feed_service._generate_six_articles_report_cached(articles_data, target_date or datetime.now(), request)
         
         logger.info(f"Generated {len(six_articles)} six articles")
         if six_articles and len(six_articles) > 0:

@@ -1709,12 +1709,22 @@ async def get_analysis_cache_qp(
         from app.database import get_database_instance
         db = get_database_instance()
 
+        # Decode the URI to match what's stored in the database
+        decoded_uri = urllib.parse.unquote(article_uri)
+        
+        # Debug logging to help troubleshoot cache issues
+        logger.info(f"Cache lookup - Original URI: {article_uri}")
+        logger.info(f"Cache lookup - Decoded URI: {decoded_uri}")
+        logger.info(f"Cache lookup - Analysis type: {analysis_type}, Model: {model}")
+
         cached = db.get_article_analysis_cache(
-            article_uri=article_uri,
+            article_uri=decoded_uri,  # Use decoded URI to match database storage
             analysis_type=analysis_type,
             model_used=model,
         )
+        
         if cached:
+            logger.info(f"Cache HIT for {decoded_uri}")
             return {
                 "cached": True,
                 "content": cached["content"],
@@ -1722,6 +1732,9 @@ async def get_analysis_cache_qp(
                 "generated_at": cached["generated_at"],
                 "metadata": cached.get("metadata", {}),
             }
+        else:
+            logger.info(f"Cache MISS for {decoded_uri}")
+            
         return {"cached": False}
     except Exception as exc:
         logger.error("Error getting analysis cache (qp): %s", exc)
@@ -1748,6 +1761,11 @@ async def save_analysis_cache(
         from app.database import get_database_instance
         db = get_database_instance()
         
+        # Debug logging to help troubleshoot cache saves
+        logger.info(f"Cache save - URI: {req.article_uri}")
+        logger.info(f"Cache save - Analysis type: {req.analysis_type}, Model: {req.model_name}")
+        logger.info(f"Cache save - Content length: {len(req.content)} chars")
+        
         success = db.save_article_analysis_cache(
             article_uri=req.article_uri,
             analysis_type=req.analysis_type,
@@ -1757,8 +1775,10 @@ async def save_analysis_cache(
         )
         
         if success:
+            logger.info(f"Cache SAVE SUCCESS for {req.article_uri}")
             return {"success": True, "message": "Analysis cached successfully"}
         else:
+            logger.warning(f"Cache SAVE FAILED for {req.article_uri}")
             raise HTTPException(status_code=500, detail="Failed to cache analysis")
             
     except Exception as exc:

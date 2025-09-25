@@ -785,6 +785,7 @@ Remember to cite your sources and provide actionable insights where possible."""
     def save_article_analysis_cache(self, article_uri: str, analysis_type: str, content: str, model_used: str, metadata: dict = None) -> bool:
         """Save analysis result to cache with expiration."""
         from datetime import datetime, timedelta
+        import sqlite3
         
         expires_at = datetime.utcnow() + timedelta(days=7)  # Cache for 7 days
         metadata_json = json.dumps(metadata) if metadata else None
@@ -792,7 +793,7 @@ Remember to cite your sources and provide actionable insights where possible."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                # Create table if it doesn't exist (migration)
+                # Create table without foreign key constraint for better cache flexibility
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS article_analysis_cache (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -803,7 +804,6 @@ Remember to cite your sources and provide actionable insights where possible."""
                         generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                         expires_at TIMESTAMP,
                         metadata TEXT,
-                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
                         UNIQUE(article_uri, analysis_type, model_used)
                     )
                 """)
@@ -818,6 +818,73 @@ Remember to cite your sources and provide actionable insights where possible."""
                 conn.commit()
                 logger.info(f"Cached {analysis_type} analysis for article {article_uri} with model {model_used}")
                 return True
+            except sqlite3.IntegrityError as ie:
+                # Handle foreign key constraint violations specifically
+                if "FOREIGN KEY constraint failed" in str(ie):
+                    logger.warning(f"Article {article_uri} not found in articles table, but caching analysis anyway")
+                    # Try to migrate the table to remove foreign key constraint
+                    try:
+                        # Check if we need to migrate the table structure
+                        cursor.execute("PRAGMA table_info(article_analysis_cache)")
+                        columns = cursor.fetchall()
+                        
+                        # Check if table has foreign key constraint by looking at schema
+                        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='article_analysis_cache'")
+                        schema_result = cursor.fetchone()
+                        
+                        if schema_result and "FOREIGN KEY" in schema_result[0]:
+                            logger.info("Migrating cache table to remove foreign key constraint")
+                            
+                            # Create new table without foreign key
+                            cursor.execute("""
+                                CREATE TABLE article_analysis_cache_new (
+                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    article_uri TEXT NOT NULL,
+                                    analysis_type TEXT NOT NULL,
+                                    content TEXT NOT NULL,
+                                    model_used TEXT NOT NULL,
+                                    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                    expires_at TIMESTAMP,
+                                    metadata TEXT,
+                                    UNIQUE(article_uri, analysis_type, model_used)
+                                )
+                            """)
+                            
+                            # Copy existing data
+                            cursor.execute("""
+                                INSERT INTO article_analysis_cache_new 
+                                SELECT id, article_uri, analysis_type, content, model_used, generated_at, expires_at, metadata 
+                                FROM article_analysis_cache
+                            """)
+                            
+                            # Drop old table and rename
+                            cursor.execute("DROP TABLE article_analysis_cache")
+                            cursor.execute("ALTER TABLE article_analysis_cache_new RENAME TO article_analysis_cache")
+                            
+                            # Now insert the new record
+                            cursor.execute("""
+                                INSERT OR REPLACE INTO article_analysis_cache 
+                                (article_uri, analysis_type, content, model_used, expires_at, metadata)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            """, (article_uri, analysis_type, content, model_used, expires_at, metadata_json))
+                            
+                            conn.commit()
+                            logger.info(f"Cached {analysis_type} analysis for article {article_uri} with model {model_used} (migrated table)")
+                            return True
+                        else:
+                            # Table already doesn't have foreign key, something else went wrong
+                            logger.error(f"Unexpected integrity error: {ie}")
+                            conn.rollback()
+                            return False
+                            
+                    except Exception as migrate_error:
+                        logger.error(f"Failed to migrate cache table: {migrate_error}")
+                        conn.rollback()
+                        return False
+                else:
+                    logger.error(f"Integrity error saving analysis cache: {ie}")
+                    conn.rollback()
+                    return False
             except Exception as e:
                 logger.error(f"Error saving analysis cache: {e}")
                 conn.rollback()

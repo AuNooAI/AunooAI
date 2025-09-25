@@ -2210,6 +2210,9 @@ function renderSixArticles(articles) {
         <div class="six-articles-analysis">
             <h3>🎯 CEO Daily Top-6 AI Articles</h3>
             <p class="mb-4">Selected based on strategic relevance, novelty, credibility, and representativeness for executive decision-makers.</p>
+            <div class="small text-muted mb-2">
+                <i class="far fa-clock me-1"></i>Generated: ${new Date().toLocaleString()}
+            </div>
         </div>
     `;
     
@@ -5955,6 +5958,48 @@ async function loadArticleInsights(topic, startDate, endDate, daysLimit) {
     errorEl.style.display = 'none';
     
     try {
+        // Check database cache first using representative article URI
+        const cacheKey = `article_insights_${topic}_${startDate || 'no_start'}_${endDate || 'no_end'}_${daysLimit}`;
+        let cacheUri = null;
+        
+        // Use the first article URI from current dataset as cache reference
+        const currentArticles = window.lastArticlesData?.items || [];
+        if (currentArticles.length > 0) {
+            cacheUri = currentArticles[0].uri; // Use first article as cache anchor
+        }
+        
+        if (cacheUri) {
+            try {
+                const cacheResponse = await fetch(`/api/analysis-cache?article_uri=${encodeURIComponent(cacheUri)}&analysis_type=article_insights_${topic}&model=dashboard_api`);
+                if (cacheResponse.ok) {
+                    const cacheData = await cacheResponse.json();
+                    if (cacheData.cached && cacheData.metadata) {
+                        // Check if cache matches our parameters
+                        const metadata = cacheData.metadata;
+                        if (metadata.cache_key === cacheKey) {
+                            console.log('Using cached article insights from database');
+                            const cachedInsights = JSON.parse(cacheData.content);
+                            
+                            // Add cache indicator
+                            const containerEl = document.getElementById('article-insights-container');
+                            renderArticleInsights(cachedInsights);
+                            
+                            // Add cache timestamp
+                            const cacheTimestamp = new Date(cacheData.generated_at).toLocaleString();
+                            const cacheIndicator = document.createElement('div');
+                            cacheIndicator.className = 'alert alert-info py-2 mt-2';
+                            cacheIndicator.innerHTML = `<small><i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})</small>`;
+                            containerEl.appendChild(cacheIndicator);
+                            
+                            return;
+                        }
+                    }
+                }
+            } catch (cacheError) {
+                console.debug('Database cache check failed, proceeding with API call:', cacheError);
+            }
+        }
+        
         const params = new URLSearchParams();
         if (startDate && endDate) {
             params.append('start_date', startDate);
@@ -5971,34 +6016,43 @@ async function loadArticleInsights(topic, startDate, endDate, daysLimit) {
         
         const data = await response.json();
         
-        // Cache insights in database
+        // Cache insights in database using representative article URI
         try {
             const cacheKey = `article_insights_${topic}_${startDate || 'no_start'}_${endDate || 'no_end'}_${daysLimit}`;
-            const cacheContent = JSON.stringify(data, null, 2);
-            const cacheMetadata = {
-                topic: topic,
-                start_date: startDate,
-                end_date: endDate,
-                days_limit: daysLimit,
-                insight_type: 'article_themes'
-            };
+            const currentArticles = window.lastArticlesData?.items || [];
             
-            const cacheResponse = await fetch('/api/save-analysis-cache', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    article_uri: cacheKey,
-                    analysis_type: 'insights',
-                    content: cacheContent,
-                    model_name: 'dashboard_api',
-                    metadata: cacheMetadata
-                })
-            });
-            
-            if (cacheResponse.ok) {
-                console.log('Cached article insights in database');
+            if (currentArticles.length > 0) {
+                const cacheUri = currentArticles[0].uri; // Use first article as cache anchor
+                const cacheContent = JSON.stringify(data, null, 2);
+                const cacheMetadata = {
+                    cache_key: cacheKey,
+                    topic: topic,
+                    start_date: startDate,
+                    end_date: endDate,
+                    days_limit: daysLimit,
+                    insight_type: 'article_themes',
+                    article_count: currentArticles.length
+                };
+                
+                const cacheResponse = await fetch('/api/save-analysis-cache', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        article_uri: cacheUri,
+                        analysis_type: `article_insights_${topic}`,
+                        content: cacheContent,
+                        model_name: 'dashboard_api',
+                        metadata: cacheMetadata
+                    })
+                });
+                
+                if (cacheResponse.ok) {
+                    console.log('Cached article insights in database');
+                } else {
+                    console.warn('Failed to cache article insights - server error:', cacheResponse.status);
+                }
             } else {
-                console.warn('Failed to cache article insights - server error:', cacheResponse.status);
+                console.warn('No articles available for cache anchoring');
             }
         } catch (cacheError) {
             console.warn('Failed to cache article insights:', cacheError);
@@ -6033,6 +6087,48 @@ async function loadCategoryInsights(topic, startDate, endDate, daysLimit) {
     errorEl.style.display = 'none';
     
     try {
+        // Check database cache first using representative article URI
+        const cacheKey = `category_insights_${topic}_${startDate || 'no_start'}_${endDate || 'no_end'}_${daysLimit}`;
+        let cacheUri = null;
+        
+        // Use the first article URI from current dataset as cache reference
+        const currentArticles = window.lastArticlesData?.items || [];
+        if (currentArticles.length > 0) {
+            cacheUri = currentArticles[0].uri; // Use first article as cache anchor
+        }
+        
+        if (cacheUri) {
+            try {
+                const cacheResponse = await fetch(`/api/analysis-cache?article_uri=${encodeURIComponent(cacheUri)}&analysis_type=category_insights_${topic}&model=dashboard_api`);
+                if (cacheResponse.ok) {
+                    const cacheData = await cacheResponse.json();
+                    if (cacheData.cached && cacheData.metadata) {
+                        // Check if cache matches our parameters
+                        const metadata = cacheData.metadata;
+                        if (metadata.cache_key === cacheKey) {
+                            console.log('Using cached category insights from database');
+                            const cachedInsights = JSON.parse(cacheData.content);
+                            
+                            // Add cache indicator
+                            const containerEl = document.getElementById('category-insights-container');
+                            renderCategoryInsights(cachedInsights);
+                            
+                            // Add cache timestamp
+                            const cacheTimestamp = new Date(cacheData.generated_at).toLocaleString();
+                            const cacheIndicator = document.createElement('div');
+                            cacheIndicator.className = 'alert alert-info py-2 mt-2';
+                            cacheIndicator.innerHTML = `<small><i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})</small>`;
+                            containerEl.appendChild(cacheIndicator);
+                            
+                            return;
+                        }
+                    }
+                }
+            } catch (cacheError) {
+                console.debug('Database cache check failed, proceeding with API call:', cacheError);
+            }
+        }
+        
         const params = new URLSearchParams();
         if (startDate && endDate) {
             params.append('start_date', startDate);
@@ -6049,34 +6145,43 @@ async function loadCategoryInsights(topic, startDate, endDate, daysLimit) {
         
         const data = await response.json();
         
-        // Cache category insights in database
+        // Cache category insights in database using representative article URI
         try {
             const cacheKey = `category_insights_${topic}_${startDate || 'no_start'}_${endDate || 'no_end'}_${daysLimit}`;
-            const cacheContent = JSON.stringify(data, null, 2);
-            const cacheMetadata = {
-                topic: topic,
-                start_date: startDate,
-                end_date: endDate,
-                days_limit: daysLimit,
-                insight_type: 'category_distribution'
-            };
+            const currentArticles = window.lastArticlesData?.items || [];
             
-            const cacheResponse = await fetch('/api/save-analysis-cache', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    article_uri: cacheKey,
-                    analysis_type: 'insights',
-                    content: cacheContent,
-                    model_name: 'dashboard_api',
-                    metadata: cacheMetadata
-                })
-            });
-            
-            if (cacheResponse.ok) {
-                console.log('Cached category insights in database');
+            if (currentArticles.length > 0) {
+                const cacheUri = currentArticles[0].uri; // Use first article as cache anchor
+                const cacheContent = JSON.stringify(data, null, 2);
+                const cacheMetadata = {
+                    cache_key: cacheKey,
+                    topic: topic,
+                    start_date: startDate,
+                    end_date: endDate,
+                    days_limit: daysLimit,
+                    insight_type: 'category_distribution',
+                    article_count: currentArticles.length
+                };
+                
+                const cacheResponse = await fetch('/api/save-analysis-cache', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        article_uri: cacheUri,
+                        analysis_type: `category_insights_${topic}`,
+                        content: cacheContent,
+                        model_name: 'dashboard_api',
+                        metadata: cacheMetadata
+                    })
+                });
+                
+                if (cacheResponse.ok) {
+                    console.log('Cached category insights in database');
+                } else {
+                    console.warn('Failed to cache category insights - server error:', cacheResponse.status);
+                }
             } else {
-                console.warn('Failed to cache category insights - server error:', cacheResponse.status);
+                console.warn('No articles available for cache anchoring');
             }
         } catch (cacheError) {
             console.warn('Failed to cache category insights:', cacheError);

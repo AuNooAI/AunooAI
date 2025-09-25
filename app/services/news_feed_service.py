@@ -11,7 +11,7 @@ from app.schemas.news_feed import (
     RelatedArticle, ArticleSource, BiasRating, FactualityRating,
     NewsFeedRequest, NewsFeedResponse
 )
-from app.database import Database
+from app.database import Database, get_database_instance
 from app.services.auspex_service import get_auspex_service
 from app.database_query_facade import DatabaseQueryFacade
 
@@ -642,15 +642,7 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
         # Added v3 to invalidate cache after CEO Daily format enforcement
         cache_key = f"six_articles_v3_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}_{len(articles_data)}"
         
-        # Try to get from cache first (implement simple in-memory cache)
-        if hasattr(self, '_six_articles_cache') and cache_key in self._six_articles_cache:
-            cache_entry = self._six_articles_cache[cache_key]
-            # Check if cache is less than 1 hour old
-            if (datetime.now() - cache_entry['timestamp']).seconds < 3600:
-                logger.info(f"Using cached six articles for {cache_key}")
-                return cache_entry['data']
-        
-        # Check database cache first
+        # Check database cache first (more persistent)
         try:
             db = get_database_instance()
             cached_result = db.get_article_analysis_cache(
@@ -664,6 +656,14 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
                 return json.loads(cached_result["content"])
         except Exception as e:
             logger.debug(f"Database cache check failed: {e}")
+        
+        # Try to get from in-memory cache as fallback
+        if hasattr(self, '_six_articles_cache') and cache_key in self._six_articles_cache:
+            cache_entry = self._six_articles_cache[cache_key]
+            # Check if cache is less than 1 hour old
+            if (datetime.now() - cache_entry['timestamp']).seconds < 3600:
+                logger.info(f"Using in-memory cached six articles for {cache_key}")
+                return cache_entry['data']
         
         # Generate new analysis with enhanced political analysis
         six_articles = await self._generate_six_articles_with_political_analysis(articles_data, date, request)
