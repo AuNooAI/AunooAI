@@ -696,7 +696,7 @@
     <div class="controls">
         <div class="d-flex justify-content-between align-items-center mb-2">
             <h6 class="mb-0">
-                <i class="fas fa-cogs me-2"></i>Feed Configuration
+                <i class="fas fa-cogs me-2"></i>Configuration
             </h6>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleControlsBtn" onclick="toggleControlsPanel()">
                 <i class="fas fa-chevron-up" id="controlsToggleIcon"></i>
@@ -908,9 +908,14 @@
                 <h5 class="mb-0">
                     <i class="fas fa-chart-line me-2"></i>Article & Category Insights
                 </h5>
-                <button id="generate-insights-btn" class="btn btn-primary" onclick="generateInsights()">
-                    <i class="fas fa-brain me-2"></i>Generate Insights
-                </button>
+                <div class="btn-group">
+                    <button id="generate-insights-btn" class="btn btn-primary" onclick="generateInsights()">
+                        <i class="fas fa-brain me-2"></i>Generate Insights
+                    </button>
+                    <button class="btn btn-outline-primary" onclick="generateInsights(true)" title="Force regenerate bypassing cache">
+                        <i class="fas fa-sync me-1"></i>Force Regenerate
+                    </button>
+                </div>
             </div>
             
             <!-- Insights Navigation -->
@@ -926,8 +931,13 @@
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" id="thematic-insights-nav" data-bs-toggle="pill" href="#thematic-insights-panel">
-                        <i class="fas fa-sitemap me-1"></i>Thematic Clusters
+                    <a class="nav-link" id="incident-tracking-nav" data-bs-toggle="pill" href="#incident-tracking-panel">
+                        <i class="fas fa-crosshairs me-1"></i>Incident Tracking
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="realtime-signals-nav" data-bs-toggle="pill" href="#realtime-signals-panel">
+                        <i class="fas fa-radar me-1"></i>Real-time Signals
                     </a>
                 </li>
             </ul>
@@ -970,23 +980,104 @@
                     </div>
                 </div>
 
-                <!-- Thematic Clustering Panel -->
-                <div class="tab-pane fade" id="thematic-insights-panel">
-                    <div id="thematic-insights-loading" class="loading" style="display: none;">
+
+                <!-- Incident Tracking Panel -->
+                <div class="tab-pane fade" id="incident-tracking-panel">
+                    <div id="incident-tracking-loading" class="loading" style="display: none;">
                         <div class="spinner-border" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
-                        <div>Analyzing themes...</div>
+                        <div>Tracking incidents...</div>
                     </div>
-                    <div id="thematic-insights-error" class="error-message" style="display: none;"></div>
-                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="thematic-insights-container">
+                    <div id="incident-tracking-error" class="error-message" style="display: none;"></div>
+                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="incident-tracking-container">
                         <div class="text-center p-4 w-100">
-                            <i class="fas fa-sitemap fa-3x text-muted mb-3"></i>
-                            <h5>Thematic Clusters</h5>
-                            <p class="text-muted">Generate insights to see AI-powered thematic groupings of articles.</p>
+                            <i class="fas fa-crosshairs fa-3x text-muted mb-3"></i>
+                            <h5>Incident Tracking</h5>
+                            <p class="text-muted">Generate insights to track specific incidents, entities, and events for threat hunting.</p>
                         </div>
                     </div>
                 </div>
+
+                <!-- Real-time Signals Panel -->
+                <div class="tab-pane fade" id="realtime-signals-panel">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0">
+                            <i class="fas fa-radar me-2"></i>Signal Instructions
+                        </h6>
+                        <button class="btn btn-primary btn-sm" onclick="showAddSignalModal()">
+                            <i class="fas fa-plus me-1"></i>Add Signal
+                        </button>
+                    </div>
+                    
+                    <div id="signal-instructions-list" class="mb-3">
+                        <div class="text-center p-3 text-muted">
+                            <i class="fas fa-info-circle me-2"></i>No signal instructions yet. Add one to start monitoring.
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0">
+                            <i class="fas fa-chart-line me-2"></i>Signal Analysis
+                        </h6>
+                        <button class="btn btn-primary btn-sm" onclick="analyzeRealTimeSignals()">
+                            <i class="fas fa-search me-1"></i>Analyze Signals
+                        </button>
+                    </div>
+                    <div id="realtime-signals-loading" class="loading" style="display: none;">
+                        <div class="spinner-border" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div>Analyzing signals...</div>
+                    </div>
+                    <div id="realtime-signals-error" class="error-message" style="display: none;"></div>
+                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="realtime-signals-container">
+                        <div class="text-center p-4 w-100">
+                            <i class="fas fa-radar fa-3x text-muted mb-3"></i>
+                            <h5>Real-time Signals</h5>
+                            <p class="text-muted">Configure custom watch instructions to monitor for specific threats, entities, or events.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Signal Instruction Modal -->
+<div class="modal fade" id="addSignalModal" tabindex="-1" aria-labelledby="addSignalModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="addSignalModalLabel">Add Signal Instruction</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>loadThematicInsights()
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="signalName" class="form-label">Signal Name</label>
+                    <input type="text" class="form-control" id="signalName" placeholder="e.g., Elon Musk AI Mentions">
+                    <div class="form-text">Give your signal a descriptive name</div>
+                </div>
+                <div class="mb-3">
+                    <label for="signalDescription" class="form-label">Description</label>
+                    <input type="text" class="form-control" id="signalDescription" placeholder="What this signal watches for">
+                    <div class="form-text">Brief description of the monitoring purpose</div>
+                </div>
+                <div class="mb-3">
+                    <label for="signalInstruction" class="form-label">LLM Instruction</label>
+                    <textarea class="form-control" id="signalInstruction" rows="4" 
+                        placeholder="Flag any articles that mention Elon Musk, especially regarding AI, Tesla, or SpaceX developments. Look for direct quotes, business decisions, or policy statements."></textarea>
+                    <div class="form-text">Detailed instruction for the AI to follow when analyzing articles</div>
+                </div>
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="signalActive" checked>
+                    <label class="form-check-label" for="signalActive">
+                        Active (monitor this signal)
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveSignalInstruction()">Save Signal</button>
             </div>
         </div>
     </div>
@@ -1660,7 +1751,7 @@ async function exportToMarkdown() {
         });
         
         // Header
-        markdown += `# Daily News Feed\n\n`;
+        markdown += `# News Investigator\n\n`;
         markdown += `**Date:** ${formattedDate}\n`;
         if (topic) markdown += `**Topic Filter:** ${topic}\n`;
         markdown += `**Generated:** ${new Date().toLocaleString()}\n`;
@@ -5889,67 +5980,7 @@ function showInsightsWelcomeMessage() {
     }
 }
 
-async function generateInsights() {
-    console.log('Generate insights button clicked');
-    
-    const selectedTopic = document.getElementById('topic-select').value.trim();
-    if (!selectedTopic) {
-        showNotification('Please select a topic to generate insights', 'warning');
-        return;
-    }
-    
-    // Get current date range parameters
-    const dateRangeValue = document.getElementById('date-range-select').value;
-    let startDate = null;
-    let endDate = null;
-    let daysLimit = 30;
-    
-    if (dateRangeValue === 'custom') {
-        const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
-        if (customDate) {
-            startDate = customDate;
-            endDate = customDate;
-        }
-    } else if (dateRangeValue !== 'all') {
-        // Calculate date range based on selection
-        const now = new Date();
-        endDate = now.toISOString().split('T')[0];
-        
-        switch (dateRangeValue) {
-            case '24h':
-                daysLimit = 1;
-                break;
-            case '7d':
-                daysLimit = 7;
-                break;
-            case '30d':
-                daysLimit = 30;
-                break;
-            case '3m':
-                daysLimit = 90;
-                break;
-            case '1y':
-                daysLimit = 365;
-                break;
-        }
-        
-        const startDateObj = new Date(now.getTime() - daysLimit * 24 * 60 * 60 * 1000);
-        startDate = startDateObj.toISOString().split('T')[0];
-    }
-    
-    console.log('Loading insights for topic:', selectedTopic, 'date range:', startDate, 'to', endDate, 'days:', daysLimit);
-    
-    // Load all three types of insights
-    await Promise.all([
-        loadArticleInsights(selectedTopic, startDate, endDate, daysLimit),
-        loadCategoryInsights(selectedTopic, startDate, endDate, daysLimit),
-        loadThematicInsights(selectedTopic, startDate, endDate, daysLimit)
-    ]);
-    
-    showNotification('Insights generated successfully!', 'success');
-}
-
-async function loadArticleInsights(topic, startDate, endDate, daysLimit) {
+async function loadArticleInsights(topic, startDate, endDate, daysLimit, forceRegenerate = false) {
     const loadingEl = document.getElementById('article-insights-loading');
     const errorEl = document.getElementById('article-insights-error');
     const containerEl = document.getElementById('article-insights-container');
@@ -6007,6 +6038,15 @@ async function loadArticleInsights(topic, startDate, endDate, daysLimit) {
         } else {
             params.append('days_limit', daysLimit.toString());
         }
+        
+        if (forceRegenerate) {
+            params.append('force_regenerate', 'true');
+        }
+        
+        // Add model parameter
+        const modelSelect = document.getElementById('model-select');
+        const selectedModel = modelSelect ? modelSelect.value : 'gpt-4o-mini';
+        params.append('model', selectedModel);
         
         const response = await fetch(`/api/dashboard/article-insights/${encodeURIComponent(topic)}?${params}`);
         
@@ -6078,7 +6118,7 @@ async function loadArticleInsights(topic, startDate, endDate, daysLimit) {
     }
 }
 
-async function loadCategoryInsights(topic, startDate, endDate, daysLimit) {
+async function loadCategoryInsights(topic, startDate, endDate, daysLimit, forceRegenerate = false) {
     const loadingEl = document.getElementById('category-insights-loading');
     const errorEl = document.getElementById('category-insights-error');
     const containerEl = document.getElementById('category-insights-container');
@@ -6136,6 +6176,15 @@ async function loadCategoryInsights(topic, startDate, endDate, daysLimit) {
         } else {
             params.append('days_limit', daysLimit.toString());
         }
+        
+        if (forceRegenerate) {
+            params.append('force_regenerate', 'true');
+        }
+        
+        // Add model parameter
+        const modelSelect = document.getElementById('model-select');
+        const selectedModel = modelSelect ? modelSelect.value : 'gpt-4o-mini';
+        params.append('model', selectedModel);
         
         const response = await fetch(`/api/dashboard/category-insights/${encodeURIComponent(topic)}?${params}`);
         
@@ -6958,6 +7007,700 @@ function openSixArticleAnnotation(articleUrl, articleTitle) {
     
     // Reuse the existing annotation modal functionality
     openAnnotationModal(articleUrl, articleTitle, 'CEO Daily Top-6 Article', 'CEO Daily Selection');
+}
+// ===== SIGNAL MANAGEMENT FUNCTIONS =====
+
+function showAddSignalModal() {
+    const modal = new bootstrap.Modal(document.getElementById('addSignalModal'));
+    
+    // Clear form
+    document.getElementById('signalName').value = '';
+    document.getElementById('signalDescription').value = '';
+    document.getElementById('signalInstruction').value = '';
+    document.getElementById('signalActive').checked = true;
+    
+    modal.show();
+}
+
+async function saveSignalInstruction() {
+    const name = document.getElementById('signalName').value.trim();
+    const description = document.getElementById('signalDescription').value.trim();
+    const instruction = document.getElementById('signalInstruction').value.trim();
+    const isActive = document.getElementById('signalActive').checked;
+    
+    if (!name || !instruction) {
+        showNotification('Please provide both a name and instruction', 'warning');
+        return;
+    }
+    
+    const topicSelect = document.getElementById('topic-select');
+    const currentTopic = topicSelect ? topicSelect.value : null;
+    
+    try {
+        const response = await fetch('/api/signal-instructions', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                name: name,
+                description: description,
+                instruction: instruction,
+                topic: currentTopic,
+                is_active: isActive
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        // Close modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('addSignalModal'));
+        modal.hide();
+        
+        // Refresh signal instructions list
+        loadSignalInstructions();
+        
+        // Clear any cached real-time signals since instructions changed
+        clearRealTimeSignalsCache();
+        
+        showNotification(`Signal instruction '${name}' saved successfully!`, 'success');
+        
+    } catch (error) {
+        console.error('Error saving signal instruction:', error);
+        showNotification(`Failed to save signal instruction: ${error.message}`, 'error');
+    }
+}
+
+async function loadSignalInstructions() {
+    try {
+        const topicSelect = document.getElementById('topic-select');
+        const currentTopic = topicSelect ? topicSelect.value : null;
+        
+        const params = new URLSearchParams();
+        if (currentTopic) {
+            params.append('topic', currentTopic);
+        }
+        
+        const response = await fetch(`/api/signal-instructions?${params}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        const container = document.getElementById('signal-instructions-list');
+        
+        if (!data.instructions || data.instructions.length === 0) {
+            container.innerHTML = `
+                <div class="text-center p-3 text-muted">
+                    <i class="fas fa-info-circle me-2"></i>No signal instructions yet. Add one to start monitoring.
+                </div>
+            `;
+            return;
+        }
+        
+        let html = '';
+        data.instructions.forEach(instruction => {
+            const statusBadge = instruction.is_active ? 
+                '<span class="badge bg-success">Active</span>' : 
+                '<span class="badge bg-secondary">Inactive</span>';
+            
+            html += `
+                <div class="card mb-2">
+                    <div class="card-body py-2">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div class="flex-grow-1">
+                                <h6 class="mb-1">${escapeHTML(instruction.name)} ${statusBadge}</h6>
+                                <p class="mb-1 small text-muted">${escapeHTML(instruction.description)}</p>
+                                <p class="mb-0 small"><strong>Instruction:</strong> ${escapeHTML(instruction.instruction.substring(0, 100))}${instruction.instruction.length > 100 ? '...' : ''}</p>
+                            </div>
+                            <div class="btn-group-vertical btn-group-sm ms-2">
+                                <button class="btn btn-outline-danger btn-sm" onclick="deleteSignalInstruction(${instruction.id})" title="Delete">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+        
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading signal instructions:', error);
+        const container = document.getElementById('signal-instructions-list');
+        container.innerHTML = `<div class="alert alert-danger">Failed to load signal instructions: ${error.message}</div>`;
+    }
+}
+
+async function deleteSignalInstruction(instructionId) {
+    if (!confirm('Are you sure you want to delete this signal instruction?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/signal-instructions/${instructionId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        loadSignalInstructions(); // Refresh list
+        
+        // Clear any cached real-time signals since instructions changed
+        clearRealTimeSignalsCache();
+        
+        showNotification('Signal instruction deleted successfully', 'success');
+        
+    } catch (error) {
+        console.error('Error deleting signal instruction:', error);
+        showNotification(`Failed to delete signal instruction: ${error.message}`, 'error');
+    }
+}
+
+// ===== INCIDENT TRACKING FUNCTIONS =====
+
+async function loadIncidentTracking(topic, startDate, endDate, daysLimit, forceRegenerate = false) {
+    const loadingEl = document.getElementById('incident-tracking-loading');
+    const errorEl = document.getElementById('incident-tracking-error');
+    const containerEl = document.getElementById('incident-tracking-container');
+    
+    loadingEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    
+    try {
+        if (!topic) {
+            errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-info-circle me-2"></i>Select a topic to track incidents.</div>`;
+            errorEl.style.display = 'block';
+            return;
+        }
+
+        // Get the selected model from feed configuration
+        const modelSelect = document.getElementById('model-select');
+        const selectedModel = modelSelect ? modelSelect.value : 'gpt-4o-mini';
+        
+        // Use passed parameters instead of reading from DOM
+        let requestBody = {
+            topic: topic,
+            max_articles: 100,
+            model: selectedModel,
+            force_regenerate: forceRegenerate || false
+        };
+        
+        // Use passed date parameters
+        if (startDate && endDate) {
+            requestBody.start_date = startDate;
+            requestBody.end_date = endDate;
+        } else {
+            requestBody.days_limit = daysLimit || 14;
+        }
+        
+        const response = await fetch('/api/incident-tracking', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.incidents || data.incidents.length === 0) {
+            const message = data.message || 'No incidents found';
+            errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-info-circle me-2"></i>${message}</div>`;
+            errorEl.style.display = 'block';
+            return;
+        }
+        
+        renderIncidentTracking(data.incidents);
+        
+    } catch (error) {
+        console.error('Error loading incident tracking:', error);
+        errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to load incident tracking: ${error.message}</div>`;
+        errorEl.style.display = 'block';
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+}
+
+function renderIncidentTracking(incidents) {
+    const container = document.getElementById('incident-tracking-container');
+    container.innerHTML = '';
+    
+    if (!incidents || incidents.length === 0) {
+        container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No incidents found for this period.</div>';
+        return;
+    }
+    
+    incidents.forEach((incident, index) => {
+        const card = document.createElement('div');
+        card.className = 'insight-item-card';
+        
+        // Determine badge color based on type and significance
+        const typeBadgeColor = incident.type === 'incident' ? 'danger' : 
+                              incident.type === 'entity' ? 'primary' : 'success';
+        const significanceBadgeColor = incident.significance === 'high' ? 'danger' : 
+                                     incident.significance === 'medium' ? 'warning' : 'secondary';
+        
+        // Build articles list
+        let articlesHtml = '';
+        if (incident.article_uris && incident.article_uris.length > 0) {
+            articlesHtml = `
+                <div class="mt-2">
+                    <small class="text-muted fw-bold">Related Articles (${incident.article_uris.length}):</small>
+                    <ul class="list-unstyled mt-1 mb-0 small">
+                        ${incident.article_uris.slice(0, 5).map(uri => {
+                            const article = window.lastArticlesData?.items?.find(a => a.uri === uri);
+                            if (article) {
+                                return `<li class="mb-1"><a href="${uri}" target="_blank" rel="noopener">${article.title}</a></li>`;
+                            }
+                            return `<li class="mb-1"><a href="${uri}" target="_blank" rel="noopener">View Article</a></li>`;
+                        }).join('')}
+                        ${incident.article_uris.length > 5 ? `<li class="text-muted">... and ${incident.article_uris.length - 5} more</li>` : ''}
+                    </ul>
+                </div>
+            `;
+        }
+        
+        // Build investigation leads
+        let leadsHtml = '';
+        if (incident.investigation_leads && incident.investigation_leads.length > 0) {
+            leadsHtml = `
+                <div class="mt-2">
+                    <small class="text-muted fw-bold">Investigation Leads:</small>
+                    <ul class="list-unstyled mt-1 mb-0 small">
+                        ${incident.investigation_leads.map(lead => `<li class="mb-1"><i class="fas fa-search me-1"></i>${lead}</li>`).join('')}
+                    </ul>
+                </div>
+            `;
+        }
+
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0 ${incident.significance === 'high' ? 'text-danger' : 'text-primary'}">${incident.name}</h6>
+                <div class="d-flex gap-1">
+                    <span class="badge bg-${typeBadgeColor}">${incident.type.toUpperCase()}</span>
+                    <span class="badge bg-${significanceBadgeColor}">${incident.significance.toUpperCase()}</span>
+                </div>
+            </div>
+            <p class="mb-1 small">${incident.description}</p>
+            ${incident.timeline ? `<p class="mb-1 small"><strong>Timeline:</strong> ${incident.timeline}</p>` : ''}
+            ${articlesHtml}
+            ${leadsHtml}
+            <div class="mt-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')">
+                    <i class="fas fa-search me-1"></i>Investigate
+                </button>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+// ===== ENHANCED TAB NAVIGATION =====
+
+// Add to existing insights tab navigation handlers:
+document.addEventListener('DOMContentLoaded', function() {
+    // ... existing code ...
+    
+    // Add handlers for new tabs
+    document.getElementById('incident-tracking-nav')?.addEventListener('click', function() {
+        // Don't auto-load - wait for Generate Insights button
+        const container = document.getElementById('incident-tracking-container');
+        if (container && !container.querySelector('.insight-item-card')) {
+            // Show helpful message instead of auto-loading
+            container.innerHTML = `
+                <div class="text-center p-4 w-100">
+                    <i class="fas fa-crosshairs fa-3x text-muted mb-3"></i>
+                    <h5>Incident Tracking</h5>
+                    <p class="text-muted">Click "Generate Insights" to track specific incidents, entities, and events for threat hunting.</p>
+                </div>
+            `;
+        }
+    });
+
+    document.getElementById('realtime-signals-nav')?.addEventListener('click', function() {
+        loadSignalInstructions();
+    });
+});
+
+// ===== ENHANCED GENERATE INSIGHTS FUNCTION =====
+
+async function generateInsights(forceRegenerate = false) {
+    console.log('Generate insights button clicked', forceRegenerate ? '(force regenerate)' : '');
+    
+    const selectedTopic = document.getElementById('topic-select').value.trim();
+    if (!selectedTopic) {
+        showNotification('Please select a topic to generate insights', 'warning');
+        return;
+    }
+    
+    // Get current date range parameters
+    const dateRangeValue = document.getElementById('date-range-select').value;
+    let startDate = null;
+    let endDate = null;
+    let daysLimit = 30;
+    
+    if (dateRangeValue === 'custom') {
+        const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
+        if (customDate) {
+            startDate = customDate;
+            endDate = customDate;
+        }
+    } else if (dateRangeValue !== 'all') {
+        // Calculate date range based on selection
+        const now = new Date();
+        endDate = now.toISOString().split('T')[0];
+        
+        switch (dateRangeValue) {
+            case '24h': daysLimit = 1; break;
+            case '7d': daysLimit = 7; break;
+            case '30d': daysLimit = 30; break;
+            case '3m': daysLimit = 90; break;
+            case '1y': daysLimit = 365; break;
+        }
+        
+        const startDateObj = new Date(now.getTime() - daysLimit * 24 * 60 * 60 * 1000);
+        startDate = startDateObj.toISOString().split('T')[0];
+    }
+    
+    console.log('Loading insights for topic:', selectedTopic, 'date range:', startDate, 'to', endDate, 'days:', daysLimit);
+    
+    // Load all insights including incident tracking
+    await Promise.all([
+        loadArticleInsights(selectedTopic, startDate, endDate, daysLimit, forceRegenerate),
+        loadCategoryInsights(selectedTopic, startDate, endDate, daysLimit, forceRegenerate),
+        loadIncidentTracking(selectedTopic, startDate, endDate, daysLimit, forceRegenerate)
+    ]);
+    
+    showNotification('Insights generated successfully!', 'success');
+}
+// Add this function to your JavaScript section:
+
+async function analyzeRealTimeSignals() {
+    const loadingEl = document.getElementById('realtime-signals-loading');
+    const errorEl = document.getElementById('realtime-signals-error');
+    const containerEl = document.getElementById('realtime-signals-container');
+    
+    loadingEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    
+    try {
+        const topicSelect = document.getElementById('topic-select');
+        const selectedTopic = topicSelect ? (topicSelect.value || '').trim() : '';
+        if (!selectedTopic) {
+            errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-info-circle me-2"></i>Select a topic to analyze signals.</div>`;
+            errorEl.style.display = 'block';
+            return;
+        }
+
+        // Get the selected model from feed configuration
+        const modelSelect = document.getElementById('model-select');
+        const selectedModel = modelSelect ? modelSelect.value : 'gpt-4o-mini';
+
+        // Build request for signal analysis
+        const drSel = document.getElementById('date-range-select');
+        const drVal = drSel ? drSel.value : '7d'; // Default to 7 days for signals
+        
+        let requestBody = {
+            topic: selectedTopic,
+            max_articles: 50,
+            model: selectedModel,
+            force_regenerate: true  // Always force regenerate for real-time signals
+        };
+        
+        switch (drVal) {
+            case '24h': requestBody.days_limit = 1; break;
+            case '7d': requestBody.days_limit = 7; break;
+            case '30d': requestBody.days_limit = 30; break;
+            case 'custom':
+                const customDate = document.getElementById('custom-date-input')?.value || document.getElementById('selected-date')?.value;
+                if (customDate) {
+                    requestBody.start_date = customDate;
+                    requestBody.end_date = customDate;
+                } else {
+                    requestBody.days_limit = 7;
+                }
+                break;
+            default:
+                requestBody.days_limit = 7;
+        }
+        
+        const response = await fetch('/api/real-time-signals', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.signals || data.signals.length === 0) {
+            const message = data.message || 'No signals detected';
+            errorEl.innerHTML = `<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>${message}</div>`;
+            errorEl.style.display = 'block';
+            return;
+        }
+        
+        renderRealTimeSignals(data);
+        
+    } catch (error) {
+        console.error('Error analyzing real-time signals:', error);
+        errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to analyze signals: ${error.message}</div>`;
+        errorEl.style.display = 'block';
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+}
+
+function renderRealTimeSignals(data) {
+    const container = document.getElementById('realtime-signals-container');
+    container.innerHTML = '';
+    
+    if (!data.signals || data.signals.length === 0) {
+        container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No signals detected for this period.</div>';
+        return;
+    }
+    
+    // Add summary header
+    const detectedCount = data.signals.filter(s => s.signal_detected).length;
+    const summaryDiv = document.createElement('div');
+    summaryDiv.className = 'alert alert-info mb-3';
+    summaryDiv.innerHTML = `
+        <h6><i class="fas fa-radar me-2"></i>Signal Analysis Results</h6>
+        <p class="mb-1">Analyzed ${data.total_articles} articles with ${data.instructions_used} signal instructions</p>
+        <p class="mb-0"><strong>${detectedCount} of ${data.signals.length} signals detected</strong></p>
+    `;
+    container.appendChild(summaryDiv);
+    
+    data.signals.forEach((signal, index) => {
+        const card = document.createElement('div');
+        card.className = 'insight-item-card';
+        
+        if (signal.signal_detected) {
+            card.style.borderLeft = '4px solid #dc3545'; // Red border for detected signals
+        }
+        
+        const threatBadgeColor = signal.threat_level === 'high' ? 'danger' : 
+                               signal.threat_level === 'medium' ? 'warning' : 'success';
+        
+        // Build matching articles list
+        let articlesHtml = '';
+        if (signal.matching_articles && signal.matching_articles.length > 0) {
+            articlesHtml = `
+                <div class="mt-2">
+                    <small class="text-muted fw-bold">Matching Articles (${signal.matching_articles.length}):</small>
+                    <ul class="list-unstyled mt-1 mb-0 small">
+                        ${signal.matching_articles.slice(0, 3).map(uri => {
+                            const article = window.lastArticlesData?.items?.find(a => a.uri === uri);
+                            if (article) {
+                                return `<li class="mb-1"><a href="${uri}" target="_blank" rel="noopener">${article.title}</a></li>`;
+                            }
+                            return `<li class="mb-1"><a href="${uri}" target="_blank" rel="noopener">View Article</a></li>`;
+                        }).join('')}
+                        ${signal.matching_articles.length > 3 ? `<li class="text-muted">... and ${signal.matching_articles.length - 3} more</li>` : ''}
+                    </ul>
+                </div>
+            `;
+        }
+
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0 ${signal.signal_detected ? 'text-danger' : 'text-muted'}">${signal.instruction_name}</h6>
+                <div class="d-flex gap-1">
+                    ${signal.signal_detected ? '<span class="badge bg-danger">DETECTED</span>' : '<span class="badge bg-secondary">Clear</span>'}
+                    <span class="badge bg-${threatBadgeColor}">${signal.threat_level?.toUpperCase() || 'UNKNOWN'}</span>
+                    <span class="badge bg-info">${Math.round((signal.confidence || 0) * 100)}%</span>
+                </div>
+            </div>
+            <p class="mb-1 small">${signal.summary || 'No summary available'}</p>
+            ${signal.recommended_action ? `<p class="mb-1 small"><strong>Recommended Action:</strong> ${signal.recommended_action}</p>` : ''}
+            ${articlesHtml}
+            <div class="mt-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(signal.instruction_name)}', 'signal_investigation')">
+                    <i class="fas fa-search me-1"></i>Deep Dive
+                </button>
+            </div>
+        `;
+        container.appendChild(card);
+    });
+}
+
+// ===== CACHE MANAGEMENT FUNCTIONS =====
+
+function clearRealTimeSignalsCache() {
+    // This function clears any cached real-time signals when instructions change
+    const container = document.getElementById('realtime-signals-container');
+    if (container) {
+        container.innerHTML = `
+            <div class="text-center p-4 w-100">
+                <i class="fas fa-radar fa-3x text-muted mb-3"></i>
+                <h5>Real-time Signals</h5>
+                <p class="text-muted">Signal instructions updated. Click "Analyze Signals" to run analysis with new instructions.</p>
+            </div>
+        `;
+    }
+}
+
+// ===== REAL-TIME SIGNALS ANALYSIS FUNCTIONS =====
+
+async function analyzeRealTimeSignals() {
+    const loadingEl = document.getElementById('realtime-signals-loading');
+    const errorEl = document.getElementById('realtime-signals-error');
+    const containerEl = document.getElementById('realtime-signals-container');
+    
+    loadingEl.style.display = 'block';
+    errorEl.style.display = 'none';
+    
+    try {
+        const topicSelect = document.getElementById('topic-select');
+        const selectedTopic = topicSelect ? (topicSelect.value || '').trim() : '';
+        if (!selectedTopic) {
+            errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-info-circle me-2"></i>Select a topic to analyze signals.</div>`;
+            errorEl.style.display = 'block';
+            return;
+        }
+
+        // Get the selected model from feed configuration
+        const modelSelect = document.getElementById('model-select');
+        const selectedModel = modelSelect ? modelSelect.value : 'gpt-4o-mini';
+
+        // Build request for signal analysis
+        const drSel = document.getElementById('date-range-select');
+        const drVal = drSel ? drSel.value : '7d';
+        
+        let requestBody = {
+            topic: selectedTopic,
+            max_articles: 50,
+            model: selectedModel
+        };
+        
+        switch (drVal) {
+            case '24h': requestBody.days_limit = 1; break;
+            case '7d': requestBody.days_limit = 7; break;
+            case '30d': requestBody.days_limit = 30; break;
+            case 'custom':
+                const customDate = document.getElementById('custom-date-input')?.value || document.getElementById('selected-date')?.value;
+                if (customDate) {
+                    requestBody.start_date = customDate;
+                    requestBody.end_date = customDate;
+                } else {
+                    requestBody.days_limit = 7;
+                }
+                break;
+            default:
+                requestBody.days_limit = 7;
+        }
+        
+        const response = await fetch('/api/real-time-signals', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(requestBody)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        
+        if (!data.signals || data.signals.length === 0) {
+            const message = data.message || 'No signals detected';
+            errorEl.innerHTML = `<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>${message}</div>`;
+            errorEl.style.display = 'block';
+            return;
+        }
+        
+        renderRealTimeSignals(data);
+        
+    } catch (error) {
+        console.error('Error analyzing real-time signals:', error);
+        errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to analyze signals: ${error.message}</div>`;
+        errorEl.style.display = 'block';
+    } finally {
+        loadingEl.style.display = 'none';
+    }
+}
+
+function renderRealTimeSignals(data) {
+    const container = document.getElementById('realtime-signals-container');
+    container.innerHTML = '';
+    
+    if (!data.signals || data.signals.length === 0) {
+        container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No signals detected for this period.</div>';
+        return;
+    }
+    
+    // Add summary header
+    const detectedCount = data.signals.filter(s => s.signal_detected).length;
+    const summaryDiv = document.createElement('div');
+    summaryDiv.className = 'alert alert-info mb-3';
+    summaryDiv.innerHTML = `
+        <h6><i class="fas fa-radar me-2"></i>Signal Analysis Results</h6>
+        <p class="mb-1">Analyzed ${data.total_articles} articles with ${data.instructions_used} signal instructions</p>
+        <p class="mb-0"><strong>${detectedCount} of ${data.signals.length} signals detected</strong></p>
+    `;
+    container.appendChild(summaryDiv);
+    
+    data.signals.forEach((signal, index) => {
+        const card = document.createElement('div');
+        card.className = 'insight-item-card';
+        
+        if (signal.signal_detected) {
+            card.style.borderLeft = '4px solid #dc3545'; // Red border for detected signals
+        }
+        
+        const threatBadgeColor = signal.threat_level === 'high' ? 'danger' : 
+                               signal.threat_level === 'medium' ? 'warning' : 'success';
+        
+        // Build matching articles list
+        let articlesHtml = '';
+        if (signal.matching_articles && signal.matching_articles.length > 0) {
+            articlesHtml = `
+                <div class="mt-2">
+                    <small class="text-muted fw-bold">Matching Articles (${signal.matching_articles.length}):</small>
+                    <ul class="list-unstyled mt-1 mb-0 small">
+                        ${signal.matching_articles.slice(0, 3).map(uri => {
+                            const article = window.lastArticlesData?.items?.find(a => a.uri === uri);
+                            if (article) {
+                                return `<li class="mb-1"><a href="${uri}" target="_blank" rel="noopener">${article.title}</a></li>`;
+                            }
+                            return `<li class="mb-1"><a href="${uri}" target="_blank" rel="noopener">View Article</a></li>`;
+                        }).join('')}
+                        ${signal.matching_articles.length > 3 ? `<li class="text-muted">... and ${signal.matching_articles.length - 3} more</li>` : ''}
+                    </ul>
+                </div>
+            `;
+        }
+
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h6 class="mb-0 ${signal.signal_detected ? 'text-danger' : 'text-muted'}">${signal.instruction_name}</h6>
+                <div class="d-flex gap-1">
+                    ${signal.signal_detected ? '<span class="badge bg-danger">DETECTED</span>' : '<span class="badge bg-secondary">Clear</span>'}
+                    <span class="badge bg-${threatBadgeColor}">${signal.threat_level?.toUpperCase() || 'UNKNOWN'}</span>
+                    <span class="badge bg-info">${Math.round((signal.confidence || 0) * 100)}%</span>
+                </div>
+            </div>
+            <p class="mb-1 small">${signal.summary || 'No summary available'}</p>
+            ${signal.recommended_action ? `<p class="mb-1 small"><strong>Recommended Action:</strong> ${signal.recommended_action}</p>` : ''}
+            ${articlesHtml}
+            <div class="mt-2">
+                <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(signal.instruction_name)}', 'signal_investigation')">
+                    <i class="fas fa-search me-1"></i>Deep Dive
+                </button>
+            </div>
+        `;
+        container.appendChild(card);
+    });
 }
 
 </script>

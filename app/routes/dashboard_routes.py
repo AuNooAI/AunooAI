@@ -855,6 +855,8 @@ async def get_article_insights(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD for article selection"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD for article selection"),
     days_limit: int = Query(7, ge=1, le=90, description="for article selection. Default 7 days."),
+    force_regenerate: bool = Query(False, description="Force regeneration bypassing cache"),
+    model: str = Query("gpt-4o-mini", description="AI model to use for analysis"),
     session: dict = Depends(verify_session)
 ):
     """
@@ -875,7 +877,7 @@ async def get_article_insights(
             db=db
         )
         
-        if temp_response.items:
+        if temp_response.items and not force_regenerate:
             cache_uri = temp_response.items[0].uri
             cached = db.get_article_analysis_cache(
                 article_uri=cache_uri,
@@ -888,6 +890,9 @@ async def get_article_insights(
                 cached_themes = json.loads(cached["content"])
                 # Convert back to Pydantic models for response_model compatibility
                 return [ThemeWithArticlesSchema(**theme) for theme in cached_themes]
+        
+        if force_regenerate:
+            logger.info(f"Force regenerating article insights for {topic_name} (bypassing cache)")
         
         # 1. Fetch recent articles within the date range
         paginated_response = await get_topic_articles(
@@ -929,7 +934,7 @@ async def get_article_insights(
         combined_article_text = "\n---\n".join(article_details_for_llm)
         
         # 4. Initialize LLM and create prompt for thematic analysis
-        llm_model_name = "gpt-4o-mini"  # Use reliable model for analysis
+        llm_model_name = model  # Use model from frontend
         ai_model = LiteLLMModel.get_instance(llm_model_name)
         if not ai_model:
             logger.error(f"Failed to initialize LLM model: {llm_model_name} for article insights")
@@ -1215,6 +1220,8 @@ async def get_category_insights(
     start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
     end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
     days_limit: int = Query(30, ge=1, le=365), # Fallback if no dates provided
+    force_regenerate: bool = Query(False, description="Force regeneration bypassing cache"),
+    model: str = Query("gpt-4o-mini", description="AI model to use for analysis"),
     db: Database = Depends(get_database_instance),
     session: dict = Depends(verify_session)
 ):
@@ -1237,7 +1244,7 @@ async def get_category_insights(
             db=db
         )
         
-        if temp_response.items:
+        if temp_response.items and not force_regenerate:
             cache_uri = temp_response.items[0].uri
             cached = db.get_article_analysis_cache(
                 article_uri=cache_uri,
@@ -1250,6 +1257,9 @@ async def get_category_insights(
                 cached_categories = json.loads(cached["content"])
                 # Convert back to Pydantic models for response_model compatibility
                 return [CategoryInsightSchema(**cat) for cat in cached_categories]
+        
+        if force_regenerate:
+            logger.info(f"Force regenerating category insights for {topic_name} (bypassing cache)")
         
         # Determine date range (similar to volume/sentiment endpoints)
         end_date_dt = datetime.utcnow() if not end_date else datetime.strptime(end_date, '%Y-%m-%d')
@@ -1283,7 +1293,7 @@ async def get_category_insights(
             return []
 
         # Initialize LLM for generating insights
-        llm_model_name = "gpt-4o-mini"  # Use reliable model for insights
+        llm_model_name = model  # Use model from frontend
         ai_model = LiteLLMModel.get_instance(llm_model_name)
         if not ai_model:
             logger.error(f"Failed to initialize LLM model: {llm_model_name} for category insights")
@@ -1367,26 +1377,28 @@ async def get_category_insights(
             
             # Call LLM to generate category insight
             try:
+                logger.info(f"Generating insight for category '{category_name}' with {article_count} articles")
                 insight_text = await run_in_threadpool(ai_model.generate_response, messages)
                 
                 # Check for LLM error messages
                 if insight_text and ("⚠️" in insight_text or "unavailable" in insight_text.lower() or "error" in insight_text.lower()):
                     logger.warning(f"LLM returned error for category '{category_name}': {insight_text}")
-                    insight_text = f"Analysis temporarily unavailable for '{category_name}' category."
+                    # Provide a more informative fallback
+                    insight_text = f"The '{category_name}' category has {article_count} articles. Analysis shows activity in this area but detailed insights are currently unavailable."
                 
                 # Add category with LLM-generated insight
                 category_insights.append(CategoryInsightSchema(
                     category=category_name,
                     article_count=article_count,
-                    insight_text=insight_text.strip() if insight_text else f"Analysis of '{category_name}' category pending."
+                    insight_text=insight_text.strip() if insight_text else f"The '{category_name}' category contains {article_count} articles with analysis pending."
                 ))
             except Exception as e:
                 logger.error(f"Error generating insight for category '{category_name}': {e}", exc_info=True)
-                # Add category with error message as insight
+                # Add category with more informative error message
                 category_insights.append(CategoryInsightSchema(
                     category=category_name,
                     article_count=article_count,
-                    insight_text=f"Unable to generate insights for this category at this time."
+                    insight_text=f"The '{category_name}' category has {article_count} articles. Detailed analysis is temporarily unavailable due to processing issues."
                 ))
         
         logger.info(f"Generated insights for {len(category_insights)} categories in topic '{topic_name}'")

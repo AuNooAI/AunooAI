@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import logging
 from dateutil.parser import parse as dt_parse  # add top of file
 import json
@@ -1656,6 +1656,532 @@ async def article_insights(
     except Exception as exc:
         logger.error("LLM article-insights failed with model %s: %s", model_name, exc)
         raise HTTPException(status_code=500, detail=f"LLM error with model {model_name}: {str(exc)}")
+
+
+# ------------------------------------------------------------------
+# Incident tracking endpoint for entity/event grouping
+# ------------------------------------------------------------------
+
+class _IncidentTrackingRequest(BaseModel):
+    """Request for incident tracking analysis."""
+    topic: str = Field(..., description="Topic to analyze for incidents")
+    days_limit: int = Field(14, ge=1, le=90, description="Days back to analyze")
+    start_date: Optional[str] = Field(None, description="Start date YYYY-MM-DD")
+    end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
+    max_articles: int = Field(100, ge=10, le=300, description="Maximum articles to analyze")
+    model: str = Field("gpt-4o-mini", description="AI model to use for analysis")
+    force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
+
+@router.post("/incident-tracking")
+async def analyze_incidents(
+    req: _IncidentTrackingRequest,
+    session=Depends(verify_session_optional),
+):
+    """Track specific incidents, entities, and events for threat hunting."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        # Check cache first
+        cache_key = f"incident_tracking_{req.topic}_{req.start_date or 'no_start'}_{req.end_date or 'no_end'}_{req.days_limit}"
+        
+        # Get articles for analysis
+        from datetime import datetime, timedelta
+        
+        if req.start_date and req.end_date:
+            start_date_dt = datetime.strptime(req.start_date, '%Y-%m-%d')
+            end_date_dt = datetime.strptime(req.end_date, '%Y-%m-%d')
+        else:
+            end_date_dt = datetime.now()
+            start_date_dt = end_date_dt - timedelta(days=req.days_limit)
+        
+        # Query articles - use same approach as working news feed service
+        query = """
+        SELECT uri, title, summary, news_source, publication_date, category, sentiment
+        FROM articles 
+        WHERE publication_date >= ? AND publication_date <= ?
+        AND category IS NOT NULL AND sentiment IS NOT NULL
+        """
+        
+        params = [start_date_dt.isoformat(), end_date_dt.isoformat()]
+        
+        if req.topic:
+            query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+            topic_pattern = f"%{req.topic}%"
+            params.extend([req.topic, topic_pattern, topic_pattern])
+        
+        query += " ORDER BY publication_date DESC LIMIT ?"
+        params.append(req.max_articles)
+        
+        articles = db.fetch_all(query, params)
+        
+        if not articles:
+            return {"incidents": [], "message": f"No articles found for topic '{req.topic}' in date range {start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}"}
+        
+        # Check cache using first article as anchor (unless force regenerate)
+        if not req.force_regenerate:
+            cache_uri = articles[0]['uri'] if hasattr(articles[0], '__getitem__') else articles[0].uri
+            cached = db.get_article_analysis_cache(
+                article_uri=cache_uri,
+                analysis_type=f"incident_tracking_{req.topic}",
+                model_used="incident_analysis"
+            )
+            
+            if cached and cached.get("metadata", {}).get("cache_key") == cache_key:
+                logger.info(f"Cache HIT: incident tracking for {req.topic}")
+                import json
+                return json.loads(cached["content"])
+        
+        if req.force_regenerate:
+            logger.info(f"Force regenerating incident tracking for {req.topic} (bypassing cache)")
+        
+        # Prepare articles for LLM analysis
+        articles_text = "\n\n".join([
+            f"Article {i+1}:\n"
+            f"Title: {article.get('title') if hasattr(article, 'get') else article['title']}\n"
+            f"Source: {article.get('news_source') if hasattr(article, 'get') else article['news_source']}\n"
+            f"Date: {article.get('publication_date') if hasattr(article, 'get') else article['publication_date']}\n"
+            f"Category: {article.get('category') if hasattr(article, 'get') else article['category']}\n"
+            f"Summary: {article.get('summary') if hasattr(article, 'get') else article['summary']}\n"
+            f"URI: {article.get('uri') if hasattr(article, 'get') else article['uri']}"
+            for i, article in enumerate(articles)
+        ])
+        
+        # Create incident tracking prompt
+        system_prompt = f"""
+        You are a threat intelligence analyst tracking incidents, entities, and events in {req.topic}.
+        
+        Analyze the provided articles and identify discrete INCIDENTS, ENTITIES, or EVENTS for threat hunting:
+        
+        1. INCIDENTS: Specific events, breaches, announcements, decisions, controversies
+        2. ENTITIES: Companies, people, organizations, products that are central to stories
+        3. EVENTS: Conferences, earnings, policy decisions, product launches, legal actions
+        
+        For each incident/entity/event you identify:
+        - Give it a specific, descriptive name (e.g., "OpenAI CEO Departure", "Google Antitrust Ruling")
+        - Classify as "incident", "entity", or "event"
+        - List the article URIs that relate to it
+        - Provide a timeline summary
+        - Assess threat hunting significance (low/medium/high)
+        - Suggest follow-up investigation areas
+        
+        Format as JSON:
+        [
+          {{
+            "name": "Specific Incident/Entity/Event Name",
+            "type": "incident|entity|event",
+            "description": "What this represents for threat hunting",
+            "article_uris": ["uri1", "uri2", ...],
+            "timeline": "Key dates and progression",
+            "significance": "low|medium|high",
+            "investigation_leads": ["lead1", "lead2", ...],
+            "related_entities": ["entity1", "entity2", ...]
+          }}
+        ]
+        """
+        
+        user_prompt = f"Analyze these {req.topic} articles for threat hunting incidents, entities, and events:\n\n{articles_text}"
+        
+        # Generate analysis
+        from app.ai_models import LiteLLMModel
+        from fastapi.concurrency import run_in_threadpool
+        
+        model_name = req.model  # Use model from frontend
+        ai_model = LiteLLMModel.get_instance(model_name)
+        if not ai_model:
+            raise HTTPException(status_code=500, detail=f"Failed to initialize model {model_name}")
+        
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        response_str = await run_in_threadpool(ai_model.generate_response, messages)
+        
+        # Parse response
+        incidents = []
+        if response_str and not ("⚠️" in response_str or "unavailable" in response_str.lower()):
+            try:
+                import re
+                import json as json_module
+                json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
+                if json_match:
+                    incidents = json_module.loads(json_match.group())
+            except json_module.JSONDecodeError as je:
+                logger.error(f"Failed to parse incident tracking response: {je}")
+                return {"incidents": [], "error": "Failed to parse LLM response"}
+        
+        result = {
+            "incidents": incidents,
+            "total_articles": len(articles),
+            "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}",
+            "analysis_timestamp": datetime.now().isoformat()
+        }
+        
+        # Cache the results
+        try:
+            import json as json_module
+            cache_content = json_module.dumps(result, ensure_ascii=False, default=str)
+            cache_metadata = {
+                "cache_key": cache_key,
+                "topic": req.topic,
+                "start_date": req.start_date,
+                "end_date": req.end_date,
+                "days_limit": req.days_limit,
+                "analysis_type": "incident_tracking"
+            }
+            
+            success = db.save_article_analysis_cache(
+                article_uri=cache_uri,
+                analysis_type=f"incident_tracking_{req.topic}",
+                content=cache_content,
+                model_used="incident_analysis",
+                metadata=cache_metadata
+            )
+            
+            if success:
+                logger.info(f"Cache SAVE: incident tracking for {req.topic}")
+        except Exception as cache_error:
+            logger.warning(f"Failed to cache incident tracking: {cache_error}")
+        
+        return result
+        
+    except Exception as exc:
+        logger.error("Error in incident tracking: %s", exc)
+        raise HTTPException(status_code=500, detail="Incident tracking error")
+
+# ------------------------------------------------------------------
+# Signal instructions endpoints for threat hunting
+# ------------------------------------------------------------------
+
+class _SignalInstructionRequest(BaseModel):
+    """Request for saving signal instructions."""
+    name: str = Field(..., description="Name of the signal instruction")
+    description: str = Field("", description="Description of what this signal watches for")
+    instruction: str = Field(..., description="LLM instruction for detecting this signal")
+    topic: Optional[str] = Field(None, description="Topic to apply this signal to")
+    is_active: bool = Field(True, description="Whether this signal is active")
+
+@router.post("/signal-instructions")
+async def save_signal_instruction(
+    req: _SignalInstructionRequest,
+    session=Depends(verify_session),
+):
+    """Save a custom signal instruction for threat hunting."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        success = db.save_signal_instruction(
+            name=req.name,
+            description=req.description,
+            instruction=req.instruction,
+            topic=req.topic,
+            is_active=req.is_active
+        )
+        
+        if success:
+            return {"success": True, "message": f"Signal instruction '{req.name}' saved successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save signal instruction")
+            
+    except Exception as exc:
+        logger.error("Error saving signal instruction: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal instruction save error")
+
+@router.get("/signal-instructions")
+async def get_signal_instructions(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    active_only: bool = Query(True, description="Only return active instructions"),
+    session=Depends(verify_session_optional),
+):
+    """Get signal instructions for threat hunting."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        instructions = db.get_signal_instructions(topic=topic, active_only=active_only)
+        
+        return {
+            "success": True,
+            "instructions": instructions,
+            "count": len(instructions)
+        }
+        
+    except Exception as exc:
+        logger.error("Error getting signal instructions: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal instruction retrieval error")
+
+@router.delete("/signal-instructions/{instruction_id}")
+async def delete_signal_instruction(
+    instruction_id: int,
+    session=Depends(verify_session),
+):
+    """Delete a signal instruction."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        success = db.delete_signal_instruction(instruction_id)
+        
+        if success:
+            return {"success": True, "message": "Signal instruction deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Signal instruction not found")
+            
+    except Exception as exc:
+        logger.error("Error deleting signal instruction: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal instruction deletion error")
+
+class _RealTimeSignalsRequest(BaseModel):
+    """Request for real-time signals analysis."""
+    topic: str = Field(..., description="Topic to analyze")
+    days_limit: int = Field(7, ge=1, le=30, description="Days back to analyze")
+    start_date: Optional[str] = Field(None, description="Start date YYYY-MM-DD")
+    end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
+    max_articles: int = Field(50, ge=10, le=200, description="Maximum articles to analyze")
+    instruction_ids: Optional[List[int]] = Field(None, description="Specific signal instruction IDs to use")
+    model: str = Field("gpt-4o-mini", description="AI model to use for analysis")
+    force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
+
+@router.post("/real-time-signals")
+async def analyze_real_time_signals(
+    req: _RealTimeSignalsRequest,
+    session=Depends(verify_session_optional),
+):
+    """Analyze articles for real-time signals using custom instructions."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        # Get signal instructions first to include in cache key
+        if req.instruction_ids:
+            # Get specific instructions
+            all_instructions = db.get_signal_instructions(topic=req.topic, active_only=False)
+            instructions = [inst for inst in all_instructions if inst['id'] in req.instruction_ids and inst['is_active']]
+        else:
+            # Get all active instructions for this topic
+            instructions = db.get_signal_instructions(topic=req.topic, active_only=True)
+        
+        # Include instruction IDs in cache key so cache invalidates when instructions change
+        instruction_ids_str = ','.join(str(inst['id']) for inst in instructions)
+        cache_key = f"realtime_signals_{req.topic}_{req.start_date or 'no_start'}_{req.end_date or 'no_end'}_{req.days_limit}_{instruction_ids_str}"
+        
+        # Get articles for analysis
+        from datetime import datetime, timedelta
+        
+        if req.start_date and req.end_date:
+            start_date_dt = datetime.strptime(req.start_date, '%Y-%m-%d')
+            end_date_dt = datetime.strptime(req.end_date, '%Y-%m-%d')
+        else:
+            end_date_dt = datetime.now()
+            start_date_dt = end_date_dt - timedelta(days=req.days_limit)
+        
+        # Query recent articles - use same approach as working news feed service
+        query = """
+        SELECT uri, title, summary, news_source, publication_date, category, sentiment
+        FROM articles 
+        WHERE publication_date >= ? AND publication_date <= ?
+        AND category IS NOT NULL AND sentiment IS NOT NULL
+        """
+        
+        params = [start_date_dt.isoformat(), end_date_dt.isoformat()]
+        
+        if req.topic:
+            query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+            topic_pattern = f"%{req.topic}%"
+            params.extend([req.topic, topic_pattern, topic_pattern])
+        
+        query += " ORDER BY publication_date DESC LIMIT ?"
+        params.append(req.max_articles)
+        
+        articles = db.fetch_all(query, params)
+        
+        if not articles:
+            return {"signals": [], "message": f"No articles found for topic '{req.topic}' in date range {start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}"}
+        
+        # Instructions already loaded above for cache key
+        if not instructions:
+            return {"signals": [], "message": "No active signal instructions found"}
+        
+        # Check cache using first article as anchor (unless force regenerate)
+        if not req.force_regenerate:
+            cache_uri = articles[0]['uri'] if hasattr(articles[0], '__getitem__') else articles[0].uri
+            cached = db.get_article_analysis_cache(
+                article_uri=cache_uri,
+                analysis_type=f"realtime_signals_{req.topic}",
+                model_used="signal_analysis"
+            )
+            
+            if cached and cached.get("metadata", {}).get("cache_key") == cache_key:
+                logger.info(f"Cache HIT: real-time signals for {req.topic}")
+                import json
+                return json.loads(cached["content"])
+        
+        if req.force_regenerate:
+            logger.info(f"Force regenerating real-time signals for {req.topic} (bypassing cache)")
+        
+        # Analyze articles with each signal instruction
+        from app.ai_models import LiteLLMModel
+        
+        model_name = req.model  # Use model from frontend
+        ai_model = LiteLLMModel.get_instance(model_name)
+        if not ai_model:
+            raise HTTPException(status_code=500, detail=f"Failed to initialize model {model_name}")
+        
+        detected_signals = []
+        
+        for instruction in instructions:
+            # Prepare articles text for analysis
+            articles_text = "\n\n".join([
+                f"Article {i+1}:\nTitle: {article.get('title') if hasattr(article, 'get') else article['title']}\n"
+                f"Source: {article.get('news_source') if hasattr(article, 'get') else article['news_source']}\n"
+                f"Date: {article.get('publication_date') if hasattr(article, 'get') else article['publication_date']}\n"
+                f"Summary: {article.get('summary') if hasattr(article, 'get') else article['summary']}\n"
+                f"URI: {article.get('uri') if hasattr(article, 'get') else article['uri']}"
+                for i, article in enumerate(articles[:20])  # Limit to 20 articles per instruction
+            ])
+            
+            # Create analysis prompt
+            system_prompt = f"""
+            You are a threat intelligence analyst. Analyze the provided articles using this specific signal instruction:
+            
+            SIGNAL: {instruction['name']}
+            DESCRIPTION: {instruction['description']}
+            INSTRUCTION: {instruction['instruction']}
+            
+            Return a JSON response with:
+            {{
+                "signal_detected": true/false,
+                "confidence": 0.0-1.0,
+                "matching_articles": ["uri1", "uri2", ...],
+                "summary": "Brief explanation of what was detected",
+                "threat_level": "low"|"medium"|"high",
+                "recommended_action": "What should analysts do next"
+            }}
+            """
+            
+            user_prompt = f"Analyze these articles for the signal '{instruction['name']}':\n\n{articles_text}"
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+            
+            try:
+                from fastapi.concurrency import run_in_threadpool
+                response_str = await run_in_threadpool(ai_model.generate_response, messages)
+                
+                # Parse response
+                if response_str and not ("⚠️" in response_str or "unavailable" in response_str.lower()):
+                    try:
+                        import re
+                        import json as json_module
+                        json_match = re.search(r'\{.*\}', response_str, re.DOTALL)
+                        if json_match:
+                            signal_result = json_module.loads(json_match.group())
+                            signal_result['instruction_name'] = instruction['name']
+                            signal_result['instruction_id'] = instruction['id']
+                            detected_signals.append(signal_result)
+                    except json_module.JSONDecodeError:
+                        logger.warning(f"Failed to parse signal response for {instruction['name']}")
+                        
+            except Exception as signal_error:
+                logger.error(f"Error analyzing signal {instruction['name']}: {signal_error}")
+        
+        result = {
+            "signals": detected_signals,
+            "total_articles": len(articles),
+            "instructions_used": len(instructions),
+            "signals_detected": len([s for s in detected_signals if s.get('signal_detected')]),
+            "analysis_timestamp": datetime.now().isoformat()
+        }
+        
+        # Cache the results
+        try:
+            import json as json_module
+            cache_content = json_module.dumps(result, ensure_ascii=False, default=str)
+            cache_metadata = {
+                "cache_key": cache_key,
+                "topic": req.topic,
+                "start_date": req.start_date,
+                "end_date": req.end_date,
+                "days_limit": req.days_limit,
+                "instructions_count": len(instructions)
+            }
+            
+            success = db.save_article_analysis_cache(
+                article_uri=cache_uri,
+                analysis_type=f"realtime_signals_{req.topic}",
+                content=cache_content,
+                model_used="signal_analysis",
+                metadata=cache_metadata
+            )
+            
+            if success:
+                logger.info(f"Cache SAVE: real-time signals for {req.topic}")
+        except Exception as cache_error:
+            logger.warning(f"Failed to cache real-time signals: {cache_error}")
+        
+        return result
+        
+    except Exception as exc:
+        logger.error("Error in real-time signals analysis: %s", exc)
+        raise HTTPException(status_code=500, detail="Real-time signals analysis error")
+
+# ------------------------------------------------------------------
+# Debug endpoint for checking available data
+# ------------------------------------------------------------------
+
+@router.get("/debug-articles")
+async def debug_articles(
+    topic: Optional[str] = Query(None, description="Topic to check"),
+    session=Depends(verify_session_optional),
+):
+    """Debug endpoint to check what articles and topics are available."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        # Get all distinct topics
+        topics_query = "SELECT DISTINCT topic, COUNT(*) as count FROM articles GROUP BY topic ORDER BY count DESC LIMIT 10"
+        topics = db.fetch_all(topics_query)
+        
+        # Get recent articles for the specified topic
+        recent_articles = []
+        if topic:
+            articles_query = """
+            SELECT uri, title, publication_date, topic, category, sentiment
+            FROM articles 
+            WHERE (topic = ? OR topic LIKE ? OR title LIKE ? OR summary LIKE ?)
+            AND category IS NOT NULL AND sentiment IS NOT NULL
+            ORDER BY publication_date DESC
+            LIMIT 10
+            """
+            topic_pattern = f"%{topic}%"
+            recent_articles = db.fetch_all(articles_query, (topic, topic_pattern, topic_pattern, topic_pattern))
+        
+        # Get date range info
+        date_range_query = """
+        SELECT 
+            MIN(DATE(publication_date)) as earliest_date,
+            MAX(DATE(publication_date)) as latest_date,
+            COUNT(*) as total_articles
+        FROM articles 
+        WHERE category IS NOT NULL AND sentiment IS NOT NULL
+        """
+        date_info = db.fetch_one(date_range_query)
+        
+        return {
+            "available_topics": [dict(t) for t in topics],
+            "recent_articles": [dict(a) for a in recent_articles] if recent_articles else [],
+            "date_range_info": dict(date_info) if date_info else {},
+            "query_topic": topic
+        }
+        
+    except Exception as exc:
+        logger.error("Error in debug articles: %s", exc)
+        return {"error": str(exc)}
 
 # ------------------------------------------------------------------
 # Analysis cache endpoints

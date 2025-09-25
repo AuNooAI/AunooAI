@@ -962,6 +962,124 @@ Remember to cite your sources and provide actionable insights where possible."""
                 logger.error(f"Error cleaning analysis cache: {e}")
                 return 0
 
+    def save_signal_instruction(self, name: str, description: str, instruction: str, topic: str = None, is_active: bool = True) -> bool:
+        """Save a custom signal instruction for threat hunting."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Create table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS signal_instructions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL UNIQUE,
+                        description TEXT,
+                        instruction TEXT NOT NULL,
+                        topic TEXT,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Insert or replace signal instruction
+                cursor.execute("""
+                    INSERT OR REPLACE INTO signal_instructions 
+                    (name, description, instruction, topic, is_active, updated_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (name, description, instruction, topic, is_active))
+                
+                conn.commit()
+                logger.info(f"Saved signal instruction: {name}")
+                return True
+            except Exception as e:
+                logger.error(f"Error saving signal instruction: {e}")
+                conn.rollback()
+                return False
+
+    def get_signal_instructions(self, topic: str = None, active_only: bool = True) -> List[Dict]:
+        """Get signal instructions, optionally filtered by topic."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Create table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS signal_instructions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL UNIQUE,
+                        description TEXT,
+                        instruction TEXT NOT NULL,
+                        topic TEXT,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # Query signal instructions
+                if topic:
+                    if active_only:
+                        cursor.execute("""
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
+                            FROM signal_instructions 
+                            WHERE (topic = ? OR topic IS NULL) AND is_active = TRUE
+                            ORDER BY updated_at DESC
+                        """, (topic,))
+                    else:
+                        cursor.execute("""
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
+                            FROM signal_instructions 
+                            WHERE (topic = ? OR topic IS NULL)
+                            ORDER BY updated_at DESC
+                        """, (topic,))
+                else:
+                    if active_only:
+                        cursor.execute("""
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
+                            FROM signal_instructions 
+                            WHERE is_active = TRUE
+                            ORDER BY updated_at DESC
+                        """)
+                    else:
+                        cursor.execute("""
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
+                            FROM signal_instructions 
+                            ORDER BY updated_at DESC
+                        """)
+                
+                results = cursor.fetchall()
+                instructions = []
+                for row in results:
+                    instructions.append({
+                        'id': row[0],
+                        'name': row[1],
+                        'description': row[2],
+                        'instruction': row[3],
+                        'topic': row[4],
+                        'is_active': bool(row[5]),
+                        'created_at': row[6],
+                        'updated_at': row[7]
+                    })
+                
+                return instructions
+            except Exception as e:
+                logger.error(f"Error getting signal instructions: {e}")
+                return []
+
+    def delete_signal_instruction(self, instruction_id: int) -> bool:
+        """Delete a signal instruction."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("DELETE FROM signal_instructions WHERE id = ?", (instruction_id,))
+                conn.commit()
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    logger.info(f"Deleted signal instruction ID: {instruction_id}")
+                return deleted
+            except Exception as e:
+                logger.error(f"Error deleting signal instruction: {e}")
+                return False
+
     def search_articles(
         self,
         topic: Optional[str] = None,
