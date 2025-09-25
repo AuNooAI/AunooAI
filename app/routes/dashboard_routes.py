@@ -1354,6 +1354,20 @@ async def get_category_insights(
             
             articles_text = "\n---\n".join(article_texts)
             
+            # Check data quality before sending to LLM
+            total_content_length = sum(len(str(article[0] or '')) + len(str(article[1] or '')) for article in category_articles)
+            avg_content_length = total_content_length / len(category_articles) if category_articles else 0
+            
+            # If content is too sparse, provide a basic insight without LLM
+            if avg_content_length < 50:  # Very short titles/summaries
+                logger.warning(f"Category '{category_name}' has sparse content (avg {avg_content_length:.1f} chars), skipping LLM")
+                category_insights.append(CategoryInsightSchema(
+                    category=category_name,
+                    article_count=article_count,
+                    insight_text=f"The '{category_name}' category shows {article_count} articles with limited metadata. This suggests emerging or developing content in this area that may need more detailed analysis."
+                ))
+                continue
+            
             # Create prompt for category analysis
             system_prompt = (
                 f"You are an expert analyst specializing in '{topic_name}'. "
@@ -1361,13 +1375,15 @@ async def get_category_insights(
                 f"provide a concise 2-3 sentence insight about trends, patterns, or notable "
                 f"characteristics of this category during this time period. "
                 f"Focus on what makes this category distinctive compared to others and identify "
-                f"any emerging trends or shifts in focus within the category."
+                f"any emerging trends or shifts in focus within the category. "
+                f"If the article content is limited, focus on what you can infer from the available information."
             )
             
             user_prompt = (
                 f"Here are recent articles from the '{category_name}' category "
                 f"within the '{topic_name}' topic to analyze:\n\n{articles_text}\n\n"
-                f"Provide a concise insight about this category based on these articles."
+                f"Provide a concise insight about this category based on these articles. "
+                f"Note: Some articles may have limited content - focus on available information."
             )
             
             messages = [
@@ -1380,17 +1396,24 @@ async def get_category_insights(
                 logger.info(f"Generating insight for category '{category_name}' with {article_count} articles")
                 insight_text = await run_in_threadpool(ai_model.generate_response, messages)
                 
-                # Check for LLM error messages
-                if insight_text and ("⚠️" in insight_text or "unavailable" in insight_text.lower() or "error" in insight_text.lower()):
+                # Check for LLM error messages or very short responses
+                if not insight_text or len(insight_text.strip()) < 10:
+                    logger.warning(f"LLM returned empty/short response for category '{category_name}'")
+                    insight_text = f"The '{category_name}' category contains {article_count} articles. This represents an active area within {topic_name} with ongoing developments."
+                elif insight_text and ("⚠️" in insight_text or "unavailable" in insight_text.lower() or "error" in insight_text.lower()):
                     logger.warning(f"LLM returned error for category '{category_name}': {insight_text}")
-                    # Provide a more informative fallback
-                    insight_text = f"The '{category_name}' category has {article_count} articles. Analysis shows activity in this area but detailed insights are currently unavailable."
+                    # Provide a more informative fallback based on the data we have
+                    sample_titles = [article[0] for article in category_articles[:3] if article[0]]
+                    if sample_titles:
+                        insight_text = f"The '{category_name}' category shows {article_count} articles including topics like: {', '.join(sample_titles[:2])}. This suggests active development in this area."
+                    else:
+                        insight_text = f"The '{category_name}' category has {article_count} articles showing activity in this area of {topic_name}."
                 
                 # Add category with LLM-generated insight
                 category_insights.append(CategoryInsightSchema(
                     category=category_name,
                     article_count=article_count,
-                    insight_text=insight_text.strip() if insight_text else f"The '{category_name}' category contains {article_count} articles with analysis pending."
+                    insight_text=insight_text.strip()
                 ))
             except Exception as e:
                 logger.error(f"Error generating insight for category '{category_name}': {e}", exc_info=True)

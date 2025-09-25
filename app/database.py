@@ -1080,6 +1080,222 @@ Remember to cite your sources and provide actionable insights where possible."""
                 logger.error(f"Error deleting signal instruction: {e}")
                 return False
 
+    def save_signal_alert(self, article_uri: str, instruction_id: int, instruction_name: str, 
+                         confidence: float, threat_level: str, summary: str, detected_at: str = None) -> bool:
+        """Save a signal alert when an article matches a signal instruction."""
+        from datetime import datetime
+        
+        if not detected_at:
+            detected_at = datetime.now().isoformat()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Create table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS signal_alerts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        article_uri TEXT NOT NULL,
+                        instruction_id INTEGER NOT NULL,
+                        instruction_name TEXT NOT NULL,
+                        confidence REAL NOT NULL,
+                        threat_level TEXT NOT NULL,
+                        summary TEXT,
+                        detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        is_acknowledged BOOLEAN DEFAULT FALSE,
+                        acknowledged_at TIMESTAMP,
+                        FOREIGN KEY (instruction_id) REFERENCES signal_instructions(id) ON DELETE CASCADE,
+                        UNIQUE(article_uri, instruction_id)
+                    )
+                """)
+                
+                # Insert or replace alert
+                cursor.execute("""
+                    INSERT OR REPLACE INTO signal_alerts 
+                    (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at))
+                
+                conn.commit()
+                logger.info(f"Saved signal alert for article {article_uri} with instruction {instruction_name}")
+                return True
+            except Exception as e:
+                logger.error(f"Error saving signal alert: {e}")
+                conn.rollback()
+                return False
+
+    def get_signal_alerts(self, topic: str = None, instruction_id: int = None, 
+                         acknowledged: bool = None, limit: int = 100) -> List[Dict]:
+        """Get signal alerts with optional filters."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Create table if it doesn't exist
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS signal_alerts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        article_uri TEXT NOT NULL,
+                        instruction_id INTEGER NOT NULL,
+                        instruction_name TEXT NOT NULL,
+                        confidence REAL NOT NULL,
+                        threat_level TEXT NOT NULL,
+                        summary TEXT,
+                        detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        is_acknowledged BOOLEAN DEFAULT FALSE,
+                        acknowledged_at TIMESTAMP,
+                        FOREIGN KEY (instruction_id) REFERENCES signal_instructions(id) ON DELETE CASCADE,
+                        UNIQUE(article_uri, instruction_id)
+                    )
+                """)
+                
+                # Build query with filters - simplified to avoid JOIN issues
+                if topic:
+                    # If topic filter is specified, use JOIN
+                    query = """
+                    SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name, 
+                           sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
+                           sa.is_acknowledged, sa.acknowledged_at,
+                           a.title, a.news_source, a.publication_date
+                    FROM signal_alerts sa
+                    LEFT JOIN articles a ON sa.article_uri = a.uri
+                    WHERE 1=1
+                    """
+                    params = []
+                    
+                    if instruction_id:
+                        query += " AND sa.instruction_id = ?"
+                        params.append(instruction_id)
+                    
+                    if acknowledged is not None:
+                        query += " AND sa.is_acknowledged = ?"
+                        # Convert Python boolean to SQLite integer (0/1)
+                        params.append(1 if acknowledged else 0)
+                    
+                    query += " AND (a.topic = ? OR a.title LIKE ? OR a.summary LIKE ?)"
+                    topic_pattern = f"%{topic}%"
+                    params.extend([topic, topic_pattern, topic_pattern])
+                    
+                    query += " ORDER BY sa.detected_at DESC LIMIT ?"
+                    params.append(limit)
+                else:
+                    # If no topic filter, get alerts directly without JOIN to avoid missing data
+                    query = """
+                    SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name, 
+                           sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
+                           sa.is_acknowledged, sa.acknowledged_at,
+                           NULL as title, NULL as news_source, NULL as publication_date
+                    FROM signal_alerts sa
+                    WHERE 1=1
+                    """
+                    params = []
+                    
+                    if instruction_id:
+                        query += " AND sa.instruction_id = ?"
+                        params.append(instruction_id)
+                    
+                    if acknowledged is not None:
+                        query += " AND sa.is_acknowledged = ?"
+                        # Convert Python boolean to SQLite integer (0/1)
+                        params.append(1 if acknowledged else 0)
+                    
+                    query += " ORDER BY sa.detected_at DESC LIMIT ?"
+                    params.append(limit)
+                
+                logger.info(f"Signal alerts query: {query}")
+                logger.info(f"Signal alerts params: {params}")
+                
+                # Debug: Check what's actually in the table
+                cursor.execute("SELECT COUNT(*) FROM signal_alerts")
+                total_alerts = cursor.fetchone()[0]
+                logger.info(f"Total alerts in database: {total_alerts}")
+                
+                cursor.execute("SELECT id, instruction_name, is_acknowledged FROM signal_alerts ORDER BY detected_at DESC LIMIT 5")
+                sample_alerts = cursor.fetchall()
+                logger.info(f"Sample alerts: {sample_alerts}")
+                
+                # Execute the main query
+                results = cursor.execute(query, params).fetchall()
+                logger.info(f"Signal alerts query returned {len(results)} rows")
+                
+                alerts = []
+                for row in results:
+                    alerts.append({
+                        'id': row[0],
+                        'article_uri': row[1],
+                        'instruction_id': row[2],
+                        'instruction_name': row[3],
+                        'confidence': row[4],
+                        'threat_level': row[5],
+                        'summary': row[6],
+                        'detected_at': row[7],
+                        'is_acknowledged': bool(row[8]),
+                        'acknowledged_at': row[9],
+                        'article_title': row[10],
+                        'article_source': row[11],
+                        'article_publication_date': row[12]
+                    })
+                
+                return alerts
+            except Exception as e:
+                logger.error(f"Error getting signal alerts: {e}")
+                return []
+
+    def acknowledge_signal_alert(self, alert_id: int) -> bool:
+        """Mark a signal alert as acknowledged."""
+        from datetime import datetime
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    UPDATE signal_alerts 
+                    SET is_acknowledged = TRUE, acknowledged_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, (alert_id,))
+                
+                conn.commit()
+                updated = cursor.rowcount > 0
+                if updated:
+                    logger.info(f"Acknowledged signal alert ID: {alert_id}")
+                return updated
+            except Exception as e:
+                logger.error(f"Error acknowledging signal alert: {e}")
+                return False
+
+    def add_article_tag(self, article_uri: str, tag: str, tag_type: str = "signal") -> bool:
+        """Add a tag to an article."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Get current tags
+                cursor.execute("SELECT tags FROM articles WHERE uri = ?", (article_uri,))
+                result = cursor.fetchone()
+                
+                if result:
+                    current_tags = result[0] or ""
+                    tags_list = [t.strip() for t in current_tags.split(',') if t.strip()] if current_tags else []
+                    
+                    # Add new tag if not already present
+                    tag_with_type = f"{tag_type}:{tag}"
+                    if tag_with_type not in tags_list:
+                        tags_list.append(tag_with_type)
+                        new_tags = ",".join(tags_list)
+                        
+                        cursor.execute("UPDATE articles SET tags = ? WHERE uri = ?", (new_tags, article_uri))
+                        conn.commit()
+                        logger.info(f"Added tag '{tag_with_type}' to article {article_uri}")
+                        return True
+                    else:
+                        logger.info(f"Tag '{tag_with_type}' already exists on article {article_uri}")
+                        return True
+                else:
+                    logger.warning(f"Article {article_uri} not found for tagging")
+                    return False
+            except Exception as e:
+                logger.error(f"Error adding article tag: {e}")
+                conn.rollback()
+                return False
+
     def search_articles(
         self,
         topic: Optional[str] = None,

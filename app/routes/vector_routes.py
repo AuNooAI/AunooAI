@@ -1718,9 +1718,11 @@ async def analyze_incidents(
         if not articles:
             return {"incidents": [], "message": f"No articles found for topic '{req.topic}' in date range {start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}"}
         
+        # Define cache_uri for later use
+        cache_uri = articles[0]['uri'] if hasattr(articles[0], '__getitem__') else articles[0].uri
+        
         # Check cache using first article as anchor (unless force regenerate)
         if not req.force_regenerate:
-            cache_uri = articles[0]['uri'] if hasattr(articles[0], '__getitem__') else articles[0].uri
             cached = db.get_article_analysis_cache(
                 article_uri=cache_uri,
                 analysis_type=f"incident_tracking_{req.topic}",
@@ -1967,6 +1969,21 @@ async def analyze_real_time_signals(
         instruction_ids_str = ','.join(str(inst['id']) for inst in instructions)
         cache_key = f"realtime_signals_{req.topic}_{req.start_date or 'no_start'}_{req.end_date or 'no_end'}_{req.days_limit}_{instruction_ids_str}"
         
+        logger.info(f"Real-time signals analysis - Topic: {req.topic}")
+        logger.info(f"Instructions found: {len(instructions)} - IDs: {[inst['id'] for inst in instructions]}")
+        logger.info(f"Instruction names: {[inst['name'] for inst in instructions]}")
+        
+        # Check if quantum computing instruction is in the list
+        quantum_instructions = [inst for inst in instructions if 'quantum' in inst['name'].lower()]
+        logger.info(f"Quantum instructions found: {len(quantum_instructions)}")
+        if quantum_instructions:
+            for qi in quantum_instructions:
+                logger.info(f"Quantum instruction: '{qi['name']}' - Active: {qi['is_active']} - Topic: {qi.get('topic')}")
+        else:
+            logger.warning("No quantum computing instructions found in active set!")
+        logger.info(f"Cache key: {cache_key}")
+        logger.info(f"Force regenerate: {req.force_regenerate}")
+        
         # Get articles for analysis
         from datetime import datetime, timedelta
         
@@ -2004,9 +2021,11 @@ async def analyze_real_time_signals(
         if not instructions:
             return {"signals": [], "message": "No active signal instructions found"}
         
+        # Define cache_uri for later use
+        cache_uri = articles[0]['uri'] if hasattr(articles[0], '__getitem__') else articles[0].uri
+        
         # Check cache using first article as anchor (unless force regenerate)
         if not req.force_regenerate:
-            cache_uri = articles[0]['uri'] if hasattr(articles[0], '__getitem__') else articles[0].uri
             cached = db.get_article_analysis_cache(
                 article_uri=cache_uri,
                 analysis_type=f"realtime_signals_{req.topic}",
@@ -2031,7 +2050,26 @@ async def analyze_real_time_signals(
         
         detected_signals = []
         
-        for instruction in instructions:
+        logger.info(f"Processing {len(instructions)} signal instructions:")
+        logger.info(f"Articles being analyzed: {len(articles)} articles from {start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}")
+        
+        # Debug: Log sample article titles to see what's being analyzed
+        sample_titles = [article.get('title') if hasattr(article, 'get') else article['title'] for article in articles[:10]]
+        logger.info(f"Sample article titles: {sample_titles}")
+        
+        # Special debug for quantum computing
+        quantum_articles = [article for article in articles if 'quantum' in (article.get('title') if hasattr(article, 'get') else article['title']).lower()]
+        logger.info(f"Quantum articles found in dataset: {len(quantum_articles)}")
+        if quantum_articles:
+            for qa in quantum_articles:
+                title = qa.get('title') if hasattr(qa, 'get') else qa['title']
+                date = qa.get('publication_date') if hasattr(qa, 'get') else qa['publication_date']
+                logger.info(f"Quantum article: '{title}' - Date: {date}")
+        
+        for i, instruction in enumerate(instructions):
+            logger.info(f"Processing instruction {i+1}/{len(instructions)}: '{instruction['name']}' (ID: {instruction['id']})")
+            logger.info(f"Instruction text: {instruction['instruction'][:100]}...")
+            
             # Prepare articles text for analysis
             articles_text = "\n\n".join([
                 f"Article {i+1}:\nTitle: {article.get('title') if hasattr(article, 'get') else article['title']}\n"
@@ -2073,6 +2111,11 @@ async def analyze_real_time_signals(
                 response_str = await run_in_threadpool(ai_model.generate_response, messages)
                 
                 # Parse response
+                logger.info(f"LLM response for '{instruction['name']}': {response_str[:500]}...")
+                
+                # Special debug for quantum computing
+                if 'quantum' in instruction['name'].lower():
+                    logger.info(f"QUANTUM DEBUG - Full response: {response_str}")
                 if response_str and not ("⚠️" in response_str or "unavailable" in response_str.lower()):
                     try:
                         import re
@@ -2083,8 +2126,13 @@ async def analyze_real_time_signals(
                             signal_result['instruction_name'] = instruction['name']
                             signal_result['instruction_id'] = instruction['id']
                             detected_signals.append(signal_result)
-                    except json_module.JSONDecodeError:
-                        logger.warning(f"Failed to parse signal response for {instruction['name']}")
+                            logger.info(f"Signal processed: {instruction['name']} - Detected: {signal_result.get('signal_detected', False)}")
+                        else:
+                            logger.warning(f"No JSON found in response for {instruction['name']}")
+                    except json_module.JSONDecodeError as je:
+                        logger.warning(f"Failed to parse signal response for {instruction['name']}: {je}")
+                else:
+                    logger.warning(f"LLM returned error/empty response for {instruction['name']}: {response_str[:100]}...")
                         
             except Exception as signal_error:
                 logger.error(f"Error analyzing signal {instruction['name']}: {signal_error}")
@@ -2143,6 +2191,24 @@ async def debug_articles(
         from app.database import get_database_instance
         db = get_database_instance()
         
+        # Also check signal alerts
+        alerts_query = "SELECT COUNT(*) FROM signal_alerts"
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(alerts_query)
+                alerts_count = cursor.fetchone()[0] if cursor.fetchone() else 0
+            except:
+                alerts_count = 0
+        
+        logger.info(f"Debug: Found {alerts_count} total signal alerts in database")
+    except Exception as e:
+        logger.error(f"Error checking alerts count: {e}")
+        alerts_count = "unknown"
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
         # Get all distinct topics
         topics_query = "SELECT DISTINCT topic, COUNT(*) as count FROM articles GROUP BY topic ORDER BY count DESC LIMIT 10"
         topics = db.fetch_all(topics_query)
@@ -2172,16 +2238,271 @@ async def debug_articles(
         """
         date_info = db.fetch_one(date_range_query)
         
+        # Also get recent signal alerts for debugging
+        alerts_debug_query = "SELECT id, article_uri, instruction_name, detected_at, is_acknowledged FROM signal_alerts ORDER BY detected_at DESC LIMIT 10"
+        recent_alerts = []
+        try:
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(alerts_debug_query)
+                recent_alerts = [dict(zip([col[0] for col in cursor.description], row)) for row in cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Error getting recent alerts: {e}")
+        
         return {
             "available_topics": [dict(t) for t in topics],
             "recent_articles": [dict(a) for a in recent_articles] if recent_articles else [],
             "date_range_info": dict(date_info) if date_info else {},
-            "query_topic": topic
+            "query_topic": topic,
+            "signal_alerts_count": alerts_count,
+            "recent_alerts": recent_alerts
         }
         
     except Exception as exc:
         logger.error("Error in debug articles: %s", exc)
         return {"error": str(exc)}
+
+# ------------------------------------------------------------------
+# Independent signal runner for real-time monitoring
+# ------------------------------------------------------------------
+
+class _RunSignalRequest(BaseModel):
+    """Request for running specific signal instructions."""
+    instruction_ids: List[int] = Field(..., description="Signal instruction IDs to run")
+    topic: Optional[str] = Field(None, description="Topic filter for articles")
+    days_back: int = Field(7, ge=1, le=30, description="Days back to analyze")
+    max_articles: int = Field(100, ge=10, le=500, description="Maximum articles to analyze")
+    model: str = Field("gpt-4o-mini", description="AI model to use")
+    tag_flagged_articles: bool = Field(True, description="Tag articles that match signals")
+
+@router.post("/run-signals")
+async def run_signal_instructions(
+    req: _RunSignalRequest,
+    session=Depends(verify_session),
+):
+    """Run specific signal instructions against recent articles independently."""
+    try:
+        from app.database import get_database_instance
+        from datetime import datetime, timedelta
+        
+        db = get_database_instance()
+        
+        # Get the specific signal instructions
+        all_instructions = db.get_signal_instructions(topic=req.topic, active_only=False)
+        instructions = [inst for inst in all_instructions if inst['id'] in req.instruction_ids and inst['is_active']]
+        
+        if not instructions:
+            return {"success": False, "message": "No active signal instructions found with provided IDs"}
+        
+        # Get articles for the specified time range
+        end_date_dt = datetime.now()
+        start_date_dt = end_date_dt - timedelta(days=req.days_back)
+        
+        # Query articles using same approach as working code
+        query = """
+        SELECT uri, title, summary, news_source, publication_date, category, sentiment
+        FROM articles 
+        WHERE publication_date >= ? AND publication_date <= ?
+        AND category IS NOT NULL AND sentiment IS NOT NULL
+        """
+        
+        params = [start_date_dt.isoformat(), end_date_dt.isoformat()]
+        
+        if req.topic:
+            query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+            topic_pattern = f"%{req.topic}%"
+            params.extend([req.topic, topic_pattern, topic_pattern])
+        
+        query += " ORDER BY publication_date DESC LIMIT ?"
+        params.append(req.max_articles)
+        
+        articles = db.fetch_all(query, params)
+        
+        if not articles:
+            return {
+                "success": False, 
+                "message": f"No articles found for analysis in the last {req.days_back} days",
+                "alerts": [],
+                "instructions_run": 0
+            }
+        
+        # Initialize LLM
+        from app.ai_models import LiteLLMModel
+        from fastapi.concurrency import run_in_threadpool
+        
+        ai_model = LiteLLMModel.get_instance(req.model)
+        if not ai_model:
+            raise HTTPException(status_code=500, detail=f"Failed to initialize model {req.model}")
+        
+        # Run each signal instruction
+        alerts_created = []
+        total_matches = 0
+        
+        for instruction in instructions:
+            logger.info(f"Running signal instruction: {instruction['name']} (ID: {instruction['id']})")
+            
+            # Prepare articles for this instruction
+            articles_text = "\n\n".join([
+                f"Article {i+1}:\n"
+                f"Title: {article.get('title') if hasattr(article, 'get') else article['title']}\n"
+                f"Source: {article.get('news_source') if hasattr(article, 'get') else article['news_source']}\n"
+                f"Date: {article.get('publication_date') if hasattr(article, 'get') else article['publication_date']}\n"
+                f"Summary: {article.get('summary') if hasattr(article, 'get') else article['summary']}\n"
+                f"URI: {article.get('uri') if hasattr(article, 'get') else article['uri']}"
+                for i, article in enumerate(articles[:50])  # Limit to 50 articles per instruction
+            ])
+            
+            # Create analysis prompt
+            system_prompt = f"""
+            You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
+            
+            SIGNAL: {instruction['name']}
+            DESCRIPTION: {instruction['description']}
+            INSTRUCTION: {instruction['instruction']}
+            
+            For EACH article that matches the signal, return a separate JSON object:
+            {{
+                "article_uri": "exact_uri_from_input",
+                "signal_detected": true,
+                "confidence": 0.0-1.0,
+                "summary": "Why this article matches the signal",
+                "threat_level": "low"|"medium"|"high",
+                "recommended_action": "What analysts should do"
+            }}
+            
+            Return a JSON array of all matching articles: [{{}}, {{}}, ...]
+            If no articles match, return an empty array: []
+            """
+            
+            user_prompt = f"Analyze these articles for the signal '{instruction['name']}':\n\n{articles_text}"
+            
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+            
+            try:
+                response_str = await run_in_threadpool(ai_model.generate_response, messages)
+                
+                if response_str and not ("⚠️" in response_str or "unavailable" in response_str.lower()):
+                    try:
+                        import re
+                        import json as json_module
+                        
+                        # Look for JSON array
+                        json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
+                        if json_match:
+                            matches = json_module.loads(json_match.group())
+                            
+                            # Process each match
+                            for match in matches:
+                                if isinstance(match, dict) and match.get('signal_detected'):
+                                    article_uri = match.get('article_uri')
+                                    confidence = match.get('confidence', 0.5)
+                                    threat_level = match.get('threat_level', 'medium')
+                                    summary = match.get('summary', 'Signal detected')
+                                    
+                                    # Save alert to database
+                                    alert_saved = db.save_signal_alert(
+                                        article_uri=article_uri,
+                                        instruction_id=instruction['id'],
+                                        instruction_name=instruction['name'],
+                                        confidence=confidence,
+                                        threat_level=threat_level,
+                                        summary=summary
+                                    )
+                                    
+                                    if alert_saved:
+                                        alerts_created.append({
+                                            'article_uri': article_uri,
+                                            'instruction_name': instruction['name'],
+                                            'confidence': confidence,
+                                            'threat_level': threat_level,
+                                            'summary': summary
+                                        })
+                                        total_matches += 1
+                                        
+                                        # Tag the article if requested
+                                        if req.tag_flagged_articles:
+                                            tag_name = f"SIGNAL_{instruction['name'].replace(' ', '_').upper()}"
+                                            db.add_article_tag(article_uri, tag_name, "signal")
+                            
+                            logger.info(f"Signal '{instruction['name']}' found {len(matches)} matches")
+                        else:
+                            logger.warning(f"No JSON array found in response for {instruction['name']}")
+                            
+                    except json_module.JSONDecodeError as je:
+                        logger.error(f"Failed to parse signal response for {instruction['name']}: {je}")
+                else:
+                    logger.warning(f"LLM returned error for signal {instruction['name']}: {response_str[:100]}...")
+                    
+            except Exception as signal_error:
+                logger.error(f"Error running signal {instruction['name']}: {signal_error}")
+        
+        return {
+            "success": True,
+            "message": f"Analyzed {len(articles)} articles with {len(instructions)} signal instructions",
+            "alerts_created": alerts_created,
+            "total_matches": total_matches,
+            "instructions_run": len(instructions),
+            "articles_analyzed": len(articles),
+            "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}"
+        }
+        
+    except Exception as exc:
+        logger.error("Error in run signal instructions: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal runner error")
+
+@router.get("/signal-alerts")
+async def get_signal_alerts(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    instruction_id: Optional[int] = Query(None, description="Filter by instruction ID"),
+    acknowledged: Optional[bool] = Query(None, description="Filter by acknowledgment status"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum alerts to return"),
+    session=Depends(verify_session_optional),
+):
+    """Get signal alerts for the dashboard."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        alerts = db.get_signal_alerts(
+            topic=topic,
+            instruction_id=instruction_id,
+            acknowledged=acknowledged,
+            limit=limit
+        )
+        
+        return {
+            "success": True,
+            "alerts": alerts,
+            "total": len(alerts)
+        }
+        
+    except Exception as exc:
+        logger.error("Error getting signal alerts: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal alerts retrieval error")
+
+@router.post("/acknowledge-alert/{alert_id}")
+async def acknowledge_alert(
+    alert_id: int,
+    session=Depends(verify_session),
+):
+    """Acknowledge a signal alert."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        success = db.acknowledge_signal_alert(alert_id)
+        
+        if success:
+            return {"success": True, "message": "Alert acknowledged successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Alert not found")
+            
+    except Exception as exc:
+        logger.error("Error acknowledging alert: %s", exc)
+        raise HTTPException(status_code=500, detail="Alert acknowledgment error")
 
 # ------------------------------------------------------------------
 # Analysis cache endpoints
