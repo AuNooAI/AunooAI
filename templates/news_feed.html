@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Daily News Feed{% endblock %}
+{% block title %}Narrative Explorer{% endblock %}
 
 {% block extra_js %}
 <!-- Marked.js for markdown rendering in insights -->
@@ -688,7 +688,7 @@
 <div class="news-feed-container">
     <!-- Header -->
     <div class="news-header">
-        <h1 class="news-title">Daily News Feed</h1>
+        <h1 class="news-title">Narrative Explorer</h1>
         <div class="news-date" id="current-date"></div>
     </div>
 
@@ -909,12 +909,17 @@
                     <i class="fas fa-chart-line me-2"></i>Article & Category Insights
                 </h5>
                 <div class="btn-group">
-                    <button id="generate-insights-btn" class="btn btn-primary" onclick="generateInsights()">
-                        <i class="fas fa-brain me-2"></i>Generate Insights
+                    <button id="smart-insights-btn" class="btn btn-primary" onclick="smartGenerateInsights()">
+                        <i class="fas fa-brain me-2"></i><span id="insights-btn-text">Generate Insights</span>
                     </button>
-                    <button class="btn btn-outline-primary" onclick="generateInsights(true)" title="Force regenerate bypassing cache">
-                        <i class="fas fa-sync me-1"></i>Force Regenerate
-                    </button>
+                    <div class="dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cog"></i>
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="smartGenerateInsights(true)"><i class="fas fa-sync me-2"></i>Force Regenerate</a></li>
+                        </ul>
+                    </div>
                 </div>
             </div>
             
@@ -1281,12 +1286,18 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    document.getElementById('insights-tab').addEventListener('click', function() {
-        // Only auto-load if we haven't generated insights yet
+    document.getElementById('insights-tab').addEventListener('click', async function() {
+        // Check for cached data and auto-load if available
+        await checkInsightsCache();
+        
         const insightsContainer = document.getElementById('article-insights-container');
         if (insightsContainer && !insightsContainer.querySelector('.insight-item-card')) {
-            // Show helpful message instead of auto-generating
-            showInsightsWelcomeMessage();
+            // Auto-load cached insights if available, otherwise show welcome message
+            if (insightsState.hasArticleCache || insightsState.hasCategoryCache || insightsState.hasIncidentCache) {
+                await autoLoadCachedInsights();
+            } else {
+                showInsightsWelcomeMessage();
+            }
         }
     });
 
@@ -5107,8 +5118,10 @@ Provide a thorough analysis using the structured format from your system prompt.
 // Poll for Auspex research results
 async function pollForAuspexResults(chatId, theme) {
     let pollCount = 0;
-    const maxPolls = 60; // Poll for up to 1 minute
+    const maxPolls = 120; // Poll for up to 4 minutes (LLM might take longer)
     const pollInterval = 2000; // Poll every 2 seconds
+    
+    console.log(`Starting polling for research results - Chat ID: ${chatId}, Theme: ${theme}`);
     
     const poll = async () => {
         try {
@@ -5125,6 +5138,15 @@ async function pollForAuspexResults(chatId, theme) {
             // Handle different response structures - the API returns {chat_id, messages, topic}
             const messages = data.messages || [];
             console.log(`Poll ${pollCount}: Got ${messages.length} messages for chat ${chatId}`);
+            
+            // Log message details for debugging
+            if (messages.length > 0) {
+                messages.forEach((msg, idx) => {
+                    console.log(`Poll ${pollCount}: Message ${idx}: role=${msg.role}, content_length=${msg.content?.length || 0}, is_complete=${msg.is_complete}`);
+                });
+            } else {
+                console.log(`Poll ${pollCount}: No messages yet, LLM might still be processing...`);
+            }
             
             // Look for assistant messages (responses) - exclude system messages
             const assistantMessages = messages.filter(msg => msg.role === 'assistant' && msg.content && msg.content.trim().length > 0);
@@ -6034,6 +6056,110 @@ I'm ready to discuss this article with you. You can use your tools to search for
 
 // ===== INSIGHTS TAB FUNCTIONALITY =====
 
+let insightsState = {
+    hasArticleCache: false,
+    hasCategoryCache: false,
+    hasIncidentCache: false,
+    isLoading: false
+};
+
+function updateInsightsButton() {
+    const btn = document.getElementById('smart-insights-btn');
+    const btnText = document.getElementById('insights-btn-text');
+    const icon = btn.querySelector('i');
+    
+    if (insightsState.isLoading) {
+        btn.disabled = true;
+        icon.className = 'fas fa-spinner fa-spin me-2';
+        btnText.textContent = 'Generating...';
+    } else if (insightsState.hasArticleCache || insightsState.hasCategoryCache || insightsState.hasIncidentCache) {
+        btn.disabled = false;
+        icon.className = 'fas fa-database me-2';
+        btnText.textContent = 'Using Cached Data';
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-info');
+    } else {
+        btn.disabled = false;
+        icon.className = 'fas fa-brain me-2';
+        btnText.textContent = 'Generate Insights';
+        btn.classList.remove('btn-info');
+        btn.classList.add('btn-primary');
+    }
+}
+
+async function checkInsightsCache() {
+    const topic = getCurrentTopic();
+    if (!topic) return;
+    
+    const currentArticles = window.lastArticlesData?.items || [];
+    if (currentArticles.length === 0) return;
+    
+    const cacheUri = currentArticles[0].uri;
+    
+    try {
+        // Check article insights cache
+        const articleCacheResponse = await fetch(`/api/analysis-cache?article_uri=${encodeURIComponent(cacheUri)}&analysis_type=article_insights_${topic}&model=dashboard_api`);
+        if (articleCacheResponse.ok) {
+            const articleCache = await articleCacheResponse.json();
+            insightsState.hasArticleCache = articleCache.cached;
+        }
+        
+        // Check category insights cache
+        const categoryCacheResponse = await fetch(`/api/analysis-cache?article_uri=${encodeURIComponent(cacheUri)}&analysis_type=category_insights_${topic}&model=dashboard_api`);
+        if (categoryCacheResponse.ok) {
+            const categoryCache = await categoryCacheResponse.json();
+            insightsState.hasCategoryCache = categoryCache.cached;
+        }
+        
+        // Check incident tracking cache
+        const incidentCacheResponse = await fetch(`/api/analysis-cache?article_uri=${encodeURIComponent(cacheUri)}&analysis_type=incident_tracking_${topic}&model=incident_analysis`);
+        if (incidentCacheResponse.ok) {
+            const incidentCache = await incidentCacheResponse.json();
+            insightsState.hasIncidentCache = incidentCache.cached;
+        }
+        
+    } catch (error) {
+        console.debug('Cache check failed:', error);
+    }
+    
+    updateInsightsButton();
+}
+
+async function autoLoadCachedInsights() {
+    const topic = getCurrentTopic();
+    if (!topic) return;
+    
+    await checkInsightsCache();
+    
+    // If we have any cached data, auto-load it
+    if (insightsState.hasArticleCache || insightsState.hasCategoryCache || insightsState.hasIncidentCache) {
+        console.log('Auto-loading cached insights');
+        await smartGenerateInsights(false, true); // false = don't force, true = auto-load
+    }
+}
+
+async function smartGenerateInsights(forceRegenerate = false, isAutoLoad = false) {
+    if (!isAutoLoad) {
+        console.log('Smart insights button clicked', forceRegenerate ? '(force regenerate)' : '');
+    }
+    
+    insightsState.isLoading = true;
+    updateInsightsButton();
+    
+    try {
+        await generateInsights(forceRegenerate);
+        
+        // Reset cache state after generation
+        insightsState.hasArticleCache = !forceRegenerate;
+        insightsState.hasCategoryCache = !forceRegenerate;
+        insightsState.hasIncidentCache = !forceRegenerate;
+        
+    } finally {
+        insightsState.isLoading = false;
+        updateInsightsButton();
+    }
+}
+
 function showInsightsWelcomeMessage() {
     // Show welcome messages in each panel if they're empty
     const articleContainer = document.getElementById('article-insights-container');
@@ -6809,6 +6935,69 @@ Please use your tools to:
 6. Provide actionable insights for stakeholders
 
 Use your search and analysis tools to build a comprehensive understanding of this theme beyond the current news feed articles.`;
+        } else if (insightType === 'incident') {
+            // Incident tracking research prompt
+            researchPrompt = `Conduct detailed incident investigation on: "${insightTopic}"
+
+CONTEXT FROM INCIDENT TRACKING:
+This incident was identified through AI-powered threat hunting analysis of current articles.
+
+RESEARCH FOCUS: Incident investigation - "${insightTopic}"
+TOPIC AREA: "${actualTopic}"
+
+Please use your tools to:
+1. Search for all articles related to this incident across time periods
+2. Build a comprehensive timeline of events and developments
+3. Identify key entities, organizations, and stakeholders involved
+4. Analyze the scope, impact, and implications of this incident
+5. Track related incidents or patterns that might be connected
+6. Assess current status and ongoing developments
+7. Identify potential risks, vulnerabilities, or threat indicators
+8. Provide actionable intelligence and recommendations
+
+Treat this as a comprehensive incident investigation using all available tools and sources.`;
+        } else if (insightType === 'signal_investigation') {
+            // Signal investigation research prompt  
+            researchPrompt = `Conduct deep signal analysis on: "${insightTopic}"
+
+CONTEXT FROM REAL-TIME SIGNALS:
+This signal was flagged by custom threat hunting instructions as requiring investigation.
+
+RESEARCH FOCUS: Signal investigation - "${insightTopic}"
+TOPIC AREA: "${actualTopic}"
+
+Please use your tools to:
+1. Search for articles matching this signal pattern
+2. Analyze the threat landscape and context around this signal
+3. Identify related signals, patterns, or indicators
+4. Assess the severity and potential impact of developments
+5. Track historical patterns and precedents
+6. Evaluate current threat level and trajectory
+7. Identify key stakeholders and affected parties
+8. Provide actionable threat intelligence and recommendations
+
+Focus on providing comprehensive threat analysis and strategic intelligence.`;
+        } else if (insightType === 'investigation_lead') {
+            // Investigation lead research prompt
+            researchPrompt = `Conduct focused investigation on the lead: "${insightTopic}"
+
+CONTEXT FROM INCIDENT TRACKING:
+This investigation lead was identified through AI-powered incident analysis as a key area requiring deeper research.
+
+RESEARCH FOCUS: Investigation lead - "${insightTopic}"
+TOPIC AREA: "${actualTopic}"
+
+Please use your tools to:
+1. Search for articles and information related to this investigation lead
+2. Analyze connections to ongoing incidents or patterns
+3. Identify key entities, organizations, or individuals involved
+4. Assess the significance and potential implications
+5. Track historical context and related developments
+6. Evaluate current status and recent activities
+7. Identify additional investigation angles or related leads
+8. Provide actionable intelligence and next steps
+
+Treat this as a focused investigation that could reveal broader patterns or connections.`;
         } else {
             // Article theme research prompt
             researchPrompt = `Conduct comprehensive analysis of the theme "${insightTopic}" identified from recent ${actualTopic} articles.
@@ -6830,47 +7019,24 @@ Please use your tools to:
 Provide a thorough analysis using the structured format from your system prompt.`;
         }
         
-        // Send initial research message
-        const messageResponse = await fetch('/api/auspex/chat/message', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chat_id: chatId,
-                message: researchPrompt,
-                model: selectedModel,
-                limit: 50,
-                tools_config: {
-                    search_articles: true,
-                    get_sentiment_analysis: true,
-                    semantic_search_and_analyze: true
-                }
-            })
-        });
+        // Use the same launch pattern as working article analysis
+        const displayNames = {
+            'category': 'Category Analysis',
+            'incident': 'Incident Investigation',
+            'signal_investigation': 'Signal Analysis', 
+            'article_theme': 'Theme Research',
+            'thematic_cluster': 'Thematic Analysis',
+            'category_deep': 'Category Deep Dive',
+            'strategic_analysis': 'Strategic Analysis',
+            'timeline_analysis': 'Timeline Analysis',
+            'investigation_lead': 'Investigation Lead'
+        };
         
-        if (!messageResponse.ok) {
-            throw new Error(`Failed to send research message: ${messageResponse.status}`);
-        }
+        const analysisDisplayName = displayNames[insightType] || `${insightType} Research`;
+        await launchAuspexWithPrompt(chatId, researchPrompt, selectedModel, actualTopic, analysisDisplayName);
         
-        // Open Auspex chat modal and connect to the existing session
-        const auspexModal = new bootstrap.Modal(document.getElementById('floatingChatModal'));
+        showNotification(`Auspex research launched: ${insightTopic}`, 'success');
         
-        // Store the chat ID for the modal to use
-        window.auspexActiveChatId = chatId;
-        window.auspexActiveTheme = insightTopic;
-        
-        // Set the topic and model in the modal properly
-        const topicSelect = document.getElementById('floatingTopicSelect');
-        const modelSelect = document.getElementById('floatingModelSelect');
-        
-        if (topicSelect) {
-            topicSelect.value = actualTopic;
-            topicSelect.dispatchEvent(new Event('change'));
-        }
-        
-        if (modelSelect) {
-            modelSelect.value = selectedModel;
-            modelSelect.dispatchEvent(new Event('change'));
-        }
     } catch (error) {
         console.error('Error launching Auspex research:', error);
         showNotification(`Failed to launch Auspex research: ${error.message}`, 'error');
@@ -7422,15 +7588,21 @@ function renderIncidentTracking(incidents) {
             `;
         }
         
-        // Build investigation leads
+        // Build investigation leads as clickable Auspex research buttons
         let leadsHtml = '';
         if (incident.investigation_leads && incident.investigation_leads.length > 0) {
             leadsHtml = `
                 <div class="mt-2">
                     <small class="text-muted fw-bold">Investigation Leads:</small>
-                    <ul class="list-unstyled mt-1 mb-0 small">
-                        ${incident.investigation_leads.map(lead => `<li class="mb-1"><i class="fas fa-search me-1"></i>${lead}</li>`).join('')}
-                    </ul>
+                    <div class="d-flex gap-1 flex-wrap mt-1">
+                        ${incident.investigation_leads.map(lead => `
+                            <button class="btn btn-sm btn-outline-info" 
+                                    onclick="launchAuspexResearchFromInsight('${escapeHTML(lead)}', 'investigation_lead')"
+                                    title="Launch Auspex research on: ${escapeHTML(lead)}">
+                                <i class="fas fa-search me-1"></i>${escapeHTML(lead)}
+                            </button>
+                        `).join('')}
+                    </div>
                 </div>
             `;
         }

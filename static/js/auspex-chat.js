@@ -187,6 +187,28 @@ class FloatingChat {
         
         // Update UI state now that elements are available
         this.updateUIState();
+        
+        // Check for pending chat switch from insights research
+        if (window.pendingChatSwitch) {
+            console.log(`Processing pending chat switch to session ${window.pendingChatSwitch}`);
+            const chatId = window.pendingChatSwitch;
+            window.pendingChatSwitch = null; // Clear the pending switch
+            
+            setTimeout(async () => {
+                try {
+                    // Refresh chat sessions list to include the new research session
+                    const topic = this.elements.topicSelect?.value || 'AI and Machine Learning';
+                    await this.loadChatSessions(topic);
+                    this.updateSessionsList();
+                    
+                    // Switch to the research chat
+                    await this.switchToChat(chatId);
+                    console.log(`Successfully switched to research chat session ${chatId}`);
+                } catch (error) {
+                    console.error('Error switching to pending research chat:', error);
+                }
+            }, 500); // Give more time for processing
+        }
     }
     
     retryElementInitialization() {
