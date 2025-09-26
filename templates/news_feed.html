@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Narrative Explorer{% endblock %}
+{% block title %}News Narrator{% endblock %}
 
 {% block extra_js %}
 <!-- Marked.js for markdown rendering in insights -->
@@ -688,7 +688,7 @@
 <div class="news-feed-container">
     <!-- Header -->
     <div class="news-header">
-        <h1 class="news-title">Narrative Explorer</h1>
+        <h1 class="news-title">News Narrator</h1>
         <div class="news-date" id="current-date"></div>
     </div>
 
@@ -6212,40 +6212,57 @@ async function loadArticleInsights(topic, startDate, endDate, daysLimit, forceRe
         
         // Use the first article URI from current dataset as cache reference
         const currentArticles = window.lastArticlesData?.items || [];
+        console.log('[ArticleInsights] forceRegenerate:', forceRegenerate, 'topic:', topic, 'startDate:', startDate, 'endDate:', endDate, 'daysLimit:', daysLimit);
+        console.log('[ArticleInsights] lastArticlesData.items length:', currentArticles.length);
         if (currentArticles.length > 0) {
             cacheUri = currentArticles[0].uri; // Use first article as cache anchor
         }
+        console.log('[ArticleInsights] cacheKey:', cacheKey, 'cacheUri:', cacheUri);
         
-        if (cacheUri) {
+        if (cacheUri && !forceRegenerate) {
             try {
-                const cacheResponse = await fetch(`/api/analysis-cache?article_uri=${encodeURIComponent(cacheUri)}&analysis_type=article_insights_${topic}&model=dashboard_api`);
+                const cacheCheckUrl = `/api/analysis-cache?article_uri=${encodeURIComponent(cacheUri)}&analysis_type=article_insights_${topic}&model=dashboard_api`;
+                console.log('[ArticleInsights] Checking DB cache:', cacheCheckUrl);
+                const cacheResponse = await fetch(cacheCheckUrl);
+                console.log('[ArticleInsights] Cache response status:', cacheResponse.status);
                 if (cacheResponse.ok) {
                     const cacheData = await cacheResponse.json();
+                    console.log('[ArticleInsights] Cache metadata:', cacheData && cacheData.metadata);
                     if (cacheData.cached && cacheData.metadata) {
                         // Check if cache matches our parameters
                         const metadata = cacheData.metadata;
+                        console.log('[ArticleInsights] Computed cacheKey:', cacheKey, 'Stored cache_key:', metadata.cache_key);
                         if (metadata.cache_key === cacheKey) {
-                            console.log('Using cached article insights from database');
-                            const cachedInsights = JSON.parse(cacheData.content);
+                            console.log('[ArticleInsights] Using cached article insights from database');
+                            const cachedInsights = JSON.parse(cacheData.content || '[]');
+                            console.log('[ArticleInsights] Cached insights length:', Array.isArray(cachedInsights) ? cachedInsights.length : 'n/a');
                             
                             // Add cache indicator
                             const containerEl = document.getElementById('article-insights-container');
                             renderArticleInsights(cachedInsights);
                             
                             // Add cache timestamp
-                            const cacheTimestamp = new Date(cacheData.generated_at).toLocaleString();
+                            const cacheTimestamp = cacheData.generated_at ? new Date(cacheData.generated_at).toLocaleString() : 'unknown time';
                             const cacheIndicator = document.createElement('div');
                             cacheIndicator.className = 'alert alert-info py-2 mt-2';
                             cacheIndicator.innerHTML = `<small><i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})</small>`;
                             containerEl.appendChild(cacheIndicator);
                             
                             return;
+                        } else {
+                            console.log('[ArticleInsights] Cache key mismatch; bypassing cache');
                         }
+                    } else {
+                        console.log('[ArticleInsights] No cached content available');
                     }
+                } else {
+                    console.log('[ArticleInsights] Cache check not OK:', cacheResponse.status);
                 }
             } catch (cacheError) {
-                console.debug('Database cache check failed, proceeding with API call:', cacheError);
+                console.debug('[ArticleInsights] Database cache check failed, proceeding with API call:', cacheError);
             }
+        } else if (forceRegenerate) {
+            console.log('[ArticleInsights] Force regenerate is true; skipping DB cache');
         }
         
         const params = new URLSearchParams();
@@ -6265,20 +6282,35 @@ async function loadArticleInsights(topic, startDate, endDate, daysLimit, forceRe
         const selectedModel = modelSelect ? modelSelect.value : 'gpt-4o-mini';
         params.append('model', selectedModel);
         
-        const response = await fetch(`/api/dashboard/article-insights/${encodeURIComponent(topic)}?${params}`);
+        const insightsUrl = `/api/dashboard/article-insights/${encodeURIComponent(topic)}?${params}`;
+        console.log('[ArticleInsights] Fetching insights:', insightsUrl);
+        const response = await fetch(insightsUrl);
         
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            // Handle specific HTTP error codes with user-friendly messages
+            if (response.status === 404) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `No articles found for topic '${topic}' in the specified date range. Try expanding the date range or selecting a different topic.`);
+            } else if (response.status === 422) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.detail || `Insufficient articles for meaningful insights. Try expanding the date range or selecting a different topic.`);
+            } else {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
         }
         
         const data = await response.json();
+        console.log('[ArticleInsights] API insights length:', Array.isArray(data) ? data.length : 'n/a');
+        if (!Array.isArray(data) || data.length === 0) {
+            console.log('[ArticleInsights] Empty insights from API; will NOT cache empty result');
+        }
         
         // Cache insights in database using representative article URI
         try {
             const cacheKey = `article_insights_${topic}_${startDate || 'no_start'}_${endDate || 'no_end'}_${daysLimit}`;
             const currentArticles = window.lastArticlesData?.items || [];
             
-            if (currentArticles.length > 0) {
+            if (currentArticles.length > 0 && Array.isArray(data) && data.length > 0) {
                 const cacheUri = currentArticles[0].uri; // Use first article as cache anchor
                 const cacheContent = JSON.stringify(data, null, 2);
                 const cacheMetadata = {
@@ -6291,6 +6323,7 @@ async function loadArticleInsights(topic, startDate, endDate, daysLimit, forceRe
                     article_count: currentArticles.length
                 };
                 
+                console.log('[ArticleInsights] Saving insights to cache for uri:', cacheUri, 'metadata:', cacheMetadata);
                 const cacheResponse = await fetch('/api/save-analysis-cache', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -6304,32 +6337,61 @@ async function loadArticleInsights(topic, startDate, endDate, daysLimit, forceRe
                 });
                 
                 if (cacheResponse.ok) {
-                    console.log('Cached article insights in database');
+                    console.log('[ArticleInsights] Cached article insights in database');
                 } else {
-                    console.warn('Failed to cache article insights - server error:', cacheResponse.status);
+                    console.warn('[ArticleInsights] Failed to cache article insights - server error:', cacheResponse.status);
                 }
+            } else if (!Array.isArray(data) || data.length === 0) {
+                console.warn('[ArticleInsights] Skipping cache save because insights are empty');
             } else {
-                console.warn('No articles available for cache anchoring');
+                console.warn('[ArticleInsights] No articles available for cache anchoring');
             }
         } catch (cacheError) {
-            console.warn('Failed to cache article insights:', cacheError);
+            console.warn('[ArticleInsights] Failed to cache article insights:', cacheError);
         }
         
         renderArticleInsights(data);
         
     } catch (error) {
         console.error('Error loading article insights:', error);
-        errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to load article insights: ${error.message}</div>`;
+        
+        // Provide specific error messages based on the error content
+        let errorMessage = error.message;
+        let errorIcon = 'fas fa-exclamation-triangle';
+        let errorClass = 'alert-warning';
+        
+        if (error.message.includes('No articles found') || error.message.includes('Insufficient articles')) {
+            errorIcon = 'fas fa-info-circle';
+            errorClass = 'alert-info';
+        }
+        
+        errorEl.innerHTML = `<div class="alert ${errorClass}"><i class="${errorIcon} me-2"></i>${errorMessage}</div>`;
         errorEl.style.display = 'block';
         
-        // Show fallback message
-        containerEl.innerHTML = `
-            <div class="text-center p-4 w-100">
-                <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
-                <h5>Article Insights Unavailable</h5>
-                <p class="text-muted">Unable to generate article insights. Please try again or check if the topic has sufficient articles.</p>
-            </div>
-        `;
+        // Show appropriate fallback message
+        if (error.message.includes('No articles found') || error.message.includes('Insufficient articles')) {
+            containerEl.innerHTML = `
+                <div class="text-center p-4 w-100">
+                    <i class="fas fa-calendar-times fa-2x text-info mb-3"></i>
+                    <h5>Insufficient Data for Insights</h5>
+                    <p class="text-muted">Try expanding your date range to include more articles, or select a topic with more activity.</p>
+                    <div class="mt-3">
+                        <small class="text-muted">
+                            <i class="fas fa-lightbulb me-1"></i>
+                            Tip: Article insights require at least 3 articles to generate meaningful themes.
+                        </small>
+                    </div>
+                </div>
+            `;
+        } else {
+            containerEl.innerHTML = `
+                <div class="text-center p-4 w-100">
+                    <i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i>
+                    <h5>Article Insights Unavailable</h5>
+                    <p class="text-muted">Unable to generate article insights. Please try again or contact support if the problem persists.</p>
+                </div>
+            `;
+        }
     } finally {
         loadingEl.style.display = 'none';
     }

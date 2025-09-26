@@ -268,6 +268,7 @@ async def get_topic_articles(
         # For simplicity, let's assume passing pub_date_start/end filters submission_date correctly for now.
         # We might need to check/modify db.search_articles if this assumption is wrong.
         
+        # First attempt: exact topic match using publication_date to align with news feed
         articles_list_raw, total_items = await run_in_threadpool(
             db.search_articles,
             topic=topic_name,
@@ -275,10 +276,25 @@ async def get_topic_articles(
             per_page=per_page,
             pub_date_start=start_date, # Pass date filters
             pub_date_end=end_date,     # Pass date filters
-            date_type='submission',     # Explicitly tell search_articles to use submission_date
+            date_type='publication',   # Align with other tabs (publication_date)
             require_category=filter_no_category # Pass the new filter flag
             # TODO: Pass sort_by and sort_order to search_articles once implemented there
         )
+
+        # Fallback: if too few results with exact topic, try fuzzy keyword search (title/summary)
+        if (not articles_list_raw or total_items < 3):
+            fallback_per_page = max(per_page, 30)
+            articles_list_raw, total_items = await run_in_threadpool(
+                db.search_articles,
+                topic=None,                 # remove strict topic filter
+                keyword=topic_name,         # use keyword for LIKE matching
+                page=1,                     # restart from first page for breadth
+                per_page=fallback_per_page, # get enough for insights
+                pub_date_start=start_date,
+                pub_date_end=end_date,
+                date_type='publication',
+                require_category=filter_no_category
+            )
 
         # The 'tags' in articles from search_articles are returned as JSON strings.
         # We need to parse them into lists for ArticleSchema.
@@ -906,11 +922,39 @@ async def get_article_insights(
         )
         articles = paginated_response.items
 
+        logger.info(
+            f"Article insights input: topic={topic_name}, start={start_date}, end={end_date}, "
+            f"days_limit={days_limit}, articles_found={len(articles) if articles else 0}"
+        )
+
         if not articles or len(articles) < 3:  # Need enough articles for meaningful themes
-            logger.info(f"Not enough articles ({len(articles) if articles else 0}) for topic '{topic_name}' to generate themes")
-            return []
+            article_count = len(articles) if articles else 0
+            logger.info(f"Not enough articles ({article_count}) for topic '{topic_name}' to generate themes")
+            # Return detailed error information via HTTPException
+            if article_count == 0:
+                raise HTTPException(
+                    status_code=404, 
+                    detail=f"No articles found for topic '{topic_name}' in the specified date range. Try expanding the date range or selecting a different topic."
+                )
+            else:
+                raise HTTPException(
+                    status_code=422, 
+                    detail=f"Insufficient articles ({article_count}) for topic '{topic_name}' to generate meaningful themes. At least 3 articles are required. Try expanding the date range or selecting a different topic."
+                )
             
         # 2. Create a mapping of URI to article data for easy lookup
+        def _normalize_uri(raw: str) -> Optional[str]:
+            try:
+                if not raw:
+                    return None
+                from urllib.parse import unquote
+                normalized = unquote(str(raw).strip())
+                if normalized.endswith('/'):
+                    normalized = normalized[:-1]
+                return normalized
+            except Exception:
+                return raw
+
         uri_to_article_map = {art.uri: {
             'title': art.title,
             'summary': art.summary,
@@ -918,6 +962,7 @@ async def get_article_insights(
             'publication_date': art.publication_date,
             'tags': art.tags
         } for art in articles}
+        normalized_uri_to_article_map = { _normalize_uri(k): v for k, v in uri_to_article_map.items() }
         
         # 3. Prepare article details for LLM analysis
         article_details_for_llm = []
@@ -982,6 +1027,9 @@ async def get_article_insights(
 
         # 6. Call LLM to identify themes
         llm_response_str = await run_in_threadpool(ai_model.generate_response, messages)
+        logger.info(
+            f"LLM response received for topic {topic_name}: size={len(llm_response_str) if llm_response_str else 0} chars"
+        )
         
         # 7. Parse LLM response to extract themes
         llm_themes = []
@@ -997,14 +1045,30 @@ async def get_article_insights(
         try:
             # Attempt to extract JSON from the response - handle both clean JSON and markdown code blocks
             import re
-            json_match = re.search(r'```json\s*(\[\s*\{.*\}\s*\])\s*```|```(\[\s*\{.*\}\s*\])```|\[\s*\{.*\}\s*\]', llm_response_str, re.DOTALL)
+            pattern = r"```json\s*([\s\S]*?)```|```([\s\S]*?)```|(\[\s*\{[\s\S]*\}\s*\])"
+            json_match = re.search(pattern, llm_response_str, re.DOTALL)
             if json_match:
-                # Get the first non-None capturing group
-                json_str = next(group for group in json_match.groups() if group is not None)
+                # Prefer the first non-empty capture; if none, use the entire match (group 0)
+                json_str = next((g for g in json_match.groups() if g), json_match.group(0))
+                json_str = json_str.strip()
+                # Trim to the first JSON array to avoid leading prose
+                first_bracket = json_str.find('[')
+                if first_bracket > 0:
+                    json_str = json_str[first_bracket:]
+                last_bracket = json_str.rfind(']')
+                if last_bracket != -1:
+                    json_str = json_str[:last_bracket+1]
                 llm_themes = json.loads(json_str)
             else:
-                # Fallback - try parsing the whole response as JSON
-                llm_themes = json.loads(llm_response_str)
+                # Fallback: attempt to slice the first [ ... ] block from the whole response
+                start = llm_response_str.find('[')
+                end = llm_response_str.rfind(']')
+                if start != -1 and end != -1 and end > start:
+                    candidate = llm_response_str[start:end+1]
+                    llm_themes = json.loads(candidate)
+                else:
+                    # Last resort: assume entire response is JSON
+                    llm_themes = json.loads(llm_response_str)
         except json.JSONDecodeError as je:
             logger.error(f"Failed to parse LLM response as JSON: {je}. Response was: {llm_response_str[:200]}...")
             return []
@@ -1012,44 +1076,65 @@ async def get_article_insights(
             logger.error(f"Unexpected error processing LLM theme response: {e}. Response was: {llm_response_str[:200]}...", exc_info=True)
             return []
 
+        logger.info(f"Parsed {len(llm_themes) if isinstance(llm_themes, list) else 0} themes from LLM")
+
         # 8. Build themed insights from LLM analysis
         final_themed_insights: List[ThemeWithArticlesSchema] = []
         for llm_theme_data in llm_themes:  # Now llm_themes is defined
             if not isinstance(llm_theme_data, dict) or \
                "theme_name" not in llm_theme_data or \
                "theme_summary" not in llm_theme_data or \
-               "article_uris" not in llm_theme_data or \
-               not isinstance(llm_theme_data["article_uris"], list):
+               ("article_uris" not in llm_theme_data and "articleIds" not in llm_theme_data and "article_ids" not in llm_theme_data and "articles" not in llm_theme_data):
                 logger.warning(f"Skipping malformed theme data from LLM: {llm_theme_data}")
                 continue
 
             theme_articles: List[ThemedArticle] = []
-            for uri in llm_theme_data["article_uris"]:
-                original_article_data = uri_to_article_map.get(uri)  # Now uri_to_article_map is defined
+            # Collect URIs from multiple possible shapes
+            raw_uris: List[str] = []
+            if isinstance(llm_theme_data.get("article_uris"), list):
+                raw_uris.extend([u for u in llm_theme_data.get("article_uris") if u])
+            if isinstance(llm_theme_data.get("articleIds"), list):
+                raw_uris.extend([u for u in llm_theme_data.get("articleIds") if u])
+            if isinstance(llm_theme_data.get("article_ids"), list):
+                raw_uris.extend([u for u in llm_theme_data.get("article_ids") if u])
+            if isinstance(llm_theme_data.get("articles"), list):
+                for a in llm_theme_data.get("articles"):
+                    if isinstance(a, dict) and a.get("uri"):
+                        raw_uris.append(a.get("uri"))
+                    elif isinstance(a, str):
+                        raw_uris.append(a)
+
+            matched = 0
+            for uri in raw_uris:
+                normalized = _normalize_uri(uri)
+                original_article_data = (
+                    uri_to_article_map.get(uri)
+                    or normalized_uri_to_article_map.get(normalized)
+                )
                 if original_article_data:
-                    # Ensure summary is a string and truncate for short_summary
                     summary_text = original_article_data.get('summary', '')
-                    short_s = (summary_text[:150] + '...') \
-                        if summary_text and len(summary_text) > 150 else summary_text
-                    
+                    short_s = (summary_text[:150] + '...') if summary_text and len(summary_text) > 150 else summary_text
                     theme_articles.append(ThemedArticle(
-                        uri=uri,
+                        uri=normalized or uri,
                         title=original_article_data.get('title'),
                         news_source=original_article_data.get('news_source'),
                         publication_date=original_article_data.get('publication_date'),
                         short_summary=short_s
                     ))
+                    matched += 1
                 else:
-                    logger.warning(f"LLM returned URI '{uri}' for theme '{llm_theme_data['theme_name']}' not found in original article set.")
+                    logger.debug(f"Theme '{llm_theme_data['theme_name']}': URI not matched -> {uri}")
+
+            logger.info(
+                f"Theme '{llm_theme_data.get('theme_name','(no name)')}' supplied_uris={len(raw_uris)} matched={matched}"
+            )
             
-            if theme_articles:  # Only add theme if it has associated articles found in our DB
-                final_themed_insights.append(ThemeWithArticlesSchema(
-                    theme_name=llm_theme_data["theme_name"],
-                    theme_summary=llm_theme_data["theme_summary"],
-                    articles=theme_articles
-                ))
-            else:
-                logger.info(f"Theme '{llm_theme_data['theme_name']}' had no matching articles from DB, skipping.")
+            # Add theme even if no articles matched, to avoid empty response
+            final_themed_insights.append(ThemeWithArticlesSchema(
+                theme_name=llm_theme_data["theme_name"],
+                theme_summary=llm_theme_data["theme_summary"],
+                articles=theme_articles
+            ))
 
         logger.info(f"Successfully generated {len(final_themed_insights)} thematic insights for topic {topic_name}.")
         
