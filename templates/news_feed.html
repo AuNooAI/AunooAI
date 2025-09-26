@@ -7628,23 +7628,36 @@ function renderIncidentTracking(incidents) {
     let hideLow = true;
     try { const saved = localStorage.getItem(toggleId); if (saved !== null) hideLow = saved === 'true'; } catch(_) {}
     const controlsHtml = `
-        <div class="insight-item-card p-2 mb-2" id="incident-controls">
-            <div class="form-check form-switch d-flex align-items-center gap-2 m-0">
-                <input class="form-check-input" type="checkbox" id="${toggleId}" ${hideLow ? 'checked' : ''}>
-                <label class="form-check-label small mb-0" for="${toggleId}">Hide implausible or low-quality source incidents</label>
-            </div>
+        <div class="form-check form-switch d-flex align-items-center gap-2 m-0" id="incident-controls-switch">
+            <input class="form-check-input" type="checkbox" id="${toggleId}" ${hideLow ? 'checked' : ''}>
+            <label class="form-check-label small mb-0" for="${toggleId}">Hide implausible or low-quality source incidents</label>
         </div>
     `;
-    // Insert controls into top toolbar when available; fallback into container
+    // Insert controls into top toolbar (overwrite to avoid duplicates); fallback into container
     const toolbar = document.getElementById('incident-toolbar-right');
     if (toolbar) {
-        toolbar.insertAdjacentHTML('beforeend', controlsHtml);
+        toolbar.innerHTML = controlsHtml;
     } else {
-        container.insertAdjacentHTML('afterbegin', controlsHtml);
+        container.insertAdjacentHTML('afterbegin', `<div class="insight-item-card p-2 mb-2">${controlsHtml}</div>`);
     }
     
     const riskFlags = new Set(['extraordinary_claim','no_independent_verification','low_factuality_source','low_credibility_source','fringe_bias']);
     const sourceIncidents = Array.isArray(incidents) ? incidents : [];
+    // Compute global timeline range for ruler scaling
+    let globalMin = null, globalMax = null;
+    sourceIncidents.forEach(inc => {
+        if (Array.isArray(inc?.timeline) && inc.timeline.length > 0) {
+            const first = new Date(inc.timeline[0]).getTime();
+            const last = new Date(inc.timeline[inc.timeline.length - 1]).getTime();
+            if (!isNaN(first) && !isNaN(last)) {
+                globalMin = (globalMin === null) ? first : Math.min(globalMin, first);
+                globalMax = (globalMax === null) ? last : Math.max(globalMax, last);
+            }
+        }
+    });
+    if (globalMin !== null && globalMax !== null && globalMax < globalMin) {
+        const t = globalMin; globalMin = globalMax; globalMax = t;
+    }
     const filtered = hideLow
         ? sourceIncidents.filter(inc => inc && (String(inc.plausibility || '').toLowerCase() !== 'implausible') && (String(inc.source_quality || '').toLowerCase() !== 'low'))
         : sourceIncidents;
@@ -7670,17 +7683,33 @@ function renderIncidentTracking(incidents) {
         const plausibilityBadge = plausibility === 'likely' ? 'success' : plausibility === 'questionable' ? 'warning' : 'danger';
         const sourceQualityBadge = sourceQuality === 'high' ? 'success' : sourceQuality === 'mixed' ? 'warning' : 'danger';
         
-        // Build timeline section (supports arrays -> start/end badges)
+        // Build timeline section (supports arrays -> start/end badges + mini ruler)
         let timelineSection = '';
         if (Array.isArray(incident.timeline)) {
             const dates = incident.timeline.filter(Boolean);
             if (dates.length > 0) {
                 const start = dates[0];
                 const end = dates[dates.length - 1];
+                // Ruler positions
+                let fillHtml = '';
+                if (globalMin !== null && globalMax !== null && globalMax !== globalMin) {
+                    const s = new Date(start).getTime();
+                    const e = new Date(end).getTime();
+                    const startPct = Math.max(0, Math.min(100, ((s - globalMin) / (globalMax - globalMin)) * 100));
+                    const endPctRaw = Math.max(0, Math.min(100, ((e - globalMin) / (globalMax - globalMin)) * 100));
+                    const endPct = Math.max(startPct + 2, endPctRaw); // ensure visible width
+                    fillHtml = `
+                        <div style="position:relative;height:6px;background:#eef1f5;border-radius:3px;margin-top:2px;">
+                            <div style="position:absolute;left:${startPct}%;width:${endPct - startPct}%;height:100%;background:#b6d4fe;border-radius:3px;"></div>
+                            <span style="position:absolute;left:${startPct}%;top:-4px;width:8px;height:8px;background:#0d6efd;border-radius:50%;transform:translateX(-50%);"></span>
+                            ${end !== start ? `<span style=\"position:absolute;left:${endPct}%;top:-4px;width:8px;height:8px;background:#0d6efd;border-radius:50%;transform:translateX(-50%);\"></span>` : ''}
+                        </div>`;
+                }
                 timelineSection = `
                     <div class="mb-1 small"><strong>Timeline:</strong>
                         <span class="badge bg-light text-dark border me-1" title="Start">${start}</span>
-                        ${end !== start ? `<span class=\"badge bg-light text-dark border\" title=\"End\">${end}</span>` : ''}
+                        ${end !== start ? `<span class=\"badge bg-light text-dark border me-1\" title=\"End\">${end}</span>` : ''}
+                        ${fillHtml}
                     </div>
                 `;
             }
