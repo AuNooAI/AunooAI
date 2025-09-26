@@ -988,14 +988,20 @@
 
                 <!-- Incident Tracking Panel -->
                 <div class="tab-pane fade" id="incident-tracking-panel">
+                    <div id="incident-toolbar" class="d-flex align-items-center justify-content-between mb-2" style="gap: 8px;">
+                        <div class="d-flex align-items-center gap-2">
+                            <strong class="small text-muted">Incident Options</strong>
+                        </div>
+                        <div id="incident-toolbar-right" class="d-flex align-items-center gap-2"></div>
+                    </div>
                     <div id="incident-tracking-loading" class="loading" style="display: none;">
                         <div class="spinner-border" role="status">
                             <span class="visually-hidden">Loading...</span>
                         </div>
-                        <div>Tracking incidents...</div>
+                        <div>Tracking incidents. This may take a few minutes.</div>
                     </div>
                     <div id="incident-tracking-error" class="error-message" style="display: none;"></div>
-                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="incident-tracking-container">
+                    <div class="row g-2" id="incident-tracking-container">
                         <div class="text-center p-4 w-100">
                             <i class="fas fa-crosshairs fa-3x text-muted mb-3"></i>
                             <h5>Incident Tracking</h5>
@@ -7614,21 +7620,80 @@ async function loadIncidentTracking(topic, startDate, endDate, daysLimit, forceR
 function renderIncidentTracking(incidents) {
     const container = document.getElementById('incident-tracking-container');
     container.innerHTML = '';
+    // Persist last set
+    window._lastIncidents = Array.isArray(incidents) ? incidents.slice() : [];
     
-    if (!incidents || incidents.length === 0) {
+    // Toggle to hide implausible/low-quality
+    const toggleId = 'incident-hide-low-toggle';
+    let hideLow = true;
+    try { const saved = localStorage.getItem(toggleId); if (saved !== null) hideLow = saved === 'true'; } catch(_) {}
+    const controlsHtml = `
+        <div class="insight-item-card p-2 mb-2" id="incident-controls">
+            <div class="form-check form-switch d-flex align-items-center gap-2 m-0">
+                <input class="form-check-input" type="checkbox" id="${toggleId}" ${hideLow ? 'checked' : ''}>
+                <label class="form-check-label small mb-0" for="${toggleId}">Hide implausible or low-quality source incidents</label>
+            </div>
+        </div>
+    `;
+    // Insert controls into top toolbar when available; fallback into container
+    const toolbar = document.getElementById('incident-toolbar-right');
+    if (toolbar) {
+        toolbar.insertAdjacentHTML('beforeend', controlsHtml);
+    } else {
+        container.insertAdjacentHTML('afterbegin', controlsHtml);
+    }
+    
+    const riskFlags = new Set(['extraordinary_claim','no_independent_verification','low_factuality_source','low_credibility_source','fringe_bias']);
+    const sourceIncidents = Array.isArray(incidents) ? incidents : [];
+    const filtered = hideLow
+        ? sourceIncidents.filter(inc => inc && (String(inc.plausibility || '').toLowerCase() !== 'implausible') && (String(inc.source_quality || '').toLowerCase() !== 'low'))
+        : sourceIncidents;
+    
+    if (!filtered || filtered.length === 0) {
         container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No incidents found for this period.</div>';
         return;
     }
     
-    incidents.forEach((incident, index) => {
+    filtered.forEach((incident, index) => {
+        const col = document.createElement('div');
+        col.className = 'col-12 col-md-6 col-lg-4';
         const card = document.createElement('div');
-        card.className = 'insight-item-card';
+        card.className = 'insight-item-card h-100';
         
         // Determine badge color based on type and significance
         const typeBadgeColor = incident.type === 'incident' ? 'danger' : 
                               incident.type === 'entity' ? 'primary' : 'success';
         const significanceBadgeColor = incident.significance === 'high' ? 'danger' : 
                                      incident.significance === 'medium' ? 'warning' : 'secondary';
+        const plausibility = String(incident.plausibility || '').toLowerCase();
+        const sourceQuality = String(incident.source_quality || '').toLowerCase();
+        const plausibilityBadge = plausibility === 'likely' ? 'success' : plausibility === 'questionable' ? 'warning' : 'danger';
+        const sourceQualityBadge = sourceQuality === 'high' ? 'success' : sourceQuality === 'mixed' ? 'warning' : 'danger';
+        
+        // Build timeline section (supports arrays -> start/end badges)
+        let timelineSection = '';
+        if (Array.isArray(incident.timeline)) {
+            const dates = incident.timeline.filter(Boolean);
+            if (dates.length > 0) {
+                const start = dates[0];
+                const end = dates[dates.length - 1];
+                timelineSection = `
+                    <div class="mb-1 small"><strong>Timeline:</strong>
+                        <span class="badge bg-light text-dark border me-1" title="Start">${start}</span>
+                        ${end !== start ? `<span class=\"badge bg-light text-dark border\" title=\"End\">${end}</span>` : ''}
+                    </div>
+                `;
+            }
+        } else {
+            const timelineText = (typeof incident.timeline === 'string')
+                ? incident.timeline
+                : (incident.timeline && (incident.timeline.summary || incident.timeline.text))
+                    ? (incident.timeline.summary || incident.timeline.text)
+                    : '';
+            if (timelineText) {
+                timelineSection = `<p class="mb-1 small"><strong>Timeline:</strong> ${timelineText}</p>`;
+            }
+        }
         
         // Build articles list
         let articlesHtml = '';
@@ -7669,26 +7734,67 @@ function renderIncidentTracking(incidents) {
             `;
         }
 
+        // Risk warnings and devil's advocate
+        const flags = Array.isArray(incident.misinfo_flags) ? incident.misinfo_flags : [];
+        const highRisk = flags.filter(f => riskFlags.has(String(f)));
+        const prettyFlag = (f) => {
+            switch (String(f)) {
+                case 'extraordinary_claim': return 'Extraordinary claim';
+                case 'no_independent_verification': return 'No independent verification';
+                case 'low_factuality_source': return 'Check Source';
+                case 'low_credibility_source': return 'Check Source (credibility)';
+                case 'fringe_bias': return 'Fringe bias';
+                default: return String(f).replace(/_/g, ' ');
+            }
+        };
+        const warningHtml = highRisk.length > 0 ? `
+            <div class="alert alert-danger py-1 px-2 small mt-2 mb-1">
+                <strong>Potential misinformation risk:</strong> ${highRisk.map(prettyFlag).join(', ')}
+            </div>
+        ` : '';
+        const devilsAdvocate = highRisk.includes('extraordinary_claim') ? "<span class=\"badge bg-danger\" title=\"Devil's advocate smell test\">Hyperbolic Claim</span>" : '';
+        const credibilitySummary = incident.credibility_summary ? `<small class="text-muted d-block">${incident.credibility_summary}</small>` : '';
+
         card.innerHTML = `
             <div class="d-flex justify-content-between align-items-center mb-2">
                 <h6 class="mb-0 ${incident.significance === 'high' ? 'text-danger' : 'text-primary'}">${incident.name}</h6>
-                <div class="d-flex gap-1">
-                    <span class="badge bg-${typeBadgeColor}">${incident.type.toUpperCase()}</span>
-                    <span class="badge bg-${significanceBadgeColor}">${incident.significance.toUpperCase()}</span>
+                <div class="d-flex flex-wrap gap-1 align-items-center text-end">
+                    <span class="badge bg-${typeBadgeColor}" title="Type">${incident.type.toUpperCase()}</span>
+                    <span class="badge bg-${significanceBadgeColor}" title="Significance">${incident.significance.toUpperCase()}</span>
+                    ${plausibility ? `<span class="badge bg-${plausibilityBadge}" title="Plausibility">Plausibility: ${plausibility.toUpperCase()}</span>` : ''}
+                    ${sourceQuality ? `<span class="badge bg-${sourceQualityBadge}" title="Source Quality">Source: ${sourceQuality.toUpperCase()}</span>` : ''}
+                    ${devilsAdvocate}
                 </div>
             </div>
             <p class="mb-1 small">${incident.description}</p>
-            ${incident.timeline ? `<p class="mb-1 small"><strong>Timeline:</strong> ${incident.timeline}</p>` : ''}
+            ${timelineSection}
+            ${credibilitySummary}
+            ${warningHtml}
             ${articlesHtml}
             ${leadsHtml}
-            <div class="mt-2">
+            <div class="mt-2 d-flex gap-2">
                 <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')">
                     <i class="fas fa-search me-1"></i>Investigate
                 </button>
+                ${incident.article_uris && incident.article_uris.length > 0 ? `
+                    <button class="btn btn-sm btn-outline-secondary" onclick="launchConsensusAnalysis('${incident.article_uris[0]}')">
+                        <i class="fas fa-balance-scale me-1"></i>Consensus Analysis
+                    </button>
+                ` : ''}
             </div>
         `;
-        container.appendChild(card);
+        col.appendChild(card);
+        container.appendChild(col);
     });
+
+    // Wire up toggle
+    const toggleEl = document.getElementById(toggleId);
+    if (toggleEl) {
+        toggleEl.addEventListener('change', () => {
+            try { localStorage.setItem(toggleId, toggleEl.checked ? 'true' : 'false'); } catch(_) {}
+            renderIncidentTracking(window._lastIncidents || []);
+        });
+    }
 }
 
 // ===== ENHANCED TAB NAVIGATION =====

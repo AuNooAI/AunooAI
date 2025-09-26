@@ -1697,7 +1697,8 @@ async def analyze_incidents(
         
         # Query articles - use same approach as working news feed service
         query = """
-        SELECT uri, title, summary, news_source, publication_date, category, sentiment
+        SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+               bias, factual_reporting, mbfc_credibility_rating, bias_source
         FROM articles 
         WHERE publication_date >= ? AND publication_date <= ?
         AND category IS NOT NULL AND sentiment IS NOT NULL
@@ -1737,49 +1738,61 @@ async def analyze_incidents(
         if req.force_regenerate:
             logger.info(f"Force regenerating incident tracking for {req.topic} (bypassing cache)")
         
-        # Prepare articles for LLM analysis
+        # Prepare articles for LLM analysis with credibility markers
+        def _norm(value):
+            return (value or '').strip() if isinstance(value, str) else (value or '')
+
         articles_text = "\n\n".join([
-            f"Article {i+1}:\n"
-            f"Title: {article.get('title') if hasattr(article, 'get') else article['title']}\n"
-            f"Source: {article.get('news_source') if hasattr(article, 'get') else article['news_source']}\n"
-            f"Date: {article.get('publication_date') if hasattr(article, 'get') else article['publication_date']}\n"
-            f"Category: {article.get('category') if hasattr(article, 'get') else article['category']}\n"
-            f"Summary: {article.get('summary') if hasattr(article, 'get') else article['summary']}\n"
-            f"URI: {article.get('uri') if hasattr(article, 'get') else article['uri']}"
-            for i, article in enumerate(articles)
+            (
+                lambda a: (
+                    f"Article {i+1}:\n"
+                    f"Title: {a['title']}\n"
+                    f"Source: {a['news_source']}\n"
+                    f"Date: {a['publication_date']}\n"
+                    f"Category: {a['category']} | Sentiment: {a['sentiment']}\n"
+                    f"Credibility: factual_reporting={_norm(a.get('factual_reporting')) or 'unknown'}, "
+                    f"mbfc={_norm(a.get('mbfc_credibility_rating')) or 'unknown'}, bias={_norm(a.get('bias')) or 'unknown'}\n"
+                    f"Summary: {a['summary']}\n"
+                    f"URI: {a['uri']}"
+                )
+            )(
+                a if isinstance(a, dict) else {
+                    'uri': a[0], 'title': a[1], 'summary': a[2], 'news_source': a[3], 'publication_date': a[4],
+                    'category': a[5], 'sentiment': a[6], 'bias': a[7] if len(a) > 7 else None,
+                    'factual_reporting': a[8] if len(a) > 8 else None,
+                    'mbfc_credibility_rating': a[9] if len(a) > 9 else None,
+                    'bias_source': a[10] if len(a) > 10 else None,
+                }
+            )
+            for i, a in enumerate(articles)
         ])
         
         # Create incident tracking prompt
         system_prompt = f"""
         You are a threat intelligence analyst tracking incidents, entities, and events in {req.topic}.
-        
-        Analyze the provided articles and identify discrete INCIDENTS, ENTITIES, or EVENTS for threat hunting:
-        
-        1. INCIDENTS: Specific events, breaches, announcements, decisions, controversies
-        2. ENTITIES: Companies, people, organizations, products that are central to stories
-        3. EVENTS: Conferences, earnings, policy decisions, product launches, legal actions
-        
-        For each incident/entity/event you identify:
-        - Give it a specific, descriptive name (e.g., "OpenAI CEO Departure", "Google Antitrust Ruling")
-        - Classify as "incident", "entity", or "event"
-        - List the article URIs that relate to it
-        - Provide a timeline summary
-        - Assess threat hunting significance (low/medium/high)
-        - Suggest follow-up investigation areas
-        
-        Format as JSON:
-        [
-          {{
-            "name": "Specific Incident/Entity/Event Name",
-            "type": "incident|entity|event",
-            "description": "What this represents for threat hunting",
-            "article_uris": ["uri1", "uri2", ...],
-            "timeline": "Key dates and progression",
-            "significance": "low|medium|high",
-            "investigation_leads": ["lead1", "lead2", ...],
-            "related_entities": ["entity1", "entity2", ...]
-          }}
-        ]
+
+        IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
+        Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
+
+        Identify INCIDENTS / ENTITIES / EVENTS and for each include:
+        - name
+        - type: incident | entity | event
+        - description
+        - article_uris
+        - timeline
+        - significance: low | medium | high (reduce if credibility concerns exist)
+        - investigation_leads
+        - related_entities
+        - plausibility: likely | questionable | implausible
+        - source_quality: high | mixed | low
+        - misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
+        - credibility_summary: 1-2 sentence rationale
+
+        Devil's Advocate Smell Test:
+        - Add a "devils_advocate" field with brief caution if the claim appears hyperbolic or extraordinary relative to typical evidence.
+        - Use label "Hyperbolic Claim" when applicable.
+
+        Output a pure JSON array only.
         """
         
         user_prompt = f"Analyze these {req.topic} articles for threat hunting incidents, entities, and events:\n\n{articles_text}"
@@ -1812,6 +1825,137 @@ async def analyze_incidents(
             except json_module.JSONDecodeError as je:
                 logger.error(f"Failed to parse incident tracking response: {je}")
                 return {"incidents": [], "error": "Failed to parse LLM response"}
+
+        # --- Credibility post-processing and safeguards ---
+        # Build URI -> credibility map from fetched articles
+        def _norm_str(val):
+            return (val or '').strip().lower() if isinstance(val, str) else ''
+
+        def _row_to_dict(row):
+            if isinstance(row, dict):
+                return row
+            return {
+                'uri': row[0], 'title': row[1], 'summary': row[2], 'news_source': row[3],
+                'publication_date': row[4], 'category': row[5], 'sentiment': row[6],
+                'bias': row[7] if len(row) > 7 else None,
+                'factual_reporting': row[8] if len(row) > 8 else None,
+                'mbfc_credibility_rating': row[9] if len(row) > 9 else None,
+                'bias_source': row[10] if len(row) > 10 else None,
+            }
+
+        article_dicts = [_row_to_dict(a) for a in articles]
+        uri_to_cred = {}
+        for a in article_dicts:
+            factual = _norm_str(a.get('factual_reporting'))
+            cred = _norm_str(a.get('mbfc_credibility_rating'))
+            bias = _norm_str(a.get('bias'))
+            is_low_factual = factual in {'low', 'mixed', 'questionable'}
+            is_low_cred = cred in {'low', 'mixed', 'questionable'}
+            is_fringe = any(t in bias for t in ['extreme', 'conspiracy', 'fringe', 'propaganda'])
+            source_quality = 'high'
+            if is_low_factual or is_low_cred:
+                source_quality = 'mixed'
+            if is_low_factual and is_low_cred:
+                source_quality = 'low'
+            flags = []
+            if is_low_factual:
+                flags.append('low_factuality_source')
+            if is_low_cred:
+                flags.append('low_credibility_source')
+            if is_fringe:
+                flags.append('fringe_bias')
+            uri_to_cred[a['uri']] = {
+                'source_quality': source_quality,
+                'factual_reporting': a.get('factual_reporting'),
+                'mbfc_credibility_rating': a.get('mbfc_credibility_rating'),
+                'bias': a.get('bias'),
+                'flags': flags,
+                'news_source': a.get('news_source'),
+                'title': a.get('title')
+            }
+
+        def _is_extraordinary(text: str) -> bool:
+            t = (text or '').lower()
+            return any(k in t for k in ['sovereign agi', 'artificial general intelligence', 'agi achieved', 'cryptographic proof of agi', 'self-declared agi'])
+
+        # Enrich incidents: add plausibility/source_quality/misinfo_flags, adjust significance
+        for inc in incidents or []:
+            name = inc.get('name') or ''
+            desc = inc.get('description') or ''
+            uris = []
+            if isinstance(inc.get('article_uris'), list):
+                uris.extend([u for u in inc['article_uris'] if u])
+            if isinstance(inc.get('articles'), list):
+                for a in inc['articles']:
+                    if isinstance(a, dict) and a.get('uri'):
+                        uris.append(a['uri'])
+            # Aggregate credibility
+            qualities = [uri_to_cred[u]['source_quality'] for u in uris if u in uri_to_cred]
+            has_low = any(q == 'low' for q in qualities)
+            has_mixed = any(q == 'mixed' for q in qualities)
+            derived_source_quality = 'high'
+            if has_low:
+                derived_source_quality = 'low'
+            elif has_mixed:
+                derived_source_quality = 'mixed'
+
+            # Merge flags
+            flags = set(inc.get('misinfo_flags') or [])
+            for u in uris:
+                credinfo = uri_to_cred.get(u)
+                if credinfo:
+                    for f in credinfo['flags']:
+                        flags.add(f)
+
+            # Extraordinary claim heuristic
+            if _is_extraordinary(name) or _is_extraordinary(desc):
+                flags.add('extraordinary_claim')
+                if derived_source_quality != 'high':
+                    flags.add('no_independent_verification')
+
+            # Determine plausibility
+            explicit_plaus = (inc.get('plausibility') or '').lower()
+            if explicit_plaus in {'likely', 'questionable', 'implausible'}:
+                plausibility = explicit_plaus
+            else:
+                if 'extraordinary_claim' in flags and derived_source_quality != 'high':
+                    plausibility = 'implausible'
+                elif derived_source_quality == 'mixed':
+                    plausibility = 'questionable'
+                elif derived_source_quality == 'low':
+                    plausibility = 'implausible'
+                else:
+                    plausibility = 'likely'
+
+            # Adjust significance conservatively on low credibility
+            sig = (inc.get('significance') or '').lower()
+            if sig in {'high', 'medium', 'low'}:
+                if plausibility == 'implausible' or derived_source_quality == 'low':
+                    sig = 'low'
+                elif plausibility == 'questionable' or derived_source_quality == 'mixed':
+                    if sig == 'high':
+                        sig = 'medium'
+            else:
+                sig = 'low' if derived_source_quality != 'high' else 'medium'
+
+            # Credibility summary
+            summary_bits = []
+            if derived_source_quality != 'high':
+                summary_bits.append(f"source_quality={derived_source_quality}")
+            if 'extraordinary_claim' in flags:
+                summary_bits.append('extraordinary_claim')
+            if 'no_independent_verification' in flags:
+                summary_bits.append('no_independent_verification')
+            credibility_summary = inc.get('credibility_summary') or (
+                ('; '.join(summary_bits) or 'sources appear credible')
+            )
+
+            # Write back
+            inc['source_quality'] = derived_source_quality
+            inc['plausibility'] = plausibility
+            inc['misinfo_flags'] = sorted(list(flags))
+            inc['credibility_summary'] = credibility_summary
+            inc['significance'] = sig
         
         result = {
             "incidents": incidents,
