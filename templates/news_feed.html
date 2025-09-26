@@ -7659,7 +7659,14 @@ function renderIncidentTracking(incidents) {
         const t = globalMin; globalMin = globalMax; globalMax = t;
     }
     const filtered = hideLow
-        ? sourceIncidents.filter(inc => inc && (String(inc.plausibility || '').toLowerCase() !== 'implausible') && (String(inc.source_quality || '').toLowerCase() !== 'low'))
+        ? sourceIncidents.filter(inc => {
+            if (!inc) return false;
+            const plaus = String(inc.plausibility || '').toLowerCase();
+            const quality = String(inc.source_quality || '').toLowerCase();
+            const flags = Array.isArray(inc.misinfo_flags) ? inc.misinfo_flags.map(f => String(f).toLowerCase()) : [];
+            const hasLowFlags = flags.some(f => f === 'low_factuality_source' || f === 'low_credibility_source' || f === 'fringe_bias');
+            return plaus !== 'implausible' && quality !== 'low' && !hasLowFlags;
+        })
         : sourceIncidents;
     
     if (!filtered || filtered.length === 0) {
