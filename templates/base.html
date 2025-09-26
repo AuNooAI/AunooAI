@@ -465,30 +465,34 @@
                 <ul class="menu-items">
                     <li class="menu-item">
                         <a class="menu-link" href="/" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Return to the main operations dashboard">
-                            <i class="fas fa-home"></i> Operations HQ
+                            <i class="fas fa-home"></i> See Status
                         </a>
                     </li>
-                    
+                    <li class="menu-item">
+                        <a class="menu-link" href="/news-feed" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Return to the main operations dashboard">
+                            <i class="fas fa-newspaper"></i> Explore News
+                        </a>
+                    </li>
                     <li class="menu-item menu-dropdown dropdown">
                         <a class="menu-link dropdown-toggle" href="#" id="intelligenceDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="Discover insights and research tools">
-                            <i class="fas fa-brain"></i> Discover
+                            <i class="fas fa-download"></i> News Collection
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="intelligenceDropdown">
-                            <small class="text-muted"> Daily Insights</small><br>
-                            <li><a class="dropdown-item" href="/unified-feed" data-bs-toggle="tooltip" data-bs-placement="right" title="Social media and academic journal monitoring"><i class="fas fa-newspaper"></i> Vantage Desk</a></li>
-                            <li><a class="dropdown-item" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="right" title="News trend and keyword alerts"><i class="fas fa-chart-line"></i> News Firehose</a></li>
+                            <small class="text-muted"> Topic Setup</small><br>
+                            <li><a class="dropdown-item" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-guided topic setup"><i class="fas fa-tasks"></i> New topic</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <small class="text-muted"> Collect News</small><br>
+                            <li><a class="dropdown-item" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="right" title="News trend and keyword alerts"><i class="fas fa-chart-line"></i> Automate collection</a></li>
+                            <li><a class="dropdown-item" href="/submit-article" data-bs-toggle="tooltip" data-bs-placement="right" title="Submit new articles for analysis"><i class="fas fa-newspaper"></i> Submit articles</a></li>
                         </ul>
                     </li>
                     
                     <li class="menu-item menu-dropdown dropdown">
                         <a class="menu-link dropdown-toggle" href="#" id="researchDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="Analyze data and trends">
-                            <i class="fas fa-search"></i> Explore
+                            <i class="fas fa-brain"></i> Foresight
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="researchDropdown">
-                            <small class="text-muted"> Daily News</small><br>
-                            <li><a class="dropdown-item" href="/news-feed" data-bs-toggle="tooltip" data-bs-placement="right" title="Daily news feed with Six Articles analysis"><i class="fas fa-newspaper"></i> Daily News Feed</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <small class="text-muted"> Executive Summaries</small><br>
+                            <small class="text-muted"> Foresight</small><br>
                             <li><a class="dropdown-item" href="/market-signals-dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Market signals and strategic risks analysis"><i class="fas fa-chart-line"></i> Market Signals & Strategic Risks</a></li>
                             <li><a class="dropdown-item" href="/consensus-analysis" data-bs-toggle="tooltip" data-bs-placement="right" title="Analyze consensus vs. fringe voices in topics"><i class="fas fa-balance-scale"></i> Consensus vs. Fringe Voices</a></li>
                             <li><a class="dropdown-item" href="/futures-cone" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-powered futures analysis with probable, plausible, possible, and preferable scenarios"><i class="fas fa-magic"></i> Future Horizons</a></li>
@@ -498,32 +502,16 @@
                     </li>
                     
                     <li class="menu-item menu-dropdown dropdown">
-                        <a class="menu-link dropdown-toggle" href="#" id="analysisDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="Create and distribute content">
-                            <i class="fas fa-chart-bar"></i> Communicate
-                        </a>
-                        <ul class="dropdown-menu" aria-labelledby="analysisDropdown">
-                            <small class="text-muted"> Realtime Insights</small><br>
-                            <li><a class="dropdown-item" href="/topic-dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="Daily insights and analysis"><i class="fas fa-sun"></i> Daily Insights</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <small class="text-muted"> Distribution</small><br>
-                            <li><a class="dropdown-item" href="/newsletter_compiler" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and compile newsletters"><i class="fas fa-file-alt"></i> Newsletter</a></li>
-                            <li><a class="dropdown-item" href="/podcastdirector" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage and create podcasts"><i class="fas fa-microphone"></i> Podcast</a></li>
-                        </ul>
-                    </li>
-                    
-                    <li class="menu-item menu-dropdown dropdown">
                         <a class="menu-link dropdown-toggle" href="#" id="configDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="Configure application settings">
                             <i class="fas fa-cog"></i> Settings
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="configDropdown">
                             <small class="text-muted">Context Engineering</small><br>
-                            <li><a class="dropdown-item" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-guided topic setup"><i class="fas fa-tasks"></i> Guided AI Topic Designer</a></li>
                             <li><a class="dropdown-item" href="/promptmanager" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage AI prompts and templates"><i class="fas fa-brain"></i> Prompt Engineering</a></li>
                             <li><a class="dropdown-item" href="/model-bias-arena" data-bs-toggle="tooltip" data-bs-placement="right" title="Analyze model bias"><i class="fas fa-balance-scale"></i> Model Bias Arena</a></li>
                             <li><a class="dropdown-item" href="/create_topic" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and manage topics"><i class="fas fa-folder-plus"></i> Topic Editor</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <small class="text-muted"> Knowledge Management</small><br>
-                            <li><a class="dropdown-item" href="/submit-article" data-bs-toggle="tooltip" data-bs-placement="right" title="Submit new articles for analysis"><i class="fas fa-newspaper"></i> Submit Article</a></li>
                             <li><a class="dropdown-item" href="/vector-analysis-improved" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform exploratory vector analysis"><i class="fas fa-vector-square"></i>Exploratory Analysis</a></li>
                             <li><a class="dropdown-item" href="/database-editor" data-bs-toggle="tooltip" data-bs-placement="right" title="Edit database entries"><i class="fas fa-edit"></i> Database Editor</a></li>
                             <li><a class="dropdown-item" href="/analytics" data-bs-toggle="tooltip" data-bs-placement="right" title="Statistical analytics"><i class="fas fa-chart-bar"></i> Analytics</a></li>

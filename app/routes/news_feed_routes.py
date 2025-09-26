@@ -200,7 +200,8 @@ async def get_six_articles_report(
     page: int = Query(1, ge=1, description="Page number for pagination"),
     profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
     starred_articles: Optional[str] = Query(None, description="Comma-separated URIs of starred articles"),
-    db: Database = Depends(get_database_instance)
+    db: Database = Depends(get_database_instance),
+    force_regenerate: bool = Query(False, description="Bypass cache and regenerate fresh output")
 ):
     """Generate only the six articles detailed report"""
     
@@ -236,7 +237,16 @@ async def get_six_articles_report(
             # Return empty result instead of 404
             return {"six_articles": []}
         
-        six_articles = await news_feed_service._generate_six_articles_report_cached(articles_data, target_date or datetime.now(), request)
+        if force_regenerate:
+            # Generate fresh and update caches implicitly via cached method write path
+            six_articles = await news_feed_service._generate_six_articles_with_political_analysis(articles_data, target_date or datetime.now(), request)
+            # Best-effort: write to cache for subsequent loads
+            try:
+                await news_feed_service._generate_six_articles_report_cached(articles_data, target_date or datetime.now(), request)
+            except Exception as _:
+                pass
+        else:
+            six_articles = await news_feed_service._generate_six_articles_report_cached(articles_data, target_date or datetime.now(), request)
         
         logger.info(f"Generated {len(six_articles)} six articles")
         if six_articles and len(six_articles) > 0:

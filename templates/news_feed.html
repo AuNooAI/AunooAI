@@ -888,9 +888,23 @@
         <div class="tab-pane fade" id="six-articles-content">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">AI-Generated Six Articles</h5>
-                <button id="generate-btn" class="btn btn-primary" onclick="generateNewsFeed()">
-                    <i class="fas fa-magic me-2"></i>Generate Six Articles
-                </button>
+                <div class="d-flex gap-2">
+                    <button id="generate-btn" class="btn btn-primary" onclick="loadSixArticles()">
+                        <i class="fas fa-magic me-2"></i>Generate
+                    </button>
+                    <button id="regenerate-btn" class="btn btn-outline-secondary" onclick="loadSixArticles(true)">
+                        <i class="fas fa-sync-alt me-2"></i>Regenerate
+                    </button>
+                    <div class="btn-group">
+                        <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-download me-2"></i>Export
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="#" onclick="exportSixArticlesMarkdown()"><i class="fab fa-markdown me-2"></i>Download Markdown</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="exportSixArticlesHTML()"><i class="fas fa-code me-2"></i>Download HTML</a></li>
+                        </ul>
+                    </div>
+                </div>
             </div>
             <div id="six-articles-loading" class="loading" style="display: none;">
                 <div class="spinner-border" role="status">
@@ -2173,7 +2187,7 @@ async function loadArticles(page = 1) {
     }
 }
 
-async function loadSixArticles() {
+async function loadSixArticles(forceRegenerate = false) {
     const loadingEl = document.getElementById('six-articles-loading');
     const errorEl = document.getElementById('six-articles-error');
     const contentEl = document.getElementById('six-articles-report');
@@ -2211,6 +2225,9 @@ async function loadSixArticles() {
             params.append('starred_articles', Array.from(starredArticles).join(','));
         }
 
+        if (forceRegenerate) {
+            params.append('force_regenerate', 'true');
+        }
         const response = await fetch(`/api/news-feed/six-articles?${params}`);
         
         if (!response.ok) {
@@ -2223,6 +2240,7 @@ async function loadSixArticles() {
 
         const data = await response.json();
         console.log('Six articles response data:', data);
+        window.lastSixArticles = data.six_articles || [];
         // Stamp generated date at top of report
         const generatedAt = new Date().toLocaleString();
         const header = document.createElement('div');
@@ -2381,6 +2399,7 @@ function renderOverview(overview) {
 }
 
 function renderSixArticles(articles) {
+    window.lastSixArticles = Array.isArray(articles) ? articles : [];
     const contentEl = document.getElementById('six-articles-report');
     
     console.log('renderSixArticles called with:', articles);
@@ -2556,7 +2575,7 @@ function renderSixArticles(articles) {
                                 <li><strong>Executive Actions</strong> - Specific next steps to take</li>
                                 <li><strong>Selection Scores</strong> - Relevance/novelty/credibility ratings</li>
                             </ul>
-                            <button class="btn btn-sm btn-warning" onclick="loadSixArticles()">
+                            <button class="btn btn-sm btn-warning" onclick="loadSixArticles(true)">
                                 <i class="fas fa-magic me-1"></i>Regenerate with CEO Daily Format
                             </button>
                         </div>
@@ -2654,6 +2673,136 @@ function renderSixArticles(articles) {
     });
     
     contentEl.innerHTML = html;
+}
+
+function exportSixArticlesMarkdown() {
+    const articles = window.lastSixArticles || [];
+    if (!articles.length) {
+        showNotification('No Six Articles to export. Generate first.', 'warning');
+        return;
+    }
+    const lines = [];
+    lines.push('# Six Most Interesting Articles');
+    lines.push('');
+    const generatedAt = new Date().toISOString();
+    lines.push(`_Generated: ${generatedAt}_`);
+    lines.push('');
+    articles.forEach((a, idx) => {
+        const title = a.title || 'Untitled';
+        const url = a.url || a.uri || '';
+        const header = url ? `${idx+1}. ${title} [link](${url})` : `${idx+1}. ${title}`;
+        lines.push(`## ${header}`);
+        if (a.executive_takeaway) {
+            lines.push(`> ${a.executive_takeaway}`);
+        }
+        if (a.summary) {
+            lines.push('');
+            lines.push(a.summary);
+        }
+        const meta = [];
+        if (a.source) meta.push(`Source: ${a.source}`);
+        if (a.date) meta.push(`Date: ${a.date}`);
+        if (a.time_horizon) meta.push(`Time horizon: ${a.time_horizon}`);
+        if (a.risk_opportunity) meta.push(`Risk/Opportunity: ${a.risk_opportunity}`);
+        if (a.signal_strength) meta.push(`Signal strength: ${a.signal_strength}`);
+        if (meta.length) {
+            lines.push('');
+            lines.push(meta.map(m => `- ${m}`).join('\n'));
+        }
+        if (Array.isArray(a.executive_action) && a.executive_action.length) {
+            lines.push('');
+            lines.push('**Executive actions**');
+            a.executive_action.forEach(act => lines.push(`- ${act}`));
+        }
+        if (Array.isArray(a.related_articles) && a.related_articles.length) {
+            lines.push('');
+            lines.push('**Related coverage**');
+            a.related_articles.forEach(r => {
+                const rt = r.title || 'Related';
+                if (r.url) lines.push(`- ${r.source ? r.source+': ' : ''}[${rt}](${r.url})`);
+                else lines.push(`- ${r.source ? r.source+': ' : ''}${rt}`);
+            });
+        }
+        lines.push('');
+    });
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const urlObj = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = urlObj;
+    a.download = `six-articles-${new Date().toISOString().slice(0,10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(urlObj);
+}
+
+function exportSixArticlesHTML() {
+    const articles = window.lastSixArticles || [];
+    if (!articles.length) {
+        showNotification('No Six Articles to export. Generate first.', 'warning');
+        return;
+    }
+    const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const items = articles.map((a, idx) => `
+<article class="sa-item">
+  <h2>${idx+1}. ${esc(a.title || 'Untitled')}</h2>
+  ${a.url || a.uri ? `<p><a href="${esc(a.url || a.uri)}" target="_blank" rel="noopener">Read original</a></p>` : ''}
+  ${a.executive_takeaway ? `<blockquote>${esc(a.executive_takeaway)}</blockquote>` : ''}
+  ${a.summary ? `<p>${esc(a.summary)}</p>` : ''}
+  <ul class="sa-meta">
+    ${a.source ? `<li><strong>Source:</strong> ${esc(a.source)}</li>` : ''}
+    ${a.date ? `<li><strong>Date:</strong> ${esc(a.date)}</li>` : ''}
+    ${a.time_horizon ? `<li><strong>Time horizon:</strong> ${esc(a.time_horizon)}</li>` : ''}
+    ${a.risk_opportunity ? `<li><strong>Risk/Opportunity:</strong> ${esc(a.risk_opportunity)}</li>` : ''}
+    ${a.signal_strength ? `<li><strong>Signal strength:</strong> ${esc(a.signal_strength)}</li>` : ''}
+  </ul>
+  ${Array.isArray(a.executive_action) && a.executive_action.length ? `
+  <div class="sa-actions">
+    <h3>Executive actions</h3>
+    <ul>
+      ${a.executive_action.map(act => `<li>${esc(act)}</li>`).join('')}
+    </ul>
+  </div>` : ''}
+  ${Array.isArray(a.related_articles) && a.related_articles.length ? `
+  <div class="sa-related">
+    <h4>Related coverage</h4>
+    <ul>
+      ${a.related_articles.map(r => `<li>${esc(r.source || '')}${r.source ? ': ' : ''}${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title || 'Related')}</a>` : esc(r.title || 'Related')}</li>`).join('')}
+    </ul>
+  </div>` : ''}
+</article>`).join('\n');
+
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Six Most Interesting Articles</title>
+  <style>
+    body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6;}
+    h1{font-size: 1.8rem; margin: 0 0 20px;}
+    .sa-item{border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px;}
+    blockquote{background:#f8f9fa; border-left:4px solid #ddd; margin:10px 0; padding:10px 15px;}
+    .sa-meta{color:#555}
+  </style>
+  <meta name="robots" content="noindex,follow">
+</head>
+<body>
+  <h1>Six Most Interesting Articles</h1>
+  <p><em>Generated: ${new Date().toLocaleString()}</em></p>
+  ${items}
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const urlObj = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = urlObj;
+    a.download = `six-articles-${new Date().toISOString().slice(0,10)}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(urlObj);
 }
 
 function getBiasBadge(bias) {

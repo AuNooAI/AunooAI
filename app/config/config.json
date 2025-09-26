@@ -128,75 +128,28 @@
       ]
     },
     {
-      "name": "Erosion of Government-Funded Research in the U.S.",
-      "description": " Potential structural withdrawal of U.S. federal support for R&D.\nConsequences for university grants, science infrastructure, and Wiley’s customer base.\nPossible compensatory rises in R&D investment from China, the EU, or India.",
-      "categories": [
-        "University Research Funding",
-        "Federal R&D Budget",
-        "Science Infrastructure",
-        "International R&D Competition",
-        "Private Sector R&D Investment",
-        "Research Grant Allocation",
-        "Policy Impact on Science",
-        "Global R&D Leadership"
-      ],
-      "future_signals": [
-        "Complete withdrawal of federal R&D su...",
-        "Significant reduction in federal R&D ...",
-        "Stable federal R&D support with incre...",
-        "R&D leadership shifts to China",
-        "EU becomes the new hub for R&D"
-      ],
-      "sentiment": [
-        "Positive",
-        "Negative",
-        "Neutral"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
-      ],
-      "driver_types": [
-        "Initiator",
-        "Accelerator",
-        "Catalyst",
-        "Inhibitor",
-        "Blocker"
-      ],
-      "keywords": [
-        "National Science Foundation",
-        "National Institutes of Health",
-        "Department of Energy",
-        "Research and Development",
-        "Science Funding",
-        "Grant Management Systems",
-        "Federal Research Funding",
-        "University Grants",
-        "Science Infrastructure",
-        "Climate Change",
-        "Election"
-      ]
-    },
-    {
       "name": "Cloud Repatriation",
-      "description": "Is cloud repatriation occurring, and how much?",
+      "description": "IS there a Cloud Repatriation movement, and if so, how large is it?",
       "categories": [
+        "Cost Analysis",
+        "Data Sovereignty",
+        "Performance Concerns",
         "Regulatory Compliance",
-        "New Cloud Offering",
-        "Cloud Consolidation",
-        "Case Study",
-        "Industry Report",
-        "Cloud Security",
-        "Cloud Costs",
-        "Cloud Data Sovereignity"
+        "Security and Privacy",
+        "Vendor Lock-in Risks",
+        "Workload Suitability",
+        "Hybrid Cloud Strategies",
+        "SaaS",
+        "PaaS",
+        "IaaS",
+        "New Release"
       ],
       "future_signals": [
         "Widespread cloud exit",
         "Selective workload repatriation",
         "Hybrid equilibrium emerges",
-        "Cloud dominance continues"
+        "Cloud dominance continues",
+        "Increased multi-cloud adoption"
       ],
       "sentiment": [
         "Positive",
@@ -217,18 +170,20 @@
         "Blocker"
       ],
       "keywords": [
-        "Amazon Web Services",
-        "Microsoft Azure",
-        "Google Cloud Platform",
-        "Cloud Computing",
+        "IBM",
+        "Dell Technologies",
+        "HPE",
+        "AWS",
+        "GCP",
+        "Azure",
+        "Private Cloud",
         "Hybrid Cloud",
-        "Multi-Cloud Management",
-        "IaaS",
-        "PaaS",
-        "SaaS",
         "Data Center",
+        "Cloud Repatriation",
+        "Cloud Exit",
         "Cloud Migration",
-        "IT Infrastructure"
+        "Cloud Adoption",
+        "Cloud-First"
       ]
     }
   ],
@@ -254,16 +209,52 @@
       "provider": "openai"
     },
     {
+      "name": "mixtral-8x7b",
+      "provider": "huggingface"
+    },
+    {
       "name": "claude-4-sonnet-latest",
       "provider": "anthropic"
     },
     {
+      "name": "claude-3-7-sonnet-latest",
+      "provider": "anthropic"
+    },
+    {
+      "name": "claude-3-5-sonnet-latest",
+      "provider": "anthropic"
+    },
+    {
+      "name": "gemini-pro",
+      "provider": "google"
+    },
+    {
       "name": "mixtral",
-      "provider": "openai"
+      "provider": "aunooai"
     },
     {
       "name": "mixtral-instruct",
-      "provider": "openai"
+      "provider": "aunooai"
+    },
+    {
+      "name": "qwen3:14b",
+      "provider": "aunooai"
+    },
+    {
+      "name": "gemma3:27b",
+      "provider": "aunooai"
+    },
+    {
+      "name": "phi4-reasoning",
+      "provider": "ollama"
+    },
+    {
+      "name": "llama3.1",
+      "provider": "ollama"
+    },
+    {
+      "name": "mistral-small3.1",
+      "provider": "ollama"
     }
   ],
   "providers": [
@@ -278,6 +269,18 @@
       "api_key_description": "Your NewsAPI API key",
       "api_key_placeholder": "Enter your NewsAPI key",
       "api_key_help": "Get your API key from https://newsapi.org/account"
+    },
+    {
+      "name": "newsdata",
+      "display_name": "NewsData.io",
+      "config_type": "api_key",
+      "description": "Access news articles with full content from NewsData.io",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_NEWSDATA_API_KEY",
+      "api_key_description": "Your NewsData.io API key",
+      "api_key_placeholder": "Enter your NewsData.io API key",
+      "api_key_help": "Get your API key from https://newsdata.io/account"
     },
     {
       "name": "thenewsapi",

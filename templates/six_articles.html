@@ -404,7 +404,7 @@ document.addEventListener('DOMContentLoaded', function() {
     updateDateDisplay();
 
     // Event handlers
-    document.getElementById('generate-btn').addEventListener('click', loadSixArticles);
+document.getElementById('generate-btn').addEventListener('click', () => loadSixArticles(true));
     document.getElementById('date-input').addEventListener('change', updateDateDisplay);
 
     // Load initial report
@@ -424,7 +424,7 @@ function updateDateDisplay() {
     }
 }
 
-async function loadSixArticles() {
+async function loadSixArticles(forceRegenerate = false) {
     const loadingEl = document.getElementById('loading');
     const errorEl = document.getElementById('error');
     const contentEl = document.getElementById('report-content');
@@ -447,6 +447,9 @@ async function loadSixArticles() {
             params.append('topic', topic);
         }
 
+        if (forceRegenerate) {
+            params.append('force_regenerate', 'true');
+        }
         const response = await fetch(`/api/news-feed/six-articles?${params}`);
         
         if (!response.ok) {

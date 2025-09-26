@@ -638,9 +638,9 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
     async def _generate_six_articles_report_cached(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
         """Generate six articles report with caching and enhanced political analysis"""
         
-        # Create cache key based on date, topic, article count, and prompt version
+        # Create cache key based on date and topic only (stable across varying article counts)
         # Added v3 to invalidate cache after CEO Daily format enforcement
-        cache_key = f"six_articles_v3_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}_{len(articles_data)}"
+        cache_key = f"six_articles_v3_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}"
         
         # Check database cache first (more persistent)
         try:
