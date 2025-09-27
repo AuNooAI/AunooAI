@@ -1253,6 +1253,34 @@
 </div>
 
 <script>
+// Global fetch wrapper to surface rate-limit (HTTP 429) errors to users
+(function enhanceGlobalFetchForRateLimit(){
+    if (window.__fetchRateLimitWrapped) return;
+    window.__fetchRateLimitWrapped = true;
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async function(input, init) {
+        try {
+            const response = await originalFetch(input, init);
+            if (response && response.status === 429) {
+                let apiMsg = '';
+                try {
+                    const cloned = response.clone();
+                    const body = await cloned.json().catch(() => null);
+                    apiMsg = (body && (body.detail || body.message)) ? ` (${body.detail || body.message})` : '';
+                } catch (_) { /* best-effort */ }
+                const msg = `We are experiencing heavy load and hit a rate limit. Please wait a bit and try again${apiMsg}.`;
+                try { if (typeof showNotification === 'function') showNotification(msg, 'warning'); } catch(_) {}
+            }
+            return response;
+        } catch (error) {
+            const text = String(error && (error.message || error))
+            if (text.includes('RateLimit') || text.includes('429')) {
+                try { if (typeof showNotification === 'function') showNotification('We are temporarily rate-limited. Please try again shortly.', 'warning'); } catch(_) {}
+            }
+            throw error;
+        }
+    };
+})();
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize with the selected date (September 15, 2025)
     const selectedDateObj = new Date(2025, 8, 15); // September 15, 2025
@@ -5354,6 +5382,7 @@ function displayAuspexResult(content, theme) {
                     <div class="mt-2 auspex-research-content">
                         ${formattedContent}
                     </div>
+                    <div id="auspex-followups" class="mt-3"></div>
                 </div>
             </div>
         `;
@@ -5361,6 +5390,115 @@ function displayAuspexResult(content, theme) {
     }
     
     showNotification(`Research complete for: ${theme}`, 'success');
+    try { renderFollowUpActionsFromContent(content); } catch(_) {}
+}
+// Parse model output to extract Next Steps and Suggested Queries, render actionable badges
+function renderFollowUpActionsFromContent(markdownText) {
+    const container = document.getElementById('auspex-followups');
+    if (!container || !markdownText) return;
+    const text = String(markdownText);
+    const nextSteps = [];
+    const queries = [];
+    const lines = text.split(/\r?\n/);
+    let inNext = false, inQueries = false;
+    for (const raw of lines) {
+        const line = raw.trim();
+        const lower = line.toLowerCase();
+        // Section headers with or without markdown '#' and with variants
+        if (/^#+\s*next steps/i.test(line) || lower.startsWith('next steps') || lower.startsWith('next steps:')) { inNext = true; inQueries = false; continue; }
+        if (/^#+\s*suggested.*(query|search|filter)/i.test(line) || (lower.includes('suggested') && (lower.includes('query') || lower.includes('search') || lower.includes('filter')))) { inNext = false; inQueries = true; continue; }
+        if (/^#+\s/.test(line)) { inNext = false; inQueries = false; }
+        let bullet = line.replace(/^[-*•]\s+/, '').trim();
+        if (!bullet) continue;
+        // Strip ordered list prefix like "1. "
+        bullet = bullet.replace(/^\d+\.|^\d+\)\s*/, '').trim();
+        if (inNext && bullet.length > 3) {
+            nextSteps.push(bullet.replace(/[\u201C\u201D]/g,'"'));
+            continue;
+        }
+        if (inQueries) {
+            // Accept non-bulleted lines too
+            let candidate = bullet;
+            // Prefer quoted phrase
+            const m = candidate.match(/[\"\u201C]([^\"\u201D]+)[\"\u201D]/);
+            if (m && m[1]) {
+                queries.push(m[1].trim());
+                continue;
+            }
+            // Otherwise, cut before dash or filter explanation
+            const splitIdx = candidate.search(/[—–\-]\s|\swith\s|\sfocusing\s|\sfiltered\s|\scombining\s/i);
+            if (splitIdx > 0) candidate = candidate.slice(0, splitIdx).trim();
+            candidate = candidate.replace(/^"|"$/g,'');
+            if (candidate.length > 3) queries.push(candidate);
+        }
+    }
+    const makeBtn = (label, type) => {
+        const cls = type === 'query' ? 'btn btn-sm btn-outline-info me-1 mb-1' : 'btn btn-sm btn-outline-primary me-1 mb-1';
+        const enc = encodeURIComponent(label);
+        return `<button class="${cls}" data-type="${type}" data-text="${enc}" onclick="handleFollowUpClick(this)" title="${escapeHTML(label)}"><i class=\"fas fa-bolt me-1\"></i>${escapeHTML(label)}</button>`;
+    };
+    let html = '';
+    if (nextSteps.length) {
+        html += '<div class="mb-2"><small class="text-muted fw-bold">Next Steps:</small><div class="mt-1">';
+        html += nextSteps.slice(0, 12).map(step => makeBtn(step, 'action')).join('');
+        html += '</div></div>';
+    }
+    if (queries.length) {
+        html += '<div class="mb-2"><small class="text-muted fw-bold">Suggested Dataset Searches:</small><div class="mt-1">';
+        html += queries.slice(0, 20).map(q => makeBtn(q, 'query')).join('');
+        html += '</div></div>';
+    }
+    if (!html) return;
+    container.innerHTML = html;
+}
+
+// Unified click handler to avoid brittle inline JS quoting
+function handleFollowUpClick(buttonEl) {
+    try {
+        const type = buttonEl.getAttribute('data-type');
+        const text = decodeURIComponent(buttonEl.getAttribute('data-text') || '');
+        if (!text) return;
+        if (type === 'query') return runDatasetQuery(text);
+        return runFollowUpAction(text);
+    } catch (e) {
+        console.error('Failed to handle follow-up click', e);
+        showNotification('Could not run follow-up action', 'error');
+    }
+}
+
+// Execute a follow-up action by launching a targeted Auspex prompt in the same chat
+async function runFollowUpAction(actionText) {
+    try {
+        const chatId = window.currentAuspexChatId; // set during polling/launch
+        if (!chatId) { showNotification('Chat session not found', 'warning'); return; }
+        const selectedModel = document.getElementById('floatingModelSelect')?.value || 'gpt-4o-mini';
+        const prompt = `Follow-up action requested: ${actionText}\n\nPlease execute this action using dataset-first analysis. Cite URIs.`;
+        await fetch('/api/auspex/chat/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, message: prompt, model: selectedModel, limit: 50 }) });
+        pollForAuspexResults(chatId, 'Follow-up');
+        showNotification('Running follow-up action...', 'info');
+    } catch (e) {
+        console.error('Follow-up action failed', e);
+        showNotification('Failed to run follow-up action', 'error');
+    }
+}
+
+// Run a dataset query by reusing our dataset-first prompt pattern
+async function runDatasetQuery(queryText) {
+    try {
+        const chatId = window.currentAuspexChatId; // set during polling/launch
+        if (!chatId) { showNotification('Chat session not found', 'warning'); return; }
+        const topic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        const currentArticles = window.lastArticlesData?.items || [];
+        const { detailedLines } = buildDatasetContext(queryText, currentArticles, 12, 20);
+        const prompt = `Dataset-first follow-up search: "${queryText}" in topic ${topic}.\n\nRelevant dataset items:\n${detailedLines || '(no strong matches; propose dataset search expansions)'}\n\nPlease analyze these items, cite URIs, and propose next dataset filters.`;
+        await fetch('/api/auspex/chat/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, message: prompt, model: selectedModel, limit: 50 }) });
+        pollForAuspexResults(chatId, 'Dataset Search');
+        showNotification('Running dataset search...', 'info');
+    } catch (e) {
+        console.error('Dataset query failed', e);
+        showNotification('Failed to run dataset search', 'error');
+    }
 }
 
 // Display timeout message
@@ -5913,6 +6051,9 @@ async function launchAuspexWithPrompt(chatId, prompt, model, topic, analysisType
         
         // Start polling for the analysis results
         pollForAuspexResults(chatId, analysisType);
+
+        // Expose chat id for follow-up actions
+        window.currentAuspexChatId = chatId;
         
         showNotification(`${analysisType} launched successfully!`, 'success');
         
@@ -7057,6 +7198,44 @@ function clearInsightsContent() {
     }
 }
 
+// Helper: build dataset-anchored context to avoid generic prompts
+function buildDatasetContext(insightTopic, articles, detailedLimit = 15, extraLimit = 35) {
+    if (!Array.isArray(articles) || articles.length === 0) return { detailedLines: '', uriLines: '', matches: [] };
+    const topic = String(insightTopic || '').toLowerCase();
+    const SYNONYMS = {
+        'deal': ['deal', 'dealmaking', 'acquisition', 'acquire', 'merger', 'm&a', 'investment', 'funding', 'raise', 'round', 'series a', 'series b', 'financing', 'partnership', 'agreement', 'contract', 'buyout', 'ipo', 'alliance', 'joint venture'],
+        'regulation': ['regulation', 'regulatory', 'policy', 'compliance', 'dsa', 'gdpr', 'antitrust', 'lawsuit', 'complaint', 'fine', 'ban', 'oversight'],
+        'safety': ['safety', 'governance', 'risk', 'alignment', 'responsibility', 'ethics', 'ethical'],
+        'incident': ['incident', 'breach', 'leak', 'lawsuit', 'complaint', 'investigation']
+    };
+    const terms = new Set(topic.split(/\W+/).filter(Boolean));
+    Object.entries(SYNONYMS).forEach(([key, words]) => {
+        if (topic.includes(key) || terms.has(key)) words.forEach(w => terms.add(w));
+    });
+    const scoreFor = (text, weight) => {
+        if (!text) return 0;
+        const lower = String(text).toLowerCase();
+        let s = 0;
+        terms.forEach(t => { if (t && lower.includes(t)) s += weight; });
+        return s;
+    };
+    const scored = articles.map(a => {
+        const s = (scoreFor(a.title, 3) + scoreFor(a.summary, 1) + scoreFor(a.category, 2) + scoreFor((a.tags||[]).join(' '), 2));
+        return { article: a, score: s };
+    }).sort((x, y) => y.score - x.score);
+    const positive = scored.filter(x => x.score > 0).map(x => x.article);
+    const topDetailed = positive.slice(0, detailedLimit);
+    const remaining = positive.slice(detailedLimit, detailedLimit + extraLimit);
+    const detailedLines = topDetailed.map((article, idx) => {
+        const date = article.publication_date ? new Date(article.publication_date).toISOString().slice(0,10) : 'Unknown date';
+        const source = article.news_source || 'Unknown Source';
+        const brief = (article.summary || '').slice(0, 140).replace(/\n+/g, ' ');
+        return `${idx + 1}. ${article.title} (${source}, ${date})\n   URI: ${article.uri}\n   Brief: ${brief}${brief.length >= 140 ? '...' : ''}`;
+    }).join('\n');
+    const uriLines = remaining.map(a => `- ${a.title} — ${a.uri}`).join('\n');
+    return { detailedLines, uriLines, matches: topDetailed.concat(remaining) };
+}
+
 // Launch Auspex research from insights (similar to article research themes)
 async function launchAuspexResearchFromInsight(insightTopic, insightType) {
     try {
@@ -7115,55 +7294,62 @@ Focus on executive-level strategic insights that would be valuable for C-suite d
             // Category research prompt
             const categoryArticles = currentArticles.filter(article => 
                 article.category && article.category.toLowerCase() === insightTopic.toLowerCase()
-            ).slice(0, 10);
+            );
+            const { detailedLines, uriLines } = buildDatasetContext(insightTopic, categoryArticles, 18, 42);
             
             researchPrompt = `Conduct comprehensive research on the "${insightTopic}" category in ${actualTopic}.
 
 CONTEXT FROM NEWS FEED:
-Found ${categoryArticles.length} articles in this category from current feed:
-${categoryArticles.map((article, idx) => `${idx + 1}. ${article.title} (${article.news_source}) - ${article.summary?.substring(0, 100)}...`).join('\n')}
+Top matching articles in our dataset (detailed):\n${detailedLines || '(no strong matches in current feed)'}
+
+Additional relevant articles (compact list):\n${uriLines}
 
 RESEARCH FOCUS: "${insightTopic}" category analysis
 
 Please use your tools to:
-1. Search for recent articles in the "${insightTopic}" category within "${actualTopic}"
-2. Analyze key developments and trends in this category
-3. Identify major players and organizations involved
-4. Assess market implications and future outlook
-5. Compare current developments to historical patterns
-6. Provide strategic recommendations for decision-makers
+1. First analyze the dataset articles above (cite URIs). Build connections and timelines across them.
+2. Identify key entities, organizations, and deal terms appearing repeatedly.
+3. Summarize developments, trends, and market implications specific to this dataset.
+4. Propose additional DATASET search terms/filters to expand coverage (no web search yet).
+5. Only if necessary, suggest external corroboration as follow-up.
 
-The context articles above represent current activity in this category - expand the analysis using your tools to find additional relevant articles and insights.`;
+Respond with sections: Dataset Findings, Key Entities, Timeline, Gaps, Dataset Search Suggestions, Optional External Leads.`;
         } else if (insightType === 'thematic_cluster') {
             // Thematic cluster research prompt
+            const { detailedLines, uriLines } = buildDatasetContext(insightTopic, currentArticles, 18, 42);
             researchPrompt = `Conduct deep research on the theme "${insightTopic}" within ${actualTopic}.
 
 CONTEXT FROM THEMATIC ANALYSIS:
 This theme was identified through AI analysis of current articles in the news feed.
 
+DATASET CONTEXT (top matches):\n${detailedLines || '(no strong matches found; derive related terms and search dataset)'}
+
+Additional relevant articles (compact list):\n${uriLines}
+
 RESEARCH FOCUS: "${insightTopic}" thematic analysis
 
 Please use your tools to:
-1. Search for articles related to "${insightTopic}" in the topic "${actualTopic}"
-2. Analyze the broader context and implications of this theme
-3. Identify key trends and developments around this theme
-4. Assess strategic importance and potential impacts
-5. Find related themes and connections to other developments
-6. Provide actionable insights for stakeholders
-
-Use your search and analysis tools to build a comprehensive understanding of this theme beyond the current news feed articles.`;
+1. Prioritize the dataset items above (cite URIs) and synthesize cross-article insights.
+2. Identify trends, entities, and relationships evidenced by these articles.
+3. Provide dataset-first analysis, then propose dataset search expansions (keywords, categories, time windows).
+4. Provide actionable insights for stakeholders.`;
         } else if (insightType === 'incident') {
             // Incident tracking research prompt
+            const { detailedLines, uriLines } = buildDatasetContext(insightTopic, currentArticles, 18, 42);
             researchPrompt = `Conduct detailed incident investigation on: "${insightTopic}"
 
 CONTEXT FROM INCIDENT TRACKING:
 This incident was identified through AI-powered threat hunting analysis of current articles.
 
+DATASET CONTEXT (potentially related):\n${detailedLines || '(use dataset search to find related incident articles)'}
+
+Additional relevant articles (compact list):\n${uriLines}
+
 RESEARCH FOCUS: Incident investigation - "${insightTopic}"
 TOPIC AREA: "${actualTopic}"
 
 Please use your tools to:
-1. Search for all articles related to this incident across time periods
+1. Search within our dataset for all articles related to this incident (cite URIs)
 2. Build a comprehensive timeline of events and developments
 3. Identify key entities, organizations, and stakeholders involved
 4. Analyze the scope, impact, and implications of this incident
@@ -7196,16 +7382,21 @@ Please use your tools to:
 Focus on providing comprehensive threat analysis and strategic intelligence.`;
         } else if (insightType === 'investigation_lead') {
             // Investigation lead research prompt
+            const { detailedLines, uriLines } = buildDatasetContext(insightTopic, currentArticles, 18, 42);
             researchPrompt = `Conduct focused investigation on the lead: "${insightTopic}"
 
 CONTEXT FROM INCIDENT TRACKING:
 This investigation lead was identified through AI-powered incident analysis as a key area requiring deeper research.
 
+DATASET CONTEXT (top matches):\n${detailedLines || '(no direct matches found; derive related terms and search the dataset)'}
+
+Additional relevant articles (compact list):\n${uriLines}
+
 RESEARCH FOCUS: Investigation lead - "${insightTopic}"
 TOPIC AREA: "${actualTopic}"
 
 Please use your tools to:
-1. Search for articles and information related to this investigation lead
+1. Search within our dataset for articles related to this lead (cite URIs)
 2. Analyze connections to ongoing incidents or patterns
 3. Identify key entities, organizations, or individuals involved
 4. Assess the significance and potential implications
@@ -7214,26 +7405,27 @@ Please use your tools to:
 7. Identify additional investigation angles or related leads
 8. Provide actionable intelligence and next steps
 
-Treat this as a focused investigation that could reveal broader patterns or connections.`;
+Prioritize dataset-first analysis. Provide a short list of additional dataset search queries and filters to run next.`;
         } else {
             // Article theme research prompt
+            const { detailedLines, uriLines } = buildDatasetContext(insightTopic, currentArticles, 18, 42);
             researchPrompt = `Conduct comprehensive analysis of the theme "${insightTopic}" identified from recent ${actualTopic} articles.
 
 CONTEXT FROM ARTICLE ANALYSIS:
 This theme emerged from AI analysis of recent articles in the news feed.
 
+DATASET CONTEXT (top matches):\n${detailedLines || '(derive related terms and search dataset)'}
+
+Additional relevant articles (compact list):\n${uriLines}
+
 RESEARCH FOCUS: "${insightTopic}"
 TOPIC AREA: "${actualTopic}"
 
 Please use your tools to:
-1. Search for recent articles related to "${insightTopic}" in "${actualTopic}"
-2. Analyze current developments and key insights around this theme
-3. Identify market trends and their implications
-4. Assess future outlook and potential impacts
-5. Find connections to related themes and developments
-6. Provide strategic recommendations for decision-makers
-
-Provide a thorough analysis using the structured format from your system prompt.`;
+1. Start with the dataset items above; synthesize cross-article findings and cite URIs.
+2. Identify trends, entities, relationships, and implications grounded in the dataset.
+3. Propose dataset search expansions (keywords, categories, time windows) for follow-up.
+4. Provide strategic recommendations for decision-makers.`;
         }
         
         // Use the same launch pattern as working article analysis
@@ -7889,10 +8081,18 @@ function renderIncidentTracking(incidents) {
                     <ul class="list-unstyled mt-1 mb-0 small">
                         ${incident.article_uris.slice(0, 5).map(uri => {
                             const article = window.lastArticlesData?.items?.find(a => a.uri === uri);
-                            if (article) {
-                                return `<li class="mb-1"><a href="${uri}" target="_blank" rel="noopener">${article.title}</a></li>`;
-                            }
-                            return `<li class="mb-1"><a href="${uri}" target="_blank" rel="noopener">View Article</a></li>`;
+                            const derivedTitle = (function(u){
+                                try {
+                                    const url = new URL(u);
+                                    const parts = url.pathname.split('/').filter(Boolean);
+                                    const last = parts[parts.length - 1] || '';
+                                    const cleaned = decodeURIComponent(last.replace(/[-_]/g, ' ')).trim();
+                                    if (cleaned && cleaned.length > 3) return cleaned;
+                                } catch(_) {}
+                                return 'Article';
+                            })(uri);
+                            const title = article?.title || derivedTitle;
+                            return `<li class="mb-1"><a href="${uri}" target="_blank" rel="noopener">${escapeHTML(title)}</a></li>`;
                         }).join('')}
                         ${incident.article_uris.length > 5 ? `<li class="text-muted">... and ${incident.article_uris.length - 5} more</li>` : ''}
                     </ul>
@@ -8703,7 +8903,7 @@ async function loadSignalAlerts(page = 1) {
                                 <div class="small text-muted">
                                     <strong>Article:</strong> 
                                     <a href="${alert.article_uri}" target="_blank" rel="noopener">
-                                        ${escapeHTML(alert.article_title || 'View Article')}
+                                        ${(() => { try { if (alert.article_title) return escapeHTML(alert.article_title); const u = new URL(alert.article_uri); const last = decodeURIComponent((u.pathname.split('/').filter(Boolean).pop()||'').replace(/[-_]/g,' ')).trim(); return escapeHTML(last || 'Article'); } catch(_) { return 'Article'; } })()}
                                     </a>
                                     <span class="ms-2">• ${alert.article_source || 'Unknown Source'}</span>
                                     <span class="ms-2">• ${detectedTime}</span>

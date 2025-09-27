@@ -1671,6 +1671,10 @@ class _IncidentTrackingRequest(BaseModel):
     max_articles: int = Field(100, ge=10, le=300, description="Maximum articles to analyze")
     model: str = Field("gpt-4o-mini", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
+    domain: Optional[str] = Field(
+        None,
+        description="Ontology domain key. Use 'vanilla' for default; e.g., 'scientific_publisher'"
+    )
 
 @router.post("/incident-tracking")
 async def analyze_incidents(
@@ -1767,6 +1771,52 @@ async def analyze_incidents(
             for i, a in enumerate(articles)
         ])
         
+        # Build ontology guidance
+        def _build_incident_event_ontology(topic: str, domain: Optional[str]) -> str:
+            t = (topic or '').lower()
+            d = (domain or '').lower() if domain else ''
+            is_scientific_publisher = ('publisher' in t and 'scientific' in t) or d == 'scientific_publisher'
+
+            base = (
+                "\nONTOLOGY — Types and Subtypes\n"
+                "Valid types: incident | event | entity\n\n"
+                "Definitions:\n"
+                "- incident: Discrete occurrence with material operational/strategic/risk impact that may warrant response, remediation, or escalation.\n"
+                "- event: Noteworthy occurrence (signals, milestones, announcements) that informs context or trends but is not itself a disruptive incident.\n"
+                "- entity: Organization, person, product, venue, dataset (things we track, not occurrences).\n\n"
+                "Recommended subtypes:\n"
+                "- incident: regulatory_action, compliance_breach, data_security, legal_ip, mna, layoffs, funding_cut, rd_spend_change, governance_change\n"
+                "- event: product_launch, feature_update, partnership_mou, funding_round, hiring, award, conference_announcement, roadmap_teaser, benchmark_result\n"
+                "- entity: company, person, product, dataset, venue, regulator\n\n"
+                "Assignment rules:\n"
+                "- Prefer 'incident' only when direct impact or required action is likely within the analysis window.\n"
+                "- Prefer 'event' for announcements and market signals absent direct disruptions or obligations.\n"
+                "- Always include a 'subtype' from the lists above.\n"
+            )
+
+            # Domain overlays (vanilla = no overlay)
+            overlay = ""
+            if d and d != 'vanilla' and is_scientific_publisher:
+                overlay = (
+                    "\nDomain overlay — scientific_publisher:\n"
+                    "- Treat as incident: legal_ip (patent disputes, licensing changes), rd_spend_change (material increases/decreases, major lab closures), regulatory_action affecting IP/open access policy, acquisition of critical editorial/data assets.\n"
+                    "- Treat as event: competitor product_launch (new journal/platform/analytics offering), feature_update, conference_announcement, partnership_mou.\n"
+                    "Examples:\n"
+                    "  - 'Elsevier raises R&D spend by 25% in AI editorial tooling' → type=incident, subtype=rd_spend_change, significance=high.\n"
+                    "  - 'Wiley launches a new open-access analytics platform' → type=event, subtype=product_launch, significance=medium.\n"
+                )
+
+            examples = (
+                "\nLabeling examples (JSON objects):\n"
+                "{\"name\": \"Patent infringement suit filed against AlphaBio\", \"type\": \"incident\", \"subtype\": \"legal_ip\"}\n"
+                "{\"name\": \"Competitor releases LLM-based summarizer\", \"type\": \"event\", \"subtype\": \"product_launch\"}\n"
+                "{\"name\": \"AlphaBio\", \"type\": \"entity\", \"subtype\": \"company\"}\n"
+            )
+
+            return base + overlay + examples
+
+        ontology_text = _build_incident_event_ontology(req.topic, req.domain)
+
         # Create incident tracking prompt
         system_prompt = f"""
         You are a threat intelligence analyst tracking incidents, entities, and events in {req.topic}.
@@ -1774,9 +1824,12 @@ async def analyze_incidents(
         IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
         Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
 
-        Identify INCIDENTS / ENTITIES / EVENTS and for each include:
+        {ontology_text}
+
+        Required fields for each item:
         - name
         - type: incident | entity | event
+        - subtype: from the allowed list for the chosen type
         - description
         - article_uris
         - timeline
