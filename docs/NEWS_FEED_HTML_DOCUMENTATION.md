@@ -15,8 +15,8 @@
 
 1. **CSS Styles** (Lines 10-686)
 2. **HTML Structure** (Lines 688-1320)
-3. **Modals** (Lines 1280-1553) - Including new Incident Configuration Modal
-4. **JavaScript Functionality** (Lines 1555-11571) - Significantly expanded
+3. **Modals** (Lines 1280-1604) - Including enhanced Incident Configuration Modal
+4. **JavaScript Functionality** (Lines 1606-12129) - Extensively expanded with organizational profile integration
 
 ## CSS Styling
 
@@ -66,10 +66,12 @@
 </ul>
 ```
 
-**Updated Tab Structure**:
-- **Narrative Explorer** (formerly Insights) - Now the primary tab with AI-powered analysis
+**Updated Tab Structure** (Default: Narrative Explorer → Incident Tracking):
+- **Narrative Explorer** (formerly Insights) - **PRIMARY TAB** with AI-powered analysis and incident tracking
 - **Article Investigator** (formerly Articles) - Article browsing and analysis tools  
 - **Six Articles** - Strategic executive summary
+
+**Default Navigation**: Users now land on **Narrative Explorer → Incident Tracking** by default
 
 ### Configuration Panel
 - **Date Range Selector**: 24h, 7d, 30d, 3m, 1y, all, custom
@@ -79,12 +81,15 @@
 
 ### Content Tabs
 
-#### 1. Narrative Explorer Tab (Primary)
-- **Sub-navigation**: Incident Tracking, AI Insights, Topic Analysis, Real-time Signals
+#### 1. Narrative Explorer Tab (Primary - Default Active)
+- **Sub-navigation**: **Incident Tracking (default)**, AI Insights, Topic Analysis, Real-time Signals
 - **Smart Button**: Context-aware generate/cache indicator
-- **AI Analysis**: LLM-powered insights and research
-- **Incident Configuration**: Advanced prompt and ontology customization
-- **Organizational Profile Integration**: Context-aware analysis
+- **AI Analysis**: LLM-powered insights and research with organizational context
+- **Incident Configuration**: Advanced prompt and ontology customization with 7-type system
+- **Organizational Profile Integration**: Full context-aware analysis with profile-specific relevance
+- **Enhanced MBFC Integration**: Real and AI-derived quality assessments with full descriptive labels
+- **Dual View Modes**: Card view and tabular view with sorting and filtering
+- **Investigation Tools**: Clickable investigation leads with Auspex research integration
 
 #### 2. Article Investigator Tab
 - **Article List**: Paginated article display
@@ -112,12 +117,14 @@
 ```
 
 **Features**:
-- **System Prompt Customization**: Template-based prompt engineering
-- **Ontology Management**: 7-type classification system with domain overlays
-- **AI Guidance Integration**: Analysis instructions and quality guidelines
-- **Profile Context**: Organizational profile template customization
-- **Testing Framework**: Real article testing with validation
-- **Template Actions**: Reset, validate, preview functionality
+- **System Prompt Customization**: Template-based prompt engineering with organizational context
+- **Ontology Management**: 7-type classification system (incident, event, entity, expertise, informed_insider, trend_signal, strategic_shift)
+- **AI Guidance Integration**: Analysis instructions and quality guidelines with MBFC integration
+- **Profile Context**: Dynamic organizational profile template generation and validation
+- **Testing Framework**: Real article testing with 60-second timeout and comprehensive validation
+- **Template Actions**: Reset, validate, preview with both prompt and expected output tabs
+- **MBFC Quality Assessment**: Integration of real MBFC data with AI-derived fallbacks
+- **Organizational Relevance**: Required field explaining why incidents matter to specific organizations
 
 #### Signal Management
 ```html
@@ -288,7 +295,7 @@ async function launchAuspexResearchFromInsight(insightTopic, insightType) {
 - `buildIncidentFilterBadges()` - Dynamic filter generation
 - `updateIncidentStatus()` - Status management (seen/active/deleted)
 
-**NEW: 7-Type Classification System:**
+**7-Type Classification System (Standard):**
 - **incident**: Events requiring immediate response (layoffs, breaches, regulatory actions)
 - **event**: Significant developments (product launches, partnerships, pilot programs)
 - **entity**: Tracked organizations, people, products
@@ -298,12 +305,15 @@ async function launchAuspexResearchFromInsight(insightTopic, insightType) {
 - **strategic_shift**: Major strategic changes and policy pivots
 
 **Enhanced Features:**
-- **Organizational Profile Integration**: Context-aware significance scoring
-- **Advanced Filtering**: Type, significance, status, quality filters
-- **Investigation Leads**: Clickable Auspex research buttons
-- **Timeline Visualization**: Event sequencing with rulers
-- **Quality Assessment**: Plausibility and source quality indicators
-- **Configuration Management**: Full customization interface
+- **Organizational Profile Integration**: Context-aware significance scoring with relevance explanations
+- **Advanced Filtering**: Type, significance, status, MBFC quality filters with working toggle
+- **Dual View Modes**: Card view and sortable tabular view
+- **Investigation Leads**: Clickable Auspex research buttons for each lead
+- **Timeline Visualization**: Event sequencing with rulers and date ranges
+- **MBFC Quality Assessment**: Real MBFC data + AI-derived assessments with full descriptive labels
+- **Article Integration**: Direct links to source articles with quality indicators
+- **Configuration Management**: Complete customization interface with validation
+- **Quality Highlighting**: Visual indicators for low-quality sources
 
 **Investigation Leads (Enhanced):**
 ```javascript
@@ -430,6 +440,74 @@ await fetch('/api/save-analysis-cache', {
 });
 ```
 
+## Enhanced Incident Tracking System
+
+### MBFC Quality Assessment Integration
+
+#### Real MBFC Data Display
+```
+[Very High Factuality] [High Credibility] [Least Biased]
+```
+- Uses actual Media Bias/Fact Check ratings
+- Standard tooltips: "MBFC Factual Reporting", "MBFC Credibility Rating"
+- Color-coded badges: Green (high), Yellow (mixed), Red (low)
+
+#### AI-Derived Quality Assessment  
+```
+[📊 High Factuality] [📊 High Credibility] [📊 Least Biased]
+```
+- Same descriptive labels as real MBFC for consistency
+- 📊 icon prefix indicates AI-derived assessment
+- Tooltips explain: "AI-derived factual assessment (no MBFC data)"
+
+#### Quality Derivation Logic
+When MBFC data is missing, AI analysis derives equivalent ratings:
+- **High Factuality**: No negative quality indicators detected
+- **Mixed Factuality**: Some quality concerns identified
+- **Low Factuality**: Multiple quality issues found
+- **Bias Assessment**: Defaults to "Least Biased" unless fringe patterns detected
+
+### Incident View Modes
+
+#### Card View
+- **Visual Highlighting**: Red border + pink background for low-quality incidents
+- **Organizational Relevance**: Blue info box explaining why incident matters
+- **Credibility Assessment**: Detailed rationale in gray background box
+- **Source Articles**: Up to 3 articles with titles, sources, and MBFC quality badges
+- **Investigation Leads**: Clickable research buttons for each lead
+- **Action Buttons**: Investigate, Consensus, Annotate, Mark Seen, Delete
+
+#### Tabular View
+- **Sortable Columns**: Name, Type, Significance, Timeline, MBFC Quality, Why Significant, Description, Actions
+- **Row Highlighting**: Red highlighting for low-quality incidents
+- **Article Links**: Direct links to source articles with extracted titles
+- **Compact Display**: Optimized for viewing many incidents at once
+- **Full Functionality**: All actions available in condensed format
+
+### Organizational Profile Integration
+
+#### Profile Context Generation
+```javascript
+async function generateProfileContextFromData(profile) {
+    return `ORGANIZATIONAL CONTEXT:
+Organization: ${profile.name} (${profile.organization_type} in ${profile.industry})
+Key Concerns: ${profile.key_concerns.join(', ')}
+Strategic Priorities: ${profile.strategic_priorities.join(', ')}
+Risk Tolerance: ${profile.risk_tolerance}
+...
+ANALYSIS INSTRUCTIONS:
+- Prioritize incidents aligning with ${profile.name}'s key concerns
+- Assess significance based on ${profile.risk_tolerance} risk tolerance
+- Consider impact on key stakeholders: ${profile.stakeholder_focus.join(', ')}`;
+}
+```
+
+#### Profile-Aware Analysis
+- **Significance Scoring**: Adjusted based on organizational risk tolerance
+- **Relevance Explanations**: Each incident explains why it matters to the organization
+- **Investigation Leads**: Tailored to organizational context and priorities
+- **Quality Assessment**: Conservative scoring for risk-averse organizations
+
 ## Key Features
 
 ### 1. Smart Insights System
@@ -439,9 +517,10 @@ await fetch('/api/save-analysis-cache', {
 
 ### 2. Comprehensive Research Integration
 - **Multiple Research Types**: Deep dive, consensus, timeline, chat
-- **Specialized Prompts**: Tailored for each research context
-- **Investigation Leads**: Clickable buttons for incident follow-up
-- **Consistent Interface**: All research uses `launchAuspexWithPrompt()`
+- **Specialized Prompts**: Tailored for each research context with organizational priorities
+- **Investigation Leads**: Clickable buttons for incident follow-up with profile-aware analysis
+- **Consistent Interface**: All research uses `launchAuspexWithPrompt()` with profile_id integration
+- **Organizational Profile Flow**: All Auspex sessions created and updated with current profile context
 
 ### 3. Advanced Article Management
 - **Multi-level Display**: Compact view → Detailed view → Research tools
@@ -449,11 +528,14 @@ await fetch('/api/save-analysis-cache', {
 - **Real-time Indicators**: Cache status, signal flags, starred articles
 - **Flexible Filtering**: Multiple criteria with real-time updates
 
-### 4. Threat Hunting Capabilities
-- **Custom Signals**: User-defined monitoring instructions
-- **Incident Tracking**: AI-powered entity and event detection
-- **Investigation Workflows**: From detection → analysis → research
-- **Alert Management**: Acknowledgment and pagination
+### 4. Enhanced Threat Hunting Capabilities
+- **Custom Signals**: User-defined monitoring instructions with topic scoping
+- **Incident Tracking**: AI-powered entity and event detection with 7-type classification
+- **Investigation Workflows**: From detection → analysis → research with organizational context
+- **Alert Management**: Acknowledgment and pagination with threat level filtering
+- **MBFC Integration**: Real Media Bias/Fact Check data with AI-derived fallbacks
+- **Quality Assessment**: Comprehensive source credibility evaluation with visual indicators
+- **Organizational Relevance**: Explains why each incident matters to the user's organization
 
 ## Error Handling
 
@@ -732,8 +814,10 @@ function handleSearchInput() {
 ### Typical Load Times
 - **Article List**: ~500ms (database query)
 - **Insights Generation**: ~10-30s (LLM processing)
-- **Research Launch**: ~1-2s (session creation)
+- **Incident Tracking**: ~15-45s (LLM analysis with MBFC processing)
+- **Research Launch**: ~1-2s (session creation with profile context)
 - **Cache Retrieval**: ~100ms (database lookup)
+- **Profile Integration**: ~200ms (profile data fetching and template generation)
 
 ### Optimization Strategies
 - **Parallel Loading**: Multiple insights load simultaneously
@@ -741,4 +825,43 @@ function handleSearchInput() {
 - **Efficient Rendering**: Virtual scrolling for large lists
 - **Smart Caching**: Minimize redundant API calls
 
-This documentation covers the complete functionality of the `news_feed.html` template, including the recent enhancements for investigation leads and Auspex research integration.
+## Recent Enhancements (September 2025)
+
+### Organizational Profile Integration
+- **Full Auspex Integration**: All chat sessions now include organizational context
+- **Profile-Aware Analysis**: Incident significance and relevance tailored to organization
+- **Dynamic Template Generation**: Real-time profile context creation
+- **Validation Framework**: Smart template validation for both placeholder and populated templates
+
+### Incident Tracking Improvements  
+- **7-Type Ontology Standard**: Extended classification system now default
+- **Dual View Modes**: Card and tabular views with consistent functionality
+- **Enhanced MBFC Integration**: Real and AI-derived quality assessments with full labels
+- **Quality Highlighting**: Visual indicators for low-quality sources
+- **Article Integration**: Direct links to source articles with quality indicators
+- **Working Quality Toggle**: Proper filtering of implausible/low-quality incidents
+- **Organizational Relevance**: Required explanations for why incidents matter
+- **Improved Button Layout**: Fixed overlapping buttons with consistent spacing
+
+### Auspex Research Enhancements
+- **Profile Context Injection**: Organizational priorities now prominently featured in system prompts
+- **Enhanced Prompt Positioning**: Profile context inserted early for maximum LLM attention
+- **Consistent Profile Flow**: All research types (deep dive, consensus, timeline) include profile context
+- **Metadata Schema Compatibility**: Works with both new and legacy database schemas
+
+### UI/UX Improvements
+- **Default Navigation**: Narrative Explorer → Incident Tracking active by default
+- **Enhanced Preview**: Configuration preview shows both prompt and expected output
+- **Smart Validation**: Context-aware template validation
+- **Improved Error Handling**: Better timeout management and connectivity testing
+- **Performance Optimization**: Reduced redundant API calls and improved caching
+
+### Bug Fixes
+- **Template Syntax**: Fixed complex JavaScript expressions causing Jinja parsing errors
+- **Button Layout**: Resolved overlapping buttons in incident cards
+- **Article Headlines**: Fixed missing titles in incident article links
+- **MBFC Consistency**: Unified rating display format across all views
+- **Quality Toggle**: Fixed event listener wiring for incident filtering
+- **Profile Persistence**: Proper profile_id flow through all Auspex interactions
+
+This documentation covers the complete functionality of the `news_feed.html` template, including all recent enhancements for organizational profile integration, enhanced incident tracking, and improved MBFC quality assessment.
