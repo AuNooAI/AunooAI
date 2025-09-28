@@ -14,9 +14,9 @@
 ### Major Sections
 
 1. **CSS Styles** (Lines 10-686)
-2. **HTML Structure** (Lines 688-1170)
-3. **Modals** (Lines 1122-1233)
-4. **JavaScript Functionality** (Lines 1235-8466)
+2. **HTML Structure** (Lines 688-1320)
+3. **Modals** (Lines 1280-1553) - Including new Incident Configuration Modal
+4. **JavaScript Functionality** (Lines 1555-11571) - Significantly expanded
 
 ## CSS Styling
 
@@ -60,11 +60,16 @@
 ### Main Navigation
 ```html
 <ul class="nav nav-tabs" id="news-tabs">
-    <li class="nav-item">Articles</li>
+    <li class="nav-item">Narrative Explorer</li>
+    <li class="nav-item">Article Investigator</li>
     <li class="nav-item">Six Articles</li>
-    <li class="nav-item">Insights</li>
 </ul>
 ```
+
+**Updated Tab Structure**:
+- **Narrative Explorer** (formerly Insights) - Now the primary tab with AI-powered analysis
+- **Article Investigator** (formerly Articles) - Article browsing and analysis tools  
+- **Six Articles** - Strategic executive summary
 
 ### Configuration Panel
 - **Date Range Selector**: 24h, 7d, 30d, 3m, 1y, all, custom
@@ -74,23 +79,45 @@
 
 ### Content Tabs
 
-#### 1. Articles Tab
-- **Article List**: Paginated article display
-- **Filtering**: By bias, factuality, category
-- **Detailed View**: Expandable article analysis
-- **Research Tools**: Auspex integration buttons
-
-#### 2. Six Articles Tab
-- **Strategic Analysis**: AI-generated executive summary
-- **CEO Daily Format**: Executive-focused insights
-- **Research Options**: Deep dive, consensus, timeline analysis
-
-#### 3. Insights Tab
-- **Sub-navigation**: Article Insights, Category Analysis, Incident Tracking, Real-time Signals
+#### 1. Narrative Explorer Tab (Primary)
+- **Sub-navigation**: Incident Tracking, AI Insights, Topic Analysis, Real-time Signals
 - **Smart Button**: Context-aware generate/cache indicator
 - **AI Analysis**: LLM-powered insights and research
+- **Incident Configuration**: Advanced prompt and ontology customization
+- **Organizational Profile Integration**: Context-aware analysis
+
+#### 2. Article Investigator Tab
+- **Article List**: Paginated article display
+- **Advanced Filtering**: By bias, factuality, category, signals
+- **Detailed View**: Expandable article analysis with Auspex integration
+- **Research Tools**: Deep dive, consensus, timeline analysis buttons
+- **Star System**: Article selection for Six Articles analysis
+
+#### 3. Six Articles Tab
+- **Strategic Analysis**: AI-generated executive summary
+- **CEO Daily Format**: Executive-focused insights with time horizons
+- **Research Options**: Deep dive, consensus, timeline analysis
+- **Export Options**: Markdown and HTML download
 
 ### Modals
+
+#### Incident Configuration Modal (NEW)
+```html
+<div class="modal" id="incidentConfigModal">
+    <!-- Advanced incident tracking configuration -->
+    <!-- Tabbed interface: System Prompt, Ontology, AI Guidance -->
+    <!-- Organizational profile integration -->
+    <!-- Testing and validation tools -->
+</div>
+```
+
+**Features**:
+- **System Prompt Customization**: Template-based prompt engineering
+- **Ontology Management**: 7-type classification system with domain overlays
+- **AI Guidance Integration**: Analysis instructions and quality guidelines
+- **Profile Context**: Organizational profile template customization
+- **Testing Framework**: Real article testing with validation
+- **Template Actions**: Reset, validate, preview functionality
 
 #### Signal Management
 ```html
@@ -151,7 +178,7 @@ document.addEventListener('DOMContentLoaded', function() {
 - **Strategic Indicators**: Time horizon, risk/opportunity assessment
 - **Research Integration**: Multiple Auspex analysis types
 
-#### 4. Insights System (Lines 6057-7709)
+#### 4. Narrative Explorer System (Lines 6057-11571) - SIGNIFICANTLY EXPANDED
 
 **Core State Management:**
 ```javascript
@@ -169,10 +196,17 @@ let insightsState = {
 - `autoLoadCachedInsights()` - Automatic cache loading
 
 **Sub-modules:**
-- **Article Insights**: Thematic analysis of articles
-- **Category Analysis**: Distribution and trends by category
-- **Incident Tracking**: Threat hunting and entity tracking
-- **Real-time Signals**: Custom monitoring instructions
+- **Incident Tracking**: Advanced threat hunting with configurable ontology (7 types)
+- **AI Insights**: Thematic analysis of articles with research integration
+- **Topic Analysis**: Distribution and trends by category
+- **Real-time Signals**: Custom monitoring instructions with alert system
+
+**NEW: Incident Configuration System (Lines 10298-11571)**:
+- **Configuration Modal**: 3-tab interface (System Prompt, Ontology, AI Guidance)
+- **Organizational Profile Integration**: Dynamic profile context generation
+- **Template System**: Placeholder-based prompt customization
+- **Testing Framework**: Real article testing with validation
+- **7-Type Ontology**: Extended classification (incident, event, entity, expertise, informed_insider, trend_signal, strategic_shift)
 
 #### 5. Auspex Research Integration (Lines 4964-7044)
 
@@ -203,7 +237,32 @@ async function launchAuspexResearchFromInsight(insightTopic, insightType) {
 }
 ```
 
-#### 6. Signal Management (Lines 7277-8264)
+#### 6. Incident Configuration Management (Lines 10298-11571) - NEW MAJOR FEATURE
+
+**Configuration Functions:**
+- `showIncidentConfigModal()` - Open configuration interface
+- `loadIncidentConfiguration()` - Load current settings with profile integration
+- `saveIncidentConfiguration()` - Persist configuration with validation
+- `validatePromptTemplate()` - Comprehensive template validation
+- `testWithSampleArticles()` - Real article testing framework
+
+**Profile Integration:**
+- `getCurrentOrganizationalProfile()` - Fetch selected profile from news feed
+- `generateProfileContextFromData()` - Convert profile data to LLM context
+- `refreshProfileIntegration()` - Sync with current profile selection
+
+**Template System:**
+- **Placeholder Support**: `{topic}`, `{profile_context}`, `{analysis_instructions}`, `{quality_guidelines}`, `{ontology_text}`
+- **Dynamic Generation**: Real-time template processing with profile data
+- **Validation**: Required placeholder checking and structure validation
+
+**Testing Framework:**
+- **Real Article Testing**: Uses actual articles from news feed
+- **Configuration Validation**: Ensures all components work together
+- **Result Simulation**: Fallback testing with mock data
+- **Performance Monitoring**: 60-second timeout with progress tracking
+
+#### 7. Signal Management (Lines 7277-8264)
 
 **Signal Instructions:**
 - `showAddSignalModal()` - Create custom monitoring rules
@@ -221,17 +280,30 @@ async function launchAuspexResearchFromInsight(insightTopic, insightType) {
 - **Date Range**: Configurable lookback period
 - **Article Tagging**: Automatic flagging of matching articles
 
-#### 7. Incident Tracking (Lines 7485-7630)
+#### 8. Enhanced Incident Tracking (Lines 7485-11571) - MAJOR EXPANSION
 
 **Core Functions:**
-- `loadIncidentTracking()` - Generate incident analysis
-- `renderIncidentTracking()` - Display incidents with metadata
+- `loadIncidentTracking()` - Generate incident analysis with profile integration
+- `renderIncidentTrackingFiltered()` - Advanced filtering and display
+- `buildIncidentFilterBadges()` - Dynamic filter generation
+- `updateIncidentStatus()` - Status management (seen/active/deleted)
 
-**Features:**
-- **Entity Tracking**: Organizations, individuals, events
-- **Investigation Leads**: Clickable research buttons (NEW)
-- **Timeline Analysis**: Event sequencing
-- **Threat Assessment**: Significance and type classification
+**NEW: 7-Type Classification System:**
+- **incident**: Events requiring immediate response (layoffs, breaches, regulatory actions)
+- **event**: Significant developments (product launches, partnerships, pilot programs)
+- **entity**: Tracked organizations, people, products
+- **expertise**: Expert analysis and authoritative insights
+- **informed_insider**: Privileged information and insider perspectives
+- **trend_signal**: Market trends and behavioral patterns
+- **strategic_shift**: Major strategic changes and policy pivots
+
+**Enhanced Features:**
+- **Organizational Profile Integration**: Context-aware significance scoring
+- **Advanced Filtering**: Type, significance, status, quality filters
+- **Investigation Leads**: Clickable Auspex research buttons
+- **Timeline Visualization**: Event sequencing with rulers
+- **Quality Assessment**: Plausibility and source quality indicators
+- **Configuration Management**: Full customization interface
 
 **Investigation Leads (Enhanced):**
 ```javascript
@@ -435,10 +507,11 @@ try {
 - **Real-time Updates**: No polling, uses chat interface
 
 ### 2. Backend APIs
-- **News Feed Service**: Article retrieval and filtering
-- **Dashboard Service**: Insights and analytics
-- **Vector Service**: Similarity and clustering
-- **Auspex Service**: Research and analysis
+- **News Feed Service**: Article retrieval and filtering with profile integration
+- **Dashboard Service**: Insights and analytics with organizational context
+- **Vector Service**: Similarity and clustering with enhanced ontology
+- **Auspex Service**: Research and analysis with fixed entity extraction
+- **Incident Configuration Service**: Template and ontology management
 
 ### 3. Database Integration
 - **Analysis Cache**: Persistent result storage
